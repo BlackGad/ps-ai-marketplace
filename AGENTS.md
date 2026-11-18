@@ -24,6 +24,8 @@ A plugin marketplace with one plugin, `ps-ai`: orchestration as skills for Claud
 - **Ask before installing.** Install commands are shown as hints and run only after the owner's yes (`-Yes`).
 - **No secrets, no personal data.** Never store or print tokens or keys. Never commit user names, host names, local paths, endpoints, chat ids or account names from a real setup; use neutral examples (`codex-a`, `my-project`, `https://<resource>.cognitiveservices.azure.com`).
 - **Skills follow a skill-writing standard:** orchestration in `SKILL.md`, detail in `references/`, trigger-focused descriptions, explicit stop conditions.
+- **Readable and simple code is a must (KISS).** Write code the next person can read without explanation: plain control flow, clear names, no clever tricks, no abstraction without a real second use.
+- **DRY is desired.** Keep one home for each rule, format or list and reuse it, unless repeating it is simpler to read.
 - **Minimal diff.** Change only what the task needs.
 
 ## Tests
