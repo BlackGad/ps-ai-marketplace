@@ -1,39 +1,37 @@
 param(
-    [ValidateSet('pwsh','git','node','claude','codex','copilot','gh','glab','az')][string]$Tool,
+    [string]$Tool,
     [switch]$Yes,
     [ValidateSet('windows','macos','linux')][string]$Platform,
     [ValidateSet('winget','msi','zip')][string]$Method,
     [switch]$NoRun
 )
 
+. (Join-Path $PSScriptRoot 'PsAi.Tools.ps1')
+
+function Get-ToolInstallData {
+    param([string]$Tool)
+    $recipes = Get-PsAiInstallRecipes
+    if (-not $recipes.ContainsKey($Tool)) { throw "unknown tool '$Tool'" }
+    return $recipes[$Tool]
+}
+
 function Get-ToolRecipe {
     param(
-        [ValidateSet('pwsh','git','node','claude','codex','copilot','gh','glab','az')][string]$Tool,
+        [string]$Tool,
         [ValidateSet('windows','macos','linux')][string]$Platform
     )
-    $checkName = if ($Tool -eq 'node') { 'node' } else { $Tool }
+    $data = Get-ToolInstallData -Tool $Tool
     $needs = [string[]]@()
     $docs = ''
     $install = [object[]]@()
-    if ($Tool -in @('codex','copilot') -and $Platform -ne 'windows') { $needs = [string[]]@('node') }
     if ($Platform -eq 'windows') {
-        $id = @{ pwsh='Microsoft.PowerShell'; git='Git.Git'; node='OpenJS.NodeJS.LTS'; claude='Anthropic.ClaudeCode'; codex='OpenAI.Codex'; copilot='GitHub.Copilot'; gh='GitHub.cli'; glab='GLab.GLab'; az='Microsoft.AzureCLI' }[$Tool]
-        $install = @(,([string[]]@('winget','install','--id',$id,'-e')))
-    } elseif ($Platform -eq 'macos') {
-        $package = @{ pwsh='powershell'; git='git'; node='node'; gh='gh'; glab='glab'; az='azure-cli' }[$Tool]
-        if ($package) {
-            $args = if ($Tool -eq 'pwsh') { [string[]]@('brew','install','--cask',$package) } else { [string[]]@('brew','install',$package) }
-            $install = @(,($args))
-        } elseif ($Tool -eq 'claude') { $install = @(,([string[]]@('bash','-c','curl -fsSL https://claude.ai/install.sh | bash'))) }
-        elseif ($Tool -eq 'codex') { $install = @(,([string[]]@('npm','install','-g','@openai/codex'))) }
-        else { $install = @(,([string[]]@('npm','install','-g','@github/copilot'))) }
+        $install = @(,([string[]]@('winget','install','--id',$data.windows.wingetId,'-e')))
     } else {
-        $docs = @{ pwsh='https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-linux'; git='https://git-scm.com/download/linux'; node='https://nodejs.org/en/download'; gh='https://github.com/cli/cli/blob/trunk/docs/install_linux.md'; glab='https://gitlab.com/gitlab-org/cli#installation'; az='https://learn.microsoft.com/cli/azure/install-azure-cli-linux' }[$Tool]
-        if ($Tool -eq 'claude') { $install = @(,([string[]]@('bash','-c','curl -fsSL https://claude.ai/install.sh | bash'))) }
-        elseif ($Tool -eq 'codex') { $install = @(,([string[]]@('npm','install','-g','@openai/codex'))) }
-        elseif ($Tool -eq 'copilot') { $install = @(,([string[]]@('npm','install','-g','@github/copilot'))) }
+        $needs = [string[]]@($data.$Platform.needs)
+        $docs = $data.$Platform.docs
+        $install = [object[]]@($data.$Platform.commands)
     }
-    return [pscustomobject]@{ Check=[string[]]@($checkName,'--version'); Install=$install; Needs=$needs; Docs=$docs }
+    return [pscustomobject]@{ Check=[string[]]$data.check; Install=$install; Needs=$needs; Docs=$docs }
 }
 
 function Test-ToolCommandAvailable {
@@ -42,8 +40,9 @@ function Test-ToolCommandAvailable {
 }
 
 function Test-ToolInstalled {
-    param([ValidateSet('pwsh','git','node','claude','codex','copilot','gh','glab','az')][string]$Tool)
-    $name = if ($Tool -eq 'node') { 'node' } else { $Tool }
+    param([string]$Tool)
+    $check = (Get-ToolInstallData -Tool $Tool).check
+    $name = $check[0]
     $command = $null
     if (Test-ToolCommandAvailable -Name $name) { $command = $name }
     elseif ($IsWindows) {
@@ -63,7 +62,8 @@ function Test-ToolInstalled {
     }
     if (-not $command) { return @{ Installed=$false; Version='' } }
     try {
-        $version = (& $command --version 2>$null | Select-Object -First 1)
+        $arguments = [string[]]@($check | Select-Object -Skip 1)
+        $version = (& $command @arguments 2>$null | Select-Object -First 1)
         return @{ Installed=$true; Version=([string]$version).Trim() }
     } catch { return @{ Installed=$false; Version='' } }
 }
@@ -81,13 +81,14 @@ function Invoke-ToolDownload {
 }
 
 function Get-ToolInstallRoot {
-    param([ValidateSet('pwsh','git','node','claude','codex','copilot','gh','glab','az')][string]$Tool)
+    param([string]$Tool)
+    $null = Get-ToolInstallData -Tool $Tool
     Join-Path $HOME ".agents/tools/$Tool"
 }
 
 function New-ToolDownloadPath {
     param([string]$Extension = 'txt')
-    $tempRoot = Join-Path (Split-Path (Split-Path (Get-ToolInstallRoot -Tool gh) -Parent) -Parent) 'temp'
+    $tempRoot = Join-Path $HOME '.agents/temp'
     New-Item -ItemType Directory -Path $tempRoot -Force -ErrorAction Stop | Out-Null
     Join-Path $tempRoot ("install-$([guid]::NewGuid().ToString('N')).$Extension")
 }
@@ -112,7 +113,7 @@ function Get-ToolChecksum {
 
 function Get-ToolDownload {
     param(
-        [ValidateSet('pwsh','git','node','claude','codex','copilot','gh','glab','az')][string]$Tool,
+        [string]$Tool,
         [ValidateSet('msi','zip')][string]$Method
     )
     $result = @{ Url=''; Hash=$null; Kind=$Method; Arguments=[string[]]@(); PathFolder='' }
@@ -220,34 +221,39 @@ namespace PsAi {
     [PsAi.InstallEnvironment]::SendMessageTimeout([intptr]0xffff, 0x1a, [uintptr]::Zero, 'Environment', 2, 5000, [ref]$result) | Out-Null
 }
 
+function Resolve-ToolRelativePath {
+    param([string]$Root, [AllowEmptyString()][string]$RelativePath)
+    $relative = $RelativePath.Replace('\', [IO.Path]::DirectorySeparatorChar).Replace('/', [IO.Path]::DirectorySeparatorChar)
+    if ([IO.Path]::IsPathRooted($relative) -or $relative -match '^[a-zA-Z]:' -or '..' -in ($relative -split '[\\/]')) {
+        throw 'path must be relative and inside the tool folder'
+    }
+    $rootPath = [IO.Path]::GetFullPath($Root)
+    $path = [IO.Path]::GetFullPath((Join-Path $rootPath $relative))
+    $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if (-not $path.Equals($rootPath, $comparison) -and -not $path.StartsWith($rootPath + [IO.Path]::DirectorySeparatorChar, $comparison)) {
+        throw 'path must be inside the tool folder'
+    }
+    return $path
+}
+
 function Get-ToolPortableCommand {
     param([string]$Tool)
-    $root = Get-ToolInstallRoot -Tool $Tool
-    $relative = switch ($Tool) {
-        git { 'cmd/git.exe' }
-        gh { 'bin/gh.exe' }
-        glab { 'bin/glab.exe' }
-        az { 'bin/az.cmd' }
-        node {
-            if (Test-Path -LiteralPath $root) {
-                $entry = Get-ChildItem -LiteralPath $root -Directory -Filter 'node-v*-win-x64' | Sort-Object Name -Descending | Select-Object -First 1
-                if ($entry) { Join-Path $entry.Name 'node.exe' }
-            }
-        }
-        default { "$Tool.exe" }
+    $relative = (Get-ToolInstallData -Tool $Tool).windows.portableCommand
+    $path = Resolve-ToolRelativePath -Root (Get-ToolInstallRoot -Tool $Tool) -RelativePath $relative
+    if ([Management.Automation.WildcardPattern]::ContainsWildcardCharacters($relative)) {
+        return (Get-ChildItem -Path $path -File -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1).FullName
     }
-    if ($relative) { Join-Path $root $relative }
+    return $path
 }
 
 function Install-ToolZip {
     param(
-        [ValidateSet('pwsh','git','node','claude','codex','copilot','gh','glab','az')][string]$Tool,
+        [string]$Tool,
         [string]$Archive,
         [AllowEmptyString()][string]$PathFolder
     )
     $root = [IO.Path]::GetFullPath((Get-ToolInstallRoot -Tool $Tool))
-    $folder = [IO.Path]::GetFullPath((Join-Path $root $PathFolder))
-    if ($folder -ne $root -and -not $folder.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'PathFolder must be inside the tool folder' }
+    $folder = Resolve-ToolRelativePath -Root $root -RelativePath $PathFolder
     $command = Get-ToolPortableCommand -Tool $Tool
     if (-not $command -or -not (Test-Path -LiteralPath $command -PathType Leaf)) {
         Expand-Archive -LiteralPath $Archive -DestinationPath $root -Force -ErrorAction Stop
@@ -292,7 +298,7 @@ function Invoke-ToolDownloadInstall {
 
 function Invoke-ToolInstall {
     param(
-        [ValidateSet('pwsh','git','node','claude','codex','copilot','gh','glab','az')][string]$Tool,
+        [string]$Tool,
         [ValidateSet('windows','macos','linux')][string]$Platform,
         [ValidateSet('winget','msi','zip')][string]$Method,
         [switch]$Yes
@@ -316,18 +322,20 @@ function Invoke-ToolInstall {
             "skip: $Tool already installed (portable) (already done)"
             return
         }
-        if ($Tool -eq 'copilot' -and (Test-ToolCommandAvailable -Name node)) {
-            'copilot: npm install -g @github/copilot'
+        $windows = (Get-ToolInstallData -Tool $Tool).windows
+        $npm = $windows.npmWhenAvailable
+        if ($npm -and (Test-ToolCommandAvailable -Name $npm.check)) {
+            "${Tool}: $($npm.command -join ' ')"
             if ($Yes) {
-                $code = Invoke-ToolCommand -Command @('npm','install','-g','@github/copilot')
+                $code = Invoke-ToolCommand -Command $npm.command
                 if ($code -ne 0) { throw "$Tool installation command exited $code" }
             }
             return
         }
         if ($Method -in @('msi','zip')) {
             $downloadMethod = $Method
-            if ($Tool -in @('claude','codex')) {
-                $scriptUrl = if ($Tool -eq 'claude') { 'https://claude.ai/install.ps1' } else { 'https://chatgpt.com/codex/install.ps1' }
+            if ($windows.download.$downloadMethod.kind -eq 'script') {
+                $scriptUrl = $windows.download.$downloadMethod.url
                 "${Tool}: pwsh -NoProfile -Command irm $scriptUrl | iex"
             }
             else { "${Tool}: -Method $downloadMethod (official download)" }

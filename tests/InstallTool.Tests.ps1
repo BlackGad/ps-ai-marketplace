@@ -104,7 +104,7 @@ Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains option
     . $scriptPath -NoRun
     $realDownloadResolver = ${function:Get-ToolDownload}
     $realInstalledCheck = ${function:Test-ToolInstalled}
-    $sandbox = Join-Path $root ('.agents/temp/install-tests-' + [guid]::NewGuid().ToString('N'))
+    $sandbox = Join-Path $root ('.agents/temp/restructure/install-tests-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
     $originalProcessPath = $env:PATH
     $sources = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/sources.json') -Raw | ConvertFrom-Json -AsHashtable
@@ -117,6 +117,12 @@ Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains option
     $available = @{}
     $installed = @{}
     function Get-ToolInstallRoot { param($Tool) Join-Path $sandbox "tools/$Tool" }
+    function New-ToolDownloadPath {
+        param($Extension='txt')
+        $temp = Join-Path $sandbox 'temp'
+        New-Item -ItemType Directory $temp -Force | Out-Null
+        Join-Path $temp ("install-$([guid]::NewGuid().ToString('N')).$Extension")
+    }
     function Get-UserPath { $userPathState.Value }
     function Set-UserPath { param($Path) $pathWrites.Add($Path); $userPathState.Value = $Path }
     function Test-ToolCommandAvailable { param($Name) [bool]$available[$Name] }
@@ -285,6 +291,94 @@ Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains option
         $expectedParent = [IO.Path]::GetFullPath((Join-Path $root '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
         if (-not $resolved.StartsWith($expectedParent, [StringComparison]::OrdinalIgnoreCase)) { throw 'unsafe test cleanup path' }
         Remove-Item -LiteralPath $resolved -Recurse -Force
+    }
+}
+
+# SyntheticRecipeAndPortableGlob: a skill folder is sufficient for installation.
+& {
+    $ErrorActionPreference = 'Stop'
+    $repoRoot = Split-Path $PSScriptRoot -Parent
+    $scratch = [IO.Path]::GetFullPath((Join-Path $repoRoot '.agents/temp/restructure'))
+    $sandbox = Join-Path $scratch ('recipe-' + [guid]::NewGuid().ToString('N'))
+    $plugin = Join-Path $sandbox 'plugin'
+    $savedPath = $env:PATH
+    try {
+        New-Item -ItemType Directory $sandbox -Force | Out-Null
+        Copy-Item (Join-Path $repoRoot 'plugins/ps-ai') $plugin -Recurse
+        $fourthSkill = Join-Path $plugin 'skills/ps-ai-fourth'
+        Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth') $fourthSkill -Recurse
+        $descriptorPath = Join-Path $fourthSkill 'tool.json'
+        $data = Get-Content $descriptorPath -Raw | ConvertFrom-Json
+        $data.install.check = @('fourth-cli','--probe','space value')
+        $data.install.macos.needs = @('node')
+        $data.install.macos.commands = @(,([string[]]@('fixture-manager','setup','space value')))
+        $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+        . (Join-Path $plugin 'bin/ps-ai-install-tool.ps1') -NoRun
+        function Get-ToolInstallRoot { param($Tool) Join-Path $sandbox "tools/$Tool" }
+        $recipe = Get-ToolRecipe -Tool fourth -Platform macos
+        Assert-Equal 'fourth-cli|--probe|space value' ($recipe.Check -join '|') 'Recipe check keeps declared executable and arguments'
+        Assert-Equal 'node' ($recipe.Needs -join '|') 'Recipe needs come from platform data'
+        Assert-Equal 'fixture-manager|setup|space value' ($recipe.Install[0] -join '|') 'Recipe commands retain array boundaries'
+        Assert-Equal 'https://fixture.test/install' (Get-ToolRecipe -Tool fourth -Platform linux).Docs 'Recipe docs come from data'
+        Assert-Equal 'winget|install|--id|Example.Fourth|-e' ((Get-ToolRecipe -Tool fourth -Platform windows).Install[0] -join '|') 'Recipe Windows id comes from data'
+        $probeLog = Join-Path $sandbox 'probe.json'
+        $fake = '@($args) | ConvertTo-Json | Set-Content -LiteralPath ''' + $probeLog.Replace("'","''") + '''; Write-Output "fixture-version"'
+        $fake | Set-Content (Join-Path $fourthSkill 'fourth-cli.ps1')
+        $env:PATH = @($fourthSkill,$PSHOME) -join [IO.Path]::PathSeparator
+        $state = Test-ToolInstalled -Tool fourth
+        Assert-True $state.Installed 'Declared executable is detected'
+        Assert-Equal 'fixture-version' $state.Version 'Version comes from declared check'
+        Assert-Equal '--probe|space value' ((Get-Content $probeLog -Raw | ConvertFrom-Json) -join '|') 'Installed detection executes declared check arguments'
+        $calls = [Collections.Generic.List[string]]::new()
+        function Test-ToolCommandAvailable { param($Name) $Name -eq 'winget' }
+        function Invoke-ToolCommand { param($Command) $calls.Add(($Command -join '|')); 0 }
+        function Invoke-ToolDownload { throw 'Preview must not download' }
+        $env:PATH = $PSHOME
+        $preview = @(Invoke-ToolInstall -Tool fourth -Platform windows)
+        Assert-Equal 0 $calls.Count 'Preview executes no command'
+        Assert-True (-not (Test-Path (Get-ToolInstallRoot fourth))) 'Preview writes no tool files'
+        Assert-True (($preview -join '|').Contains('Example.Fourth')) 'Preview uses declared winget recipe'
+        foreach ($version in @('fourth-v10','fourth-v2')) {
+            $folder = Join-Path (Get-ToolInstallRoot fourth) $version
+            New-Item -ItemType Directory $folder -Force | Out-Null
+            '' | Set-Content (Join-Path $folder 'fourth-cli.exe')
+        }
+        $expectedCommand = Join-Path (Get-ToolInstallRoot fourth) 'fourth-v2/fourth-cli.exe'
+        Assert-Equal $expectedCommand (Get-ToolPortableCommand fourth) 'Portable glob uses descending directory-name order'
+        $pathState = @{Value='existing'}
+        $writes = [Collections.Generic.List[string]]::new()
+        function Get-UserPath { $pathState.Value }
+        function Set-UserPath { param($Path) $writes.Add($Path); $pathState.Value = $Path }
+        $preview = @(Invoke-ToolInstall -Tool fourth -Platform windows)
+        Assert-Equal 0 $writes.Count 'Portable preview does not repair PATH'
+        Invoke-ToolInstall -Tool fourth -Platform windows -Yes | Out-Null
+        Invoke-ToolInstall -Tool fourth -Platform windows -Yes | Out-Null
+        Assert-Equal 1 $writes.Count 'Approved portable repair is idempotent'
+        Assert-True ($pathState.Value.Contains((Split-Path $expectedCommand -Parent))) 'PATH points to discovered version folder'
+        $extractions = [Collections.Generic.List[string]]::new()
+        function Expand-Archive { param($LiteralPath,$DestinationPath,[switch]$Force,$ErrorAction) $extractions.Add($DestinationPath) }
+        foreach ($badPath in @('../fourth-sibling/file.exe',(Join-Path $sandbox 'outside.exe'),'sub/../../fourth-sibling/file.exe')) {
+            $data.install.windows.portableCommand = $badPath
+            $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+            Assert-Throws { Get-ToolPortableCommand fourth } 'Unsafe portable path rejected'
+        }
+        $data.install.windows.portableCommand = 'fourth-v*/fourth-cli.exe'
+        $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+        foreach ($badPath in @('../fourth-sibling',(Join-Path $sandbox 'outside'),'sub/../../fourth-sibling')) {
+            Assert-Throws { Install-ToolZip -Tool fourth -Archive unused.zip -PathFolder $badPath } 'Unsafe PATH folder rejected'
+        }
+        Assert-Equal 0 $extractions.Count 'Invalid paths never extract'
+        Assert-Equal 1 $writes.Count 'Invalid paths never write PATH'
+        $helpersPath = Join-Path $plugin 'bin/install-tool/helpers.json'
+        $helpers = Get-Content $helpersPath -Raw | ConvertFrom-Json -AsHashtable
+        $helpers.fourth = $helpers.gh
+        $helpers | ConvertTo-Json -Depth 100 | Set-Content $helpersPath
+        Assert-Throws { Get-ToolRecipe -Tool fourth -Platform windows } 'Helper/agent id collision fails before installation'
+    } finally {
+        $env:PATH = $savedPath
+        $cleanup = [IO.Path]::GetFullPath($sandbox)
+        if (-not $cleanup.StartsWith($scratch + [IO.Path]::DirectorySeparatorChar)) { throw 'Unsafe recipe fixture cleanup' }
+        Remove-Item -LiteralPath $cleanup -Recurse -Force
     }
 }
 
