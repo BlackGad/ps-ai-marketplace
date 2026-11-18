@@ -96,7 +96,7 @@ function Sync-PsAiFoundryRuntime {
     param([string]$Tool, [string]$HomeRoot)
     $descriptor = Get-PsAiTool -Tool $Tool
     $null = Get-PsAiToolScript -Tool $descriptor -Name foundry-launch
-    $runtime = [IO.Path]::GetFullPath((Join-Path $HomeRoot '.agents/bin/ps-ai-runtime'))
+    $runtime = [IO.Path]::GetFullPath((Join-Path $HomeRoot '.agents/bin/.ps-ai-runtime'))
     $pluginRoot = Split-Path $PSScriptRoot -Parent
     $files = @{}
     foreach ($name in @('ps-ai-foundry.ps1', 'PsAi.Foundry.ps1', 'PsAi.Tools.ps1')) {
@@ -209,8 +209,10 @@ $file = Join-Path $HomeRoot '.agents/configuration/ps-ai-personalisation.json'
 $data = Read-PsAiJson -Path $file
 switch ($Action) {
     add {
+        $descriptor = Get-PsAiTool -Tool $Tool
         $existing = @($data.agents | Where-Object { $_.id -ceq $Id })[0]
         if ($Provider -eq 'foundry') {
+            $null = Get-PsAiToolScript -Tool $descriptor -Name foundry-launch
             Assert-PsAiId -Id $Id
             $null = Get-ConfigEnvName -Tool $Tool
             $Endpoint = ConvertTo-FoundryEndpoint -Url $Endpoint
@@ -264,6 +266,7 @@ switch ($Action) {
         New-FoundryWrappers -Id $Id -HomeRoot $HomeRoot -Tool $agent.tool
     }
     register {
+        $null = Get-PsAiTool -Tool $Tool
         Assert-PsAiId -Id $Id
         $existing = @($data.agents | Where-Object { $_.id -ceq $Id })[0]
         if ($null -ne $existing -and $existing.tool -ceq $Tool -and $existing.command -ceq $Command -and $existing.configDir -ceq $ConfigDir) {

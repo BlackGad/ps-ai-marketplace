@@ -54,11 +54,11 @@ try {
     Assert-True $picker.modelPicker.replaceBuiltInOptions 'Claude picker replaces builtins'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.model -join '|') 'Picker uses deployment names'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.label -join '|') 'Picker labels'
-    foreach ($name in @('claude-dev','claude-dev.cmd','ps-ai-runtime/bin/ps-ai-foundry.ps1','ps-ai-runtime/bin/PsAi.Foundry.ps1','ps-ai-runtime/bin/PsAi.Tools.ps1','ps-ai-runtime/schemas/tool.schema.json')) {
+    foreach ($name in @('claude-dev','claude-dev.cmd','.ps-ai-runtime/bin/ps-ai-foundry.ps1','.ps-ai-runtime/bin/PsAi.Foundry.ps1','.ps-ai-runtime/bin/PsAi.Tools.ps1','.ps-ai-runtime/schemas/tool.schema.json')) {
         Assert-True (Test-Path (Join-Path $homeRoot ".agents/bin/$name")) "Foundry writes $name"
     }
     # RuntimeSurvivesRelocationAndRetainsLegacy: only selected runtime files are bundled.
-    $runtime = Join-Path $homeRoot '.agents/bin/ps-ai-runtime'
+    $runtime = Join-Path $homeRoot '.agents/bin/.ps-ai-runtime'
     $expectedFiles = @('bin/ps-ai-foundry.ps1','bin/PsAi.Foundry.ps1','bin/PsAi.Tools.ps1','schemas/tool.schema.json','skills/ps-ai-claude/SKILL.md','skills/ps-ai-claude/tool.json','skills/ps-ai-claude/scripts/foundry-launch.ps1','skills/ps-ai-claude/scripts/foundry-config.ps1')
     Assert-Equal (($expectedFiles | Sort-Object) -join '|') ((Get-ChildItem $runtime -File -Recurse | ForEach-Object { [IO.Path]::GetRelativePath($runtime, $_.FullName).Replace('\','/') } | Sort-Object) -join '|') 'Bundle contains only runtime dependencies'
     Assert-True ((Get-Content (Join-Path $homeRoot '.agents/bin/claude-dev') -Raw).Contains((Join-Path $runtime 'bin/ps-ai-foundry.ps1'))) 'Wrapper targets bundled runner'
@@ -70,7 +70,7 @@ try {
     $oldWrapper = 'legacy wrapper left untouched'
     $wrapperPath = Join-Path $homeRoot '.agents/bin/claude-dev'
     [IO.File]::WriteAllText($wrapperPath, $oldWrapper)
-    $tracked = @($file, $settings, (Join-Path $homeRoot '.agents/bin/claude-dev'), (Join-Path $homeRoot '.agents/bin/ps-ai-runtime/bin/ps-ai-foundry.ps1'))
+    $tracked = @($file, $settings, (Join-Path $homeRoot '.agents/bin/claude-dev'), (Join-Path $homeRoot '.agents/bin/.ps-ai-runtime/bin/ps-ai-foundry.ps1'))
     $timestamps = @($tracked | ForEach-Object { [IO.File]::GetLastWriteTimeUtc($_).Ticks })
     $repeat = & $accountScript -Action add @common @selection
     Assert-Equal 'skip: account claude-dev (already done)' $repeat 'Repeated add skips'
@@ -237,7 +237,22 @@ approval_policy = "never"
         Assert-True ($caseContent.Contains('approval_policy = "never"')) "$($tomlCase.id) preserves approval policy"
     }
     & {
+        $ErrorActionPreference = 'Stop'
         . $accountScript -HomeRoot $homeRoot
+        # Runtime namespace must not consume any valid account name.
+        $collisionHome = Join-Path $tempRoot 'collision-home'
+        $collisionFile = Join-Path $collisionHome '.agents/configuration/ps-ai-personalisation.json'
+        New-Item -ItemType Directory (Split-Path $collisionFile -Parent) -Force | Out-Null
+        Copy-Item $file $collisionFile
+        & $accountScript -Action add -Id ps-ai-runtime -Tool claude -Command preserved-cli -HomeRoot $collisionHome | Out-Null
+        $collisionWrapper = Join-Path $collisionHome '.agents/bin/ps-ai-runtime'
+        $collisionBytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))
+        $collisionRunner = Sync-PsAiFoundryRuntime -Tool claude -HomeRoot $collisionHome
+        Assert-True (Test-Path $collisionRunner -PathType Leaf) 'A valid account named ps-ai-runtime cannot block runtime sync'
+        Assert-Equal $collisionBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))) 'Runtime sync preserves same-named account wrapper'
+        & $accountScript -Action rename -Id ps-ai-runtime -NewId runtime-renamed -HomeRoot $collisionHome | Out-Null
+        & $accountScript -Action add -Id ps-ai-runtime -Tool claude -Command preserved-cli -HomeRoot $collisionHome | Out-Null
+        Assert-True ((Get-Content $collisionWrapper -Raw).Contains('preserved-cli')) 'Account creation still works after runtime installation'
         $pluginCopy = Join-Path $tempRoot 'source-plugin'
         Copy-Item (Join-Path $root 'plugins/ps-ai') $pluginCopy -Recurse
         . (Join-Path $pluginCopy 'bin/ps-ai-account.ps1') -HomeRoot $homeRoot

@@ -118,6 +118,16 @@ function Get-PsAiToolScript {
     return $null
 }
 
+function Assert-PsAiInstallNeeds {
+    param([string]$Tool, [string]$Platform, [hashtable]$Recipes, [string[]]$HelperIds, [string[]]$Trail = @())
+
+    if ($Tool -cin $Trail) { throw "cyclic helper prerequisites: $(($Trail + $Tool) -join ' -> ')" }
+    foreach ($need in $Recipes[$Tool].$Platform.needs) {
+        if ($need -cnotin $HelperIds) { throw "unknown helper prerequisite '$need' for '$Tool'" }
+        Assert-PsAiInstallNeeds -Tool $need -Platform $Platform -Recipes $Recipes -HelperIds $HelperIds -Trail (@($Trail) + $Tool)
+    }
+}
+
 function Get-PsAiInstallRecipes {
     param(
         [string]$SkillsRoot = (Join-Path $PSScriptRoot '../skills'),
@@ -148,6 +158,12 @@ function Get-PsAiInstallRecipes {
     foreach ($tool in $tools) {
         if ($recipes.ContainsKey($tool.id)) { throw "helper/tool id collision '$($tool.id)'" }
         $recipes[$tool.id] = $tool.install
+    }
+    $helperIds = [string[]]@($helpers.PSObject.Properties.Name)
+    foreach ($id in $recipes.Keys) {
+        foreach ($platform in @('macos', 'linux')) {
+            Assert-PsAiInstallNeeds -Tool $id -Platform $platform -Recipes $recipes -HelperIds $helperIds
+        }
     }
     return $recipes
 }

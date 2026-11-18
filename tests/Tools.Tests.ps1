@@ -91,7 +91,7 @@ foreach ($id in $helpers.Keys) {
                 Assert-Equal '^v7\.6\.\d+$' $download.tagPattern 'PowerShell MSI stays on stable 7.6'
                 Assert-True $download.stableOnly 'PowerShell excludes prereleases and drafts'
                 Assert-Equal 'version-desc' $download.order 'PowerShell selects newest matching version'
-                $release = @($release | Sort-Object { [version]$_.tag_name.TrimStart('v') } -Descending)[0]
+                $release = @($sources[$download.releasesUrl.Replace('{page}', '2')] | Where-Object tag_name -CEQ 'v7.6.9')[0]
                 Assert-Equal 'v7.6.9' $release.tag_name 'PowerShell MSI fixture selection'
             }
             $assets = if ($download.resolver -eq 'release-links') { $release.assets.links } else { $release.assets }

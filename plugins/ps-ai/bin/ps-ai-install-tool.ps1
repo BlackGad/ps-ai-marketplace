@@ -116,70 +116,60 @@ function Get-ToolDownload {
         [string]$Tool,
         [ValidateSet('msi','zip')][string]$Method
     )
-    $result = @{ Url=''; Hash=$null; Kind=$Method; Arguments=[string[]]@(); PathFolder='' }
-    if ($Tool -in @('claude','codex')) {
-        # Official bootstrap scripts verify their payloads (Claude manifest,
-        # Codex release digest); neither vendor publishes a bootstrap hash.
-        $result.Url = if ($Tool -eq 'claude') { 'https://claude.ai/install.ps1' } else { 'https://chatgpt.com/codex/install.ps1' }
-        $result.Kind = 'script'
+    $recipe = (Get-ToolInstallData -Tool $Tool).windows.download.$Method
+    $result = @{ Url=''; Hash=$null; Kind=$recipe.kind; Arguments=[string[]]@(); PathFolder='' }
+    if ($recipe.kind -eq 'script') {
+        # Official scripts verify their payloads; the schema requires vendor verification.
+        $result.Url = $recipe.url
         return $result
     }
-    if ($Tool -eq 'node') {
-        $versions = Get-ToolSourceText -Url 'https://nodejs.org/dist/index.json' | ConvertFrom-Json
-        $version = ($versions | Where-Object lts | Select-Object -First 1).version
-        if ($version -notmatch '^v\d+\.\d+\.\d+$') { throw 'no Node LTS release found' }
-        $name = if ($Method -eq 'zip') { "node-$version-win-x64.zip" } else { "node-$version-x64.msi" }
-        $result.Url = "https://nodejs.org/dist/$version/$name"
-        $checksums = Get-ToolSourceText -Url "https://nodejs.org/dist/$version/SHASUMS256.txt"
-        $result.Hash = Get-ToolChecksum -Text $checksums -Name $name
-        if ($Method -eq 'zip') { $result.PathFolder = "node-$version-win-x64" }
-    } elseif ($Tool -eq 'glab') {
-        $release = Get-ToolSourceText -Url 'https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/releases/permalink/latest' | ConvertFrom-Json
-        $pattern = if ($Method -eq 'zip') { '^glab_[\d.]+_windows_amd64\.zip$' } else { '^glab_[\d.]+_Windows_x86_64_installer\.exe$' }
-        $asset = $release.assets.links | Where-Object name -Match $pattern | Select-Object -First 1
-        $checksumAsset = $release.assets.links | Where-Object name -EQ 'checksums.txt' | Select-Object -First 1
-        if (-not $asset -or -not $checksumAsset) { throw "no official $Tool $Method release asset found" }
-        $result.Url = $asset.url
-        $checksums = Get-ToolSourceText -Url $checksumAsset.url
-        $result.Hash = Get-ToolChecksum -Text $checksums -Name $asset.name
-        if ($Method -eq 'zip') { $result.PathFolder = 'bin' }
-        else { $result.Kind = 'exe'; $result.Arguments = [string[]]@('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-') }
-    } else {
-        $repo = @{ pwsh='PowerShell/PowerShell'; git='git-for-windows/git'; gh='cli/cli'; az='Azure/azure-cli'; copilot='github/copilot-cli' }[$Tool]
-        $base = "https://api.github.com/repos/$repo/releases"
-        $release = Get-ToolSourceText -Url "$base/latest" | ConvertFrom-Json
-        if ($Tool -eq 'pwsh' -and $Method -eq 'msi') {
-            # 7.7 publishes MSIX/ZIP only; the MSI method uses the newest 7.6 LTS.
-            $page = 1
-            do {
-                $releases = @(Get-ToolSourceText -Url "${base}?per_page=100&page=$page" | ConvertFrom-Json)
-                $release = $releases | Where-Object { -not $_.prerelease -and -not $_.draft -and $_.tag_name -match '^v7\.6\.\d+$' -and ($_.assets.name -match '-win-x64\.msi$') } |
-                    Sort-Object { [version]($_.tag_name -replace '^v','') } -Descending | Select-Object -First 1
-                $page++
-            } while (-not $release -and $releases.Count -eq 100)
+    $result.Arguments = [string[]]$recipe.arguments
+    $result.PathFolder = [string]$recipe.pathFolder
+    switch ($recipe.resolver) {
+        'release-assets' {
+            if ($recipe.releasesUrl) {
+                $page = 1
+                do {
+                    $url = $recipe.releasesUrl.Replace('{page}', [string]$page)
+                    $releases = @(Get-ToolSourceText -Url $url | ConvertFrom-Json)
+                    $release = $releases | Where-Object {
+                        (-not $recipe.stableOnly -or (-not $_.prerelease -and -not $_.draft)) -and
+                        $_.tag_name -match $recipe.tagPattern -and
+                        ($_.assets.name -match $recipe.assetPattern)
+                    } | Sort-Object { [version]($_.tag_name -replace '^v','') } -Descending | Select-Object -First 1
+                    $page++
+                } while (-not $release -and $releases.Count -eq 100)
+            } else {
+                $release = Get-ToolSourceText -Url $recipe.metadataUrl | ConvertFrom-Json
+            }
+            $asset = $release.assets | Where-Object name -Match $recipe.assetPattern | Select-Object -First 1
+            if (-not $asset) { throw "no official $Tool $Method release asset found" }
+            $digest = [regex]::Match([string]$asset.digest, '^sha256:([a-fA-F0-9]{64})$')
+            if (-not $digest.Success) { throw "no SHA-256 digest for $($asset.name)" }
+            $result.Url = $asset.browser_download_url
+            $result.Hash = $digest.Groups[1].Value.ToLowerInvariant()
         }
-        $pattern = switch ($Tool) {
-            pwsh { "^PowerShell-[\d.]+-win-x64\.$Method`$" }
-            git { if ($Method -eq 'zip') { '^MinGit-[\d.]+-64-bit\.zip$' } else { '^Git-[\d.]+-64-bit\.exe$' } }
-            gh { "^gh_[\d.]+_windows_amd64\.$Method`$" }
-            az { "^azure-cli-[\d.]+-x64\.$Method`$" }
-            copilot { if ($Method -eq 'zip') { '^copilot-win32-x64\.zip$' } else { '^copilot-x64\.msi$' } }
+        'release-links' {
+            $release = Get-ToolSourceText -Url $recipe.metadataUrl | ConvertFrom-Json
+            $asset = $release.assets.links | Where-Object name -Match $recipe.assetPattern | Select-Object -First 1
+            $checksumAsset = $release.assets.links | Where-Object name -CEQ $recipe.checksumAsset | Select-Object -First 1
+            if (-not $asset -or -not $checksumAsset) { throw "no official $Tool $Method release asset found" }
+            $result.Url = $asset.url
+            $checksums = Get-ToolSourceText -Url $checksumAsset.url
+            $result.Hash = Get-ToolChecksum -Text $checksums -Name $asset.name
         }
-        $asset = $release.assets | Where-Object name -Match $pattern | Select-Object -First 1
-        if (-not $asset) { throw "no official $Tool $Method release asset found" }
-        if ($asset.digest -notmatch '^sha256:([a-fA-F0-9]{64})$') { throw "no SHA-256 digest for $($asset.name)" }
-        $result.Url = $asset.browser_download_url
-        $result.Hash = $Matches[1].ToLowerInvariant()
-        if ($Method -eq 'zip') {
-            $result.PathFolder = @{ pwsh=''; git='cmd'; gh='bin'; az='bin'; copilot='' }[$Tool]
-        } elseif ($Tool -eq 'git') {
-            $result.Kind = 'exe'
-            $result.Arguments = [string[]]@('/VERYSILENT','/NORESTART','/SP-','/CURRENTUSER')
+        'lts-index' {
+            $versions = Get-ToolSourceText -Url $recipe.metadataUrl | ConvertFrom-Json
+            $version = ($versions | Where-Object lts | Select-Object -First 1).version
+            if ($version -notmatch '^v\d+\.\d+\.\d+$') { throw 'no Node LTS release found' }
+            $name = $recipe.assetName.Replace('{version}', $version)
+            $result.Url = $recipe.url.Replace('{version}', $version)
+            $checksumUrl = $recipe.checksumUrl.Replace('{version}', $version)
+            $checksums = Get-ToolSourceText -Url $checksumUrl
+            $result.Hash = Get-ToolChecksum -Text $checksums -Name $name
+            $result.PathFolder = $result.PathFolder.Replace('{version}', $version)
         }
-    }
-    if ($result.Kind -eq 'msi') {
-        $result.Arguments = [string[]]@('/qn','/norestart')
-        if ($Tool -eq 'pwsh') { $result.Arguments += 'ADD_PATH=1' }
+        default { throw "unsupported download resolver '$($recipe.resolver)'" }
     }
     return $result
 }
@@ -239,9 +229,15 @@ function Resolve-ToolRelativePath {
 function Get-ToolPortableCommand {
     param([string]$Tool)
     $relative = (Get-ToolInstallData -Tool $Tool).windows.portableCommand
-    $path = Resolve-ToolRelativePath -Root (Get-ToolInstallRoot -Tool $Tool) -RelativePath $relative
+    $root = [IO.Path]::GetFullPath((Get-ToolInstallRoot -Tool $Tool))
+    $path = Resolve-ToolRelativePath -Root $root -RelativePath $relative
     if ([Management.Automation.WildcardPattern]::ContainsWildcardCharacters($relative)) {
-        return (Get-ChildItem -Path $path -File -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+        $pattern = Join-Path ([Management.Automation.WildcardPattern]::Escape($root)) $relative
+        $entry = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
+        if ($entry) {
+            return Resolve-ToolRelativePath -Root $root -RelativePath ([IO.Path]::GetRelativePath($root, $entry.FullName))
+        }
+        return $null
     }
     return $path
 }

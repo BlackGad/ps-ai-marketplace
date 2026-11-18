@@ -80,6 +80,7 @@ try {
 }
 # FourthToolAcrossSharedConsumers / DescriptorOverseerArgumentOrder.
 & {
+    $ErrorActionPreference = 'Stop'
     $repoRoot = Split-Path $PSScriptRoot -Parent
     $scratch = [IO.Path]::GetFullPath((Join-Path $repoRoot '.agents/temp/restructure'))
     $fixture = Join-Path $scratch ('consumers-' + [guid]::NewGuid().ToString('N'))
@@ -137,6 +138,10 @@ try {
         $descriptor = Get-Content $descriptorPath -Raw | ConvertFrom-Json
         $descriptor.foundry = $null
         $descriptor | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+        try {
+            & (Join-Path $plugin 'bin/ps-ai-account.ps1') -Action add -Id fourth-dev -Tool fourth -Provider foundry -Endpoint $syntheticProvider.endpoint -HomeRoot $homeRoot | Out-Null
+            throw 'Expected unsupported repeated Foundry add'
+        } catch { Assert-Equal "tool 'fourth' does not support Foundry" $_.Exception.Message 'Repeated Foundry add rejects null capability without writes' }
         $beforeCalls = $azureCalls.Count
         Assert-Throws { Get-FoundryDeployments -Endpoint $syntheticProvider.endpoint -Tool fourth } 'Null Foundry rejects discovery'
         function Test-FoundryToken { throw 'Azure token must not be requested' }

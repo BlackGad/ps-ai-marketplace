@@ -314,7 +314,7 @@ Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains option
         $data.install.macos.commands = @(,([string[]]@('fixture-manager','setup','space value')))
         $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
         . (Join-Path $plugin 'bin/ps-ai-install-tool.ps1') -NoRun
-        function Get-ToolInstallRoot { param($Tool) Join-Path $sandbox "tools/$Tool" }
+        function Get-ToolInstallRoot { param($Tool) Join-Path $sandbox "home[1]/tools/$Tool" }
         $recipe = Get-ToolRecipe -Tool fourth -Platform macos
         Assert-Equal 'fourth-cli|--probe|space value' ($recipe.Check -join '|') 'Recipe check keeps declared executable and arguments'
         Assert-Equal 'node' ($recipe.Needs -join '|') 'Recipe needs come from platform data'
@@ -341,8 +341,11 @@ Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains option
         foreach ($version in @('fourth-v10','fourth-v2')) {
             $folder = Join-Path (Get-ToolInstallRoot fourth) $version
             New-Item -ItemType Directory $folder -Force | Out-Null
-            '' | Set-Content (Join-Path $folder 'fourth-cli.exe')
+            [IO.File]::WriteAllText((Join-Path $folder 'fourth-cli.exe'), '')
         }
+        $sibling = Join-Path $sandbox 'home1/tools/fourth/fourth-v9'
+        New-Item -ItemType Directory $sibling -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $sibling 'fourth-cli.exe'), '')
         $expectedCommand = Join-Path (Get-ToolInstallRoot fourth) 'fourth-v2/fourth-cli.exe'
         Assert-Equal $expectedCommand (Get-ToolPortableCommand fourth) 'Portable glob uses descending directory-name order'
         $pathState = @{Value='existing'}
@@ -371,6 +374,22 @@ Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains option
         Assert-Equal 1 $writes.Count 'Invalid paths never write PATH'
         $helpersPath = Join-Path $plugin 'bin/install-tool/helpers.json'
         $helpers = Get-Content $helpersPath -Raw | ConvertFrom-Json -AsHashtable
+        $data.install.macos.needs = @('fourth')
+        $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+        Assert-Throws { Get-ToolRecipe -Tool fourth -Platform macos } 'Self prerequisite is rejected before recursion'
+        $data.install.macos.needs = @('node','missing-helper')
+        $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+        $beforeCommands = $calls.Count
+        Assert-Throws { Invoke-ToolInstall -Tool fourth -Platform macos -Yes } 'Unknown later prerequisite is rejected before any install'
+        Assert-Equal $beforeCommands $calls.Count 'Invalid prerequisite list executes no earlier helper'
+        $data.install.macos.needs = @('node')
+        $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+        $helpers.node.macos.needs = @('git')
+        $helpers.git.macos.needs = @('node')
+        $helpers | ConvertTo-Json -Depth 100 | Set-Content $helpersPath
+        Assert-Throws { Get-ToolRecipe -Tool fourth -Platform macos } 'Helper dependency cycle is rejected'
+        $helpers.node.macos.needs = @()
+        $helpers.git.macos.needs = @()
         $helpers.fourth = $helpers.gh
         $helpers | ConvertTo-Json -Depth 100 | Set-Content $helpersPath
         Assert-Throws { Get-ToolRecipe -Tool fourth -Platform windows } 'Helper/agent id collision fails before installation'
@@ -378,6 +397,93 @@ Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains option
         $env:PATH = $savedPath
         $cleanup = [IO.Path]::GetFullPath($sandbox)
         if (-not $cleanup.StartsWith($scratch + [IO.Path]::DirectorySeparatorChar)) { throw 'Unsafe recipe fixture cleanup' }
+        Remove-Item -LiteralPath $cleanup -Recurse -Force
+    }
+}
+
+# SyntheticDownloadsAndPagedStableSelection: source formats, never ids, select resolution.
+& {
+    $ErrorActionPreference = 'Stop'
+    $repoRoot = Split-Path $PSScriptRoot -Parent
+    $scratch = [IO.Path]::GetFullPath((Join-Path $repoRoot '.agents/temp/restructure'))
+    $sandbox = Join-Path $scratch ('downloads-' + [guid]::NewGuid().ToString('N'))
+    $plugin = Join-Path $sandbox 'plugin'
+    try {
+        New-Item -ItemType Directory $sandbox -Force | Out-Null
+        Copy-Item (Join-Path $repoRoot 'plugins/ps-ai') $plugin -Recurse
+        $fourthSkill = Join-Path $plugin 'skills/ps-ai-fourth'
+        Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth') $fourthSkill -Recurse
+        $descriptorPath = Join-Path $fourthSkill 'tool.json'
+        $data = Get-Content $descriptorPath -Raw | ConvertFrom-Json
+        . (Join-Path $plugin 'bin/ps-ai-install-tool.ps1') -NoRun
+        $sources = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/sources.json') -Raw | ConvertFrom-Json -AsHashtable
+        $requests = [Collections.Generic.List[string]]::new()
+        function Get-ToolSourceText {
+            param($Url)
+            $requests.Add($Url)
+            if (-not $sources.ContainsKey($Url)) { throw "Unexpected metadata: $Url" }
+            if ($sources[$Url] -is [string]) { return $sources[$Url] }
+            return $sources[$Url] | ConvertTo-Json -Depth 30
+        }
+        $assetRecipe = $data.install.windows.download.zip
+        $download = Get-ToolDownload -Tool fourth -Method zip
+        Assert-Equal 'https://fixture.test/fourth.zip' $download.Url 'Fourth release-assets URL'
+        Assert-Equal ('1' * 64) $download.Hash 'Fourth release-assets digest'
+        foreach ($digest in @($null,'sha256:bad','sha512:' + ('1' * 64))) {
+            $sources['https://fixture.test/releases/latest'].assets[0].digest = $digest
+            Assert-Throws { Get-ToolDownload -Tool fourth -Method zip } 'Missing or malformed release digest stops resolution'
+        }
+        $sources['https://fixture.test/releases/latest'].assets[0].digest = 'sha256:' + ('1' * 64)
+        $data.install.windows.download.zip = [pscustomobject]@{kind='zip';resolver='release-links';metadataUrl='https://fixture.test/links/latest';assetPattern='^fourth\.zip$';checksumAsset='checksums.txt';verification='checksum-file';arguments=@();pathFolder='bin'}
+        $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+        $download = Get-ToolDownload -Tool fourth -Method zip
+        Assert-Equal 'https://fixture.test/linked-fourth.zip' $download.Url 'Fourth release-links URL'
+        Assert-Equal ('2' * 64) $download.Hash 'Fourth exact checksum file'
+        Assert-True ($requests -contains 'https://fixture.test/checksums.txt') 'Named checksum asset is fetched'
+        Assert-True (-not ($requests -contains 'https://fixture.test/decoy-checksums')) 'Similarly named checksum is ignored'
+        $sources['https://fixture.test/checksums.txt'] = ('2' * 64) + '  other.zip'
+        Assert-Throws { Get-ToolDownload -Tool fourth -Method zip } 'Checksum for another filename is rejected'
+        $data.install.windows.download.zip = [pscustomobject]@{kind='zip';resolver='lts-index';metadataUrl='https://fixture.test/versions';assetName='fourth-{version}.zip';url='https://fixture.test/{version}/fourth-{version}.zip';checksumUrl='https://fixture.test/{version}/sums';verification='checksum-file';arguments=@();pathFolder='fourth-{version}'}
+        $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+        $download = Get-ToolDownload -Tool fourth -Method zip
+        Assert-Equal 'https://fixture.test/v42.3.1/fourth-v42.3.1.zip' $download.Url 'First LTS retains leading v in URL and filename'
+        Assert-Equal 'fourth-v42.3.1' $download.PathFolder 'First LTS retains leading v in PATH folder'
+        Assert-True ($requests -contains 'https://fixture.test/v42.3.1/sums') 'Checksum URL retains leading v'
+        Assert-Equal ('3' * 64) $download.Hash 'LTS checksum filename uses the same version'
+        $helpers = Get-Content (Join-Path $plugin 'bin/install-tool/helpers.json') -Raw | ConvertFrom-Json
+        $data.install.windows.download.msi = $helpers.pwsh.windows.download.msi
+        $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+        $requests.Clear()
+        $download = Get-ToolDownload -Tool fourth -Method msi
+        Assert-True ($download.Url.Contains('7.6.9')) 'Fourth paginated recipe selects newest qualifying stable MSI on second page'
+        Assert-True ($requests -contains 'https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=100&page=2') 'Full unusable first page advances to second page'
+        Assert-True (-not ($requests -contains 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest')) 'Paged selector uses only its declared source'
+        Assert-Equal '/qn|/norestart|ADD_PATH=1' ($download.Arguments -join '|') 'Installer flags are recipe data even for fourth tool'
+        $latest = Get-ToolDownload -Tool pwsh -Method zip
+        Assert-True ($latest.Url.Contains('7.7.0')) 'Latest ZIP selection remains independent of stable MSI'
+        $data.install.windows.download.zip = [pscustomobject]@{kind='script';url='https://fixture.test/install.ps1';verification='vendor'}
+        $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+        $download = Get-ToolDownload -Tool fourth -Method zip
+        Assert-Equal $null $download.Hash 'Vendor script alone has no hash'
+        Assert-Equal 'script' $download.Kind 'Vendor script selection is format-based'
+        $commands = [Collections.Generic.List[object]]::new()
+        $files = [Collections.Generic.List[string]]::new()
+        function New-ToolDownloadPath { param($Extension='txt') $path = Join-Path $sandbox ('download.' + $Extension); $files.Add($path); $path }
+        function Invoke-ToolDownload { param($Url,$OutFile) '# inert vendor script' | Set-Content $OutFile }
+        function Invoke-ToolCommand { param($Command) $commands.Add($Command); 0 }
+        function Install-ToolZip { throw 'Vendor script must bypass extraction' }
+        function Set-UserPath { throw 'Vendor script must bypass PATH writes' }
+        Invoke-ToolDownloadInstall -Tool fourth -Method zip | Out-Null
+        Assert-Equal 1 $commands.Count 'Vendor script is executed once through existing consent executor'
+        Assert-True ($commands[0] -contains '-File') 'Vendor script runs as a script'
+        Assert-True (-not (Test-Path $files[-1])) 'Vendor script download is removed'
+        $data.install.windows.download.zip = $assetRecipe
+        $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+        Assert-Throws { Invoke-ToolDownloadInstall -Tool fourth -Method zip } 'Mismatched payload hash stops before extraction'
+        Assert-True (-not (Test-Path $files[-1])) 'Mismatched download is removed'
+    } finally {
+        $cleanup = [IO.Path]::GetFullPath($sandbox)
+        if (-not $cleanup.StartsWith($scratch + [IO.Path]::DirectorySeparatorChar)) { throw 'Unsafe download fixture cleanup' }
         Remove-Item -LiteralPath $cleanup -Recurse -Force
     }
 }
