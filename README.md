@@ -58,7 +58,7 @@ Then, in a repository, ask it to set up orchestration. `ps-ai-repository` create
 
 To open an overseer session with all your launch flags (for example a Telegram channel), run `ps-ai-overseer` in a terminal, or say "continue" in a session and accept the offer.
 
-Foundry agents use one Azure endpoint per agent, such as `https://<resource>.cognitiveservices.azure.com`, and the owner's `az` login. Use the matching account guide linked above to add an agent or ask "update models for <id>". Discovery presents deployments before the owner chooses what to save. Use [tools/foundry-probe.ps1](tools/foundry-probe.ps1) when an endpoint does not work.
+Foundry agents use one Azure endpoint per agent, such as `https://<resource>.cognitiveservices.azure.com`, and the owner's `az` login. Use the matching account guide linked above to add an agent or ask "update models for <id>". Discovery presents deployments before the owner chooses what to save.
 
 ## Modes
 
