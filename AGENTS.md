@@ -36,7 +36,7 @@ The last line must be `<n> passed, 0 failed`. Tests never call real `az`, `claud
 
 ## Not committed
 
-- Design specs and implementation plans (`docs/specs/`, `docs/plans/`, `docs/superpowers/`) stay local; they are ignored.
+- Design specs, implementation plans and verification notes (`docs/specs/`, `docs/plans/`, `docs/superpowers/`, `docs/verification/`) are temporary working documents; they stay local and are ignored.
 - Scratch, logs, reports and worktrees go in `.agents/temp/` (ignored).
 
 ## Git
