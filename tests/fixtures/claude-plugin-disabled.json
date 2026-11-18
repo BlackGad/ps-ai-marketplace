@@ -1,0 +1,14 @@
+[
+  {
+    "id": "ps-ai@ps-ai-marketplace",
+    "version": "0.1.0",
+    "scope": "user",
+    "enabled": false,
+    "installPath": "C:\\Users\\fixture\\.claude\\plugins\\cache\\ps-ai-marketplace\\ps-ai\\0.1.0",
+    "readFromFolder": "C:\\repo\\plugins\\ps-ai",
+    "folderVersion": "0.1.0",
+    "installedAt": "2026-11-18T09:33:10.339Z",
+    "lastUpdated": "2026-11-18T09:33:10.339Z",
+    "projectEnabled": false
+  }
+]

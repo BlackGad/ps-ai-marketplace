@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Per-user ps-ai preferences and account routing.",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "communication", "agents", "routing", "knowledge", "projects", "default"],
+  "properties": {
+    "$schema": { "type": "string", "description": "Editor schema location for this file." },
+    "schemaVersion": { "const": 1, "description": "Personalisation format version." },
+    "communication": {
+      "type": "object", "description": "Language, question style and notification channels.",
+      "additionalProperties": false, "required": ["channels"],
+      "properties": {
+        "language": { "type": "string", "description": "Preferred language and style." },
+        "questions": { "type": "string", "description": "Preferred question cadence." },
+        "channels": {
+          "type": "object", "description": "Named notification channels.",
+          "additionalProperties": {
+            "type": "object", "description": "Channel details and launch flags.",
+            "additionalProperties": false, "required": ["kind", "target"],
+            "properties": {
+              "kind": { "type": "string", "description": "Channel transport, such as telegram." },
+              "target": { "type": "string", "description": "Channel destination; never a secret." },
+              "format": { "type": "string", "description": "Message formatting style." },
+              "tone": { "type": "string", "description": "Message tone." },
+              "launch": { "$ref": "#/$defs/toolLaunch", "description": "CLI flags that enable this channel." }
+            }
+          }
+        }
+      }
+    },
+    "agents": {
+      "type": "array", "description": "Available CLI accounts.",
+      "items": {
+        "type": "object", "description": "One account and its allowed roles.",
+        "additionalProperties": false, "required": ["id", "tool", "command", "roles"],
+        "properties": {
+          "id": { "type": "string", "description": "Unique lowercase hyphenated account id." },
+          "tool": { "enum": ["claude", "codex", "copilot"], "description": "CLI provider." },
+          "command": { "type": "string", "description": "Executable or wrapper path." },
+          "configDir": { "type": "string", "description": "Account configuration folder or default." },
+          "roles": { "type": "array", "items": { "enum": ["overseer", "legion", "reviewer", "mechanical"] }, "description": "Permitted account roles." },
+          "care": { "enum": ["high"], "description": "Spend this account carefully." },
+          "cost": { "enum": ["paid"], "description": "Ask before spending on this account." },
+          "provider": {
+            "type": "object", "description": "Endpoint and model deployments for a Foundry agent.",
+            "additionalProperties": false, "required": ["kind", "endpoint", "default", "deployments"],
+            "properties": {
+              "kind": { "enum": ["foundry"], "description": "Endpoint provider kind." },
+              "endpoint": { "type": "string", "pattern": "^https://[^/]+$", "description": "HTTPS endpoint scheme and host, without a path or trailing slash." },
+              "default": { "type": "string", "description": "Default deployment name from deployments." },
+              "deployments": {
+                "type": "array", "minItems": 1, "description": "Selected model deployments.",
+                "items": {
+                  "type": "object", "additionalProperties": false, "required": ["name"],
+                  "properties": {
+                    "name": { "type": "string", "description": "Unique deployment name." },
+                    "model": { "type": "string", "description": "Underlying model name when discovery knows it." },
+                    "alias": { "enum": ["opus", "sonnet", "haiku", "fable"], "description": "Optional unique Claude model alias." }
+                  }
+                }
+              }
+            }
+          },
+          "models": {
+            "type": "object", "description": "Preferred model for each role.", "additionalProperties": false,
+            "properties": {
+              "overseer": { "type": "string", "description": "Overseer model." },
+              "legion": { "type": "string", "description": "Legion model." },
+              "reviewer": { "type": "string", "description": "Reviewer model." },
+              "mechanical": { "type": "string", "description": "Mechanical work model." }
+            }
+          },
+          "launch": {
+            "type": "object", "description": "Account launch arguments.", "additionalProperties": false,
+            "properties": { "args": { "$ref": "#/$defs/stringArray", "description": "Arguments before channels and project flags." } }
+          }
+        }
+      }
+    },
+    "routing": { "$ref": "#/$defs/routing", "description": "Preferred accounts by job." },
+    "knowledge": {
+      "type": "object", "description": "Cross-project wiki settings.", "additionalProperties": false,
+      "required": ["backend"],
+      "properties": {
+        "backend": { "enum": ["llm-wiki", "none"], "description": "Wiki integration or none." },
+        "hub": { "type": "string", "description": "Wiki hub path." }
+      }
+    },
+    "projects": {
+      "type": "object", "description": "Per-repository settings keyed by project id.",
+      "additionalProperties": {
+        "type": "object", "description": "Overrides for one project.", "additionalProperties": false,
+        "properties": {
+          "label": { "type": "string", "description": "Neutral label for wiki entries." },
+          "notify": { "$ref": "#/$defs/stringArray", "description": "Notification channel names." },
+          "launch": { "$ref": "#/$defs/toolLaunch", "description": "Project launch flags by tool." },
+          "routing": { "$ref": "#/$defs/routing", "description": "Project account routing overrides." }
+        }
+      }
+    },
+    "default": {
+      "type": "object", "description": "Defaults for unregistered projects.", "additionalProperties": false,
+      "properties": { "notify": { "$ref": "#/$defs/stringArray", "description": "Default notification channels." } }
+    }
+  },
+  "$defs": {
+    "stringArray": { "type": "array", "items": { "type": "string" } },
+    "toolLaunch": { "type": "object", "additionalProperties": { "$ref": "#/$defs/stringArray" } },
+    "routing": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "implement": { "$ref": "#/$defs/stringArray", "description": "Account order for implementation." },
+        "review": { "$ref": "#/$defs/stringArray", "description": "Account order for review." },
+        "mechanical": { "$ref": "#/$defs/stringArray", "description": "Account order for mechanical work." },
+        "neverModels": { "$ref": "#/$defs/stringArray", "description": "Models excluded from routing." },
+        "rules": { "$ref": "#/$defs/stringArray", "description": "Personal model routing notes." }
+      }
+    }
+  }
+}

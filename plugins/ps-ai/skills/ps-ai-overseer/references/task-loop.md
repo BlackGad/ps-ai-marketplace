@@ -1,0 +1,9 @@
+# Task loop
+
+1. Read the task from the plan and its spec. Put the spec, plan, rules file, base commit, file scope, report path, checks, and stop points into [prompts/task.md](prompts/task.md). Use `ps-ai-legion` for the worker contract; do not duplicate it in the prompt.
+2. Choose an allowed legion account from `projects.<id>.routing.implement` or global `routing.implement`, in order. Respect account roles, `neverModels`, personal routing rules, `care: high`, and `cost: paid`. Ping through its tool skill before declaring it out of credit.
+3. Create task prompt/report/log paths under `.agents/temp/`. Write a handoff row and next action to disk **before** the tool skill launches the process. Use the matching `ps-ai-claude`, `ps-ai-codex`, or `ps-ai-copilot` run reference with `PS_AI_ROLE=legion` and `PS_AI_TASK=<prompt path>` on that process only. Long work runs in the background; wait for completion, do not poll logs. A simulation shows the command without running it.
+4. Read the report and inspect status, commit message, changed-file list, and the risky change against the task scope. Check tests, script results, open questions, encoding, and user rulings. Fixed before/after gates come from `project.json` and `scripts/index.md`. Never run a missing or unindexed gate.
+5. If a real defect remains, dispatch a scoped fix. A scope or API question goes to the owner. If an account ran out mid-task, save a patch and fresh-run on another routed account; resume only on the original account and folder. Do not amend or force-push. Record the result, clear the row, and write the next handoff state before the next task; commit it with the task's stage.
+
+The source playbook's implementer handoff edits are superseded by the spec: legion writes its report; overseer alone writes handoff. Delivery follows `project.json` and owner rulings. Do not merge to main for `merge-request` delivery.
