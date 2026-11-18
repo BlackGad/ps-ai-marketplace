@@ -6,9 +6,9 @@ Use `State` in the handoff for the current stage; write each transition to disk 
 | --- | --- | --- |
 | Research | Prior milestone closed or owner selects one | Read roadmap, spec, code, reuse inventory; consult `ps-ai-knowledge`. Exit with a research note, scope, task split, and questions. |
 | Design questions | Research exposes owner choices | Ask one at a time, recommendation first; record numbered user rulings. Exit when no design question remains. |
-| Plan draft | Rulings settled | Use installed planning method when present and [prompts/plan-skeleton.md](prompts/plan-skeleton.md); include contracts, tests, commit messages, review focus. Exit with committed plan. |
-| Plan dry-run | Plan committed | One independent read-only dry-run with [prompts/dry-run.md](prompts/dry-run.md). Exit with report. |
-| Rulings | Dry-run report exists | Decide bookkeeping; bring design changes to owner. Rewrite and review plan. Exit with committed rulings. |
+| Plan draft | Rulings settled | Use installed planning method when present and [prompts/plan-skeleton.md](prompts/plan-skeleton.md); include contracts, tests, commit messages, review focus. Exit with the plan saved at `paths.plans` (local, never committed). |
+| Plan dry-run | Plan saved | One independent read-only dry-run with [prompts/dry-run.md](prompts/dry-run.md). Exit with report. |
+| Rulings | Dry-run report exists | Decide bookkeeping; bring design changes to owner. Rewrite and review plan. Exit with the rulings written into the local plan. |
 | Tasks | Plan ready | Run [task-loop.md](task-loop.md). Exit when all task reports, reviews, and required task gates are recorded. |
 | Milestone gate | Tasks complete | Run indexed milestone scripts once from base. Exit with read results. |
 | Gate fixes | Gate fails | Scope a fix using installed debugging/TDD methods; rerun affected gates. Exit when clean. |

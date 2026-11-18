@@ -26,4 +26,4 @@ For each task: owned files, test names and failure first, exact check scripts, r
 
 ## Dry-run rulings and self-review
 
-Keep the finished plan at {PLAN}; the overseer writes and commits it, then sends a read-only dry-run. This template is not a legion task and does not use {REPORT_FILE}.
+Keep the finished plan at {PLAN}; the overseer writes it there (it stays local and is never committed), then sends a read-only dry-run. This template is not a legion task and does not use {REPORT_FILE}.
