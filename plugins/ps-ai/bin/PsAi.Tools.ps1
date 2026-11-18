@@ -126,7 +126,8 @@ function Get-PsAiInstallRecipes {
 
     $tools = @(Get-PsAiTools -SkillsRoot $SkillsRoot)
     # Helpers are read only for installation; the private launch runtime omits them.
-    $json = [IO.File]::ReadAllText($HelpersPath)
+    $resolvedHelpersPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($HelpersPath)
+    $json = [IO.File]::ReadAllText($resolvedHelpersPath)
     $schema = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../schemas/tool.schema.json') -Raw | ConvertFrom-Json -AsHashtable
     $helpersSchema = @{
         '$schema' = $schema.'$schema'

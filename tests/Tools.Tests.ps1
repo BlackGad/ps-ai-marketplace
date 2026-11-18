@@ -212,6 +212,15 @@ try {
     Assert-True ($recipes -is [hashtable]) 'Install recipes return one hashtable'
     Assert-Equal 'az|fourth|gh|git|glab|node|pwsh' (($recipes.Keys | Sort-Object) -join '|') 'Recipes combine helper and agent installs'
     Assert-Equal 'fourth-cli|--version' ($recipes.fourth.check -join '|') 'Fourth install recipe is exposed'
+    Copy-Item -LiteralPath $helpersPath -Destination (Join-Path $discoveryRoot 'relative-helpers.json')
+    Push-Location -LiteralPath $discoveryRoot
+    try {
+        $relativeError = ''
+        try { $relativeRecipes = Get-PsAiInstallRecipes -SkillsRoot $discoveryRoot -HelpersPath './relative-helpers.json' }
+        catch { $relativeError = $_.Exception.Message }
+        Assert-Equal '' $relativeError 'Relative HelpersPath resolves without a read error'
+        Assert-Equal 'az|fourth|gh|git|glab|node|pwsh' (($relativeRecipes.Keys | Sort-Object) -join '|') 'Relative HelpersPath uses the PowerShell current location'
+    } finally { Pop-Location }
     $dateArgument = '2026-11-18T18:30:00+00:00'
     $dateData = $original | ConvertFrom-Json -AsHashtable
     $dateData.overseerArgs = @($dateArgument)
