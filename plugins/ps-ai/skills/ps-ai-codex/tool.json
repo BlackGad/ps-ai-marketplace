@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "codex", "command": "codex", "configEnv": "CODEX_HOME",
+  "foundry": {"deploymentPrefix": "gpt", "aliases": []},
+  "overseerArgs": [],
+  "plugin": {
+    "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
+    "install": ["plugin", "add", "ps-ai@ps-ai-marketplace"],
+    "marketplaceList": ["plugin", "marketplace", "list"],
+    "list": ["plugin", "list"],
+    "listing": {"format": "lines", "rejectPattern": "not installed|disabled"}
+  },
+  "hooks": {"status": "trust once with /hooks", "hint": "Codex: approve the ps-ai hooks once with /hooks in a Codex session."},
+  "install": {
+    "check": ["codex", "--version"], "hint": "npm install -g @openai/codex",
+    "windows": {
+      "wingetId": "OpenAI.Codex", "portableCommand": "codex.exe",
+      "download": {
+        "msi": {"kind": "script", "url": "https://chatgpt.com/codex/install.ps1", "verification": "vendor"},
+        "zip": {"kind": "script", "url": "https://chatgpt.com/codex/install.ps1", "verification": "vendor"}
+      }
+    },
+    "macos": {"needs": ["node"], "commands": [["npm", "install", "-g", "@openai/codex"]], "docs": ""},
+    "linux": {"needs": ["node"], "commands": [["npm", "install", "-g", "@openai/codex"]], "docs": ""}
+  }
+}

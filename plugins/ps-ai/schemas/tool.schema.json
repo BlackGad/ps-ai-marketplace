@@ -1,0 +1,521 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ps-ai tool descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "command",
+    "configEnv",
+    "foundry",
+    "overseerArgs",
+    "plugin",
+    "hooks",
+    "install"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1
+    },
+    "configEnv": {
+      "type": "string",
+      "pattern": "^[A-Z_][A-Z0-9_]*$"
+    },
+    "foundry": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "deploymentPrefix",
+            "aliases"
+          ],
+          "properties": {
+            "deploymentPrefix": {
+              "type": "string",
+              "minLength": 1
+            },
+            "aliases": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "overseerArgs": {
+      "$ref": "#/$defs/arguments"
+    },
+    "plugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "marketplaceAdd",
+        "install",
+        "marketplaceList",
+        "list",
+        "listing"
+      ],
+      "properties": {
+        "marketplaceAdd": {
+          "$ref": "#/$defs/arguments"
+        },
+        "install": {
+          "$ref": "#/$defs/arguments"
+        },
+        "marketplaceList": {
+          "$ref": "#/$defs/arguments"
+        },
+        "list": {
+          "$ref": "#/$defs/arguments"
+        },
+        "listing": {
+          "$ref": "#/$defs/listing"
+        }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "hint"
+      ],
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "hint": {
+          "type": "string"
+        }
+      }
+    },
+    "install": {
+      "$ref": "#/$defs/install"
+    }
+  },
+  "$defs": {
+    "arguments": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "prefixItems": [
+        {
+          "type": "string",
+          "minLength": 1
+        }
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "needs",
+        "commands",
+        "docs"
+      ],
+      "properties": {
+        "needs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "uniqueItems": true
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/command"
+          }
+        },
+        "docs": {
+          "type": "string"
+        }
+      }
+    },
+    "scriptDownload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "url",
+        "verification"
+      ],
+      "properties": {
+        "kind": {
+          "const": "script"
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "const": "vendor"
+        }
+      }
+    },
+    "binaryDownload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "resolver",
+        "verification",
+        "arguments"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "msi",
+            "exe",
+            "zip"
+          ]
+        },
+        "resolver": {
+          "enum": [
+            "release-assets",
+            "release-links",
+            "lts-index"
+          ]
+        },
+        "metadataUrl": {
+          "type": "string",
+          "minLength": 1
+        },
+        "releasesUrl": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tagPattern": {
+          "type": "string",
+          "minLength": 1,
+          "format": "regex"
+        },
+        "stableOnly": {
+          "const": true
+        },
+        "order": {
+          "const": "version-desc"
+        },
+        "assetPattern": {
+          "type": "string",
+          "minLength": 1,
+          "format": "regex"
+        },
+        "assetName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "checksumUrl": {
+          "type": "string",
+          "minLength": 1
+        },
+        "checksumAsset": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "enum": [
+            "asset-digest",
+            "checksum-file"
+          ]
+        },
+        "arguments": {
+          "$ref": "#/$defs/arguments"
+        },
+        "pathFolder": {
+          "type": "string",
+          "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).*$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "zip"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "pathFolder"
+            ]
+          },
+          "else": {
+            "properties": {
+              "pathFolder": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "resolver": {
+                "const": "release-assets"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "assetPattern"
+            ],
+            "properties": {
+              "verification": {
+                "const": "asset-digest"
+              },
+              "checksumAsset": false,
+              "assetName": false,
+              "url": false,
+              "checksumUrl": false
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "metadataUrl"
+                ],
+                "properties": {
+                  "releasesUrl": false,
+                  "tagPattern": false,
+                  "stableOnly": false,
+                  "order": false
+                }
+              },
+              {
+                "required": [
+                  "releasesUrl",
+                  "tagPattern",
+                  "stableOnly",
+                  "order"
+                ],
+                "properties": {
+                  "metadataUrl": false
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "resolver": {
+                "const": "release-links"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "metadataUrl",
+              "assetPattern",
+              "checksumAsset"
+            ],
+            "properties": {
+              "verification": {
+                "const": "checksum-file"
+              },
+              "checksumAsset": {
+                "const": "checksums.txt"
+              },
+              "releasesUrl": false,
+              "tagPattern": false,
+              "stableOnly": false,
+              "order": false,
+              "assetName": false,
+              "url": false,
+              "checksumUrl": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "resolver": {
+                "const": "lts-index"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "metadataUrl",
+              "assetName",
+              "url",
+              "checksumUrl"
+            ],
+            "properties": {
+              "verification": {
+                "const": "checksum-file"
+              },
+              "assetPattern": false,
+              "checksumAsset": false,
+              "releasesUrl": false,
+              "tagPattern": false,
+              "stableOnly": false,
+              "order": false
+            }
+          }
+        }
+      ]
+    },
+    "download": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/scriptDownload"
+        },
+        {
+          "$ref": "#/$defs/binaryDownload"
+        }
+      ]
+    },
+    "install": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "check",
+        "hint",
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "properties": {
+        "check": {
+          "$ref": "#/$defs/command"
+        },
+        "hint": {
+          "type": "string"
+        },
+        "windows": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "wingetId",
+            "portableCommand",
+            "download"
+          ],
+          "properties": {
+            "wingetId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "portableCommand": {
+              "type": "string",
+              "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).*$",
+              "minLength": 1
+            },
+            "npmWhenAvailable": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "check",
+                "command"
+              ],
+              "properties": {
+                "check": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "command": {
+                  "$ref": "#/$defs/command"
+                }
+              }
+            },
+            "download": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "msi",
+                "zip"
+              ],
+              "properties": {
+                "msi": {
+                  "$ref": "#/$defs/download"
+                },
+                "zip": {
+                  "$ref": "#/$defs/download"
+                }
+              }
+            }
+          }
+        },
+        "macos": {
+          "$ref": "#/$defs/platform"
+        },
+        "linux": {
+          "$ref": "#/$defs/platform"
+        }
+      }
+    },
+    "listing": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "format",
+            "rejectPattern"
+          ],
+          "properties": {
+            "format": {
+              "const": "lines"
+            },
+            "rejectPattern": {
+              "type": "string",
+              "format": "regex"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "format",
+            "idField",
+            "enabledField"
+          ],
+          "properties": {
+            "format": {
+              "const": "json"
+            },
+            "idField": {
+              "type": "string",
+              "minLength": 1
+            },
+            "enabledField": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    }
+  }
+}

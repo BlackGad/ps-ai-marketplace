@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "copilot", "command": "copilot", "configEnv": "COPILOT_HOME",
+  "foundry": {"deploymentPrefix": "claude", "aliases": []},
+  "overseerArgs": ["-i"],
+  "plugin": {
+    "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
+    "install": ["plugin", "install", "ps-ai@ps-ai-marketplace"],
+    "marketplaceList": ["plugin", "marketplace", "list"],
+    "list": ["plugin", "list"],
+    "listing": {"format": "lines", "rejectPattern": "not installed|disabled"}
+  },
+  "hooks": {"status": "unknown", "hint": ""},
+  "install": {
+    "check": ["copilot", "--version"], "hint": "npm install -g @github/copilot",
+    "windows": {
+      "wingetId": "GitHub.Copilot", "portableCommand": "copilot.exe",
+      "npmWhenAvailable": {"check": "node", "command": ["npm", "install", "-g", "@github/copilot"]},
+      "download": {
+        "msi": {"kind": "msi", "resolver": "release-assets", "metadataUrl": "https://api.github.com/repos/github/copilot-cli/releases/latest", "assetPattern": "^copilot-x64\\.msi$", "verification": "asset-digest", "arguments": ["/qn", "/norestart"]},
+        "zip": {"kind": "zip", "resolver": "release-assets", "metadataUrl": "https://api.github.com/repos/github/copilot-cli/releases/latest", "assetPattern": "^copilot-win32-x64\\.zip$", "verification": "asset-digest", "arguments": [], "pathFolder": ""}
+      }
+    },
+    "macos": {"needs": ["node"], "commands": [["npm", "install", "-g", "@github/copilot"]], "docs": ""},
+    "linux": {"needs": ["node"], "commands": [["npm", "install", "-g", "@github/copilot"]], "docs": ""}
+  }
+}
