@@ -17,6 +17,7 @@ param(
 . (Join-Path $PSScriptRoot 'ps-ai-validate.ps1') -NoRun
 . (Join-Path $PSScriptRoot 'PsAi.Common.ps1')
 . (Join-Path $PSScriptRoot 'PsAi.Foundry.ps1')
+. (Join-Path $PSScriptRoot 'PsAi.Tools.ps1')
 
 function Assert-PsAiId {
     param([string]$Id)
@@ -83,101 +84,12 @@ function New-PsAiWrappers {
     }
 }
 
-function Get-FoundryTomlMultilineState {
-    # Scan strings and comments so table-like prompt text is never treated as TOML syntax.
-    param([string]$Line, [string]$Delimiter)
-    for ($i = 0; $i -lt $Line.Length;) {
-        if ($Delimiter) {
-            if ($Delimiter -ceq '"""' -and $Line[$i] -ceq '\') { $i += 2; continue }
-            if ($i + 2 -lt $Line.Length -and $Line.Substring($i, 3) -ceq $Delimiter) { $Delimiter = ''; $i += 3; continue }
-            $i++
-            continue
-        }
-        if ($Line[$i] -ceq '#') { break }
-        if ($Line[$i] -cin @('"', "'")) {
-            $quote = [string]$Line[$i]
-            if ($i + 2 -lt $Line.Length -and $Line.Substring($i, 3) -ceq ($quote * 3)) {
-                $Delimiter = $quote * 3
-                $i += 3
-                continue
-            }
-            $i++
-            while ($i -lt $Line.Length) {
-                if ($quote -ceq '"' -and $Line[$i] -ceq '\') { $i += 2; continue }
-                if ($Line[$i] -ceq $quote) { $i++; break }
-                $i++
-            }
-        } else { $i++ }
-    }
-    return $Delimiter
-}
-
 function Write-FoundryToolConfig {
     param($Agent, [string]$HomeRoot)
-    $folder = [string]$Agent.configDir
-    if ($folder.StartsWith('~/')) { $folder = Join-Path $HomeRoot $folder.Substring(2) }
-    switch ($Agent.tool) {
-        claude {
-            $path = Join-Path $folder 'settings.json'
-            $settings = @{}
-            if (Test-Path -LiteralPath $path) {
-                try {
-                    $settings = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
-                    if ($settings -isnot [System.Collections.IDictionary]) { throw 'not an object' }
-                } catch { throw 'settings.json is not valid JSON; fix or remove it' }
-            }
-            $settings['modelPicker'] = @{
-                replaceBuiltInOptions = $true
-                options = @($Agent.provider.deployments | ForEach-Object { @{ model = $_.name; label = $_.name } })
-            }
-            $content = ($settings | ConvertTo-Json -Depth 100) + "`n"
-        }
-        codex {
-            $path = Join-Path $folder 'config.toml'
-            $az = Get-Command az -CommandType Application,ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $az) { throw 'az is not installed; run ps-ai-install-tool.ps1 -Tool az' }
-            $kept = [System.Collections.Generic.List[string]]::new()
-            $rootTable = $true
-            $skipTable = $false
-            $skipValue = $false
-            $multiline = ''
-            $tableKey = '(?:model_providers|"model_providers"|''model_providers'')'
-            $providerKey = '(?:ps-ai-foundry|"ps-ai-foundry"|''ps-ai-foundry'')'
-            $authKey = '(?:auth|"auth"|''auth'')'
-            $providerTable = '^\s*\[\s*' + $tableKey + '\s*\.\s*' + $providerKey + '(?:\s*\.\s*' + $authKey + ')?\s*\]\s*(?:#.*)?$'
-            if (Test-Path -LiteralPath $path) {
-                foreach ($line in [IO.File]::ReadAllLines($path)) {
-                    $outsideString = -not $multiline
-                    if ($outsideString -and $line -match '^\s*\[') {
-                        $rootTable = $false
-                        $skipTable = $line -cmatch $providerTable
-                    }
-                    $replaceKey = $outsideString -and $rootTable -and $line -cmatch '^\s*(?:model|model_provider|"model"|"model_provider"|''model''|''model_provider'')\s*='
-                    $skipLine = $skipTable -or $skipValue -or $replaceKey
-                    $multiline = Get-FoundryTomlMultilineState -Line $line -Delimiter $multiline
-                    if ($replaceKey -or $skipValue) { $skipValue = [bool]$multiline }
-                    if ($skipLine) { continue }
-                    $kept.Add($line)
-                }
-            }
-            $model = $Agent.provider.default | ConvertTo-Json -Compress
-            $baseUrl = ($Agent.provider.endpoint + '/openai/v1') | ConvertTo-Json -Compress
-            $azPath = $az.Source | ConvertTo-Json -Compress
-            $content = "model = $model`nmodel_provider = `"ps-ai-foundry`"`n" + ($kept -join "`n") + "`n" + @"
-[model_providers.ps-ai-foundry]
-base_url = $baseUrl
-wire_api = "responses"
-[model_providers.ps-ai-foundry.auth]
-command = $azPath
-args = ["account","get-access-token","--resource","https://cognitiveservices.azure.com","--query","accessToken","-o","tsv"]
-refresh_interval_ms = 1800000
-"@ + "`n"
-        }
-        copilot { return }
-    }
-    if ((Test-Path -LiteralPath $path) -and [IO.File]::ReadAllText($path) -ceq $content) { return }
-    New-Item -ItemType Directory -Path $folder -Force | Out-Null
-    [IO.File]::WriteAllText($path, $content, [Text.UTF8Encoding]::new($false))
+    $tool = Get-PsAiTool -Tool $Agent.tool
+    $script = Get-PsAiToolScript -Tool $tool -Name foundry-config
+    if (-not $script) { return @{ Changed = $false; Path = $null } }
+    return & $script -Agent $Agent -HomeRoot $HomeRoot
 }
 
 function New-FoundryWrappers {
@@ -291,7 +203,7 @@ switch ($Action) {
             $entry = [pscustomobject]@{
                 id = $Id; tool = $Tool; command = "~/.agents/bin/$Id"; configDir = "~/.agents/accounts/$Id"; roles = @(); provider = $providerBlock
             }
-            Write-FoundryToolConfig -Agent $entry -HomeRoot $HomeRoot
+            $null = Write-FoundryToolConfig -Agent $entry -HomeRoot $HomeRoot
             $data.agents = @($data.agents) + @($entry)
             Write-PsAiPersonalisation -Data $data -Path $file
             New-FoundryWrappers -Id $Id -HomeRoot $HomeRoot
@@ -325,7 +237,7 @@ switch ($Action) {
             break
         }
         $agent.provider = $providerBlock
-        Write-FoundryToolConfig -Agent $agent -HomeRoot $HomeRoot
+        $null = Write-FoundryToolConfig -Agent $agent -HomeRoot $HomeRoot
         Write-PsAiPersonalisation -Data $data -Path $file
         New-FoundryWrappers -Id $Id -HomeRoot $HomeRoot
     }

@@ -36,6 +36,7 @@ try {
     '{"theme":"dark"}' | Set-Content -LiteralPath $settings
     $selection = @{Deployments=@('claude-opus-x','claude-sonnet-x');Default='claude-opus-x';Aliases=@('claude-opus-x=opus','claude-sonnet-x=sonnet')}
     $addOutput = & $accountScript -Action add @common @selection
+    Assert-Equal 1 @($addOutput).Count 'Foundry add emits only the next-step message'
     Assert-True (@($addOutput) -contains "Run 'claude-dev' in a terminal; it signs in to Azure through az when needed.") 'Foundry add prints next step'
     $data = Read-PsAiJson -Path $file
     $agent = $data.agents[0]
@@ -85,7 +86,8 @@ try {
     & $accountScript -Action models -Id claude-dev -HomeRoot $homeRoot @selection | Out-Null
     Assert-Equal $before (Get-Content -Raw $file) 'Failed discovery preserves known models on unchanged update'
     Use-FakeAz -Answers $answers
-    & $accountScript -Action models -Id claude-dev -HomeRoot $homeRoot -Deployments claude-opus-x,claude-haiku-x -Default claude-haiku-x -Aliases claude-opus-x=opus,claude-haiku-x=haiku | Out-Null
+    $modelsOutput = @(& $accountScript -Action models -Id claude-dev -HomeRoot $homeRoot -Deployments claude-opus-x,claude-haiku-x -Default claude-haiku-x -Aliases claude-opus-x=opus,claude-haiku-x=haiku)
+    Assert-Equal 0 $modelsOutput.Count 'Changed models does not leak the config adapter return value'
     $updated = (Read-PsAiJson $file).agents[0]
     Assert-Equal 'claude-haiku-x' $updated.provider.default 'Models updates default'
     Assert-Equal 'haiku' $updated.provider.deployments[1].alias 'Models updates aliases'
@@ -155,6 +157,41 @@ model_provider = "old-provider"
 approval_policy = "never"
 '@
             preserved = "developer_instructions = `"`"`"`n[context]`nPreserve these instructions.`n`"`"`""
+        },
+        @{
+            id = 'codex-escaped'
+            text = @'
+# Comment with """ and [model_providers.ps-ai-foundry]
+developer_instructions = """
+Escaped delimiter: \"""
+[model_providers.ps-ai-foundry]
+model = "preserved-prompt"
+""" # comment with ''' and [model_providers.ps-ai-foundry.auth]
+note = "escaped quote: \" and triple apostrophes '''" # """
+approval_policy = "never"
+model = "old-model"
+model_provider = "old-provider"
+[model_providers.ps-ai-foundry] # '''
+base_url = "old-endpoint"
+[model_providers.ps-ai-foundry.auth] # """
+command = "old-command"
+[other] # """
+value = 1
+'@
+            preserved = "developer_instructions = `"`"`"`nEscaped delimiter: \`"`"`"`n[model_providers.ps-ai-foundry]`nmodel = `"preserved-prompt`"`n`"`"`" # comment with ''' and [model_providers.ps-ai-foundry.auth]"
+        },
+        @{
+            id = 'codex-nested-array'
+            text = @'
+matrix = [
+  [1, 2],
+  [3, 4], # comment with """
+]
+model = "old-model"
+model_provider = "old-provider"
+approval_policy = "never"
+'@
+            preserved = "matrix = [`n  [1, 2],`n  [3, 4], # comment with `"`"`"`n]"
         },
         @{
             id = 'codex-multiline-provider'

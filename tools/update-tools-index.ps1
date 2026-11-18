@@ -28,6 +28,7 @@ if ($NoRun) { return }
 
 $tools = @(Get-PsAiTools)
 $recipes = Get-PsAiInstallRecipes
+if (-not $recipes.ContainsKey('pwsh')) { throw 'PowerShell bootstrap recipe is missing from helper recipes' }
 $content = Get-ToolsIndexContent -Tools $tools -Bootstrap $recipes.pwsh
 $bytes = [Text.UTF8Encoding]::new($false).GetBytes($content)
 $path = Join-Path $PSScriptRoot '../tools.json'

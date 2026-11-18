@@ -89,6 +89,16 @@
         Assert-Equal 0 $LASTEXITCODE 'Fixture index checks out locally'
         Assert-Equal $checkoutBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))) 'Checkout preserves LF index bytes with autocrlf enabled'
         & $copyGenerator -Check | Out-Null
+
+        $copyHelpers = Join-Path $copyRoot 'plugins/ps-ai/bin/install-tool/helpers.json'
+        $helperData = Get-Content -LiteralPath $copyHelpers -Raw | ConvertFrom-Json -AsHashtable
+        $helperData.Remove('pwsh')
+        $helperData | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $copyHelpers
+        $beforeMissingTime = [IO.File]::GetLastWriteTimeUtc($copyIndex)
+        Assert-Throws { & $copyGenerator } 'Missing PowerShell bootstrap recipe stops generation'
+        Assert-Throws { & $copyGenerator -Check } 'Missing PowerShell bootstrap recipe also stops Check'
+        Assert-Equal $checkoutBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))) 'Invalid bootstrap source leaves catalog bytes intact'
+        Assert-Equal $beforeMissingTime ([IO.File]::GetLastWriteTimeUtc($copyIndex)) 'Invalid bootstrap source leaves catalog mtime intact'
     } finally {
         $cleanupPath = [IO.Path]::GetFullPath($copyRoot)
         if (-not $cleanupPath.StartsWith($scratchRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe test cleanup path' }
