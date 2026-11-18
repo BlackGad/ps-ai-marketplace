@@ -107,6 +107,58 @@
     }
 }
 
+# Descriptor boundaries must survive the real renderer and standalone JSON loader.
+& {
+    $repo = Split-Path $PSScriptRoot -Parent
+    . (Join-Path $repo 'tools/update-tools-index.ps1') -NoRun
+    . (Join-Path $repo 'install.ps1') -NoRun
+    $schema = Join-Path $repo 'plugins/ps-ai/schemas/tool.schema.json'
+    $descriptorJson = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw
+    $bootstrap = (Get-PsAiInstallRecipes).pwsh
+    $fields = @('marketplaceAdd', 'install', 'marketplaceList', 'list')
+    $scratchRoot = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/restructure'))
+    $scratch = Join-Path $scratchRoot ('catalog-boundaries-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+    try {
+        foreach ($boundary in @('empty-string-arguments', 'empty-arrays', 'empty-hook-status')) {
+            $descriptor = $descriptorJson | ConvertFrom-Json
+            switch ($boundary) {
+                'empty-string-arguments' { foreach ($field in $fields) { $descriptor.plugin.$field = @('--namespace', '', ' ') } }
+                'empty-arrays' { foreach ($field in $fields) { $descriptor.plugin.$field = @() } }
+                'empty-hook-status' { $descriptor.hooks.status = '' }
+            }
+            Assert-True (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile $schema) "$boundary is schema valid"
+            Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'tools.json')
+            $loaded = Get-InstallCatalog -Source $scratch
+            foreach ($field in $fields) {
+                Assert-Equal ($descriptor.plugin.$field | ConvertTo-Json -Compress) ($loaded.tools[0].plugin.$field | ConvertTo-Json -Compress) "$boundary preserves plugin.$field"
+                Assert-True ($loaded.tools[0].plugin.$field -is [array]) "$boundary retains argument arrays"
+            }
+            Assert-Equal $descriptor.hooks.status $loaded.tools[0].hooks.status "$boundary preserves hooks.status"
+        }
+        foreach ($field in $fields) {
+            foreach ($value in @($null, '', 42, @{}, @('valid', $null), @('valid', 42))) {
+                $descriptor = $descriptorJson | ConvertFrom-Json
+                $descriptor.plugin.$field = $value
+                Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile $schema -ErrorAction SilentlyContinue)) "Schema rejects invalid plugin.$field"
+                Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'tools.json')
+                Assert-Throws { Get-InstallCatalog -Source $scratch } "Loader rejects invalid plugin.$field"
+            }
+        }
+        foreach ($value in @($null, 42, @('status'))) {
+            $descriptor = $descriptorJson | ConvertFrom-Json
+            $descriptor.hooks.status = $value
+            Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile $schema -ErrorAction SilentlyContinue)) 'Schema rejects non-string hooks.status'
+            Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'tools.json')
+            Assert-Throws { Get-InstallCatalog -Source $scratch } 'Loader rejects non-string hooks.status'
+        }
+    } finally {
+        $cleanupPath = [IO.Path]::GetFullPath($scratch)
+        if (-not $cleanupPath.StartsWith($scratchRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe test cleanup path' }
+        Remove-Item -LiteralPath $cleanupPath -Recurse -Force
+    }
+}
+
 # CatalogLoadsBeforeBootstrapInBothRuntimes: bad metadata must stop before mutation.
 & {
     $repo = Split-Path $PSScriptRoot -Parent

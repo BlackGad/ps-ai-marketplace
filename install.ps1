@@ -23,8 +23,8 @@ function Assert-InstallString {
 
 function Assert-InstallArguments {
     param($Value, [string]$Field)
-    if ($Value -isnot [array] -or $Value.Count -eq 0) { throw "invalid catalog field '$Field': expected argument array" }
-    foreach ($argument in $Value) { Assert-InstallString $argument $Field }
+    if ($Value -isnot [array]) { throw "invalid catalog field '$Field': expected argument array" }
+    foreach ($argument in $Value) { Assert-InstallString $argument $Field -AllowEmpty }
 }
 
 function Assert-InstallObject {
@@ -86,7 +86,7 @@ function Get-InstallCatalog {
             $null = [regex]::new($listing.rejectPattern)
         } else { throw 'invalid catalog listing format' }
         Assert-InstallObject $tool.hooks 'hooks'
-        Assert-InstallString $tool.hooks.status 'hooks.status'
+        Assert-InstallString $tool.hooks.status 'hooks.status' -AllowEmpty
         Assert-InstallString $tool.hooks.hint 'hooks.hint' -AllowEmpty
         Assert-InstallString $tool.installHint 'installHint' -AllowEmpty
     }
