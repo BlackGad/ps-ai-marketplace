@@ -1,6 +1,6 @@
 $root = Split-Path $PSScriptRoot -Parent
 $scriptPath = Join-Path $root 'plugins/ps-ai/bin/ps-ai-install-tool.ps1'
-$bootstrap = Join-Path $root 'install/bootstrap.ps1'
+$bootstrap = Join-Path $root 'install.ps1'
 . $scriptPath -NoRun
 
 # Exercise the real entry point using the already running PowerShell, without installing.
@@ -78,11 +78,8 @@ $script:installed.Remove('codex') | Out-Null
 Assert-Throws { Invoke-ToolInstall -Tool codex -Platform linux -Yes | Out-Null } 'Missing docs-only Node blocks Codex install'
 Assert-Equal 0 $script:commands.Count 'Missing prerequisite runs no npm command'
 
-powershell -NoProfile -Command "[ScriptBlock]::Create((Get-Content -Raw '$bootstrap')) | Out-Null"
-Assert-Equal 0 $LASTEXITCODE 'Bootstrap parses in Windows PowerShell 5.1'
-$shellInstaller = Get-Content -Raw (Join-Path $root 'install/install.sh')
-Assert-True ($shellInstaller.Contains('brew install --cask powershell')) 'macOS shell installer gives PowerShell command'
-Assert-True ($shellInstaller.Contains('https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-linux')) 'Linux shell installer gives PowerShell docs'
+# Root installer bootstrap cases replace the old bootstrap and shell entry points.
+& (Join-Path $PSScriptRoot 'fixtures/install/Test-RemoteInstaller.ps1') -Installer $bootstrap -Repo $root
 
 foreach ($tool in @('claude','codex','copilot')) {
     $folder = Join-Path $root "plugins/ps-ai/skills/ps-ai-$tool"
@@ -99,7 +96,7 @@ Assert-True ($repositorySkill.Contains('references/tools.md')) 'Repository skill
 $repositoryTools = Join-Path $root 'plugins/ps-ai/skills/ps-ai-repository/references/tools.md'
 Assert-True (Test-Path $repositoryTools) 'Repository tool reference exists'
 $readme = Get-Content -Raw (Join-Path $root 'README.md')
-Assert-True ($readme.Contains('install\bootstrap.ps1')) 'README gives clean Windows PC bootstrap path'
+Assert-True ($readme.Contains('irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1 | iex')) 'README gives remote Windows installer'
 Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains optional CLI install hints'
 
 # Local archives and official-shaped metadata; no network, installers, or real PATH writes.

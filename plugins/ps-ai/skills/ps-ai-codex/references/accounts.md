@@ -11,7 +11,7 @@ pwsh -NoProfile -File <plugin>/bin/ps-ai-account.ps1 -Action add -Tool codex -Id
 This creates the `CODEX_HOME` wrapper, config folder, and personalisation entry. Tell the owner to run `<id>` in a terminal and log in once; never read tokens. Then install ps-ai into that account's config folder and validate:
 
 ```text
-pwsh -NoProfile -File <marketplace>/install/install.ps1 -Tools codex -ConfigDir <home>/.agents/accounts/<id>
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools codex -ConfigDir <home>/.agents/accounts/<id>
 pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.agents/configuration/ps-ai-personalisation.json
 ```
 

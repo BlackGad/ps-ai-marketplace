@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-$script = Join-Path $root 'install/install.ps1'
+$script = Join-Path $root 'install.ps1'
 . $script -NoRun
 $expected = @{
     claude = @('claude|plugin|marketplace|add|local source', 'claude|plugin|install|ps-ai@ps-ai-marketplace')
@@ -69,6 +69,7 @@ $secondInstall = @(Invoke-PsAiInstallSteps -Tool codex -Source 'local source' -C
 Assert-Equal 2 @($secondInstall | Where-Object { $_ -match '^skip: .*\(already done\)$' }).Count 'Second install skips both steps'
 
 # Listing checks must inspect the selected account rather than the caller's default account.
+. $script -NoRun
 $savedCodexHome = $env:CODEX_HOME
 try {
     $env:CODEX_HOME = 'default-account'

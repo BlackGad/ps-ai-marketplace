@@ -11,7 +11,7 @@ pwsh -NoProfile -File <plugin>/bin/ps-ai-account.ps1 -Action add -Tool copilot -
 This creates a wrapper that sets `COPILOT_HOME`, the account config folder, and the personalisation entry. Tell the owner to run `<id>` in a terminal and log in once; never handle credentials. Then install and validate:
 
 ```text
-pwsh -NoProfile -File <marketplace>/install/install.ps1 -Tools copilot -ConfigDir <home>/.agents/accounts/<id>
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools copilot -ConfigDir <home>/.agents/accounts/<id>
 pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.agents/configuration/ps-ai-personalisation.json
 ```
 

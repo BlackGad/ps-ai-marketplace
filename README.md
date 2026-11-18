@@ -4,32 +4,42 @@ The `ps-ai` plugin lets Claude Code, Codex CLI and GitHub Copilot CLI share one 
 
 ## Requirements
 
-- PowerShell 7 (`pwsh`) on every machine. The Windows bootstrap can offer to install it; the other installers show a platform hint when it is missing.
+- PowerShell 7 (`pwsh`) on every machine. The installer offers to install it on Windows; on macOS and Linux, install it first using the official instructions linked below.
 - At least one of: Claude Code, Codex CLI, Copilot CLI.
 
 ## Install
 
-On a clean Windows PC, download and extract the repository ZIP from GitHub if Git is not available. In Windows PowerShell 5.1, run:
+On Windows, run this in Windows PowerShell 5.1 or PowerShell 7 (`pwsh`):
 
 ```powershell
-powershell -NoProfile -File .\ps-ai-marketplace\install\bootstrap.ps1
+irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1 | iex
 ```
 
-The bootstrap checks for PowerShell 7 first. If it is missing, it shows the `winget` command and asks before installing it. It then runs the plugin installer under `pwsh`. Running the bootstrap again skips the PowerShell step. If `winget` is missing, use the [official winget instructions](https://learn.microsoft.com/windows/package-manager/winget/) first.
+The script checks for PowerShell 7, which the plugin needs at runtime. If it is missing on Windows, the script shows `winget install --id Microsoft.PowerShell -e` and asks before installing. If winget is missing or fails, it offers the official per-user ZIP, verifies its SHA-256 digest, extracts it to `~/.agents/tools/pwsh/`, and adds that folder to the user and current process PATH. Use `-Yes` to approve installation without prompts.
 
-If no coding CLI is installed yet, preview its official install command with `pwsh -NoProfile -File .\ps-ai-marketplace\plugins\ps-ai\bin\ps-ai-install-tool.ps1 -Tool claude` (or `codex` or `copilot`). After deciding to install, run that command with `-Yes`, then rerun the plugin installer. The same helper can show `git`, `gh`, `glab`, or `az` recipes; Linux recipes that need distribution-specific steps show official documentation. Tool and repository skills offer these as hints and ask before installation.
+On macOS or Linux, [install PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) first, then run:
 
-On Windows, the tool helper accepts `-Method winget`, `-Method msi`, or `-Method zip`. If winget is missing or fails, it prints both alternatives and exits 2. Choose a method, preview it, then add `-Yes` after approval. MSI/EXE installs may need admin; ZIP installs use `~/.agents/tools/<tool>/` and user PATH. Claude and Codex use their official install scripts for either alternative. Copilot uses npm when Node is present. See the [official sources and exceptions](plugins/ps-ai/skills/ps-ai-repository/references/tools.md).
+```sh
+pwsh -c "irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1 | iex"
+```
 
-On macOS or Linux, run `install/install.sh`; if `pwsh` is missing, it prints the platform's PowerShell installation hint.
+By default, the script installs ps-ai for every installed coding CLI. If none is installed, it prints the official CLI install commands and stops successfully. Install one and rerun the script. Repeated runs skip completed steps and preserve Codex hook approval.
+
+For options, use the script-block form in PowerShell. This example selects an extra Codex account:
 
 ```powershell
-git clone https://github.com/BlackGad/ps-ai-marketplace
-pwsh -NoProfile -File ps-ai-marketplace/install/install.ps1          # every installed CLI
-pwsh -NoProfile -File ps-ai-marketplace/install/install.ps1 -Tools codex -ConfigDir <account folder>   # one extra account
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools codex -ConfigDir <account folder>
 ```
 
-On Linux or macOS, `install/install.sh` does the same. The installer is safe to run again: it skips steps that are already done.
+Use `-Tools claude,codex,copilot` to choose tools, `-Source <repository or local path>` to override the marketplace source, and `-DryRun` to print the steps without changing anything. Local sources resolve to an absolute path. The default source is `BlackGad/ps-ai-marketplace`.
+
+To pin the installer, replace `<release-tag>` with a published release tag:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/<release-tag>/install.ps1))) -Tools codex
+```
+
+For optional CLI and prerequisite install hints from a local checkout, run `pwsh -NoProfile -File ./plugins/ps-ai/bin/ps-ai-install-tool.ps1 -Tool claude` (or `codex`, `copilot`, `git`, `gh`, `glab`, `az`). Add `-Yes` only after choosing to install. On Windows, that helper supports `-Method winget`, `-Method msi`, and `-Method zip`; see the [official sources and exceptions](plugins/ps-ai/skills/ps-ai-repository/references/tools.md).
 
 Manual install per tool:
 

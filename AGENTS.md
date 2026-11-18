@@ -13,7 +13,7 @@ A plugin marketplace with one plugin, `ps-ai`: orchestration as skills for Claud
 | `plugins/ps-ai/bin/` | PowerShell scripts the skills call |
 | `plugins/ps-ai/hooks/` | Session-start hooks for all three tools |
 | `plugins/ps-ai/schemas/` | JSON schemas for personalisation and project files |
-| `install/` | Installers for the three CLIs and the Windows bootstrap |
+| `install.ps1` | Standalone remote installer for the three CLIs; PowerShell 5.1 and 7 |
 | `tests/` | Test files (`*.Tests.ps1`), fakes and fixtures |
 | `tools/` | Diagnostics, such as `foundry-probe.ps1` |
 

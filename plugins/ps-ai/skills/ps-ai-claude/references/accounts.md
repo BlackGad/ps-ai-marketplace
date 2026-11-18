@@ -1,6 +1,6 @@
 # Claude Code accounts
 
-Use the plugin's existing `bin/ps-ai-account.ps1` and `install/install.ps1` with PowerShell 7. Read account IDs from personalisation, suggest `claude<n>` (the next unused number), and accept a valid custom lowercase hyphenated ID. The account script rejects duplicate IDs and command names on PATH.
+Use the plugin's existing `bin/ps-ai-account.ps1` and the marketplace's remote `install.ps1` with PowerShell 7. Read account IDs from personalisation, suggest `claude<n>` (the next unused number), and accept a valid custom lowercase hyphenated ID. The account script rejects duplicate IDs and command names on PATH.
 
 If `claude` is missing, follow [install.md](install.md) first. Continue with account setup only after the CLI is available.
 
@@ -11,7 +11,7 @@ pwsh -NoProfile -File <plugin>/bin/ps-ai-account.ps1 -Action add -Tool claude -I
 This creates a wrapper that sets `CLAUDE_CONFIG_DIR`, a config folder, and the personalisation entry. Tell the owner to run `<id>` in a terminal and log in once; never handle tokens or open credential files. Then install ps-ai for that account:
 
 ```text
-pwsh -NoProfile -File <marketplace>/install/install.ps1 -Tools claude -ConfigDir <home>/.agents/accounts/<id>
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools claude -ConfigDir <home>/.agents/accounts/<id>
 pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.agents/configuration/ps-ai-personalisation.json
 ```
 
