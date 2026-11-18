@@ -96,12 +96,7 @@ function Get-InstallTool {
 
 function Get-ConfigEnvName {
     param([string]$Tool)
-    switch ($Tool) {
-        claude { return 'CLAUDE_CONFIG_DIR' }
-        codex { return 'CODEX_HOME' }
-        copilot { return 'COPILOT_HOME' }
-        default { throw "unknown tool '$Tool'" }
-    }
+    return (Get-InstallTool -Tool $Tool).configEnv
 }
 
 function ConvertTo-InstallArgument {
@@ -112,12 +107,9 @@ function ConvertTo-InstallArgument {
 
 function Get-InstallCommands {
     param([string]$Tool, [string]$Source)
-    $null = Get-ConfigEnvName -Tool $Tool
-    $action = if ($Tool -eq 'codex') { 'add' } else { 'install' }
-    $commands = @(
-        [string[]]@($Tool, 'plugin', 'marketplace', 'add', $Source),
-        [string[]]@($Tool, 'plugin', $action, 'ps-ai@ps-ai-marketplace')
-    )
+    $entry = Get-InstallTool -Tool $Tool
+    $marketplace = @($entry.command) + @($entry.plugin.marketplaceAdd | ForEach-Object { if ($_ -ceq '{source}') { $Source } else { $_ } })
+    $commands = @([string[]]$marketplace, [string[]](@($entry.command) + $entry.plugin.install))
     return ,$commands
 }
 
@@ -161,14 +153,24 @@ function Invoke-ClosedInput {
 
 function Test-InstallStepDone {
     param([string[]]$Command, [string]$ConfigEnv, [string]$ConfigDir)
-    $list = if ($Command[2] -eq 'marketplace') { @($Command[0], 'plugin', 'marketplace', 'list') }
-    elseif ($Command[0] -eq 'claude') { @($Command[0], 'plugin', 'list', '--json') }
-    else { @($Command[0], 'plugin', 'list') }
-    $kind = if ($Command[2] -eq 'marketplace') { 'marketplace' } else { 'plugin' }
+    $entry = $script:installCatalog.tools | Where-Object command -CEQ $Command[0] | Select-Object -First 1
+    if (-not $entry) { throw "unknown tool command '$($Command[0])'" }
+    $marketplace = @($entry.command) + @($entry.plugin.marketplaceAdd | ForEach-Object { if ($_ -ceq '{source}') { '' } else { $_ } })
+    $kind = 'plugin'
+    if ($Command.Count -eq $marketplace.Count) {
+        $same = $true
+        for ($index = 0; $index -lt $Command.Count; $index++) {
+            if ($index -gt 0 -and $entry.plugin.marketplaceAdd[($index - 1)] -ceq '{source}') { continue }
+            if ($Command[$index] -cne $marketplace[$index]) { $same = $false; break }
+        }
+        if ($same) { $kind = 'marketplace' }
+    }
+    $arguments = if ($kind -eq 'marketplace') { $entry.plugin.marketplaceList } else { $entry.plugin.list }
+    $list = @($entry.command) + $arguments
     $previous = if ($ConfigEnv) { [Environment]::GetEnvironmentVariable($ConfigEnv, 'Process') } else { $null }
     try {
         if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $ConfigDir, 'Process') }
-        return Test-InstallListing -Kind $kind -Tool $Command[0] -Lines (Invoke-ClosedInput -Command $list).Output
+        return Test-InstallListing -Kind $kind -Tool $entry.id -Lines (Invoke-ClosedInput -Command $list).Output
     } finally {
         if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $previous, 'Process') }
     }
@@ -180,14 +182,19 @@ function Test-InstallListing {
     if ($Kind -eq 'marketplace') {
         return [bool](@($Lines) | Where-Object { $_ -match '(^|[\s`])ps-ai-marketplace(\s|`|"|$)' })
     }
-    if ($Tool -eq 'claude') {
+    $listing = if ($Tool) { (Get-InstallTool -Tool $Tool).plugin.listing } else { $null }
+    if ($listing -and $listing.format -eq 'json') {
         try {
             $plugins = @((($Lines -join "`n") | ConvertFrom-Json -ErrorAction Stop))
-            return [bool](@($plugins | Where-Object { $_.id -eq 'ps-ai@ps-ai-marketplace' -and $_.enabled -eq $true }).Count)
+            return [bool](@($plugins | Where-Object {
+                $_.($listing.idField) -ceq 'ps-ai@ps-ai-marketplace' -and
+                $_.($listing.enabledField) -is [bool] -and $_.($listing.enabledField)
+            }).Count)
         } catch { return $false }
     }
-    $matching = @($Lines) | Where-Object { $_ -match 'ps-ai@ps-ai-marketplace' }
-    return [bool](@($matching) | Where-Object { $_ -notmatch 'not installed|disabled' })
+    $reject = if ($listing) { $listing.rejectPattern } else { 'not installed|disabled' }
+    $matching = @($Lines) | Where-Object { $_ -match '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' }
+    return [bool](@($matching) | Where-Object { -not $reject -or $_ -notmatch $reject })
 }
 
 function Format-InstallCommand {
@@ -236,12 +243,19 @@ function Test-InstallCommandAvailable {
 function Get-InstallPowerShellCommand {
     $command = Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($command) { return $command }
-    $portable = Join-Path (Get-InstallHome) '.agents/tools/pwsh/pwsh.exe'
-    if (Test-Path -LiteralPath $portable) { return @{ Source=$portable } }
+    $portable = Get-InstallPortablePowerShell
+    if ($portable) { return @{ Source=$portable } }
     if ($env:OS -eq 'Windows_NT' -and $env:ProgramFiles) {
         $candidate = Join-Path $env:ProgramFiles 'PowerShell/7/pwsh.exe'
         if (Test-Path -LiteralPath $candidate) { return @{ Source=$candidate } }
     }
+}
+
+function Get-InstallPortablePowerShell {
+    $root = Join-Path (Get-InstallHome) '.agents/tools/pwsh'
+    $pattern = Join-Path ([WildcardPattern]::Escape($root)) $script:installCatalog.bootstrap.windows.portableCommand
+    $file = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
+    if ($file) { return $file.FullName }
 }
 
 function Get-InstallUserPath {
@@ -298,7 +312,7 @@ function Invoke-InstallDownload {
 }
 
 function Invoke-InstallWinget {
-    $result = Invoke-ClosedInput -Command @('winget', 'install', '--id', 'Microsoft.PowerShell', '-e')
+    $result = Invoke-ClosedInput -Command @('winget', 'install', '--id', $script:installCatalog.bootstrap.windows.wingetId, '-e')
     foreach ($line in $result.Output) { Write-Host $line }
     return $result.ExitCode
 }
@@ -309,10 +323,10 @@ function Install-PowerShellZip {
     $archive = Join-Path $temporary 'pwsh.zip'
     try {
         New-Item -ItemType Directory -Path $temporary -Force -ErrorAction Stop | Out-Null
-        Invoke-InstallDownload -Url 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest' -OutFile $metadata
+        $recipe = $script:installCatalog.bootstrap.windows.download.zip
+        Invoke-InstallDownload -Url $recipe.metadataUrl -OutFile $metadata
         $release = Get-Content -LiteralPath $metadata -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-        $version = $release.tag_name -replace '^v', ''
-        $asset = $release.assets | Where-Object { $_.name -eq "PowerShell-$version-win-x64.zip" } | Select-Object -First 1
+        $asset = $release.assets | Where-Object { $_.name -match $recipe.assetPattern } | Select-Object -First 1
         if (-not $asset -or $asset.digest -notmatch '^sha256:([a-fA-F0-9]{64})$') {
             throw 'PowerShell ZIP asset or SHA-256 digest is missing from the official release.'
         }
@@ -323,8 +337,10 @@ function Install-PowerShellZip {
         }
         $destination = Join-Path (Get-InstallHome) '.agents/tools/pwsh'
         Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force -ErrorAction Stop
-        if (-not (Test-Path -LiteralPath (Join-Path $destination 'pwsh.exe'))) { throw 'PowerShell ZIP does not contain pwsh.exe.' }
-        Add-InstallPowerShellPath -Path $destination
+        if (-not (Get-InstallPortablePowerShell)) { throw 'PowerShell ZIP does not contain the configured executable.' }
+        $folder = $recipe.pathFolder.Replace('{version}', [string]$release.tag_name)
+        Assert-InstallRelativePath $folder 'bootstrap ZIP pathFolder' -AllowEmpty
+        Add-InstallPowerShellPath -Path (Join-Path $destination $folder)
     } finally {
         foreach ($file in @($archive, $metadata)) {
             if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force -ErrorAction Stop }
@@ -339,9 +355,9 @@ function Ensure-InstallPowerShell {
     if ($command) {
         Write-Host 'skip: PowerShell 7 (already done)'
         # A previous portable install may be present before this shell has refreshed PATH.
-        $portable = Join-Path (Get-InstallHome) '.agents/tools/pwsh'
-        if ($OnWindows -and -not $DryRun -and $command.Source -eq (Join-Path $portable 'pwsh.exe')) {
-            Add-InstallPowerShellPath -Path $portable
+        $portable = Get-InstallPortablePowerShell
+        if ($OnWindows -and -not $DryRun -and $portable -and $command.Source -eq $portable) {
+            Add-InstallPowerShellPath -Path (Split-Path $portable -Parent)
         }
         return $true
     }
@@ -350,8 +366,8 @@ function Ensure-InstallPowerShell {
         Write-Host 'Install PowerShell 7: https://learn.microsoft.com/powershell/scripting/install/installing-powershell'
         return $false
     }
-    Write-Host 'winget install --id Microsoft.PowerShell -e'
-    Write-Host 'ZIP fallback: latest official PowerShell-<v>-win-x64.zip, verified with its SHA-256 digest, to ~/.agents/tools/pwsh/ (user and process PATH).'
+    Write-Host ('winget install --id ' + $script:installCatalog.bootstrap.windows.wingetId + ' -e')
+    Write-Host 'ZIP fallback: latest official PowerShell ZIP, verified with its SHA-256 digest, to ~/.agents/tools/pwsh/ (user and process PATH).'
     if ($DryRun) { return $false }
     if (-not $Yes -and (Read-Host 'Install PowerShell 7 now? [y/N]') -notmatch '^(?i:y|yes)$') { return $false }
     if (Test-InstallCommandAvailable -Name winget) {
@@ -381,27 +397,26 @@ function Invoke-PsAiInstaller {
     $ready = Ensure-InstallPowerShell -DryRun:$DryRun -Yes:$Yes
     if (-not $ready -and -not $DryRun) { return }
     if (-not $Tools -or $Tools.Count -eq 0) {
-        $Tools = @('claude', 'codex', 'copilot') | Where-Object { Test-InstallCommandAvailable -Name $_ }
+        $Tools = @($script:installCatalog.tools | Where-Object { Test-InstallCommandAvailable -Name $_.command } | ForEach-Object { $_.id })
     }
     if (-not $Tools -or $Tools.Count -eq 0) {
         'No coding CLI is installed. Install one, then run this script again:'
-        'irm https://claude.ai/install.ps1 | iex'
-        'npm install -g @openai/codex'
-        'npm install -g @github/copilot'
+        foreach ($entry in $script:installCatalog.tools) { if ($entry.installHint) { $entry.installHint } }
         return
     }
     $results = @()
     $Source = Resolve-InstallSource -Source $Source
     foreach ($tool in $Tools) {
-        $configEnv = Get-ConfigEnvName -Tool $tool
+        $entry = Get-InstallTool -Tool $tool
+        $configEnv = $entry.configEnv
         Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $ConfigDir -DryRun:$DryRun
         if (-not $DryRun) {
-            $version = (& $tool --version 2>$null | Select-Object -First 1)
-            $hooks = switch ($tool) { claude { 'active' } codex { 'trust once with /hooks' } copilot { 'unknown' } }
+            $version = (& $entry.command --version 2>$null | Select-Object -First 1)
+            $hooks = $entry.hooks.status
             $results += [pscustomobject]@{ Tool = $tool; Version = $version; Plugin = 'ps-ai'; Hooks = $hooks }
         }
+        if ($entry.hooks.hint) { $entry.hooks.hint }
     }
-    if ($Tools -contains 'codex') { 'Codex: approve the ps-ai hooks once with /hooks in a Codex session.' }
     if (-not $DryRun) { $results | Format-Table Tool, Version, Plugin, Hooks -AutoSize }
 }
 

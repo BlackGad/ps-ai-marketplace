@@ -450,6 +450,10 @@ Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains option
         Assert-Equal 'fourth-v42.3.1' $download.PathFolder 'First LTS retains leading v in PATH folder'
         Assert-True ($requests -contains 'https://fixture.test/v42.3.1/sums') 'Checksum URL retains leading v'
         Assert-Equal ('3' * 64) $download.Hash 'LTS checksum filename uses the same version'
+        $sources['https://fixture.test/versions'] = '[{"version":"v99.0.0","lts":false}]'
+        $message = ''
+        try { Get-ToolDownload -Tool fourth -Method zip | Out-Null } catch { $message=$_.Exception.Message }
+        Assert-Equal 'no fourth LTS release found' $message 'LTS failure names the requested tool'
         $helpers = Get-Content (Join-Path $plugin 'bin/install-tool/helpers.json') -Raw | ConvertFrom-Json
         $data.install.windows.download.msi = $helpers.pwsh.windows.download.msi
         $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath

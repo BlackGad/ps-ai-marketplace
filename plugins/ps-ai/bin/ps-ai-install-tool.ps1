@@ -161,7 +161,7 @@ function Get-ToolDownload {
         'lts-index' {
             $versions = Get-ToolSourceText -Url $recipe.metadataUrl | ConvertFrom-Json
             $version = ($versions | Where-Object lts | Select-Object -First 1).version
-            if ($version -notmatch '^v\d+\.\d+\.\d+$') { throw 'no Node LTS release found' }
+            if ($version -notmatch '^v\d+\.\d+\.\d+$') { throw "no $Tool LTS release found" }
             $name = $recipe.assetName.Replace('{version}', $version)
             $result.Url = $recipe.url.Replace('{version}', $version)
             $checksumUrl = $recipe.checksumUrl.Replace('{version}', $version)

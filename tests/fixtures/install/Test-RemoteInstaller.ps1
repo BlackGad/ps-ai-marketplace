@@ -2,6 +2,36 @@ param([string]$Installer, [string]$Repo)
 $fixtureInstaller = $Installer
 . $fixtureInstaller -NoRun
 $script:installCatalog = Get-Content (Join-Path $Repo 'tests/fixtures/install/catalog.json') -Raw | ConvertFrom-Json
+# The standalone contract also runs in the legacy fixture process.
+& {
+    $catalog = Get-InstallCatalog -Catalog $script:installCatalog
+    $fourth = Get-Content (Join-Path $Repo 'tests/fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
+    $catalog.tools += [pscustomobject]@{id='fourth';command='fourth-cli';configEnv='FOURTH_HOME';plugin=$fourth.plugin;hooks=$fourth.hooks;installHint='fixture only'}
+    $script:installCatalog = Get-InstallCatalog -Catalog $catalog
+    Assert-Equal 'fourth-cli|plugin|marketplace|add|local source' ((Get-InstallCommands fourth 'local source')[0] -join '|') 'Standalone fourth command uses catalog'
+    Assert-True (-not (Test-InstallListing -Kind plugin -Tool claude -Lines @('[{"id":"ps-ai@ps-ai-marketplace","enabled":"true"}]'))) 'Legacy JSON rejects string true'
+    function Ensure-InstallPowerShell { throw 'Invalid metadata reached bootstrap' }
+    foreach ($field in @('wingetId','portableCommand')) {
+        $bad = $catalog | ConvertTo-Json -Depth 100 | ConvertFrom-Json
+        $bad.bootstrap.windows.$field = $null
+        $message = ''
+        try { Invoke-PsAiInstaller -Catalog $bad -DryRun } catch { $message=$_.Exception.Message }
+        Assert-True ($message -match 'invalid catalog field') 'Legacy invalid bootstrap stops before action'
+    }
+}
+$script:installCatalog = Get-Content (Join-Path $Repo 'tests/fixtures/install/catalog.json') -Raw | ConvertFrom-Json
+# RootBootstrapUsesLatestZipRecipe: change id, source, pattern and layout together.
+$script:installCatalog.bootstrap.windows.wingetId = 'Example.PowerShell'
+$script:installCatalog.bootstrap.windows.portableCommand = 'bin/shell.exe'
+$script:installCatalog.bootstrap.windows.download.zip.metadataUrl = 'https://fixture.test/latest'
+$script:installCatalog.bootstrap.windows.download.zip.assetPattern = '^Shell-[\d.]+-x64\.zip$'
+$script:installCatalog.bootstrap.windows.download.zip.pathFolder = 'bin'
+& {
+    $state = @{ Command='' }
+    function Invoke-ClosedInput { param($Command) $state.Command=$Command -join '|'; return @{ExitCode=0;Output=@()} }
+    Assert-Equal 0 (Invoke-InstallWinget) 'Catalog winget command succeeds'
+    Assert-Equal 'winget|install|--id|Example.PowerShell|-e' $state.Command 'Winget id is catalog data'
+}
 $sandbox = Join-Path $Repo ('.agents/temp/restructure/remote-install-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
 $savedPath = $env:PATH
@@ -12,7 +42,7 @@ $downloaded = [Collections.Generic.List[string]]::new()
 function Get-InstallHome { $sandbox }
 function Get-InstallPowerShellCommand {
     if ($state.Present) { return @{ Source='fixture-pwsh' } }
-    $portable = Join-Path $sandbox '.agents/tools/pwsh/pwsh.exe'
+    $portable = Join-Path $sandbox '.agents/tools/pwsh/bin/shell.exe'
     if (Test-Path -LiteralPath $portable) { return @{ Source=$portable } }
 }
 function Test-InstallCommandAvailable { param($Name) $Name -eq 'winget' -and $state.Winget }
@@ -24,16 +54,16 @@ function Invoke-InstallDownload {
     param($Url, $OutFile)
     $state.Downloads++
     $downloaded.Add($OutFile)
-    if ($Url -eq 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest') {
-        @{ tag_name='v7.6.9'; assets=@(@{ name='PowerShell-7.6.9-win-x64.zip'; browser_download_url='https://fixture.test/pwsh.zip'; digest=$state.Digest }) } |
+    if ($Url -eq 'https://fixture.test/latest') {
+        @{ tag_name='v7.7.0'; assets=@(@{ name='Shell-7.7.0-x64.zip'; browser_download_url='https://fixture.test/pwsh.zip'; digest=$state.Digest }) } |
             ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $OutFile
     } elseif ($Url -eq 'https://fixture.test/pwsh.zip') { Copy-Item -LiteralPath $fixtureArchive -Destination $OutFile }
     else { throw "unexpected test download: $Url" }
 }
 try {
     $preview = @(& { $script:ready = Ensure-InstallPowerShell -OnWindows $true -DryRun } 6>&1) -join "`n"
-    Assert-True ($preview.Contains('winget install --id Microsoft.PowerShell -e')) 'Missing pwsh dry run shows winget'
-    Assert-True ($preview.Contains('win-x64.zip')) 'Missing pwsh dry run shows ZIP option'
+    Assert-True ($preview.Contains('winget install --id Example.PowerShell -e')) 'Missing pwsh dry run shows winget'
+    Assert-True ($preview.Contains('SHA-256')) 'Missing pwsh dry run shows ZIP option'
     Assert-Equal 0 $state.Downloads 'Dry run has no network'
     Assert-Equal 0 $state.Calls 'Dry run never runs winget'
     Assert-Equal 0 $state.Prompts 'Dry run never prompts'
@@ -54,8 +84,8 @@ try {
     Assert-Equal 0 $state.Downloads 'Non-Windows never downloads'
 
     $archiveFolder = Join-Path $sandbox 'archive'
-    New-Item -ItemType Directory -Path $archiveFolder | Out-Null
-    'inert fixture, never execute' | Set-Content -LiteralPath (Join-Path $archiveFolder 'pwsh.exe')
+    New-Item -ItemType Directory -Path (Join-Path $archiveFolder 'bin') -Force | Out-Null
+    'inert fixture, never execute' | Set-Content -LiteralPath (Join-Path $archiveFolder 'bin/shell.exe')
     $fixtureArchive = Join-Path $sandbox 'fixture.zip'
     Compress-Archive -Path (Join-Path $archiveFolder '*') -DestinationPath $fixtureArchive
     $state.Digest = 'sha256:' + ('0' * 64)
@@ -73,8 +103,8 @@ try {
     $null = & { $script:ready = Ensure-InstallPowerShell -OnWindows $true -Yes } 6>&1
     Assert-True $script:ready 'Failed winget falls back to verified ZIP'
     Assert-Equal 1 $state.Calls 'Winget tried once before ZIP'
-    $portableFolder = Join-Path $sandbox '.agents/tools/pwsh'
-    Assert-True (Test-Path -LiteralPath (Join-Path $portableFolder 'pwsh.exe')) 'Verified ZIP unpacks per user'
+    $portableFolder = Join-Path $sandbox '.agents/tools/pwsh/bin'
+    Assert-True (Test-Path -LiteralPath (Join-Path $portableFolder 'shell.exe')) 'Verified ZIP unpacks per user'
     Assert-True ($state.UserPath.Contains($portableFolder)) 'ZIP adds user PATH'
     Assert-True ($env:PATH.Contains($portableFolder)) 'ZIP adds process PATH'
     Assert-Equal 1 $state.Writes 'ZIP writes user PATH once'
