@@ -7,7 +7,9 @@ description: Use when the owner says continue, progress, next step, or next mile
 
 ## Identity and hard rules
 
-This planner owns the tracked workflow, not the implementation method. Activate only on the owner's request in an orchestrated repo; `PS_AI_ROLE=legion` disables this skill. Load `ps-ai-personalisation` and notes, then repository rules, `project.json`, `workflow.md`, script index, handoff, plan, and relevant spec. Use installed method skills for design, TDD, debugging, and review content when present. Dispatch agent commands through `ps-ai-claude`, `ps-ai-codex`, or `ps-ai-copilot`; legion members follow `ps-ai-legion` and its report format.
+For any agent tool operation, read `skills/ps-ai-<agent.tool>/SKILL.md` using the selected account's `agent.tool`. Stop if that tool skill is missing; do not guess commands or capabilities.
+
+This planner owns the tracked workflow, not the implementation method. Activate only on the owner's request in an orchestrated repo; `PS_AI_ROLE=legion` disables this skill. Load `ps-ai-personalisation` and notes, then repository rules, `project.json`, `workflow.md`, script index, handoff, plan, and relevant spec. Use installed method skills for design, TDD, debugging, and review content when present. Dispatch agent commands through the selected tool skill; legion members follow `ps-ai-legion` and its report format.
 
 - Take the overseer lease through `ps-ai-lease.ps1` before acting; check and release it through that script too. A live lease held here or a lease from another host means tell the owner and wait; stale local leases may be replaced. See [takeover.md](references/takeover.md).
 - Only the lease holder writes `.agents/state/handoff.md`. Once the lease is taken, write it immediately before and after every legion run, at each milestone-flow step, and before every owner question; commit each update with its stage. A launcher offer or other question before the lease is taken writes nothing. On takeover, as soon as a report is found, write `reviewing task N report` to the handoff **before** running a gate or other task action; after reviewing, write the outcome before dispatch.

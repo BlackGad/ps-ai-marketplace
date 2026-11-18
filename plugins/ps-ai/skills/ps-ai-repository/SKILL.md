@@ -7,6 +7,8 @@ description: Use when the owner asks to set up or migrate orchestration in a rep
 
 ## Identity and hard rules
 
+For any agent tool operation, read `skills/ps-ai-<agent.tool>/SKILL.md` using the selected account's `agent.tool`. Stop if that tool skill is missing; do not guess commands or capabilities.
+
 This planner creates and updates shared repository facts. Load `ps-ai-personalisation` and its notes first. Use the existing repository rules and preserve all unrelated `.agents/` contents, including `.agents/skills/` and `.agents/plugins/`.
 
 - Never overwrite an existing `.agents/` file without showing its diff. Read before editing and make the smallest change.

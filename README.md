@@ -23,33 +23,29 @@ On macOS or Linux, [install PowerShell 7](https://learn.microsoft.com/powershell
 pwsh -c "irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1 | iex"
 ```
 
-By default, the script installs ps-ai for every installed coding CLI. If none is installed, it prints the official CLI install commands and stops successfully. Install one and rerun the script. Repeated runs skip completed steps and preserve Codex hook approval.
+By default, the script installs ps-ai for every installed coding CLI. If none is installed, it prints the official CLI install commands and stops successfully. Install one and rerun the script. Repeated runs skip completed steps and preserve hook approval.
 
-For options, use the script-block form in PowerShell. This example selects an extra Codex account:
+For options, use the script-block form in PowerShell. This example selects an extra account:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools codex -ConfigDir <account folder>
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools <tool-id> -ConfigDir <account folder>
 ```
 
-Use `-Tools claude,codex,copilot` to choose tools, `-Source <repository or local path>` to override the marketplace source, and `-DryRun` to print the steps without changing anything. Local sources resolve to an absolute path. The default source is `BlackGad/ps-ai-marketplace`.
+Use `-Tools <tool-id>` (or an array of ids) to choose tools, `-Source <repository or local path>` to override the marketplace source, and `-DryRun` to print the steps without changing anything. Local sources resolve to an absolute path. The default source is `BlackGad/ps-ai-marketplace`. `-SourceRef` selects its catalog revision (default `main`); local sources must contain the generated `tools.json`. Remote dry runs read that metadata once. It does not change the marketplace source passed to the CLI.
 
 To pin the installer, replace `<release-tag>` with a published release tag:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/<release-tag>/install.ps1))) -Tools codex
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/<release-tag>/install.ps1))) -SourceRef <release-tag> -Tools <tool-id>
 ```
 
-For optional CLI and prerequisite install hints from a local checkout, run `pwsh -NoProfile -File ./plugins/ps-ai/bin/ps-ai-install-tool.ps1 -Tool claude` (or `codex`, `copilot`, `git`, `gh`, `glab`, `az`). Add `-Yes` only after choosing to install. On Windows, that helper supports `-Method winget`, `-Method msi`, and `-Method zip`; see the [official sources and exceptions](plugins/ps-ai/skills/ps-ai-repository/references/tools.md).
+For optional prerequisite hints, use `pwsh -NoProfile -File ./plugins/ps-ai/bin/ps-ai-install-tool.ps1 -Tool <helper-id>`. Add `-Yes` only after choosing to install. See [repository helper sources and approval policy](plugins/ps-ai/skills/ps-ai-repository/references/tools.md).
 
-Manual install per tool:
+Use the dedicated tool guides for CLI installation, account setup, plugin commands, and provider limitations:
 
-| Tool | Commands |
-| --- | --- |
-| Claude Code | `claude plugin marketplace add BlackGad/ps-ai-marketplace`, then `claude plugin install ps-ai@ps-ai-marketplace` |
-| Codex CLI | `codex plugin marketplace add BlackGad/ps-ai-marketplace`, then `codex plugin add ps-ai@ps-ai-marketplace` |
-| Copilot CLI | `copilot plugin marketplace add BlackGad/ps-ai-marketplace`, then `copilot plugin install ps-ai@ps-ai-marketplace` |
-
-**Codex:** plugin hooks run only after you trust them once. Start `codex` and run `/hooks`.
+- Claude Code: [installation](plugins/ps-ai/skills/ps-ai-claude/references/install.md), [accounts](plugins/ps-ai/skills/ps-ai-claude/references/accounts.md), [plugins and hooks](plugins/ps-ai/skills/ps-ai-claude/references/plugins.md).
+- Codex CLI: [installation](plugins/ps-ai/skills/ps-ai-codex/references/install.md), [accounts](plugins/ps-ai/skills/ps-ai-codex/references/accounts.md), [plugins and hook trust](plugins/ps-ai/skills/ps-ai-codex/references/plugins.md).
+- Copilot CLI: [installation and plugin commands](plugins/ps-ai/skills/ps-ai-copilot/references/install.md), [accounts](plugins/ps-ai/skills/ps-ai-copilot/references/accounts.md).
 
 ## First run
 
@@ -62,7 +58,7 @@ Then, in a repository, ask it to set up orchestration. `ps-ai-repository` create
 
 To open an overseer session with all your launch flags (for example a Telegram channel), run `ps-ai-overseer` in a terminal, or say "continue" in a session and accept the offer.
 
-Foundry agents use one Azure endpoint per agent, such as `https://<resource>.cognitiveservices.azure.com`, and the owner's `az` login. Ask the matching tool skill to add an agent or "update models for <id>". It runs `ps-ai-account.ps1` with `-Action add -Tool <tool> -Id <id> -Provider foundry -Endpoint <url> -List` for add, or `-Action models -Id <id> -List` for updates, presents the deployments, and asks before saving `-Deployments`, `-Default`, and any Claude `-Aliases`. Copilot supports Claude deployments only, with a fixed token and an expiry notice; restart with `<id> --resume`. Codex is **not yet proven against Foundry**. Use [tools/foundry-probe.ps1](tools/foundry-probe.ps1) when an endpoint does not work.
+Foundry agents use one Azure endpoint per agent, such as `https://<resource>.cognitiveservices.azure.com`, and the owner's `az` login. Use the matching account guide linked above to add an agent or ask "update models for <id>". Discovery presents deployments before the owner chooses what to save. Use [tools/foundry-probe.ps1](tools/foundry-probe.ps1) when an endpoint does not work.
 
 ## Modes
 
@@ -109,7 +105,6 @@ ps-ai decides who does the work, where, and where the record lives. How one piec
 
 ```powershell
 pwsh -NoProfile -File tests/run.ps1
-claude plugin validate .
 ```
 
 License: [MIT](LICENSE).

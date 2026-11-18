@@ -54,3 +54,5 @@ Show `new`, `gone`, and `kept`. With `source: none`, existing names remain `kept
 An identical result prints `skip: models <id> (no changes)` and writes nothing. Validate personalisation and install ps-ai into the account config folder with the commands above.
 
 Launch `<id>`. The wrapper sets `COPILOT_HOME` and points `COPILOT_PROVIDERS_CONFIG` to a per-launch file under `~/.agents/temp/`. It holds a **fixed bearer token** and is deleted in `finally` when Copilot exits, including an error exit. Never read or log it. The runner prints `token valid until HH:mm; after that restart with: <id> --resume` in local time. The token does not refresh during that run. After expiry, exit and restart with `<id> --resume` in the same folder to obtain a fresh token. A missing CLI stops with `copilot is not installed; run ps-ai-install-tool.ps1 -Tool copilot`.
+
+Account selection and launch-field examples are in [launcher.md](launcher.md). The base `copilot` executable may be the `command` for a separately named account such as `agent-a`; account ids must not shadow commands on PATH.

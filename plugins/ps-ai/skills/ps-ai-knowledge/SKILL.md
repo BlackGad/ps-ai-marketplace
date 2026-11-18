@@ -7,6 +7,8 @@ description: Use when overseer research begins, two attempts fail, a failure loo
 
 ## Identity and hard rules
 
+For any agent tool operation, read `skills/ps-ai-<agent.tool>/SKILL.md` using the selected account's `agent.tool`. Stop if that tool skill is missing; do not guess commands or capabilities.
+
 Use this planner to decide when to consult or file durable, cross-project lessons. Load `ps-ai-personalisation` and its notes first. Read `knowledge.backend` and the project's neutral `label`; when backend is `none`, skip silently. The hub is `~/.agents/knowledge/` unless the owner's configured wiki location resolves elsewhere.
 
 - Consult at research before planning, after two failed attempts at one problem, or when a failure looks familiar.

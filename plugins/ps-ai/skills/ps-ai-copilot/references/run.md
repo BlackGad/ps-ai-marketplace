@@ -11,3 +11,5 @@ For implementation legion work, set `PS_AI_ROLE=legion` and `PS_AI_TASK=<prompt 
 For a **read-only reviewer** append `--allow-all-tools --deny-tool=write --deny-tool=shell`. Give the frozen repo path and report instructions in the prompt; capture stdout as the report because write is denied. Do not set legion mode for a reviewer. If the CLI cannot enforce the denials, stop rather than run the review.
 
 For a legion follow-up after a question, use `--resume=<session-id> -p "<follow-up>" -s --allow-all-tools --deny-tool='shell(git push)'` on the same account and folder. Use the latest-session shortcut only when certain it is the task session. Keep the task environment for legion resumes. Reviewer follow-ups keep the read-only denials above.
+
+For interactive overseer launches with account/channel/project flags, use [launcher.md](launcher.md). Install and account login steps stay in [accounts.md](accounts.md).

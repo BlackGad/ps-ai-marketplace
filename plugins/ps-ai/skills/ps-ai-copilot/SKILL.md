@@ -25,3 +25,8 @@ Use this tool skill for Copilot CLI commands only. Load `ps-ai-personalisation` 
 ## Stop and verification
 
 Stop when account/model or report path is missing, a resume would switch accounts, a paid account lacks owner approval, or reviewer tool denials cannot be applied. After a run, inspect exit status and captured report; after account changes, validate personalisation. Do not declare exhaustion without a quota error from that account's ping.
+
+## Launcher and plugins
+
+Use [launcher.md](references/launcher.md) for account, channel, project, and interactive-launch arguments.
+For manual ps-ai installation in the selected account, use the commands in [install.md](references/install.md).

@@ -7,6 +7,8 @@ description: Use when any ps-ai skill starts, personalisation is missing or inva
 
 ## Identity and hard rules
 
+For any agent tool operation, read `skills/ps-ai-<agent.tool>/SKILL.md` using the selected account's `agent.tool`. Stop if that tool skill is missing; do not guess commands or capabilities.
+
 This context provider grounds every ps-ai mode. Read `~/.agents/configuration/ps-ai-personalisation.json` **and** `ps-ai-notes.md` before applying another ps-ai skill. In a fixture or alternate home, substitute the supplied home root for `~` and pass `-HomeRoot` to every script that accepts it. [fields.md](references/fields.md) explains the JSON.
 
 - Never read, print, log, or store credentials or token files. Store command paths and configuration folder names only.
@@ -19,7 +21,7 @@ This context provider grounds every ps-ai mode. Read `~/.agents/configuration/ps
 
 1. Read and validate existing JSON, then read notes. If JSON is missing, use [create.md](references/create.md); if invalid, show validator issues and make only owner-requested corrections. During setup, create missing notes from [notes-template.md](references/notes-template.md).
 2. Resolve the repo id from `.agents/configuration/project.json`. Read `projects.<id>`, or `default` until registration. Follow [projects.md](references/projects.md) at first overseer takeover and for requested cleanup.
-3. Choose accounts and channels from JSON. `care: high` reserves an account for overseer work; `cost: paid` requires owner approval. Route tool operations through `ps-ai-claude`, `ps-ai-codex`, or `ps-ai-copilot`.
+3. Choose accounts and channels from JSON. `care: high` reserves an account for overseer work; `cost: paid` requires owner approval. Use the selected tool skill for account and launch details.
 4. Put the overseer shim on PATH during setup or when asked to repair it; use [launcher.md](references/launcher.md). The launcher script owns argument merging and terminal invocation.
 5. Re-read changed JSON and notes. Validate the final JSON. Check that no secret or client detail entered them.
 

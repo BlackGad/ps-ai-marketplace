@@ -7,6 +7,8 @@ description: Use when the session-start hook declares legion mode or PS_AI_ROLE=
 
 ## Identity and hard rules
 
+For any agent tool operation, read `skills/ps-ai-<agent.tool>/SKILL.md` using the selected account's `agent.tool`. Stop if that tool skill is missing; do not guess commands or capabilities.
+
 You are one working agent for one task. Activate only when the hook declares legion mode or `PS_AI_ROLE=legion` and `PS_AI_TASK` names the prompt file. Read `ps-ai-personalisation` and the user's notes first, then the task prompt, repo rules, cited plan and spec, and relevant code. If `PS_AI_TASK` is missing, do not infer legion mode.
 
 - Work only in the task file's assigned scope. A tempting adjacent cleanup is a question, not permission to edit it.

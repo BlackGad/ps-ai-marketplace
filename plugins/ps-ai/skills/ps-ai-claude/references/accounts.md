@@ -54,3 +54,5 @@ Show `new`, `gone`, and `kept`. `source: none` keeps existing deployments as `ke
 `models` replaces the full deployment list. Omit `-Aliases` to keep aliases for retained names; pass `-Aliases @()` to clear them. An unchanged result prints `skip: models <id> (no changes)` and writes nothing. Validate personalisation after a write with the command above. Install ps-ai into this account's config folder with the installer command above.
 
 Launch `<id>` in a terminal. The wrapper uses `CLAUDE_CONFIG_DIR`, the Foundry endpoint, default, and alias variables. Claude uses its own Azure token refresh. Use `/model` to select a configured deployment; an alias can be passed as `--model sonnet` when mapped. Keep the same agent and endpoint when resuming. A missing CLI stops with `claude is not installed; run ps-ai-install-tool.ps1 -Tool claude`.
+
+Account selection and launch-field examples are in [launcher.md](launcher.md). The base `claude` executable may be the `command` for a separately named account such as `agent-a`; account ids must not shadow commands on PATH.

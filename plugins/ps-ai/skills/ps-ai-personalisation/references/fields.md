@@ -14,20 +14,20 @@
 | `channels.<name>.target` | Nonsecret destination: `123456789`. |
 | `channels.<name>.format` | Message format: `markdownv2`. |
 | `channels.<name>.tone` | Tone: `business`. |
-| `channels.<name>.launch` | Flags by tool: `{"claude":["--channels","plugin:telegram@claude-plugins-official"]}`. |
+| `channels.<name>.launch` | Flags by tool: `{"<tool-id>":["<channel-argument>","<channel-value>"]}`. |
 | `agents` | CLI accounts; `[]` before registration. |
-| `agents[].id` | Unique lowercase hyphenated id: `codex-a`. |
-| `agents[].tool` | `claude`, `codex`, or `copilot`. |
-| `agents[].command` | Executable or wrapper: `~/bin/codex-a`. |
-| `agents[].configDir` | Account folder or `default`: `~/.codex`. |
+| `agents[].id` | Unique lowercase hyphenated id: `agent-a`. |
+| `agents[].tool` | Tool descriptor id: `<tool-id>`; use its tool skill. |
+| `agents[].command` | Executable or wrapper: `~/.agents/bin/agent-a`. |
+| `agents[].configDir` | Account folder or `default`: `~/.agents/accounts/agent-a`. |
 | `agents[].roles` | `overseer`, `legion`, `reviewer`, `mechanical`: `["legion","reviewer"]`. |
 | `agents[].care` | Optional `high`: spend carefully, on overseer work. |
 | `agents[].cost` | Optional `paid`: ask before use. |
 | `agents[].models` | Optional per-role model: `{"legion":"preferred-model"}`; keys are the four roles. |
-| `agents[].launch.args` | Account launch flags: `["--verbose"]`. |
+| `agents[].launch.args` | Account launch flags: `["<argument>"]`. |
 | `routing` | Preferred account ids by job. |
-| `routing.implement` | Implementation order: `["codex-a"]`. |
-| `routing.review` | Reviewer order: `["claude-b"]`. |
+| `routing.implement` | Implementation order: `["agent-a"]`. |
+| `routing.review` | Reviewer order: `["agent-b"]`. |
 | `routing.mechanical` | Mechanical order: `[]`. |
 | `routing.neverModels` | Excluded model names: `["model-to-avoid"]`. |
 | `routing.rules` | Personal routing notes: `["reserve strongest model for milestone review"]`. |
@@ -36,7 +36,7 @@
 | `projects` | Settings keyed by repo id, not path: `{"my-project":{"label":"project","notify":[]}}`. |
 | `projects.<id>.label` | Neutral wiki label, never a client name. |
 | `projects.<id>.notify` | Channel names from `communication.channels`: `[]`. |
-| `projects.<id>.launch` | Project launch flags by tool: `{"claude":["--verbose"]}`. |
+| `projects.<id>.launch` | Project launch flags by tool: `{"<tool-id>":["<argument>"]}`. |
 | `projects.<id>.routing` | Optional override using the routing keys above. |
 | `default.notify` | Channels for unregistered projects: `[]`. |
 
@@ -50,10 +50,10 @@ Do not guess model names. Routing entries must refer to defined account IDs; the
 {
   "kind": "foundry",
   "endpoint": "https://<resource>.cognitiveservices.azure.com",
-  "default": "claude-opus-x",
+  "default": "deployment-a",
   "deployments": [
-    { "name": "claude-opus-x", "model": "claude-opus-x", "alias": "opus" },
-    { "name": "claude-sonnet-x", "model": "claude-sonnet-x", "alias": "sonnet" }
+    { "name": "deployment-a", "model": "deployment-a" },
+    { "name": "deployment-b", "model": "deployment-b" }
   ]
 }
 ```
@@ -65,8 +65,8 @@ Do not guess model names. Routing entries must refer to defined account IDs; the
 | `default` | Required. Must match a selected deployment name. |
 | `deployments` | Required, nonempty array. Each `name` is required and unique. |
 | `deployments[].model` | Optional model name. Discovery fills it when known; updates retain a known value if discovery has none. |
-| `deployments[].alias` | Optional, Claude agents only: `opus`, `sonnet`, `haiku`, or `fable`. Each alias can occur once. |
+| `deployments[].alias` | Optional; accepted values come from the selected tool descriptor. Each alias can occur once. |
 
-No other provider or deployment fields are accepted. Discovery filters model names to `claude` for Claude and Copilot, or `gpt` for Codex. Copilot GPT is out of scope; Codex is **not yet proven against Foundry**. Copilot stores `default` but its runner does not select that model at launch.
+No other provider or deployment fields are accepted. The selected tool descriptor and its accounts reference own discovery filters, alias support, provider limitations, and launch behavior.
 
-Use the matching tool skill's `references/accounts.md` for add or "update models for <id>". First run `ps-ai-account.ps1 -Action add -Tool <tool> -Id <id> -Provider foundry -Endpoint <url> -List` or `ps-ai-account.ps1 -Action models -Id <id> -List`. Present `new`, `gone`, and `kept`, then ask which deployments, default, and any Claude aliases to save. Wait for the owner's answer before running without `-List`. The write uses `-Deployments`, `-Default`, and optional `-Aliases`; `models` replaces the complete deployment list. Validate personalisation after writing. Never put a token or key in this block.
+Use the matching tool skill's `references/accounts.md` for add or "update models for <id>". First run `ps-ai-account.ps1 -Action add -Tool <tool-id> -Id <id> -Provider foundry -Endpoint <url> -List` or `ps-ai-account.ps1 -Action models -Id <id> -List`. Present `new`, `gone`, and `kept`, then ask which deployments, default, and any supported aliases to save. Wait for the owner's answer before running without `-List`. The write uses `-Deployments`, `-Default`, and optional `-Aliases`; `models` replaces the complete deployment list. Validate personalisation after writing. Never put a token or key in this block.

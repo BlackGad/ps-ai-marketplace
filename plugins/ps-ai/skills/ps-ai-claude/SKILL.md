@@ -18,10 +18,15 @@ Use this tool skill for Claude Code commands only. Load `ps-ai-personalisation` 
 ## Operations
 
 1. **Run or resume:** read [run.md](references/run.md). Print mode takes the task prompt on stdin and writes its response to the report path. Keep the task environment on that process only.
-2. **Limits:** read [limits.md](references/limits.md). Use a short Haiku ping and interpret the `rate_limit_event` windows.
+2. **Limits:** read [limits.md](references/limits.md). Ping the selected account before interpreting its limits.
 3. **Accounts:** read [accounts.md](references/accounts.md). Add, register, rename, or remove via `ps-ai-account.ps1`; use the installer only after the owner's login step for a new account.
 4. **Missing CLI:** follow [install.md](references/install.md) before adding an account or running Claude Code.
 
 ## Stop and verification
 
 Stop and report when the account is missing from personalisation, the task prompt or report path is unknown, or a resume would switch accounts. After a run, check its exit status and report file; after an account change, validate personalisation. Do not claim exhaustion without a ping result.
+
+## Launcher and plugins
+
+Use [launcher.md](references/launcher.md) for account, channel, project, and interactive-launch arguments.
+Use [plugins.md](references/plugins.md) for manual plugin commands and optional wiki hints.

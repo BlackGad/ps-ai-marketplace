@@ -12,16 +12,21 @@ Use this tool skill for Codex CLI commands only. Load `ps-ai-personalisation` an
 - Set `PS_AI_ROLE=legion` and `PS_AI_TASK=<prompt path>` for a legion run only. Never set them for an interactive session.
 - Resume only on the same account and in the same repository folder. Never read credential files.
 - Ping before declaring an account out of credit; report an absent rate-limit record as unknown.
-- Use `--dangerously-bypass-approvals-and-sandbox` only when the repository's configuration expressly allows no sandbox; otherwise keep Codex's default sandbox.
+- Keep the configured sandbox and approval boundaries; see [run.md](references/run.md) before changing them.
 - Launch long work in the background and wait for completion rather than polling logs. Capture exit status and report.
 
 ## Operations
 
-1. **Run or resume:** use [run.md](references/run.md) for `exec`, report output, and `exec resume --last`.
-2. **Limits:** use [limits.md](references/limits.md) for a short ping and the selected account's newest session `rate_limits`.
+1. **Run or resume:** use [run.md](references/run.md) for task invocation, report output, and same-account resume.
+2. **Limits:** use [limits.md](references/limits.md) for a short ping and the selected account's limit records.
 3. **Accounts:** use [accounts.md](references/accounts.md) for `ps-ai-account.ps1`, `CODEX_HOME`, owner login, installation, and validation.
 4. **Missing CLI:** follow [install.md](references/install.md) before adding an account or running Codex CLI.
 
 ## Stop and verification
 
 Stop and report when the account or model is unconfigured, prompt/report path is missing, a resume would use another account, or bypass permission is unclear. Verify exit status and report after a run, and validate personalisation after account changes. Do not claim exhaustion without a ping result.
+
+## Launcher and plugins
+
+Use [launcher.md](references/launcher.md) for account, channel, project, and interactive-launch arguments.
+Use [plugins.md](references/plugins.md) for manual plugin commands and optional wiki hints.
