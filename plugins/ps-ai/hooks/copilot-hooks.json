@@ -4,8 +4,8 @@
     "sessionStart": [
       {
         "type": "command",
-        "powershell": "pwsh -NoProfile -File \"$env:COPILOT_PLUGIN_ROOT/hooks/detect-mode.ps1\" -Format copilot-json",
-        "bash": "pwsh -NoProfile -File \"$COPILOT_PLUGIN_ROOT/hooks/detect-mode.ps1\" -Format copilot-json",
+        "powershell": "pwsh -NoProfile -File \"$env:COPILOT_PLUGIN_ROOT/hooks/detect-mode.ps1\" -Format context-json",
+        "bash": "pwsh -NoProfile -File \"$COPILOT_PLUGIN_ROOT/hooks/detect-mode.ps1\" -Format context-json",
         "timeoutSec": 10
       }
     ]

@@ -28,3 +28,11 @@ Get-ChildItem (Join-Path $root 'plugins/ps-ai/skills') -Directory | ForEach-Obje
     Assert-True ($frontmatter -match "(?m)^name:\s*$([regex]::Escape($_.Name))\s*$") "Skill name $($_.Name)"
     Assert-True ($frontmatter -match '(?m)^description:\s*Use when') "Skill description $($_.Name)"
 }
+
+# NeutralHookFormatAndManifestPaths: both native invocations retain their required root.
+$neutralHooks = Get-Content -Raw (Join-Path $root 'plugins/ps-ai/hooks/copilot-hooks.json') | ConvertFrom-Json
+$sessionHook = $neutralHooks.hooks.sessionStart[0]
+Assert-Equal 'pwsh -NoProfile -File "$env:COPILOT_PLUGIN_ROOT/hooks/detect-mode.ps1" -Format context-json' $sessionHook.powershell 'PowerShell hook uses neutral context format'
+Assert-Equal 'pwsh -NoProfile -File "$COPILOT_PLUGIN_ROOT/hooks/detect-mode.ps1" -Format context-json' $sessionHook.bash 'Bash hook uses neutral context format'
+$sharedHooks = Get-Content -Raw (Join-Path $root 'plugins/ps-ai/hooks/hooks.json') | ConvertFrom-Json
+Assert-True ([bool]$sharedHooks.hooks.SessionStart) 'Shared hook stays at required path'

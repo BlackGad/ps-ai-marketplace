@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('text', 'copilot-json')][string]$Format = 'text',
+    [ValidateSet('text', 'context-json')][string]$Format = 'text',
     [string]$Repo = (Get-Location).Path,
     [hashtable]$Environment,
     [switch]$NoRun
@@ -74,13 +74,13 @@ if (-not $NoRun) {
             if ($hookCwd -and (Test-Path -LiteralPath $hookCwd)) { $Repo = $hookCwd }
         }
         $mode = Get-PsAiMode -Repo $Repo -Environment $Environment
-        if ($Format -eq 'copilot-json') {
+        if ($Format -eq 'context-json') {
             if ($mode.Text) { @{ additionalContext = $mode.Text } | ConvertTo-Json -Compress }
             else { '{}' }
         } elseif ($mode.Text) { $mode.Text }
     } catch {
         $warning = 'ps-ai: mode detection failed; continuing without mode context.'
-        if ($Format -eq 'copilot-json') { @{ additionalContext = $warning } | ConvertTo-Json -Compress }
+        if ($Format -eq 'context-json') { @{ additionalContext = $warning } | ConvertTo-Json -Compress }
         else { $warning }
     }
 }

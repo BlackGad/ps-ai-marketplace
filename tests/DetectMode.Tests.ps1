@@ -1,6 +1,6 @@
 $root = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $root 'plugins/ps-ai/hooks/detect-mode.ps1'
-$tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path $root ('.agents/temp/restructure/hook-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
     $fixtureRepo = Join-Path $tempRoot 'repo'
@@ -30,7 +30,7 @@ try {
     Assert-Equal 'orchestrated' $mode.Mode 'Session started in a subfolder finds the repo root'
     Assert-Equal $fixtureRepo (Get-PsAiHookCwd -InputText ('{"cwd":' + ($fixtureRepo | ConvertTo-Json) + '}')) 'Hook stdin cwd'
     Assert-Equal $null (Get-PsAiHookCwd -InputText 'not json') 'Hook stdin that is not JSON is ignored'
-    $hookOutput = '{"cwd":' + ($fixtureRepo | ConvertTo-Json) + '}' | pwsh -NoProfile -File $script -Format copilot-json
+    $hookOutput = '{"cwd":' + ($fixtureRepo | ConvertTo-Json) + '}' | pwsh -NoProfile -File $script -Format context-json
     Assert-True ($hookOutput -match 'M1; task 2 of 4') 'Hook run from another folder uses the stdin cwd'
     $hostName = [System.Net.Dns]::GetHostName()
     @{tool='codex'; account='codex-a'; pid=$PID; host=$hostName; startedAt='2026-11-18T10:00:00Z'} |
@@ -60,16 +60,29 @@ try {
     [System.IO.File]::SetLastWriteTimeUtc($lease, [DateTime]::UtcNow.AddMinutes(-5))
     $mode = Get-PsAiMode -Repo $fixtureRepo -Environment @{}
     Assert-Equal 'stale' $mode.Lease 'Old corrupt lease is stale'
-    $json = & pwsh -NoProfile -File $script -Repo $fixtureRepo -Format copilot-json | ConvertFrom-Json
+    $json = & pwsh -NoProfile -File $script -Repo $fixtureRepo -Format context-json | ConvertFrom-Json
     Assert-Equal 0 $LASTEXITCODE 'Corrupt lease never fails hook'
-    Assert-Equal $mode.Text $json.additionalContext 'Copilot context equals text'
+    Assert-Equal $mode.Text $json.additionalContext 'Neutral context equals text'
+    $copy = Join-Path $tempRoot 'plugin'
+    New-Item -ItemType Directory (Join-Path $copy 'hooks'), (Join-Path $copy 'bin') -Force | Out-Null
+    Copy-Item -LiteralPath $script -Destination (Join-Path $copy 'hooks/detect-mode.ps1')
+    'function Get-PsAiLease { throw "fixture lease read failure" }' | Set-Content (Join-Path $copy 'bin/PsAi.Common.ps1')
+    $failedHook = Join-Path $copy 'hooks/detect-mode.ps1'
+    $warning = 'ps-ai: mode detection failed; continuing without mode context.'
+    Assert-Equal $warning (& pwsh -NoProfile -File $failedHook -Repo $fixtureRepo -Format text) 'Text hook fails open'
+    Assert-Equal 0 $LASTEXITCODE 'Text hook failure exits zero'
+    $failedJson = & pwsh -NoProfile -File $failedHook -Repo $fixtureRepo -Format context-json | ConvertFrom-Json
+    Assert-Equal $warning $failedJson.additionalContext 'JSON hook fails open with same warning'
+    Assert-Equal 0 $LASTEXITCODE 'JSON hook failure exits zero'
     Remove-Item $handoff
     $mode = Get-PsAiMode -Repo $fixtureRepo -Environment @{}
     Assert-Equal 'none' $mode.Mode 'No handoff is none'
     Assert-Equal '' $mode.Text 'No handoff has empty text'
-    $json = & pwsh -NoProfile -File $script -Repo $fixtureRepo -Format copilot-json
-    Assert-Equal '{}' $json 'Copilot none emits empty object'
+    $json = & pwsh -NoProfile -File $script -Repo $fixtureRepo -Format context-json
+    Assert-Equal '{}' $json 'Neutral none emits empty object'
 } finally {
+    $allowed = [IO.Path]::GetFullPath((Join-Path $root '.agents/temp/restructure')) + [IO.Path]::DirectorySeparatorChar
+    if (-not ([IO.Path]::GetFullPath($tempRoot)).StartsWith($allowed)) { throw 'unsafe hook fixture cleanup' }
     Remove-Item -LiteralPath $tempRoot -Recurse -Force
 }
 
