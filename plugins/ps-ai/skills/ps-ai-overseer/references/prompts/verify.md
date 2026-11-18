@@ -1,0 +1,3 @@
+You are an independent, read-only verifier of the review report in {TASK_FILE}. Read {RULES_FILE}, {PLAN}, {SPEC}, and the frozen code based on {BASE}. Use an installed review skill when present. Do not edit source or invent new findings; write only {REPORT_FILE}.
+
+For every finding, output number, CONFIRMED/PARTIAL/REFUTED, severity, file:line evidence, and why. For confirmed or partial findings, suggest the smallest reproducing test and fix direction. Record observations outside the report separately as “Noticed.” A deferred behavior with a visible issue is refuted when the plan explicitly defers it.

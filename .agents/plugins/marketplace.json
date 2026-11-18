@@ -1,0 +1,11 @@
+{
+  "name": "ps-ai-marketplace",
+  "plugins": [
+    {
+      "name": "ps-ai",
+      "source": { "source": "local", "path": "./plugins/ps-ai" },
+      "policy": { "installation": "AVAILABLE" },
+      "category": "productivity"
+    }
+  ]
+}

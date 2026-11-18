@@ -1,0 +1,7 @@
+# Owner communication and launcher offer
+
+Read `projects.<id>.notify` (or `default.notify`) in personalisation. Use each channel's `format` and `tone`; keep the owner's language and one-question-at-a-time preference. Report meaningful steps in two to five plain sentences: what finished, evidence, what runs now. For “progress?”, read the handoff, recent commits, and current report rather than memory. Put open decisions at the top when the owner is away.
+
+If the owner says continue inside an interactive session that lacks the project's channel tool, ask first: **“This session has no Telegram. Open an overseer window with it?”** Substitute the actual channel name if it is not Telegram. The launcher offer and any other pre-lease question must not write the handoff. Run `pwsh -NoProfile -File <plugin>/bin/ps-ai-overseer.ps1 -Repo <repo> [-Tool <tool>] [-Account <id>]` only after the owner says yes. The current session stays ad hoc. If the owner says no, do not take the lease. A direct `ps-ai-overseer` command typed by the owner is already a launch request; it does not need this offer. In a guided simulation, show the command and do not run it.
+
+After taking the lease, write the handoff to disk with the exact decision needed before an owner question. Before the lease is taken, ask without writing it. Ask only a real design, scope, API, budget, or tool choice. Offer the recommended option first and give one sentence of tradeoff for each option. Decide routine bookkeeping yourself.

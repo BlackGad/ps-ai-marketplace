@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "claude", "command": "claude", "configEnv": "CLAUDE_CONFIG_DIR",
+  "foundry": {"deploymentPrefix": "claude", "aliases": ["opus", "sonnet", "haiku", "fable"]},
+  "overseerArgs": [],
+  "plugin": {
+    "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
+    "install": ["plugin", "install", "ps-ai@ps-ai-marketplace"],
+    "marketplaceList": ["plugin", "marketplace", "list"],
+    "list": ["plugin", "list", "--json"],
+    "listing": {"format": "json", "idField": "id", "enabledField": "enabled"}
+  },
+  "hooks": {"status": "active", "hint": ""},
+  "install": {
+    "check": ["claude", "--version"], "hint": "irm https://claude.ai/install.ps1 | iex",
+    "windows": {
+      "wingetId": "Anthropic.ClaudeCode", "portableCommand": "claude.exe",
+      "download": {
+        "msi": {"kind": "script", "url": "https://claude.ai/install.ps1", "verification": "vendor"},
+        "zip": {"kind": "script", "url": "https://claude.ai/install.ps1", "verification": "vendor"}
+      }
+    },
+    "macos": {"needs": [], "commands": [["bash", "-c", "curl -fsSL https://claude.ai/install.sh | bash"]], "docs": ""},
+    "linux": {"needs": [], "commands": [["bash", "-c", "curl -fsSL https://claude.ai/install.sh | bash"]], "docs": ""}
+  }
+}

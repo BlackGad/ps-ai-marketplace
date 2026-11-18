@@ -1,0 +1,7 @@
+{
+  "name": "ps-ai-marketplace",
+  "owner": { "name": "BlackGad" },
+  "plugins": [
+    { "name": "ps-ai", "source": "./plugins/ps-ai" }
+  ]
+}
