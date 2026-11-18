@@ -1,16 +1,15 @@
 param($Agent, [string]$HomeRoot)
 
-. (Join-Path $PSScriptRoot '../../../bin/PsAi.Tools.ps1')
-
 $folder = [string]$Agent.configDir
 if ($folder.StartsWith('~/')) { $folder = Join-Path $HomeRoot $folder.Substring(2) }
 $path = Join-Path $folder 'settings.json'
 $settings = [ordered]@{}
 if (Test-Path -LiteralPath $path) {
     try {
-        $existing = ConvertFrom-PsAiToolJson -Json ([IO.File]::ReadAllText($path))
-        if ($existing -isnot [pscustomobject]) { throw 'not an object' }
-        foreach ($property in $existing.PSObject.Properties) { $settings[$property.Name] = $property.Value }
+        $jsonOptions = @{}
+        if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $jsonOptions.DateKind = 'String' }
+        $settings = [IO.File]::ReadAllText($path) | ConvertFrom-Json -AsHashtable -NoEnumerate @jsonOptions -ErrorAction Stop
+        if ($settings -isnot [Collections.IDictionary]) { throw 'not an object' }
     } catch { throw 'settings.json is not valid JSON; fix or remove it' }
 }
 $settings['modelPicker'] = [ordered]@{

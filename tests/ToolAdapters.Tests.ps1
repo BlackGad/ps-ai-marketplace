@@ -141,6 +141,35 @@
                 Assert-Equal $beforeTime ([IO.File]::GetLastWriteTimeUtc($configFile)) "$adapterId repeat preserves mtime"
             }
         }
+        # User settings allow case-distinct keys, comments and trailing commas.
+        foreach ($syntax in @('json', 'comments-and-trailing-commas')) {
+            $settingsDir = Join-Path $configRoot $syntax
+            New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null
+            $settingsFile = Join-Path $settingsDir 'settings.json'
+            $seed = '{"custom":"lower-root","Custom":"upper-root","env":{"http_proxy":"lower-proxy","HTTP_PROXY":"upper-proxy"}}'
+            if ($syntax -eq 'comments-and-trailing-commas') {
+                $seed = "// owner note`n" + $seed.Replace('"env":', '/* proxy settings */ "env":').Replace('}}', ',},}')
+            }
+            [IO.File]::WriteAllText($settingsFile, $seed)
+            $settingsAgent = @{ tool='claude'; configDir=$settingsDir; provider=$configProvider }
+            $writer = Join-Path $skillRoot 'ps-ai-claude/scripts/foundry-config.ps1'
+            $result = & $writer -Agent $settingsAgent -HomeRoot $configRoot
+            Assert-Equal $true $result.Changed "$syntax settings receive model picker"
+            $bytes = [IO.File]::ReadAllBytes($settingsFile)
+            $settings = [IO.File]::ReadAllText($settingsFile) | ConvertFrom-Json -AsHashtable
+            Assert-Equal 'lower-root' $settings['custom'] "$syntax preserves lowercase root key"
+            Assert-Equal 'upper-root' $settings['Custom'] "$syntax preserves uppercase root key"
+            Assert-Equal 'lower-proxy' $settings.env['http_proxy'] "$syntax preserves lowercase nested key"
+            Assert-Equal 'upper-proxy' $settings.env['HTTP_PROXY'] "$syntax preserves uppercase nested key"
+            Assert-Equal 'deployment-a|deployment-b' ($settings.modelPicker.options.model -join '|') "$syntax updates model picker"
+            [IO.File]::SetLastWriteTimeUtc($settingsFile, [datetime]'2020-01-01T00:00:00Z')
+            $beforeTime = [IO.File]::GetLastWriteTimeUtc($settingsFile)
+            $repeat = & $writer -Agent $settingsAgent -HomeRoot $configRoot
+            Assert-Equal $false $repeat.Changed "$syntax repeat reports no change"
+            Assert-Equal ([Convert]::ToBase64String($bytes)) ([Convert]::ToBase64String([IO.File]::ReadAllBytes($settingsFile))) "$syntax repeat preserves all bytes and keys"
+            Assert-Equal $beforeTime ([IO.File]::GetLastWriteTimeUtc($settingsFile)) "$syntax repeat preserves mtime"
+        }
+
         # Hashtable enumeration can change between processes; repeats must still be write-free.
         $childWriter = Join-Path $configRoot 'write-config.ps1'
         @'
