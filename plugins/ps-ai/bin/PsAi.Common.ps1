@@ -1,11 +1,8 @@
+. (Join-Path $PSScriptRoot 'PsAi.Tools.ps1')
+
 function Get-ConfigEnvName {
     param([string]$Tool)
-    switch ($Tool) {
-        claude { return 'CLAUDE_CONFIG_DIR' }
-        codex { return 'CODEX_HOME' }
-        copilot { return 'COPILOT_HOME' }
-        default { throw "unknown tool '$Tool'" }
-    }
+    return (Get-PsAiTool -Tool $Tool).configEnv
 }
 
 function Get-PsAiLease {

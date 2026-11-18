@@ -1,3 +1,5 @@
+. (Join-Path $PSScriptRoot 'PsAi.Tools.ps1')
+
 function ConvertTo-FoundryEndpoint {
     param([string]$Url)
     $uri = $null
@@ -48,7 +50,10 @@ function Test-FoundryToken {
 }
 
 function Get-FoundryDeployments {
-    param([string]$Endpoint, [ValidateSet('claude', 'codex', 'copilot')][string]$Tool)
+    param([string]$Endpoint, [string]$Tool)
+    $descriptor = Get-PsAiTool -Tool $Tool
+    $null = Get-PsAiToolScript -Tool $descriptor -Name foundry-launch
+    $prefix = $descriptor.foundry.deploymentPrefix
     $resourceName = Get-FoundryResourceName -Endpoint $Endpoint
     $errors = [System.Collections.Generic.List[string]]::new()
     $subscriptions = [System.Collections.Generic.List[string]]::new()
@@ -65,8 +70,7 @@ function Get-FoundryDeployments {
                     $result = Invoke-FoundryAz -Arguments (@('cognitiveservices', 'account', 'deployment', 'list', '--name', $account.name, '--resource-group', $account.resourceGroup, '-o', 'json') + $subscriptionArgs)
                     if ($result.ExitCode -ne 0) { throw $result.Error }
                     $items = @($result.Output | ConvertFrom-Json -ErrorAction Stop)
-                    $prefix = if ($Tool -eq 'codex') { 'gpt' } else { 'claude' }
-                    $deployments = @($items | Where-Object { $_.properties.model.name -like "$prefix*" } | ForEach-Object {
+                    $deployments = @($items | Where-Object { ([string]$_.properties.model.name).StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object {
                         @{ name = [string]$_.name; model = [string]$_.properties.model.name }
                     })
                     return @{ Source = 'management'; Error = ''; Deployments = $deployments }

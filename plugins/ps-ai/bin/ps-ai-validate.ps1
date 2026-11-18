@@ -4,6 +4,8 @@ param(
     [switch]$NoRun
 )
 
+. (Join-Path $PSScriptRoot 'PsAi.Tools.ps1')
+
 function Read-PsAiJson {
     param([string]$Path)
     $raw = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $Path))
@@ -26,11 +28,14 @@ function Get-PsAiRoutingIssues {
 
 function Get-PsAiReferenceIssues {
     param($Data)
+    $tools = @(Get-PsAiTools)
     $ids = @()
     for ($i = 0; $i -lt @($Data.agents).Count; $i++) {
         $id = [string]$Data.agents[$i].id
         if ($id -cnotmatch '^[a-z][a-z0-9-]*$') { "agents[$i].id: must match ^[a-z][a-z0-9-]*$" }
         if ($id -cin $ids) { "agents[$i].id: duplicate id '$id'" }
+        $toolId = [string]$Data.agents[$i].tool
+        if ($toolId -cnotin $tools.id) { "agents[$i].tool: unknown tool '$toolId'" }
         $ids += $id
     }
     Get-PsAiRoutingIssues -Routing $Data.routing -Prefix 'routing' -Ids $ids
@@ -50,11 +55,15 @@ function Get-PsAiReferenceIssues {
 
 function Get-PsAiProviderIssues {
     param($Data)
+    $tools = @(Get-PsAiTools)
     for ($i = 0; $i -lt @($Data.agents).Count; $i++) {
         $agent = $Data.agents[$i]
         $provider = $agent.provider
         if ($null -eq $provider) { continue }
         $prefix = "agents[$i].provider:"
+        $tool = $tools | Where-Object { $_.id -ceq $agent.tool }
+        if (-not $tool) { "$prefix unknown tool '$($agent.tool)'"; continue }
+        if ($null -eq $tool.foundry) { "$prefix tool '$($agent.tool)' does not support Foundry"; continue }
         $names = @()
         $aliases = @()
         foreach ($deployment in $provider.deployments) {
@@ -63,10 +72,12 @@ function Get-PsAiProviderIssues {
             if ($deployment.alias) {
                 if ($deployment.alias -cin $aliases) { "$prefix alias '$($deployment.alias)' used twice" }
                 $aliases += $deployment.alias
+                if ($deployment.alias -cnotin @($tool.foundry.aliases)) {
+                    "$prefix alias '$($deployment.alias)' is not supported by tool '$($agent.tool)'"
+                }
             }
         }
         if ($provider.default -cnotin $names) { "$prefix default '$($provider.default)' is not a deployment" }
-        if ($aliases.Count -and $agent.tool -cne 'claude') { "$prefix aliases are for claude agents only" }
     }
 }
 

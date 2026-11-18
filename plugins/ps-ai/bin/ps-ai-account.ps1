@@ -133,6 +133,8 @@ function New-FoundryWrappers {
 
 function Get-PsAiFoundryDiscovery {
     param([string]$Endpoint, [string]$Tool)
+    $descriptor = Get-PsAiTool -Tool $Tool
+    $null = Get-PsAiToolScript -Tool $descriptor -Name foundry-launch
     $check = Test-FoundryToken -Login
     if (-not $check.Ok) { throw $check.Error }
     Get-FoundryDeployments -Endpoint $Endpoint -Tool $Tool
@@ -155,6 +157,8 @@ function Write-PsAiFoundryList {
 
 function New-PsAiFoundryProvider {
     param([string]$Endpoint, [string]$Tool, [string[]]$Deployments, [string]$Default, [string[]]$Aliases, $Discovery, $Existing)
+    $descriptor = Get-PsAiTool -Tool $Tool
+    $null = Get-PsAiToolScript -Tool $descriptor -Name foundry-launch
     if (-not $Deployments.Count -or -not $Default) { throw 'Foundry requires -Deployments and -Default' }
     if ($Default -cnotin $Deployments) { throw "default '$Default' is not one of -Deployments" }
     $aliasMap = @{}
@@ -163,7 +167,7 @@ function New-PsAiFoundryProvider {
     } else {
         foreach ($pair in $Aliases) {
             $parts = $pair -csplit '=', 2
-            if ($parts.Count -ne 2 -or $parts[0] -cnotin $Deployments -or $parts[1] -cnotin @('opus','sonnet','haiku','fable')) { throw "invalid alias '$pair'; use name=alias for a selected deployment" }
+            if ($parts.Count -ne 2 -or $parts[0] -cnotin $Deployments -or $parts[1] -cnotin @($descriptor.foundry.aliases)) { throw "invalid alias '$pair'; use name=alias for a selected deployment" }
             if ($aliasMap.ContainsKey($parts[0])) { throw "duplicate alias mapping for '$($parts[0])'" }
             $aliasMap[$parts[0]] = $parts[1]
         }
@@ -234,7 +238,7 @@ switch ($Action) {
         }
         Assert-PsAiNewId -Id $Id -Data $data
         $null = Get-ConfigEnvName -Tool $Tool
-        $realCommand = if ($Command) { $Command } else { (Get-Command $Tool -ErrorAction Stop).Source }
+        $realCommand = if ($Command) { $Command } else { (Get-Command (Get-PsAiTool -Tool $Tool).command -ErrorAction Stop).Source }
         $entry = [pscustomobject]@{
             id = $Id; tool = $Tool; command = "~/.agents/bin/$Id"; configDir = "~/.agents/accounts/$Id"; roles = @()
         }

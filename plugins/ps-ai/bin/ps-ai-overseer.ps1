@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('claude', 'codex', 'copilot')][string]$Tool,
+    [string]$Tool,
     [string]$Account,
     [string]$Repo = (Get-Location).Path,
     [string]$HomeRoot = $HOME,
@@ -15,6 +15,7 @@ function Get-OverseerLaunch {
     $agent = @($Personalisation.agents | Where-Object { $_.id -ceq $AccountId })[0]
     if ($null -eq $agent) { throw "unknown account '$AccountId'" }
     if (-not $Tool) { $Tool = $agent.tool }
+    $descriptor = Get-PsAiTool -Tool $Tool
     $command = [string]$agent.command
     if ($command.StartsWith('~/')) { $command = Join-Path $HomeRoot $command.Substring(2) }
     $arguments = [System.Collections.Generic.List[string]]::new()
@@ -36,7 +37,7 @@ function Get-OverseerLaunch {
         $flags = $settings.launch.PSObject.Properties[$Tool].Value
         foreach ($arg in @($flags)) { if ($null -ne $arg) { $arguments.Add([string]$arg) } }
     }
-    if ($Tool -eq 'copilot') { $arguments.Add('-i') }
+    foreach ($arg in $descriptor.overseerArgs) { $arguments.Add($arg) }
     $arguments.Add('continue as the overseer')
     return @{ Command = $command; Args = $arguments.ToArray(); Warnings = $warnings.ToArray() }
 }

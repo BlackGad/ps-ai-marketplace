@@ -36,7 +36,7 @@
         "additionalProperties": false, "required": ["id", "tool", "command", "roles"],
         "properties": {
           "id": { "type": "string", "description": "Unique lowercase hyphenated account id." },
-          "tool": { "enum": ["claude", "codex", "copilot"], "description": "CLI provider." },
+          "tool": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "CLI provider." },
           "command": { "type": "string", "description": "Executable or wrapper path." },
           "configDir": { "type": "string", "description": "Account configuration folder or default." },
           "roles": { "type": "array", "items": { "enum": ["overseer", "legion", "reviewer", "mechanical"] }, "description": "Permitted account roles." },
@@ -56,7 +56,7 @@
                   "properties": {
                     "name": { "type": "string", "description": "Unique deployment name." },
                     "model": { "type": "string", "description": "Underlying model name when discovery knows it." },
-                    "alias": { "enum": ["opus", "sonnet", "haiku", "fable"], "description": "Optional unique Claude model alias." }
+                    "alias": { "type": "string", "minLength": 1, "description": "Optional unique model alias supported by the tool." }
                   }
                 }
               }
