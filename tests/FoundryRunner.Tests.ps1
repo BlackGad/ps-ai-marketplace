@@ -102,16 +102,66 @@ try {
     # A wrapper directory on PATH must not be selected as the real tool.
     $bin = Join-Path $homeRoot '.agents/bin'
     New-Item -ItemType Directory -Path $bin -Force | Out-Null
-    Copy-Item -LiteralPath $runnerScript -Destination $bin
-    Copy-Item -LiteralPath (Join-Path $root 'plugins/ps-ai/bin/PsAi.Foundry.ps1') -Destination $bin
+    $bundledRunner = & {
+        . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -HomeRoot $homeRoot
+        foreach ($id in @('codex','copilot')) { $null = Sync-PsAiFoundryRuntime -Tool $id -HomeRoot $homeRoot }
+        Sync-PsAiFoundryRuntime -Tool claude -HomeRoot $homeRoot
+    }
     'throw "wrapper selected as real tool"' | Set-Content -LiteralPath (Join-Path $bin 'claude.ps1')
     $env:PATH = @($bin,$fakeToolsFolder,$fakeAzFolder,$PSHOME) -join [IO.Path]::PathSeparator
     $env:PS_AI_FAKE_TOOL_EXIT = '0'
-    $output = @(& $pwshPath -NoProfile -File (Join-Path $bin 'ps-ai-foundry.ps1') -Agent claude-dev -HomeRoot $homeRoot -p hi 2>&1)
+    $output = @(& $pwshPath -NoProfile -File $bundledRunner -Agent claude-dev -HomeRoot $homeRoot -p hi 2>&1)
     Assert-Equal 0 $LASTEXITCODE 'Installed runner skips wrappers and loads local helper'
     Assert-True (Test-Path $env:PS_AI_FAKE_TOOL_LOG) 'Installed runner starts fake tool'
+    # FourthToolLaunchAndStartFailureCleanup: extension uses only the added skill.
+    $runtime = Split-Path (Split-Path $bundledRunner -Parent) -Parent
+    $fourthSkill = Join-Path $runtime 'skills/ps-ai-fourth'
+    Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth') $fourthSkill -Recurse
+    $env:PATH = @($bin,$fourthSkill,$fakeToolsFolder,$fakeAzFolder,$PSHOME) -join [IO.Path]::PathSeparator
+    'throw "owned wrapper selected"' | Set-Content (Join-Path $bin 'fourth-cli.ps1')
+    $file = Join-Path $config 'ps-ai-personalisation.json'
+    $data = Get-Content $file -Raw | ConvertFrom-Json
+    $data.agents += @([pscustomobject]@{id='fourth-dev';tool='fourth';configDir='~/.agents/accounts/fourth-dev';provider=$provider})
+    $data | ConvertTo-Json -Depth 100 | Set-Content $file
+    $output = @(& $pwshPath -NoProfile -File $bundledRunner -Agent fourth-dev -HomeRoot $homeRoot --flag 'space value' 2>&1)
+    Assert-Equal 0 $LASTEXITCODE 'Fourth runner resolves descriptor executable rather than id'
+    $log = Get-Content $env:PS_AI_FAKE_TOOL_LOG -Raw | ConvertFrom-Json
+    Assert-Equal (Join-Path $homeRoot '.agents/accounts/fourth-dev') $log.config 'Fourth adapter sets child config home'
+    Assert-Equal '--flag|space value' ($log.arguments -join '|') 'Fourth runner preserves argument boundaries'
+    $descriptorPath = Join-Path $fourthSkill 'tool.json'
+    $descriptor = Get-Content $descriptorPath -Raw | ConvertFrom-Json
+    $descriptor.foundry = $null
+    $descriptor | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+    foreach ($tool in @('fourth','missing')) {
+        $data.agents[-1].tool = $tool
+        $data | ConvertTo-Json -Depth 100 | Set-Content $file
+        $calls = @(Get-FakeAzCalls).Count
+        if (Test-Path $env:PS_AI_FAKE_TOOL_LOG) { Remove-Item $env:PS_AI_FAKE_TOOL_LOG }
+        $output = @(& $pwshPath -NoProfile -File $bundledRunner -Agent fourth-dev -HomeRoot $homeRoot 2>&1)
+        Assert-Equal 1 $LASTEXITCODE 'Unsupported capability exits one'
+        Assert-Equal $calls @(Get-FakeAzCalls).Count 'Unsupported capability stops before Azure'
+        Assert-True (-not (Test-Path $env:PS_AI_FAKE_TOOL_LOG)) 'Unsupported capability starts no tool'
+        Assert-Equal 0 @(Get-ChildItem (Join-Path $homeRoot '.agents/temp') -Filter '*providers*' -ErrorAction SilentlyContinue).Count 'Unsupported capability creates no provider file'
+    }
+    # An invalid executable fails Process.Start after provider JSON has been written.
+    $brokenName = if ($IsWindows) { 'broken-child.exe' } else { 'broken-child' }
+    $brokenPath = Join-Path $tempRoot $brokenName
+    [IO.File]::WriteAllBytes($brokenPath, [byte[]]@(0,1,2,3))
+    if (-not $IsWindows) { & chmod +x $brokenPath }
+    $copilotDescriptorPath = Join-Path $runtime 'skills/ps-ai-copilot/tool.json'
+    $copilotDescriptor = Get-Content $copilotDescriptorPath -Raw | ConvertFrom-Json
+    $copilotDescriptor.command = $brokenName
+    $copilotDescriptor | ConvertTo-Json -Depth 100 | Set-Content $copilotDescriptorPath
+    $env:PATH = @($tempRoot,$fakeAzFolder,$PSHOME) -join [IO.Path]::PathSeparator
+    $output = @(& $pwshPath -NoProfile -File $bundledRunner -Agent copilot-dev -HomeRoot $homeRoot 2>&1)
+    Assert-Equal 1 $LASTEXITCODE 'Child start failure exits one'
+    Assert-True (($output -join "`n").Contains('token valid until')) 'Child start failure occurs after provider construction'
+    Assert-Equal 0 @(Get-ChildItem (Join-Path $homeRoot '.agents/temp') -Filter '*providers*').Count 'Child start failure cleans provider file'
+    Assert-True (-not (($output -join "`n").Contains('fake-token'))) 'Start failure never prints token'
+
 } finally {
     foreach ($name in $savedEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name]) }
     if ($fakeRoot -and (Test-Path $fakeRoot)) { Remove-Item -LiteralPath $fakeRoot -Recurse -Force }
     Remove-Item -LiteralPath $tempRoot -Recurse -Force
 }
+

@@ -6,57 +6,22 @@ param(
 
 $toolArguments = @($args)
 . (Join-Path $PSScriptRoot 'PsAi.Foundry.ps1')
+. (Join-Path $PSScriptRoot 'PsAi.Tools.ps1')
 
 function Get-FoundryLaunch {
     param($Agent, [string]$HomeRoot, $Token)
-    $folder = [string]$Agent.configDir
-    if ($folder.StartsWith('~/')) { $folder = Join-Path $HomeRoot $folder.Substring(2) }
-    $launch = @{ Set = @{}; Clear = [string[]]@(); ProvidersFile = $null; ProvidersJson = $null; Notice = $null }
-    switch ($Agent.tool) {
-        claude {
-            $launch.Set = @{
-                CLAUDE_CONFIG_DIR = $folder
-                CLAUDE_CODE_USE_FOUNDRY = '1'
-                ANTHROPIC_FOUNDRY_BASE_URL = $Agent.provider.endpoint + '/anthropic'
-                ANTHROPIC_MODEL = $Agent.provider.default
-            }
-            foreach ($deployment in $Agent.provider.deployments) {
-                if ($deployment.alias) { $launch.Set['ANTHROPIC_DEFAULT_' + $deployment.alias.ToUpperInvariant() + '_MODEL'] = $deployment.name }
-            }
-            $launch.Clear = [string[]]@(
-                'ANTHROPIC_FOUNDRY_RESOURCE', 'ANTHROPIC_FOUNDRY_API_KEY', 'ANTHROPIC_FOUNDRY_AUTH_TOKEN', 'ANTHROPIC_SMALL_FAST_MODEL',
-                'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_ANTHROPIC_AWS',
-                'CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD', 'CLAUDE_CODE_USE_MANTLE', 'CLAUDE_CODE_USE_GATEWAY'
-            )
-        }
-        copilot {
-            if (-not $Token) { $Token = Get-FoundryToken }
-            $launch.ProvidersFile = Join-Path $HomeRoot ('.agents/temp/copilot-providers-' + [guid]::NewGuid() + '.json')
-            $launch.Set = @{ COPILOT_HOME = $folder; COPILOT_PROVIDERS_CONFIG = $launch.ProvidersFile }
-            $launch.ProvidersJson = @{
-                providers = @(@{
-                    name = 'ps-ai-foundry'; type = 'anthropic'; baseUrl = $Agent.provider.endpoint + '/anthropic'
-                    bearerToken = $Token.Token; headers = @{ 'anthropic-version' = '2023-06-01' }
-                })
-                models = @($Agent.provider.deployments | ForEach-Object {
-                    $model = if ($_.model) { $_.model } else { $_.name }
-                    @{ id = $_.name; provider = 'ps-ai-foundry'; modelId = $model; wireModel = $_.name }
-                })
-            } | ConvertTo-Json -Depth 100
-            $expiry = $Token.ExpiresOn.ToLocalTime().ToString('HH:mm')
-            $launch.Notice = "token valid until $expiry; after that restart with: $($Agent.id) --resume"
-        }
-        codex { $launch.Set = @{ CODEX_HOME = $folder } }
-        default { throw "unknown tool '$($Agent.tool)'" }
-    }
-    return $launch
+    $tool = Get-PsAiTool -Tool $Agent.tool
+    $script = Get-PsAiToolScript -Tool $tool -Name foundry-launch
+    return & $script -Agent $Agent -HomeRoot $HomeRoot -Token $Token
 }
 
 function Get-FoundryToolCommand {
     param([string]$Tool, [string]$HomeRoot)
+    $descriptor = Get-PsAiTool -Tool $Tool
+    $null = Get-PsAiToolScript -Tool $descriptor -Name foundry-launch
     $bin = [IO.Path]::GetFullPath((Join-Path $HomeRoot '.agents/bin'))
     $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
-    foreach ($command in @(Get-Command $Tool -CommandType Application,ExternalScript -All -ErrorAction SilentlyContinue)) {
+    foreach ($command in @(Get-Command $descriptor.command -CommandType Application,ExternalScript -All -ErrorAction SilentlyContinue)) {
         $folder = [IO.Path]::GetFullPath((Split-Path $command.Source -Parent))
         if (-not $folder.Equals($bin, $comparison)) { return $command.Source }
     }

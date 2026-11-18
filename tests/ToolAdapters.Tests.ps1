@@ -17,7 +17,10 @@
         Assert-True (Test-Path -LiteralPath $adapter) "$id launch adapter exists"
         foreach ($configDir in @('~/.agents/accounts/agent-a', (Join-Path $homeRoot 'absolute config'))) {
             $adapterAgent = [pscustomobject]@{ id = 'agent-a'; tool = $id; configDir = $configDir; provider = $provider }
-            $old = Get-FoundryLaunch -Agent $adapterAgent -HomeRoot $homeRoot -Token $injectedToken
+            $old = & {
+                . (Join-Path $PSScriptRoot 'fixtures/tools/legacy-foundry/ps-ai-foundry.ps1') -NoRun -HomeRoot $homeRoot
+                Get-FoundryLaunch -Agent $adapterAgent -HomeRoot $homeRoot -Token $injectedToken
+            }
             $result = @(& $adapter -Agent $adapterAgent -HomeRoot $homeRoot -Token $injectedToken)
             Assert-Equal 1 $result.Count "$id emits exactly one object"
             $launch = $result[0]
@@ -219,3 +222,4 @@ $agentData = Get-Content -LiteralPath $AgentPath -Raw | ConvertFrom-Json
         if (Test-Path -LiteralPath $cleanupPath) { Remove-Item -LiteralPath $cleanupPath -Recurse -Force }
     }
 }
+
