@@ -106,3 +106,61 @@
         Remove-Item -LiteralPath $cleanupPath -Recurse -Force
     }
 }
+
+# CatalogLoadsBeforeBootstrapInBothRuntimes: bad metadata must stop before mutation.
+& {
+    $repo = Split-Path $PSScriptRoot -Parent
+    . (Join-Path $repo 'install.ps1') -NoRun
+    $fixtureText = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw
+    $catalog = $fixtureText | ConvertFrom-Json
+    $state = @{ Reads=0; Bootstrap=0; Url='' }
+    function Get-InstallSourceText { param($Url) $state.Reads++; $state.Url=$Url; return $fixtureText }
+    function Ensure-InstallPowerShell { $state.Bootstrap++; return $true }
+    Assert-Equal 3 @( (Get-InstallCatalog -Source 'example/market' -Catalog $catalog).tools ).Count 'Injected catalog is accepted'
+    Assert-Equal 0 $state.Reads 'Injected catalog bypasses reads'
+    foreach ($ref in @('main','v1.2.3','abc123','feature/tool-skills')) {
+        $null = Get-InstallCatalog -Source 'example/market' -SourceRef $ref
+        Assert-Equal "https://raw.githubusercontent.com/example/market/$ref/tools.json" $state.Url 'Remote ref remains literal'
+    }
+    foreach ($source in @('https://example.test/repo','owner/repo/extra','missing-folder')) {
+        Assert-Throws { Get-InstallCatalog -Source $source } 'Unsupported source stops'
+    }
+    $scratch = Join-Path $repo ('.agents/temp/restructure/catalog space-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory $scratch | Out-Null
+    try {
+        Assert-Throws { Get-InstallCatalog -Source $scratch } 'Local missing index stops'
+        $fixtureText | Set-Content (Join-Path $scratch 'tools.json')
+        $before = $state.Reads
+        Assert-Equal 3 @((Get-InstallCatalog -Source $scratch).tools).Count 'Local spaced source loads offline'
+        Assert-Equal $before $state.Reads 'Local source never fetches'
+    } finally {
+        if (-not ([IO.Path]::GetFullPath($scratch)).StartsWith([IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/restructure')) + [IO.Path]::DirectorySeparatorChar)) { throw 'unsafe cleanup' }
+        Remove-Item -LiteralPath $scratch -Recurse -Force
+    }
+    $invalid = @(
+        '{', 'null', '{"schemaVersion":2}',
+        $fixtureText.Replace('"tools": [','"tools": 1, "unused": ['),
+        $fixtureText.Replace('"command": "claude"','"command": 12'),
+        $fixtureText.Replace('"marketplaceAdd": [','"marketplaceAdd": "bad", "unused": ['),
+        $fixtureText.Replace('"wingetId": "Microsoft.PowerShell"','"wingetId": false'),
+        $fixtureText.Replace('"pathFolder": ""','"pathFolder": "../outside"'),
+        $fixtureText.Replace('"metadataUrl": "https://api.github.com/repos/PowerShell/PowerShell/releases/latest"','"metadataUrl": null'),
+        $fixtureText.Replace('"id": "codex"','"id": "claude"')
+    )
+    foreach ($bad in $invalid) {
+        $fixtureText = $bad
+        Assert-Throws { Invoke-PsAiInstaller -Source 'example/market' -DryRun } 'Invalid catalog fails before bootstrap'
+        Assert-Equal 0 $state.Bootstrap 'Invalid catalog never bootstraps'
+    }
+    function Get-InstallSourceText { throw 'fixture metadata unavailable' }
+    Assert-Throws { Invoke-PsAiInstaller -Source 'example/market' -DryRun } 'Fetch failure stops before bootstrap'
+    Assert-Equal 0 $state.Bootstrap 'Fetch failure never bootstraps'
+    $fixtureText = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw
+    function Get-InstallSourceText { param($Url) $state.Reads++; return $fixtureText }
+    $before = $state.Reads
+    $null = Invoke-PsAiInstaller -Source 'example/market' -Tools claude -DryRun
+    Assert-Equal ($before + 1) $state.Reads 'Dry run reads metadata exactly once'
+    Assert-Equal 1 $state.Bootstrap 'Valid invocation reaches bootstrap once'
+    . (Join-Path $repo 'install.ps1') -NoRun
+    Assert-Equal ($before + 1) $state.Reads 'Dot source NoRun fetches nothing'
+}

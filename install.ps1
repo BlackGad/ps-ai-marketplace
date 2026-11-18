@@ -1,6 +1,7 @@
 param(
     [string[]]$Tools,
     [string]$Source = 'BlackGad/ps-ai-marketplace',
+    [string]$SourceRef = 'main',
     [string]$ConfigDir,
     [switch]$DryRun,
     [switch]$Yes,
@@ -8,6 +9,91 @@ param(
 )
 
 # Standalone: this file also runs as downloaded script text in Windows PowerShell 5.1.
+function Get-InstallSourceText {
+    param([string]$Url)
+    return (Invoke-WebRequest -Uri $Url -UseBasicParsing -ErrorAction Stop).Content
+}
+
+function Assert-InstallString {
+    param($Value, [string]$Field, [switch]$AllowEmpty)
+    if ($Value -isnot [string] -or (-not $AllowEmpty -and [string]::IsNullOrWhiteSpace($Value))) {
+        throw "invalid catalog field '$Field': expected string"
+    }
+}
+
+function Assert-InstallArguments {
+    param($Value, [string]$Field)
+    if ($Value -isnot [array] -or $Value.Count -eq 0) { throw "invalid catalog field '$Field': expected argument array" }
+    foreach ($argument in $Value) { Assert-InstallString $argument $Field }
+}
+
+function Assert-InstallRelativePath {
+    param($Value, [string]$Field, [switch]$AllowEmpty)
+    Assert-InstallString $Value $Field -AllowEmpty:$AllowEmpty
+    if ($Value -match '(^[/\\]|:|(^|[/\\])\.\.([/\\]|$))') { throw "invalid catalog field '$Field': expected relative path" }
+}
+
+function Get-InstallCatalog {
+    param([string]$Source, [string]$SourceRef = 'main', $Catalog)
+    if ($null -eq $Catalog) {
+        if (Test-Path -LiteralPath $Source -PathType Container) {
+            $index = Join-Path (Resolve-Path -LiteralPath $Source).Path 'tools.json'
+            if (-not (Test-Path -LiteralPath $index -PathType Leaf)) {
+                throw 'Local tools.json is missing; run tools/update-tools-index.ps1 to regenerate it.'
+            }
+            $content = Get-Content -LiteralPath $index -Raw -ErrorAction Stop
+        } elseif ($Source -match '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
+            $content = Get-InstallSourceText -Url "https://raw.githubusercontent.com/$Source/$SourceRef/tools.json"
+        } else { throw "unsupported marketplace source '$Source'" }
+        $Catalog = $content | ConvertFrom-Json -ErrorAction Stop
+    }
+    if ($null -eq $Catalog -or ($Catalog.schemaVersion -isnot [int] -and $Catalog.schemaVersion -isnot [long]) -or $Catalog.schemaVersion -ne 1) {
+        throw 'unsupported tools catalog schemaVersion (expected 1)'
+    }
+    if ($Catalog.tools -isnot [array]) { throw 'invalid catalog tools: expected array' }
+    $ids = @()
+    foreach ($tool in $Catalog.tools) {
+        Assert-InstallString $tool.id 'id'
+        if ($tool.id -cnotmatch '^[a-z][a-z0-9-]*$' -or $ids -contains $tool.id) { throw 'invalid or duplicate catalog tool id' }
+        $ids += $tool.id
+        Assert-InstallString $tool.command 'command'
+        Assert-InstallString $tool.configEnv 'configEnv'
+        if ($tool.configEnv -cnotmatch '^[A-Z_][A-Z0-9_]*$') { throw 'invalid catalog configEnv' }
+        foreach ($field in @('marketplaceAdd','install','marketplaceList','list')) {
+            Assert-InstallArguments $tool.plugin.$field "plugin.$field"
+        }
+        $listing = $tool.plugin.listing
+        if ($listing.format -ceq 'json') {
+            Assert-InstallString $listing.idField 'listing.idField'
+            Assert-InstallString $listing.enabledField 'listing.enabledField'
+        } elseif ($listing.format -ceq 'lines') {
+            Assert-InstallString $listing.rejectPattern 'listing.rejectPattern' -AllowEmpty
+            $null = [regex]::new($listing.rejectPattern)
+        } else { throw 'invalid catalog listing format' }
+        Assert-InstallString $tool.hooks.status 'hooks.status'
+        Assert-InstallString $tool.hooks.hint 'hooks.hint' -AllowEmpty
+        Assert-InstallString $tool.installHint 'installHint' -AllowEmpty
+    }
+    $windows = $Catalog.bootstrap.windows
+    Assert-InstallString $windows.wingetId 'bootstrap.windows.wingetId'
+    Assert-InstallRelativePath $windows.portableCommand 'bootstrap.windows.portableCommand'
+    $zip = $windows.download.zip
+    if ($zip.kind -cne 'zip' -or $zip.resolver -cne 'release-assets' -or $zip.verification -cne 'asset-digest') {
+        throw 'invalid catalog bootstrap ZIP recipe'
+    }
+    Assert-InstallString $zip.metadataUrl 'bootstrap.zip.metadataUrl'
+    Assert-InstallString $zip.assetPattern 'bootstrap.zip.assetPattern'
+    $null = [regex]::new($zip.assetPattern)
+    Assert-InstallRelativePath $zip.pathFolder 'bootstrap.zip.pathFolder' -AllowEmpty
+    return $Catalog
+}
+
+function Get-InstallTool {
+    param([string]$Tool)
+    foreach ($entry in $script:installCatalog.tools) { if ($entry.id -ceq $Tool) { return $entry } }
+    throw "unknown tool '$Tool'"
+}
+
 function Get-ConfigEnvName {
     param([string]$Tool)
     switch ($Tool) {
@@ -290,7 +376,8 @@ function Ensure-InstallPowerShell {
 }
 
 function Invoke-PsAiInstaller {
-    param([string[]]$Tools, [string]$Source = 'BlackGad/ps-ai-marketplace', [string]$ConfigDir, [switch]$DryRun, [switch]$Yes)
+    param([string[]]$Tools, [string]$Source = 'BlackGad/ps-ai-marketplace', [string]$SourceRef = 'main', [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, $Catalog)
+    $script:installCatalog = Get-InstallCatalog -Source $Source -SourceRef $SourceRef -Catalog $Catalog
     $ready = Ensure-InstallPowerShell -DryRun:$DryRun -Yes:$Yes
     if (-not $ready -and -not $DryRun) { return }
     if (-not $Tools -or $Tools.Count -eq 0) {
@@ -319,5 +406,5 @@ function Invoke-PsAiInstaller {
 }
 
 if (-not $NoRun) {
-    Invoke-PsAiInstaller -Tools $Tools -Source $Source -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes
+    Invoke-PsAiInstaller -Tools $Tools -Source $Source -SourceRef $SourceRef -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes
 }

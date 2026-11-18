@@ -16,8 +16,8 @@ foreach ($tool in @('claude', 'codex', 'copilot')) {
 Assert-Equal 'CLAUDE_CONFIG_DIR' (Get-ConfigEnvName -Tool claude) 'Claude config variable'
 Assert-Equal 'CODEX_HOME' (Get-ConfigEnvName -Tool codex) 'Codex config variable'
 Assert-Equal 'COPILOT_HOME' (Get-ConfigEnvName -Tool copilot) 'Copilot config variable'
-$previewLines = @(& pwsh -NoProfile -File $script -Tools claude -Source 'local source' -ConfigDir X -DryRun)
-Assert-Equal 0 $LASTEXITCODE 'Dry run exits zero'
+$previewLines = @(Invoke-PsAiInstaller -Tools claude -Source 'local source' -ConfigDir X -DryRun -Catalog (Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw | ConvertFrom-Json))
+Assert-True $? 'Injected dry run succeeds'
 Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin marketplace add "local source"') 'Dry run marketplace command'
 Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install ps-ai@ps-ai-marketplace') 'Dry run plugin command'
 try {

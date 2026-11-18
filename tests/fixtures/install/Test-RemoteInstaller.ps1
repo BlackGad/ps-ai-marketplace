@@ -1,7 +1,8 @@
 param([string]$Installer, [string]$Repo)
 $fixtureInstaller = $Installer
 . $fixtureInstaller -NoRun
-$sandbox = Join-Path $Repo ('.agents/temp/remote-install-' + [guid]::NewGuid().ToString('N'))
+$script:installCatalog = Get-Content (Join-Path $Repo 'tests/fixtures/install/catalog.json') -Raw | ConvertFrom-Json
+$sandbox = Join-Path $Repo ('.agents/temp/restructure/remote-install-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
 $savedPath = $env:PATH
 $fixturePwshExe = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
@@ -99,8 +100,9 @@ try {
     $env:PATH = $fakeBin + [IO.Path]::PathSeparator + (Split-Path $fixturePwshExe -Parent)
     $standalone = Join-Path $sandbox 'install.ps1'
     Copy-Item -LiteralPath $fixtureInstaller -Destination $standalone
+    Copy-Item -LiteralPath (Join-Path $Repo 'tests/fixtures/install/catalog.json') -Destination (Join-Path $sandbox 'tools.json')
     $runner = Join-Path $sandbox 'invoke-text.ps1'
-    'param($Installer); & ([scriptblock]::Create((Get-Content -Raw $Installer))) -DryRun -Tools codex' | Set-Content -LiteralPath $runner
+    'param($Installer); & ([scriptblock]::Create((Get-Content -Raw $Installer))) -DryRun -Tools codex -Source (Split-Path $Installer)' | Set-Content -LiteralPath $runner
     $result = Invoke-ClosedInput -Command @($fixturePwshExe, '-NoProfile', '-File', $runner, '-Installer', $standalone)
     $output = $result.Output
     Assert-Equal 0 $result.ExitCode 'Script text runs standalone without repository context'
@@ -138,7 +140,7 @@ if ($env:CODEX_HOME -ne 'default account') { throw 'account environment was not 
     # No CLI discovery must show hints and return normally, without touching any real CLI.
     function Ensure-InstallPowerShell { return $true }
     function Test-InstallCommandAvailable { param($Name) return $false }
-    $noTools = @(Invoke-PsAiInstaller) -join "`n"
+    $noTools = @(Invoke-PsAiInstaller -Catalog $script:installCatalog) -join "`n"
     foreach ($hint in @('irm https://claude.ai/install.ps1 | iex','npm install -g @openai/codex','npm install -g @github/copilot')) {
         Assert-True ($noTools.Contains($hint)) 'No installed CLI prints official install hint'
     }
