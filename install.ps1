@@ -159,12 +159,30 @@ function Get-InstallPowerShellCommand {
 }
 
 function Get-InstallUserPath {
-    return [Environment]::GetEnvironmentVariable('Path', 'User')
+    # Read the raw registry value so entries such as %USERPROFILE%\bin stay unexpanded.
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
+    if (-not $key) { return '' }
+    try { return [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) }
+    finally { $key.Dispose() }
 }
 
 function Set-InstallUserPath {
     param([string]$Path)
-    [Environment]::SetEnvironmentVariable('Path', $Path, 'User')
+    # Keep the existing value kind (normally REG_EXPAND_SZ), then tell Windows the environment changed.
+    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+    try {
+        $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+        if ($key.GetValueNames() -icontains 'Path') { $kind = $key.GetValueKind('Path') }
+        $key.SetValue('Path', $Path, $kind)
+    } finally { $key.Dispose() }
+    if (-not ('PsAiInstall.Environment' -as [type])) {
+        Add-Type -Namespace PsAiInstall -Name Environment -MemberDefinition @'
+[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UIntPtr parameter, string value, uint flags, uint timeout, out UIntPtr result);
+'@
+    }
+    $result = [UIntPtr]::Zero
+    [void][PsAiInstall.Environment]::SendMessageTimeout([IntPtr]0xffff, 0x1a, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
 }
 
 function Test-InstallPathEntry {
