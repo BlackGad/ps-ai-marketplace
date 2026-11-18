@@ -5,9 +5,11 @@ $accountScript = Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1'
 $savedPath = $env:PATH
 $savedAnswers = $env:PS_AI_FAKE_AZ
 $savedLog = $env:PS_AI_FAKE_AZ_LOG
+$savedToolLog = $env:PS_AI_FAKE_TOOL_LOG
 $tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
+    $env:PS_AI_FAKE_TOOL_LOG = Join-Path $tempRoot 'tool-log.json'
     $homeRoot = Join-Path $tempRoot 'owner with spaces'
     $file = Join-Path $homeRoot '.agents/configuration/ps-ai-personalisation.json'
     New-Item -ItemType Directory -Path (Split-Path $file -Parent) -Force | Out-Null
@@ -52,10 +54,23 @@ try {
     Assert-True $picker.modelPicker.replaceBuiltInOptions 'Claude picker replaces builtins'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.model -join '|') 'Picker uses deployment names'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.label -join '|') 'Picker labels'
-    foreach ($name in @('claude-dev','claude-dev.cmd','ps-ai-foundry.ps1','PsAi.Foundry.ps1')) {
+    foreach ($name in @('claude-dev','claude-dev.cmd','ps-ai-runtime/bin/ps-ai-foundry.ps1','ps-ai-runtime/bin/PsAi.Foundry.ps1','ps-ai-runtime/bin/PsAi.Tools.ps1','ps-ai-runtime/schemas/tool.schema.json')) {
         Assert-True (Test-Path (Join-Path $homeRoot ".agents/bin/$name")) "Foundry writes $name"
     }
-    $tracked = @($file, $settings, (Join-Path $homeRoot '.agents/bin/claude-dev'), (Join-Path $homeRoot '.agents/bin/ps-ai-foundry.ps1'))
+    # RuntimeSurvivesRelocationAndRetainsLegacy: only selected runtime files are bundled.
+    $runtime = Join-Path $homeRoot '.agents/bin/ps-ai-runtime'
+    $expectedFiles = @('bin/ps-ai-foundry.ps1','bin/PsAi.Foundry.ps1','bin/PsAi.Tools.ps1','schemas/tool.schema.json','skills/ps-ai-claude/SKILL.md','skills/ps-ai-claude/tool.json','skills/ps-ai-claude/scripts/foundry-launch.ps1','skills/ps-ai-claude/scripts/foundry-config.ps1')
+    Assert-Equal (($expectedFiles | Sort-Object) -join '|') ((Get-ChildItem $runtime -File -Recurse | ForEach-Object { [IO.Path]::GetRelativePath($runtime, $_.FullName).Replace('\','/') } | Sort-Object) -join '|') 'Bundle contains only runtime dependencies'
+    Assert-True ((Get-Content (Join-Path $homeRoot '.agents/bin/claude-dev') -Raw).Contains((Join-Path $runtime 'bin/ps-ai-foundry.ps1'))) 'Wrapper targets bundled runner'
+    # Emulate an old installation: reads and idempotent operations must not upgrade it.
+    $legacy = Join-Path $root 'tests/fixtures/tools/legacy-foundry'
+    Copy-Item "$legacy/*" (Join-Path $homeRoot '.agents/bin')
+    $legacyRunner = Join-Path $homeRoot '.agents/bin/ps-ai-foundry.ps1'
+    $legacyBytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($legacyRunner))
+    $oldWrapper = 'legacy wrapper left untouched'
+    $wrapperPath = Join-Path $homeRoot '.agents/bin/claude-dev'
+    [IO.File]::WriteAllText($wrapperPath, $oldWrapper)
+    $tracked = @($file, $settings, (Join-Path $homeRoot '.agents/bin/claude-dev'), (Join-Path $homeRoot '.agents/bin/ps-ai-runtime/bin/ps-ai-foundry.ps1'))
     $timestamps = @($tracked | ForEach-Object { [IO.File]::GetLastWriteTimeUtc($_).Ticks })
     $repeat = & $accountScript -Action add @common @selection
     Assert-Equal 'skip: account claude-dev (already done)' $repeat 'Repeated add skips'
@@ -69,6 +84,8 @@ try {
         throw 'Expected invalid default'
     } catch { Assert-Equal "default 'x' is not one of -Deployments" $_.Exception.Message 'Default must be selected' }
     Assert-Equal $before (Get-Content -Raw $file) 'Invalid update leaves personalisation unchanged'
+    Assert-Equal $oldWrapper (Get-Content $wrapperPath -Raw) 'Repeated add and unchanged models leave legacy wrapper alone'
+    Assert-Equal $legacyBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($legacyRunner))) 'Legacy runner stays byte-identical'
     $answers['cognitiveservices account deployment list --name res-a --resource-group rg-a'].stdout = '[{"name":"claude-opus-x","properties":{"model":{"name":"claude-opus-x"}}},{"name":"claude-haiku-x","properties":{"model":{"name":"claude-haiku-x"}}}]'
     Use-FakeAz -Answers $answers
     $listed = & $accountScript -Action models -Id claude-dev -HomeRoot $homeRoot -List | ConvertFrom-Json
@@ -88,6 +105,7 @@ try {
     Use-FakeAz -Answers $answers
     $modelsOutput = @(& $accountScript -Action models -Id claude-dev -HomeRoot $homeRoot -Deployments claude-opus-x,claude-haiku-x -Default claude-haiku-x -Aliases claude-opus-x=opus,claude-haiku-x=haiku)
     Assert-Equal 0 $modelsOutput.Count 'Changed models does not leak the config adapter return value'
+    Assert-True ((Get-Content $wrapperPath -Raw).Contains('ps-ai-runtime')) 'Changed models upgrades wrapper'
     $updated = (Read-PsAiJson $file).agents[0]
     Assert-Equal 'claude-haiku-x' $updated.provider.default 'Models updates default'
     Assert-Equal 'haiku' $updated.provider.deployments[1].alias 'Models updates aliases'
@@ -218,12 +236,36 @@ approval_policy = "never"
         Assert-True ($caseContent.Contains($tomlCase.preserved)) "$($tomlCase.id) preserves unrelated TOML content"
         Assert-True ($caseContent.Contains('approval_policy = "never"')) "$($tomlCase.id) preserves approval policy"
     }
+    & {
+        . $accountScript -HomeRoot $homeRoot
+        $pluginCopy = Join-Path $tempRoot 'source-plugin'
+        Copy-Item (Join-Path $root 'plugins/ps-ai') $pluginCopy -Recurse
+        . (Join-Path $pluginCopy 'bin/ps-ai-account.ps1') -HomeRoot $homeRoot
+        $null = Sync-PsAiFoundryRuntime -Tool codex -HomeRoot $homeRoot
+        $allFiles = @(Get-ChildItem $runtime -Recurse -File)
+        $snapshot = @($allFiles | ForEach-Object { $_.LastWriteTimeUtc.Ticks.ToString() + ':' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)) }) -join '|'
+        $syncOutput = @(Sync-PsAiFoundryRuntime -Tool claude -HomeRoot $homeRoot)
+        Assert-Equal 1 $syncOutput.Count 'Runtime sync returns only the runner path'
+        Assert-Equal $snapshot (@($allFiles | ForEach-Object { [IO.File]::GetLastWriteTimeUtc($_.FullName).Ticks.ToString() + ':' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)) }) -join '|') 'Repeated sync preserves bytes and timestamps of both tools'
+        Assert-True (Test-Path (Join-Path $runtime 'skills/ps-ai-codex/tool.json')) 'Refreshing Claude retains Codex'
+        $resolvedCopy = [IO.Path]::GetFullPath($pluginCopy)
+        if (-not $resolvedCopy.StartsWith([IO.Path]::GetFullPath($tempRoot) + [IO.Path]::DirectorySeparatorChar)) { throw 'Unsafe source cleanup' }
+        Remove-Item -LiteralPath $resolvedCopy -Recurse -Force
+        $pwshPath = (Get-Process -Id $PID).Path
+        $env:PATH = @((Join-Path $root 'tests/fixtures/fake-tools'),$env:PATH) -join [IO.Path]::PathSeparator
+        & $pwshPath -NoProfile -File $syncOutput[0] -Agent codex-dev -HomeRoot $homeRoot -p 'space value' | Out-Null
+        Assert-Equal 0 $LASTEXITCODE 'Bundle launches after source plugin removal from a home with spaces'
+        & $pwshPath -NoProfile -File $legacyRunner -Agent codex-dev -HomeRoot $homeRoot | Out-Null
+        Assert-Equal 0 $LASTEXITCODE 'Legacy two-file runner still launches with fakes'
+    }
     & $accountScript -Action rename -Id claude-dev -NewId claude-renamed -HomeRoot $homeRoot | Out-Null
+    Assert-Equal $legacyBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($legacyRunner))) 'Wrapper upgrade never overwrites legacy runner'
     Assert-True ((Get-Content -Raw (Join-Path $homeRoot '.agents/bin/claude-renamed')).Contains('-Agent claude-renamed')) 'Foundry rename retargets wrapper'
     & $accountScript -Action remove -Id claude-renamed -HomeRoot $homeRoot | Out-Null
     Assert-True (-not (Test-Path (Join-Path $homeRoot '.agents/bin/claude-renamed'))) 'Remove deletes Foundry wrapper'
     Assert-True (Test-Path $settings) 'Remove keeps Foundry settings'
 } finally {
+    $env:PS_AI_FAKE_TOOL_LOG = $savedToolLog
     $env:PATH = $savedPath
     $env:PS_AI_FAKE_AZ = $savedAnswers
     $env:PS_AI_FAKE_AZ_LOG = $savedLog

@@ -92,19 +92,37 @@ function Write-FoundryToolConfig {
     return & $script -Agent $Agent -HomeRoot $HomeRoot
 }
 
-function New-FoundryWrappers {
-    param([string]$Id, [string]$HomeRoot)
-    $bin = Join-Path $HomeRoot '.agents/bin'
-    New-Item -ItemType Directory -Path $bin -Force | Out-Null
-    foreach ($name in @('ps-ai-foundry.ps1', 'PsAi.Foundry.ps1')) {
-        $source = Join-Path $PSScriptRoot $name
-        $target = Join-Path $bin $name
-        $content = [IO.File]::ReadAllText($source)
-        if (-not (Test-Path -LiteralPath $target) -or [IO.File]::ReadAllText($target) -cne $content) {
-            [IO.File]::WriteAllText($target, $content, [Text.UTF8Encoding]::new($false))
-        }
+function Sync-PsAiFoundryRuntime {
+    param([string]$Tool, [string]$HomeRoot)
+    $descriptor = Get-PsAiTool -Tool $Tool
+    $null = Get-PsAiToolScript -Tool $descriptor -Name foundry-launch
+    $runtime = [IO.Path]::GetFullPath((Join-Path $HomeRoot '.agents/bin/ps-ai-runtime'))
+    $pluginRoot = Split-Path $PSScriptRoot -Parent
+    $files = @{}
+    foreach ($name in @('ps-ai-foundry.ps1', 'PsAi.Foundry.ps1', 'PsAi.Tools.ps1')) {
+        $files["bin/$name"] = Join-Path $PSScriptRoot $name
     }
-    $runner = Join-Path $bin 'ps-ai-foundry.ps1'
+    $files['schemas/tool.schema.json'] = Join-Path $pluginRoot 'schemas/tool.schema.json'
+    foreach ($name in @('SKILL.md', 'tool.json')) {
+        $files["skills/ps-ai-$Tool/$name"] = Join-Path $descriptor.SkillRoot $name
+    }
+    foreach ($script in Get-ChildItem -LiteralPath (Join-Path $descriptor.SkillRoot 'scripts') -File) {
+        $files["skills/ps-ai-$Tool/scripts/$($script.Name)"] = $script.FullName
+    }
+    foreach ($relativePath in $files.Keys) {
+        $target = Join-Path $runtime $relativePath
+        $bytes = [IO.File]::ReadAllBytes($files[$relativePath])
+        if ((Test-Path -LiteralPath $target) -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($target)) -ceq [Convert]::ToBase64String($bytes)) { continue }
+        New-Item -ItemType Directory -Path (Split-Path $target -Parent) -Force | Out-Null
+        [IO.File]::WriteAllBytes($target, $bytes)
+    }
+    return Join-Path $runtime 'bin/ps-ai-foundry.ps1'
+}
+
+function New-FoundryWrappers {
+    param([string]$Id, [string]$HomeRoot, [string]$Tool)
+    $runner = Sync-PsAiFoundryRuntime -Tool $Tool -HomeRoot $HomeRoot
+    $bin = Join-Path $HomeRoot '.agents/bin'
     $shPath = "'" + $runner.Replace("'", "'" + '"' + "'" + '"' + "'") + "'"
     $sh = '#!/bin/sh' + "`n" + ('exec pwsh -NoProfile -File {0} -Agent {1} "$@"' -f $shPath, $Id) + "`n"
     [IO.File]::WriteAllText((Join-Path $bin $Id), $sh, [Text.UTF8Encoding]::new($false))
@@ -206,7 +224,7 @@ switch ($Action) {
             $null = Write-FoundryToolConfig -Agent $entry -HomeRoot $HomeRoot
             $data.agents = @($data.agents) + @($entry)
             Write-PsAiPersonalisation -Data $data -Path $file
-            New-FoundryWrappers -Id $Id -HomeRoot $HomeRoot
+            New-FoundryWrappers -Id $Id -HomeRoot $HomeRoot -Tool $Tool
             "Run '$Id' in a terminal; it signs in to Azure through az when needed."
             break
         }
@@ -239,7 +257,7 @@ switch ($Action) {
         $agent.provider = $providerBlock
         $null = Write-FoundryToolConfig -Agent $agent -HomeRoot $HomeRoot
         Write-PsAiPersonalisation -Data $data -Path $file
-        New-FoundryWrappers -Id $Id -HomeRoot $HomeRoot
+        New-FoundryWrappers -Id $Id -HomeRoot $HomeRoot -Tool $agent.tool
     }
     register {
         Assert-PsAiId -Id $Id
@@ -276,7 +294,7 @@ switch ($Action) {
         Update-AllPsAiRouting -Data $data -OldId $Id -NewId $NewId
         Write-PsAiPersonalisation -Data $data -Path $file
         Move-PsAiWrappers -OldId $Id -NewId $NewId -HomeRoot $HomeRoot
-        if ($agent.provider.kind -eq 'foundry' -and $oldCommand -in $owned) { New-FoundryWrappers -Id $NewId -HomeRoot $HomeRoot }
+        if ($agent.provider.kind -eq 'foundry' -and $oldCommand -in $owned) { New-FoundryWrappers -Id $NewId -HomeRoot $HomeRoot -Tool $agent.tool }
         "Config folder kept at $($agent.configDir); rename it yourself only if you want to."
     }
     remove {
