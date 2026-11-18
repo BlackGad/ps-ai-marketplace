@@ -104,6 +104,4 @@ claude plugin validate .
 
 License: [MIT](LICENSE).
 
-Design: [docs/specs/2026-11-18-ps-ai-design.md](docs/specs/2026-11-18-ps-ai-design.md). Plan: [docs/plans/2026-11-18-ps-ai.md](docs/plans/2026-11-18-ps-ai.md).
-
 <!-- Naming: the owner is the Supreme Being; the overseer keeps the Great Tomb in order; the legion are the summoned; the floors are its lanes. Everything proceeds according to plan. -->
