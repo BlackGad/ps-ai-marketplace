@@ -5,8 +5,8 @@
   "rulesFile": "AGENTS.md",
   "paths": {
     "roadmap": "docs/roadmap.md",
-    "plans": "docs/plans",
-    "specs": "docs/specs"
+    "plans": ".agents/docs/plans",
+    "specs": ".agents/docs/specs"
   },
   "delivery": "merge-request",
   "steps": {
