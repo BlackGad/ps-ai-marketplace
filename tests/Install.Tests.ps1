@@ -39,6 +39,7 @@ Assert-True (Test-InstallListing -Kind plugin -Lines @($codexInstalled)) 'Instal
 Assert-True (-not (Test-InstallListing -Kind plugin -Lines @($copilotDisabled))) 'Disabled Copilot plugin is not done'
 Assert-True (Test-InstallListing -Kind plugin -Lines @($copilotEnabled)) 'Enabled Copilot plugin counts'
 Assert-True (Test-InstallListing -Kind plugin -Lines @($claudeEnabled)) 'Claude listing counts'
+Assert-True (Test-InstallListing -Kind plugin -Lines @('name=ps-ai@ps-ai-marketplace enabled')) 'Generic line parser retains substring behavior'
 Assert-True (Test-InstallListing -Kind marketplace -Lines @('ps-ai-marketplace       C:\repo')) 'Codex marketplace line'
 Assert-True (-not (Test-InstallListing -Kind marketplace -Lines @('ps-ai-marketplace-old  C:\x'))) 'Similar marketplace name does not count'
 $disabledFixture = Get-Content (Join-Path $PSScriptRoot 'fixtures/claude-plugin-disabled.json')
@@ -119,7 +120,7 @@ try {
         Assert-Throws { Invoke-InstallCommand -Command $commands[1] -ConfigEnv FOURTH_HOME -ConfigDir selected } 'Install failure propagates'
         Assert-Equal 'default' $env:FOURTH_HOME 'Install restores caller env on failure'
     } finally { $env:FOURTH_HOME=$previous }
-    foreach ($json in @('[{"id":"ps-ai@ps-ai-marketplace","enabled":"true"}]','[{"id":"ps-ai@ps-ai-marketplace-old","enabled":true}]','not json','[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]')) {
+    foreach ($json in @('[{"id":["ps-ai@ps-ai-marketplace","other"],"enabled":true}]','[{"id":"ps-ai@ps-ai-marketplace","enabled":"true"}]','[{"id":"ps-ai@ps-ai-marketplace-old","enabled":true}]','not json','[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]')) {
         Assert-True (-not (Test-InstallListing -Kind plugin -Tool claude -Lines @($json))) 'Only exact id and Boolean true count'
     }
     foreach ($line in @('ps-ai@ps-ai-marketplace-old enabled','ps-ai@ps-ai-marketplace disabled','ps-ai@ps-ai-marketplace not installed')) {

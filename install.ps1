@@ -27,6 +27,13 @@ function Assert-InstallArguments {
     foreach ($argument in $Value) { Assert-InstallString $argument $Field }
 }
 
+function Assert-InstallObject {
+    param($Value, [string]$Field)
+    if ($Value -isnot [pscustomobject] -and $Value -isnot [Collections.IDictionary]) {
+        throw "invalid catalog field '$Field': expected object"
+    }
+}
+
 function Assert-InstallRelativePath {
     param($Value, [string]$Field, [switch]$AllowEmpty)
     Assert-InstallString $Value $Field -AllowEmpty:$AllowEmpty
@@ -45,24 +52,32 @@ function Get-InstallCatalog {
         } elseif ($Source -match '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
             $content = Get-InstallSourceText -Url "https://raw.githubusercontent.com/$Source/$SourceRef/tools.json"
         } else { throw "unsupported marketplace source '$Source'" }
-        $Catalog = $content | ConvertFrom-Json -ErrorAction Stop
+        if (-not $content.TrimStart().StartsWith('{')) { throw 'invalid catalog root: expected object' }
+        $jsonOptions = @{ ErrorAction = 'Stop' }
+        if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $jsonOptions.DateKind = 'String' }
+        $Catalog = $content | ConvertFrom-Json @jsonOptions
     }
+    Assert-InstallObject $Catalog 'catalog'
     if ($null -eq $Catalog -or ($Catalog.schemaVersion -isnot [int] -and $Catalog.schemaVersion -isnot [long]) -or $Catalog.schemaVersion -ne 1) {
         throw 'unsupported tools catalog schemaVersion (expected 1)'
     }
     if ($Catalog.tools -isnot [array]) { throw 'invalid catalog tools: expected array' }
     $ids = @()
     foreach ($tool in $Catalog.tools) {
+        Assert-InstallObject $tool 'tool'
         Assert-InstallString $tool.id 'id'
         if ($tool.id -cnotmatch '^[a-z][a-z0-9-]*$' -or $ids -contains $tool.id) { throw 'invalid or duplicate catalog tool id' }
         $ids += $tool.id
         Assert-InstallString $tool.command 'command'
         Assert-InstallString $tool.configEnv 'configEnv'
         if ($tool.configEnv -cnotmatch '^[A-Z_][A-Z0-9_]*$') { throw 'invalid catalog configEnv' }
+        Assert-InstallObject $tool.plugin 'plugin'
         foreach ($field in @('marketplaceAdd','install','marketplaceList','list')) {
             Assert-InstallArguments $tool.plugin.$field "plugin.$field"
         }
         $listing = $tool.plugin.listing
+        Assert-InstallObject $listing 'listing'
+        Assert-InstallString $listing.format 'listing.format'
         if ($listing.format -ceq 'json') {
             Assert-InstallString $listing.idField 'listing.idField'
             Assert-InstallString $listing.enabledField 'listing.enabledField'
@@ -70,14 +85,20 @@ function Get-InstallCatalog {
             Assert-InstallString $listing.rejectPattern 'listing.rejectPattern' -AllowEmpty
             $null = [regex]::new($listing.rejectPattern)
         } else { throw 'invalid catalog listing format' }
+        Assert-InstallObject $tool.hooks 'hooks'
         Assert-InstallString $tool.hooks.status 'hooks.status'
         Assert-InstallString $tool.hooks.hint 'hooks.hint' -AllowEmpty
         Assert-InstallString $tool.installHint 'installHint' -AllowEmpty
     }
+    Assert-InstallObject $Catalog.bootstrap 'bootstrap'
     $windows = $Catalog.bootstrap.windows
+    Assert-InstallObject $windows 'bootstrap.windows'
     Assert-InstallString $windows.wingetId 'bootstrap.windows.wingetId'
     Assert-InstallRelativePath $windows.portableCommand 'bootstrap.windows.portableCommand'
+    Assert-InstallObject $windows.download 'bootstrap.windows.download'
     $zip = $windows.download.zip
+    Assert-InstallObject $zip 'bootstrap.zip'
+    foreach ($field in @('kind','resolver','verification')) { Assert-InstallString $zip.$field "bootstrap.zip.$field" }
     if ($zip.kind -cne 'zip' -or $zip.resolver -cne 'release-assets' -or $zip.verification -cne 'asset-digest') {
         throw 'invalid catalog bootstrap ZIP recipe'
     }
@@ -187,13 +208,14 @@ function Test-InstallListing {
         try {
             $plugins = @((($Lines -join "`n") | ConvertFrom-Json -ErrorAction Stop))
             return [bool](@($plugins | Where-Object {
-                $_.($listing.idField) -ceq 'ps-ai@ps-ai-marketplace' -and
+                $_.($listing.idField) -is [string] -and $_.($listing.idField) -ceq 'ps-ai@ps-ai-marketplace' -and
                 $_.($listing.enabledField) -is [bool] -and $_.($listing.enabledField)
             }).Count)
         } catch { return $false }
     }
     $reject = if ($listing) { $listing.rejectPattern } else { 'not installed|disabled' }
-    $matching = @($Lines) | Where-Object { $_ -match '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' }
+    $pattern = if ($Tool) { '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' } else { 'ps-ai@ps-ai-marketplace' }
+    $matching = @($Lines) | Where-Object { $_ -match $pattern }
     return [bool](@($matching) | Where-Object { -not $reject -or $_ -notmatch $reject })
 }
 

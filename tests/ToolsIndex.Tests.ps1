@@ -122,6 +122,10 @@
         $null = Get-InstallCatalog -Source 'example/market' -SourceRef $ref
         Assert-Equal "https://raw.githubusercontent.com/example/market/$ref/tools.json" $state.Url 'Remote ref remains literal'
     }
+    $withString = $fixtureText | ConvertFrom-Json
+    $withString.tools[0].plugin.install += '2026-11-18T00:00:00Z'
+    $fixtureText = $withString | ConvertTo-Json -Depth 100
+    Assert-Equal '2026-11-18T00:00:00Z' (Get-InstallCatalog -Source 'example/market').tools[0].plugin.install[-1] 'Remote JSON preserves date-looking argument as text'
     foreach ($source in @('https://example.test/repo','owner/repo/extra','missing-folder')) {
         Assert-Throws { Get-InstallCatalog -Source $source } 'Unsupported source stops'
     }
@@ -133,6 +137,7 @@
         $before = $state.Reads
         Assert-Equal 3 @((Get-InstallCatalog -Source $scratch).tools).Count 'Local spaced source loads offline'
         Assert-Equal $before $state.Reads 'Local source never fetches'
+        Assert-Equal '2026-11-18T00:00:00Z' (Get-InstallCatalog -Source $scratch).tools[0].plugin.install[-1] 'Local JSON preserves date-looking argument as text'
     } finally {
         if (-not ([IO.Path]::GetFullPath($scratch)).StartsWith([IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/restructure')) + [IO.Path]::DirectorySeparatorChar)) { throw 'unsafe cleanup' }
         Remove-Item -LiteralPath $scratch -Recurse -Force
@@ -141,6 +146,8 @@
         '{', 'null', '{"schemaVersion":2}',
         $fixtureText.Replace('"tools": [','"tools": 1, "unused": ['),
         $fixtureText.Replace('"command": "claude"','"command": 12'),
+        $fixtureText.Replace('"format": "json"','"format": ["json"]'),
+        $fixtureText.Replace('"kind": "zip"','"kind": ["zip"]'),
         $fixtureText.Replace('"marketplaceAdd": [','"marketplaceAdd": "bad", "unused": ['),
         $fixtureText.Replace('"wingetId": "Microsoft.PowerShell"','"wingetId": false'),
         $fixtureText.Replace('"pathFolder": ""','"pathFolder": "../outside"'),
@@ -151,6 +158,16 @@
         $fixtureText = $bad
         Assert-Throws { Invoke-PsAiInstaller -Source 'example/market' -DryRun } 'Invalid catalog fails before bootstrap'
         Assert-Equal 0 $state.Bootstrap 'Invalid catalog never bootstraps'
+    }
+    foreach ($field in @('plugin','listing','bootstrap','windows')) {
+        $bad = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw | ConvertFrom-Json
+        switch ($field) {
+            plugin { $bad.tools[0].plugin = @($bad.tools[0].plugin) }
+            listing { $bad.tools[0].plugin.listing = @($bad.tools[0].plugin.listing) }
+            bootstrap { $bad.bootstrap = @($bad.bootstrap) }
+            windows { $bad.bootstrap.windows = @($bad.bootstrap.windows) }
+        }
+        Assert-Throws { Get-InstallCatalog -Catalog $bad } 'Consumed object nodes cannot be arrays'
     }
     function Get-InstallSourceText { throw 'fixture metadata unavailable' }
     Assert-Throws { Invoke-PsAiInstaller -Source 'example/market' -DryRun } 'Fetch failure stops before bootstrap'
