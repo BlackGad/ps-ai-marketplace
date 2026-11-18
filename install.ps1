@@ -1,11 +1,11 @@
 param(
     [string[]]$Tools,
     [string]$Source = 'BlackGad/ps-ai-marketplace',
-    [string]$SourceRef = 'main',
     [string]$ConfigDir,
     [switch]$DryRun,
     [switch]$Yes,
-    [switch]$NoRun
+    [switch]$NoRun,
+    [string]$SourceRef = 'main'
 )
 
 # Standalone: this file also runs as downloaded script text in Windows PowerShell 5.1.
@@ -414,7 +414,7 @@ function Ensure-InstallPowerShell {
 }
 
 function Invoke-PsAiInstaller {
-    param([string[]]$Tools, [string]$Source = 'BlackGad/ps-ai-marketplace', [string]$SourceRef = 'main', [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, $Catalog)
+    param([string[]]$Tools, [string]$Source = 'BlackGad/ps-ai-marketplace', [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, $Catalog, [string]$SourceRef = 'main')
     $script:installCatalog = Get-InstallCatalog -Source $Source -SourceRef $SourceRef -Catalog $Catalog
     $ready = Ensure-InstallPowerShell -DryRun:$DryRun -Yes:$Yes
     if (-not $ready -and -not $DryRun) { return }

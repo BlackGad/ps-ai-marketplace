@@ -21,6 +21,34 @@ $previewLines = @(Invoke-PsAiInstaller -Tools claude -Source 'local source' -Con
 Assert-True $? 'Injected dry run succeeds'
 Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin marketplace add "local source"') 'Dry run marketplace command'
 Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install ps-ai@ps-ai-marketplace') 'Dry run plugin command'
+
+# Preserve the original positional Tools, Source, ConfigDir interface at both entry points.
+& {
+    $expectedLine = 'CODEX_HOME=selected-account codex plugin add ps-ai@ps-ai-marketplace'
+    $preview = @(& $script codex $root selected-account -DryRun)
+    Assert-True ($preview -contains $expectedLine) 'Positional script call keeps account env prefix'
+    $preview = @(Invoke-PsAiInstaller codex $root selected-account -DryRun)
+    Assert-True ($preview -contains $expectedLine) 'Positional function call keeps account env prefix'
+
+    . $script -NoRun
+    function Ensure-InstallPowerShell { return $true }
+    function codex { param($Version) Assert-Equal '--version' $Version 'Fake CLI only handles version'; 'fixture-version' }
+    $calls = [Collections.Generic.List[string]]::new()
+    function Invoke-ClosedInput {
+        param([string[]]$Command)
+        Assert-Equal 'selected-account' $env:CODEX_HOME 'Positional install uses selected account for checks and writes'
+        $calls.Add(($Command -join '|'))
+        return @{ ExitCode=0; Output=@() }
+    }
+    $previous = $env:CODEX_HOME
+    try {
+        $env:CODEX_HOME = 'default-account'
+        $null = Invoke-PsAiInstaller codex $root selected-account -Yes
+        Assert-Equal 4 $calls.Count 'Fake install checks and performs both steps'
+        Assert-True ($calls -contains 'codex|plugin|add|ps-ai@ps-ai-marketplace') 'Fake install performs plugin write'
+        Assert-Equal 'default-account' $env:CODEX_HOME 'Positional install restores caller account'
+    } finally { $env:CODEX_HOME = $previous }
+}
 try {
     Get-InstallCommands -Tool other -Source . | Out-Null
     throw 'Expected unknown tool'
