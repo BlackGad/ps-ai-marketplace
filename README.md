@@ -26,6 +26,8 @@ Open your AI tool and say:
 
 To update, just ask your AI tool: “Update ps-ai.”
 
+One update covers all accounts ps-ai knows; to include an existing one, say “Add my existing Claude account in ~/.claude-account2.”
+
 To update by hand, run this in PowerShell:
 
 ```powershell
