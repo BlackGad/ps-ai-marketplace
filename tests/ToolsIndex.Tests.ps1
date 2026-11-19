@@ -115,7 +115,7 @@
     $schema = Join-Path $repo 'plugins/ps-ai/schemas/tool.schema.json'
     $descriptorJson = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw
     $bootstrap = (Get-PsAiInstallRecipes).pwsh
-    $fields = @('marketplaceAdd', 'install', 'marketplaceList', 'list')
+    $fields = @('marketplaceAdd', 'install', 'marketplaceList', 'list', 'marketplaceUpdate', 'update')
     $scratchRoot = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/restructure'))
     $scratch = Join-Path $scratchRoot ('catalog-boundaries-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $scratch -Force | Out-Null

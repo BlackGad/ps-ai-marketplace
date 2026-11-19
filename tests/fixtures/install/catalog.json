@@ -60,6 +60,8 @@
       "command": "claude",
       "configEnv": "CLAUDE_CONFIG_DIR",
       "plugin": {
+        "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
+        "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
         "marketplaceAdd": [
           "plugin",
           "marketplace",
@@ -98,6 +100,8 @@
       "command": "codex",
       "configEnv": "CODEX_HOME",
       "plugin": {
+        "marketplaceUpdate": ["plugin", "marketplace", "upgrade"],
+        "update": ["plugin", "add", "ps-ai@ps-ai-marketplace"],
         "marketplaceAdd": [
           "plugin",
           "marketplace",
@@ -134,6 +138,8 @@
       "command": "copilot",
       "configEnv": "COPILOT_HOME",
       "plugin": {
+        "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
+        "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
         "marketplaceAdd": [
           "plugin",
           "marketplace",

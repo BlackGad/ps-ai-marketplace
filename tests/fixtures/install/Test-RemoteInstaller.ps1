@@ -167,6 +167,51 @@ if ($env:CODEX_HOME -ne 'default account') { throw 'account environment was not 
         Assert-Equal 'space value|selected account|0' ($result.Output -join '') 'CLI receives spaced argument, selected account, and EOF on stdin'
     }
 
+    # Downloaded script text must update accounts under both PowerShell runtimes.
+    @'
+param($Installer)
+$ErrorActionPreference = 'Stop'
+. ([scriptblock]::Create((Get-Content -Raw $Installer))) -NoRun
+$fixtureHome = Split-Path $Installer
+$configFolder = Join-Path $fixtureHome '.agents/configuration'
+New-Item -ItemType Directory -Path $configFolder -Force | Out-Null
+'{"agents":[{"tool":"codex","configDir":"~/.agents/accounts/codex-a"}]}' |
+    Set-Content -LiteralPath (Join-Path $configFolder 'ps-ai-personalisation.json')
+function Get-InstallHome { $fixtureHome }
+function Ensure-InstallPowerShell { throw 'Update attempted prerequisite installation' }
+function Test-InstallCommandAvailable { param($Name) $Name -eq 'codex' }
+$state = @{ Calls=0; Default=0; Account=0 }
+function Invoke-ClosedInput {
+    param($Command)
+    $state.Calls++
+    if (-not $env:CODEX_HOME) { $state.Default++ }
+    elseif ($env:CODEX_HOME -eq (Join-Path $fixtureHome '.agents/accounts/codex-a')) { $state.Account++ }
+    else { throw 'Incorrect config target' }
+    if ($Command[2] -eq 'remove') { throw 'Update removed plugin approval' }
+    return @{ ExitCode=0; Output=@('ps-ai@ps-ai-marketplace installed, enabled') }
+}
+$env:CODEX_HOME = 'inherited-account'
+$null = Invoke-PsAiInstaller -Source $fixtureHome -Tools codex -Update
+if ($state.Calls -ne 6 -or $state.Default -ne 3 -or $state.Account -ne 3) { throw 'Incorrect update target count' }
+if ($env:CODEX_HOME -ne 'inherited-account') { throw 'Caller config environment changed' }
+'standalone update passed'
+'@ | Set-Content -LiteralPath $runner
+    foreach ($runtime in $runtimes) {
+        $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', $standalone)
+        Assert-Equal 0 $result.ExitCode 'Standalone account update works in each PowerShell runtime'
+        Assert-True ($result.Output -contains 'standalone update passed') 'Standalone update uses fakes and preserves account environment'
+    }
+
+    # The script-block entry point forwards -Update and -DryRun without executing a CLI.
+    'param($Installer); & ([scriptblock]::Create((Get-Content -Raw $Installer))) -Update -DryRun -Tools codex -ConfigDir selected -Source (Split-Path $Installer)' |
+        Set-Content -LiteralPath $runner
+    foreach ($runtime in $runtimes) {
+        $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', $standalone)
+        Assert-Equal 0 $result.ExitCode 'Script-block entry accepts update preview'
+        Assert-True ($result.Output -contains 'CODEX_HOME=selected codex plugin add ps-ai@ps-ai-marketplace') 'Script-block forwards update mode'
+        Assert-True (-not (($result.Output -join "`n").Contains('marketplace add'))) 'Update preview does not add marketplaces'
+    }
+
     # No CLI discovery must show hints and return normally, without touching any real CLI.
     function Ensure-InstallPowerShell { return $true }
     function Test-InstallCommandAvailable { param($Name) return $false }

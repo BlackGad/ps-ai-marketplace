@@ -25,6 +25,12 @@ pwsh -c "irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/i
 
 By default, the script installs ps-ai for every installed coding CLI. If none is installed, it prints the official CLI install commands and stops successfully. Install one and rerun the script. Repeated runs skip completed steps and preserve hook approval.
 
+To refresh installed ps-ai copies in every CLI's default config and every recorded account folder, run the command below; `-Tools` and `-ConfigDir` narrow the targets, and `-DryRun` previews commands. Restart agents afterward to load the new skills. During development, Claude and Copilot can load the working copy directly with `--plugin-dir ./plugins/ps-ai`.
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Update
+```
+
 For options, use the script-block form in PowerShell. This example selects an extra account:
 
 ```powershell

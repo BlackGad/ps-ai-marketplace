@@ -69,6 +69,8 @@
       "required": [
         "marketplaceAdd",
         "install",
+        "marketplaceUpdate",
+        "update",
         "marketplaceList",
         "list",
         "listing"
@@ -78,6 +80,12 @@
           "$ref": "#/$defs/arguments"
         },
         "install": {
+          "$ref": "#/$defs/arguments"
+        },
+        "marketplaceUpdate": {
+          "$ref": "#/$defs/arguments"
+        },
+        "update": {
           "$ref": "#/$defs/arguments"
         },
         "marketplaceList": {

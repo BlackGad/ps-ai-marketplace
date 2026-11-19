@@ -71,6 +71,17 @@
           "install",
           "ps-ai@ps-ai-marketplace"
         ],
+        "marketplaceUpdate": [
+          "plugin",
+          "marketplace",
+          "update",
+          "ps-ai-marketplace"
+        ],
+        "update": [
+          "plugin",
+          "update",
+          "ps-ai@ps-ai-marketplace"
+        ],
         "marketplaceList": [
           "plugin",
           "marketplace",
@@ -109,6 +120,16 @@
           "add",
           "ps-ai@ps-ai-marketplace"
         ],
+        "marketplaceUpdate": [
+          "plugin",
+          "marketplace",
+          "upgrade"
+        ],
+        "update": [
+          "plugin",
+          "add",
+          "ps-ai@ps-ai-marketplace"
+        ],
         "marketplaceList": [
           "plugin",
           "marketplace",
@@ -143,6 +164,17 @@
         "install": [
           "plugin",
           "install",
+          "ps-ai@ps-ai-marketplace"
+        ],
+        "marketplaceUpdate": [
+          "plugin",
+          "marketplace",
+          "update",
+          "ps-ai-marketplace"
+        ],
+        "update": [
+          "plugin",
+          "update",
           "ps-ai@ps-ai-marketplace"
         ],
         "marketplaceList": [

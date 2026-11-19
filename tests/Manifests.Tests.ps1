@@ -15,7 +15,7 @@ Assert-Equal 'AVAILABLE' $codexMarket.plugins[0].policy.installation 'Codex inst
 Assert-True ([bool]$codexMarket.plugins[0].category) 'Codex category'
 foreach ($manifest in @($claudePlugin, $codexPlugin, $copilotPlugin)) {
     Assert-Equal 'ps-ai' $manifest.name 'Plugin manifest name'
-    Assert-Equal '0.1.0' $manifest.version 'Plugin manifest version'
+    Assert-Equal '0.2.0' $manifest.version 'Plugin manifest version'
 }
 Assert-Equal './skills/' $codexPlugin.skills 'Codex skills path'
 Assert-Equal './hooks/hooks.json' $codexPlugin.hooks 'Codex hooks path'

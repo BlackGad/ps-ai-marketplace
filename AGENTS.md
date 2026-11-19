@@ -27,6 +27,10 @@ A plugin marketplace with one plugin, `ps-ai`: orchestration as skills for Claud
 - **DRY is desired.** Keep one home for each rule, format or list and reuse it, unless repeating it is simpler to read.
 - **Minimal diff.** Change only what the task needs.
 
+## Release
+
+CLIs cache plugin copies by version. For each change meant to reach agents, bump `version` in all three `plugins/ps-ai/plugin.json`, `plugins/ps-ai/.claude-plugin/plugin.json` and `plugins/ps-ai/.codex-plugin/plugin.json` files together.
+
 ## Tests
 
 ```powershell
