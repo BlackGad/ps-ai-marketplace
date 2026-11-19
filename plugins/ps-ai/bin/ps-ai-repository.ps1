@@ -19,24 +19,32 @@ function Add-PsAiIgnoreLines {
 
 $repoRoot = git -C $Repo rev-parse --show-toplevel
 if ($LASTEXITCODE -ne 0) { throw 'Repository setup needs a Git working tree' }
+if ((Split-Path $repoRoot -Leaf) -eq '.legion') {
+    $repoRoot = git -C (Split-Path $repoRoot -Parent) rev-parse --show-toplevel
+    if ($LASTEXITCODE -ne 0) { throw 'Repository setup needs a parent code repository' }
+}
 $legion = Get-PsAiRepoPath -Repo $repoRoot -Path ''
 $innerGit = Join-Path $legion '.git'
 
 if ($Mode -eq 'Shared') {
-    if (Test-Path -LiteralPath $innerGit -PathType Container) { throw 'This layout already has Private Git history' }
+    if (Test-Path -LiteralPath $innerGit) { throw 'This layout already has Private Git history' }
     $changed = Add-PsAiIgnoreLines -Path (Join-Path $repoRoot '.gitignore') -Lines @('.legion/temp/', '.legion/docs/')
 } else {
+    $tracked = @(git -C $repoRoot ls-files -- .legion)
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot check tracked orchestration files' }
+    if ($tracked.Count) { throw 'The code repo already shares .legion (Shared)' }
     # Author and validate durable setup files before initializing their history.
     foreach ($folder in @('configuration', 'scripts', 'state')) {
         if (-not (Test-Path -LiteralPath (Join-Path $legion $folder) -PathType Container)) {
             throw "Create .legion/$folder before initializing Private history"
         }
     }
-    $exclude = git -C $repoRoot rev-parse --path-format=absolute --git-path info/exclude
+    $exclude = @(git -C $repoRoot rev-parse --git-path info/exclude)[0]
     if ($LASTEXITCODE -ne 0) { throw 'Cannot find the repository exclude file' }
+    $exclude = [IO.Path]::GetFullPath([IO.Path]::Combine($repoRoot, $exclude))
     $changed = Add-PsAiIgnoreLines -Path $exclude -Lines @('.legion/')
     if (Add-PsAiIgnoreLines -Path (Join-Path $legion '.gitignore') -Lines @('temp/', 'docs/')) { $changed = $true }
-    if (-not (Test-Path -LiteralPath $innerGit -PathType Container)) {
+    if (-not (Test-Path -LiteralPath $innerGit)) {
         git init --quiet $legion
         if ($LASTEXITCODE -ne 0) { throw 'Cannot initialize Private history' }
         $changed = $true
@@ -45,7 +53,12 @@ if ($Mode -eq 'Shared') {
     if ($LASTEXITCODE -ne 0) {
         git -C $legion add -- .gitignore configuration scripts state
         if ($LASTEXITCODE -ne 0) { throw 'Cannot stage Private setup files' }
-        git -C $legion commit --quiet -m 'Set up orchestration'
+        $identity = @()
+        foreach ($key in @('user.name', 'user.email')) {
+            $value = git -C $repoRoot config $key
+            if ($LASTEXITCODE -eq 0 -and $value) { $identity += @('-c', "$key=$value") }
+        }
+        git -C $legion @identity commit --quiet -m 'Set up orchestration'
         if ($LASTEXITCODE -ne 0) { throw 'Cannot commit Private setup files' }
         $changed = $true
     }
