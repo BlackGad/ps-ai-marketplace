@@ -103,11 +103,16 @@ function Write-PsAiGeneratedFile {
     if ($null -ne $Changes) { $Changes.Add($Path) }
 }
 
+function Get-PsAiNewAccountDir {
+    param([string]$Id, [string]$HomeRoot)
+    return Join-Path $HomeRoot ".legion-$Id"
+}
+
 function New-PsAiWrappers {
     param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$RealCommand, [string]$ConfigDir, [switch]$CheckOnly)
     Assert-PsAiId $Id
     $bin = Join-Path $HomeRoot '.agents/bin'
-    $folder = if ($ConfigDir) { $ConfigDir } else { Join-Path $HomeRoot ".agents/accounts/$Id" }
+    $folder = if ($ConfigDir) { $ConfigDir } else { Get-PsAiNewAccountDir -Id $Id -HomeRoot $HomeRoot }
     if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }
     $folder = [IO.Path]::GetFullPath($folder)
     foreach ($suffix in @('', '.cmd')) { Assert-PsAiWrapperPath (Join-Path $bin "$Id$suffix") $Id }
@@ -290,7 +295,7 @@ switch ($Action) {
             Assert-PsAiNewId -Id $Id -Data $data
             $providerBlock = New-PsAiFoundryProvider -Endpoint $Endpoint -Tool $Tool -Deployments $Deployments -Default $Default -Aliases $Aliases -Discovery $discovery
             $entry = [pscustomobject]@{
-                id = $Id; tool = $Tool; configDir = (Join-Path $HomeRoot ".agents/accounts/$Id"); provider = $providerBlock
+                id = $Id; tool = $Tool; configDir = (Get-PsAiNewAccountDir -Id $Id -HomeRoot $HomeRoot); provider = $providerBlock
             }
             foreach ($suffix in @('', '.cmd')) { Assert-PsAiWrapperPath (Join-Path $HomeRoot ".agents/bin/$Id$suffix") $Id }
             $null = Write-FoundryToolConfig -Agent $entry -HomeRoot $HomeRoot
@@ -300,7 +305,7 @@ switch ($Action) {
             "Run '$Id' in a terminal; it signs in to Azure through az when needed."
             break
         }
-        $accountDir = if ($ConfigDir) { $ConfigDir } else { "~/.agents/accounts/$Id" }
+        $accountDir = if ($ConfigDir) { $ConfigDir } else { Get-PsAiNewAccountDir -Id $Id -HomeRoot $HomeRoot }
         if ($ConfigDir) {
             $folder = $ConfigDir
             if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }

@@ -6,7 +6,8 @@ $repo = Split-Path $PSScriptRoot -Parent
     $sandbox = Join-Path $repo ('.agents/temp/uninstall-' + [guid]::NewGuid().ToString('N'))
     $bin = Join-Path $sandbox '.agents/bin'
     $personalisation = Join-Path $sandbox '.agents/configuration/ps-ai-personalisation.json'
-    $account = Join-Path $sandbox '.agents/accounts/codex-a'
+    $account = Join-Path $sandbox '.legion-codex-a'
+    $legacyAccount = Join-Path $sandbox '.agents/accounts/codex-b'
     $calls = [Collections.Generic.List[string]]::new()
     $writes = [Collections.Generic.List[string]]::new()
     $state = @{ Missing=$false; FailList=$false; FailRemove=$false; Answer='n'; Prompts=0; OnlyMissing=$false }
@@ -53,17 +54,18 @@ $repo = Split-Path $PSScriptRoot -Parent
         [Environment]::SetEnvironmentVariable($entry.configEnv, 'inherited-account', 'Process')
     }
     try {
-        New-Item -ItemType Directory -Path $bin, (Split-Path $personalisation), $account -Force | Out-Null
+        New-Item -ItemType Directory -Path $bin, (Split-Path $personalisation), $account, $legacyAccount -Force | Out-Null
         $agents = @(
-            @{id='codex-a';tool='codex';configDir='~/.agents/accounts/codex-a'},
+            @{id='codex-a';tool='codex';configDir='~/.legion-codex-a'},
             @{id='codex-b';tool='codex';configDir='~/.agents/accounts/codex-b'},
             @{id='external';tool='claude';configDir=(Join-Path $sandbox 'custom account')},
-            @{id='codex-duplicate';tool='codex';configDir='~/.agents/accounts/codex-a'}
+            @{id='codex-duplicate';tool='codex';configDir='~/.legion-codex-a'}
         )
         @{agents=$agents} | ConvertTo-Json | Set-Content $personalisation
         $original = Get-Content $personalisation -Raw
         'notes' | Set-Content (Join-Path (Split-Path $personalisation) 'ps-ai-notes.md')
         'login' | Set-Content (Join-Path $account 'auth.json')
+        'legacy login' | Set-Content (Join-Path $legacyAccount 'auth.json')
         foreach ($name in @('codex-a','codex-a.cmd','codex-b','codex-b.cmd','external','external.cmd','unrelated','ps-ai-overseer.cmd')) {
             'owner file' | Set-Content (Join-Path $bin $name)
         }
@@ -133,6 +135,7 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
         foreach ($path in $published) { Assert-True (-not (Test-Path -LiteralPath $path)) 'Every file from the actual runtime publisher is removed' }
         Assert-Equal $original (Get-Content $personalisation -Raw) 'Personalisation untouched'
         Assert-Equal 'login' (Get-Content (Join-Path $account 'auth.json')) 'Account login untouched'
+        Assert-Equal 'legacy login' (Get-Content (Join-Path $legacyAccount 'auth.json')) 'Legacy account login untouched'
         foreach ($kept in @((Split-Path $personalisation), $account, 'repositories', 'CLIs')) {
             Assert-True (($output -join "`n").Contains($kept)) 'Summary names retained data and location'
         }

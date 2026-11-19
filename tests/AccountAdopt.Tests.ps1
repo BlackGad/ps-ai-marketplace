@@ -17,7 +17,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $data = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
         Assert-Equal $folder $data.agents[0].configDir 'Adopt records the supplied folder'
         Assert-Equal $before ([IO.File]::ReadAllText($settings)) 'Adopt preserves existing settings bytes'
-        Assert-True (-not (Test-Path (Join-Path $sandbox '.agents/accounts/claude-existing'))) 'Adopt does not create an unused account folder'
+        Assert-True (-not (Test-Path (Join-Path $sandbox '.legion-claude-existing'))) 'Adopt does not create an unused account folder'
         $wrapper = Get-Content (Join-Path $sandbox '.agents/bin/claude-existing') -Raw
         Assert-True ($wrapper.Contains($folder)) 'Adopted wrapper selects existing folder'
         Assert-True (($output -join "`n") -notmatch 'log in once') 'Adopt does not request a new login'
@@ -44,6 +44,14 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-Throws { & $account -Action add -Tool claude -Id claude-missing -ConfigDir '~/missing' -Command $fake -HomeRoot $sandbox } 'Adoption rejects a missing folder'
         Assert-Equal $beforeFile ([IO.File]::ReadAllText($file)) 'Failed adoption leaves records unchanged'
         Assert-Throws { & $account -Action add -Tool claude -Id claude-existing -ConfigDir $sandbox -Command $fake -HomeRoot $sandbox } 'Existing id cannot be silently redirected'
+        $legacy = Join-Path $sandbox '.agents/accounts/codex-legacy'
+        New-Item -ItemType Directory -Path $legacy -Force | Out-Null
+        'existing login' | Set-Content (Join-Path $legacy 'auth.json')
+        $null = & $account -Action add -Tool codex -Id codex-legacy -ConfigDir $legacy -Command $fake -HomeRoot $sandbox
+        $data = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+        Assert-Equal $legacy ($data.agents | Where-Object id -EQ codex-legacy).configDir 'Legacy adoption keeps the supplied folder name'
+        Assert-True (-not (Test-Path (Join-Path $sandbox '.legion-codex-legacy'))) 'Legacy adoption creates no legion folder'
+        Assert-Equal 'existing login' (Get-Content (Join-Path $legacy 'auth.json')) 'Legacy adoption preserves login data'
     } finally {
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
         if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe cleanup' }

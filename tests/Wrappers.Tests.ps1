@@ -38,7 +38,7 @@ exit /b %result%
         Assert-Equal 'caller-account' (Get-Content $envLog) 'Batch config does not leak into its caller'
         $seen = Get-Content $env:PS_AI_WRAPPER_LOG -Raw | ConvertFrom-Json
         Assert-Equal 'first|two words|semi;literal' ($seen.Args -join '|') 'Batch forwards literal arguments'
-        Assert-Equal (Join-Path $homeRoot '.agents/accounts/wrapper-test') $seen.Home 'Batch selects account config'
+        Assert-Equal (Join-Path $homeRoot '.legion-wrapper-test') $seen.Home 'Batch selects account config'
         $fakeBatch = Join-Path $tempRoot 'fake command.cmd'
         '@pwsh -NoProfile -File "' + $fake + '" %*' | Set-Content $fakeBatch
         & $account -Action add -Id wrapper-batch -Tool codex -HomeRoot $homeRoot -Command $fakeBatch | Out-Null
@@ -67,7 +67,7 @@ exit /b %result%
         Assert-Equal 37 $LASTEXITCODE 'POSIX wrapper executes a PowerShell shim'
         $seen = Get-Content $env:PS_AI_WRAPPER_LOG -Raw | ConvertFrom-Json
         Assert-Equal 'first|two words|semi;literal' ($seen.Args -join '|') 'POSIX wrapper forwards literal arguments'
-        Assert-Equal (Join-Path $homeRoot '.agents/accounts/wrapper-test') $seen.Home 'POSIX wrapper preserves shell-significant paths'
+        Assert-Equal (Join-Path $homeRoot '.legion-wrapper-test') $seen.Home 'POSIX wrapper preserves shell-significant paths'
     }
 } finally {
     $env:PS_AI_WRAPPER_LOG = $previousLog

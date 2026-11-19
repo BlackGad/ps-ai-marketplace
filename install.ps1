@@ -582,6 +582,7 @@ function Invoke-PsAiUninstall {
         }
     }
     $configuration = Join-Path $homeRoot '.agents/configuration'
+    # Also report the legacy account root, including folders no longer recorded.
     $accounts = Join-Path $homeRoot '.agents/accounts'
     if (Test-Path -LiteralPath $configuration) { "Kept settings and notes: $configuration" }
     if (Test-Path -LiteralPath $accounts) { "Kept account folders and logins: $accounts" }
