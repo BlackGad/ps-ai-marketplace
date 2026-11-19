@@ -8,6 +8,8 @@
     "defaultConfigDir": "~/.codex",
     "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
     "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
+    "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-ai-marketplace"],
+    "marketplaceRemoveHint": "Removing this marketplace removes hook approval; approve the ps-ai hooks again with /hooks after reinstalling.",
     "install": ["plugin", "add", "ps-ai@ps-ai-marketplace"],
     "marketplaceUpdate": ["plugin", "marketplace", "upgrade"],
     "update": ["plugin", "add", "ps-ai@ps-ai-marketplace"],

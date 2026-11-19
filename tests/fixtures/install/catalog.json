@@ -25,6 +25,8 @@
       "plugin": {
         "defaultConfigDir": "~/.claude",
         "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
+        "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-ai-marketplace"],
+        "marketplaceRemoveHint": "",
         "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
         "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
         "marketplaceAdd": [
@@ -67,6 +69,8 @@
       "plugin": {
         "defaultConfigDir": "~/.codex",
         "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
+        "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-ai-marketplace"],
+        "marketplaceRemoveHint": "Removing this marketplace removes hook approval; approve the ps-ai hooks again with /hooks after reinstalling.",
         "marketplaceUpdate": ["plugin", "marketplace", "upgrade"],
         "update": ["plugin", "add", "ps-ai@ps-ai-marketplace"],
         "marketplaceAdd": [
@@ -107,6 +111,8 @@
       "plugin": {
         "defaultConfigDir": "~/.copilot",
         "installedRoot": "installed-plugins",
+        "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-ai-marketplace", "--force"],
+        "marketplaceRemoveHint": "--force is required when a plugin from this marketplace is installed.",
         "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
         "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
         "marketplaceAdd": [

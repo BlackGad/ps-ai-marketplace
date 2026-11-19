@@ -74,9 +74,10 @@ function Get-InstallCatalog {
         Assert-InstallString $tool.configEnv 'configEnv'
         if ($tool.configEnv -cnotmatch '^[A-Z_][A-Z0-9_]*$') { throw 'invalid catalog configEnv' }
         Assert-InstallObject $tool.plugin 'plugin'
-        foreach ($field in @('marketplaceAdd','install','marketplaceList','list','marketplaceUpdate','update')) {
+        foreach ($field in @('marketplaceAdd','marketplaceRemove','install','marketplaceList','list','marketplaceUpdate','update')) {
             Assert-InstallArguments $tool.plugin.$field "plugin.$field"
         }
+        Assert-InstallString $tool.plugin.marketplaceRemoveHint 'plugin.marketplaceRemoveHint' -AllowEmpty
         foreach ($field in @('defaultConfigDir','installedRoot')) {
             $present = if ($tool.plugin -is [Collections.IDictionary]) { $tool.plugin.Contains($field) } else { $null -ne $tool.plugin.PSObject.Properties[$field] }
             if (-not $present) { continue }
@@ -224,7 +225,20 @@ function Test-InstallListing {
             $registered = ($Lines[$index] -replace '^.*?ps-ai-marketplace[\s`"]*', '').Trim()
             if (-not $registered -and $index + 1 -lt $Lines.Count -and $Lines[$index + 1] -match '^\s*Source:\s*(.+)$') { $registered = $Matches[1] }
             if ((ConvertTo-InstallMarketplaceSource $registered) -ceq (ConvertTo-InstallMarketplaceSource $Source)) { return $true }
-            throw 'ps-ai-marketplace is already registered with a different or unknown source; inspect the CLI marketplace list and remove the conflicting registration before retrying.'
+            $entry = if ($Tool) { Get-InstallTool -Tool $Tool } else { $null }
+            $folder = if ($entry) { [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process') } else { '' }
+            $target = if ($folder) { $folder } else { 'default config' }
+            $currentSource = if ($registered) { $registered } else { 'unknown' }
+            $message = "$Tool in ${target}: ps-ai-marketplace source conflict; current source: $currentSource; requested source: $Source."
+            if ($entry) {
+                $remove = Format-InstallCommand -Command (@($entry.command) + $entry.plugin.marketplaceRemove)
+                if ($folder) { $remove = '$env:' + $entry.configEnv + " = '" + $folder.Replace("'", "''") + "'; " + $remove }
+                $message += "`nRemove command (run only if you want to replace this registration): $remove"
+                if ($entry.plugin.marketplaceRemoveHint) { $message += "`n" + $entry.plugin.marketplaceRemoveHint }
+            }
+            $conflict = New-Object System.InvalidOperationException -ArgumentList $message
+            $conflict.Data['InstallMarketplaceConflict'] = $true
+            throw $conflict
         }
         return $false
     }
@@ -585,6 +599,7 @@ function Invoke-PsAiInstaller {
         return
     }
     $results = @()
+    $conflicts = 0
     $Source = Resolve-InstallSource -Source $Source
     foreach ($tool in $Tools) {
         $entry = Get-InstallTool -Tool $tool
@@ -599,7 +614,14 @@ function Invoke-PsAiInstaller {
             continue
         }
         $configEnv = $entry.configEnv
-        Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $ConfigDir -DryRun:$DryRun
+        try {
+            Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $ConfigDir -DryRun:$DryRun
+        } catch {
+            if (-not $_.Exception.Data['InstallMarketplaceConflict']) { throw }
+            $_.Exception.Message
+            $conflicts++
+            continue
+        }
         if (-not $DryRun) {
             $version = (& $entry.command --version 2>$null | Select-Object -First 1)
             $hooks = $entry.hooks.status
@@ -608,6 +630,7 @@ function Invoke-PsAiInstaller {
         if ($entry.hooks.hint) { $entry.hooks.hint }
     }
     if (-not $DryRun -and -not $Update) { $results | Format-Table Tool, Version, Plugin, Hooks -AutoSize }
+    if ($conflicts) { throw "$conflicts marketplace conflict(s); resolve the registrations above and retry." }
 }
 
 if (-not $NoRun) {

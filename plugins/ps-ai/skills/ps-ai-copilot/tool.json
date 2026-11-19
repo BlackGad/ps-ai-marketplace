@@ -8,6 +8,8 @@
     "defaultConfigDir": "~/.copilot",
     "installedRoot": "installed-plugins",
     "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
+    "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-ai-marketplace", "--force"],
+    "marketplaceRemoveHint": "--force is required when a plugin from this marketplace is installed.",
     "install": ["plugin", "install", "ps-ai@ps-ai-marketplace"],
     "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
     "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
