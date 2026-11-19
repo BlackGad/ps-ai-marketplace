@@ -18,7 +18,6 @@ function Get-OverseerLaunch {
     $descriptor = Get-PsAiTool -Tool $Tool
     $command = [string]$agent.command
     if ($command.StartsWith('~/')) { $command = Join-Path $HomeRoot $command.Substring(2) }
-    if ($IsWindows -and -not [IO.Path]::GetExtension($command) -and (Test-Path -LiteralPath "$command.cmd")) { $command += '.cmd' }
     $arguments = [System.Collections.Generic.List[string]]::new()
     $warnings = [System.Collections.Generic.List[string]]::new()
     foreach ($arg in @($agent.launch.args)) { if ($null -ne $arg) { $arguments.Add([string]$arg) } }

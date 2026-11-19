@@ -11,13 +11,20 @@ try {
     $file = Join-Path $config 'ps-ai-personalisation.json'
     @{
         agents=@(
-            @{id='foundry-a';tool='claude';command='~/.agents/bin/foundry-a';configDir='~/.agents/accounts/foundry-a';provider=@{kind='foundry'}},
+            @{id='foundry-a';tool='claude';command=$(if ($IsWindows) { '~/.agents/bin/foundry-a.cmd' } else { '~/.agents/bin/foundry-a' });configDir='~/.agents/accounts/foundry-a';provider=@{kind='foundry'}},
             @{id='external';tool='claude';command='~/custom/external';provider=@{kind='foundry'}}
         )
         projects=@{example=@{custom='keep'}}
     } | ConvertTo-Json -Depth 20 | Set-Content $file
     $ownerBytes = [IO.File]::ReadAllText($file)
+    & {
+        . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
+        New-FoundryWrappers -Id foundry-a -Tool claude -HomeRoot $tempRoot
+    }
     'stale runtime' | Set-Content (Join-Path $runtime 'ps-ai-foundry.ps1')
+    foreach ($name in @('foundry', 'tools')) {
+        'stale library' | Set-Content (Join-Path $runtime "lib/$name.ps1")
+    }
     'stale wrapper' | Set-Content (Join-Path $bin 'foundry-a')
     'custom wrapper' | Set-Content (Join-Path $bin 'external')
     $shim = Join-Path $bin 'ps-ai-overseer'
@@ -30,7 +37,7 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/ps-ai-overseer.ps1' -Acco
     & $refresh -HomeRoot $tempRoot | Out-Null
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/ps-ai/bin/ps-ai-foundry.ps1'))) ([IO.File]::ReadAllText((Join-Path $runtime 'ps-ai-foundry.ps1'))) 'Approved refresh updates copied runtime bytes'
     foreach ($name in @('foundry', 'tools')) {
-        Assert-Equal ([IO.File]::ReadAllText((Join-Path $root "plugins/ps-ai/bin/lib/$name.ps1"))) ([IO.File]::ReadAllText((Join-Path $runtime "lib/$name.ps1"))) "Refresh installs the $name library in an existing runtime"
+        Assert-Equal ([IO.File]::ReadAllText((Join-Path $root "plugins/ps-ai/bin/lib/$name.ps1"))) ([IO.File]::ReadAllText((Join-Path $runtime "lib/$name.ps1"))) "Refresh updates the $name library in the current runtime layout"
     }
     & {
         . (Join-Path $runtime 'ps-ai-foundry.ps1') -NoRun

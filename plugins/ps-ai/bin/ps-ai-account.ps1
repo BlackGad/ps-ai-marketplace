@@ -271,7 +271,7 @@ switch ($Action) {
             "Run '$Id' in a terminal; it signs in to Azure through az when needed."
             break
         }
-        if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and $existing.command -in @("~/.agents/bin/$Id", (Get-PsAiWrapperCommand $Id)) -and $existing.configDir -ceq "~/.agents/accounts/$Id") {
+        if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and $existing.command -ceq (Get-PsAiWrapperCommand $Id) -and $existing.configDir -ceq "~/.agents/accounts/$Id") {
             "skip: account $Id (already done)"
             break
         }
@@ -329,7 +329,8 @@ switch ($Action) {
         if ($null -eq $agent) { throw "unknown account '$Id'" }
         $oldCommand = $agent.command
         $agent.id = $NewId
-        $owned = @("~/.agents/bin/$Id", "~/.agents/bin/$Id.cmd", (Join-Path $HomeRoot ".agents/bin/$Id"), (Join-Path $HomeRoot ".agents/bin/$Id.cmd"))
+        $wrapper = Get-PsAiWrapperCommand $Id
+        $owned = @($wrapper, (Join-Path $HomeRoot $wrapper.Substring(2)))
         if ($oldCommand -in $owned) {
             $agent.command = Get-PsAiWrapperCommand $NewId
         } else {

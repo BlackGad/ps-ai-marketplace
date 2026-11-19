@@ -9,15 +9,6 @@ try {
     $personalisation = Get-Content -Raw $ownerFile | ConvertFrom-Json
     $project = Get-Content -Raw $projectFile | ConvertFrom-Json
     . $script -NoRun
-    if ($IsWindows) {
-        $wrapper = Join-Path $tempRoot 'fixture-wrapper'
-        '' | Set-Content $wrapper
-        '@exit /b 0' | Set-Content "$wrapper.cmd"
-        $localOwner = Get-Content -Raw $ownerFile | ConvertFrom-Json
-        $localOwner.agents[0].command = $wrapper
-        $resolved = Get-OverseerLaunch -Personalisation $localOwner -Project $project -AccountId claude -Tool claude
-        Assert-Equal "$wrapper.cmd" $resolved.Command 'Extensionless Windows command selects batch sibling'
-    }
     & {
         $owner = Get-Content -Raw $ownerFile | ConvertFrom-Json
         foreach ($toolId in @('claude', 'codex', 'copilot')) {
