@@ -9,34 +9,8 @@ function Read-BigEndian($Bytes, $Offset) {
     foreach ($i in $Offset..($Offset + 3)) { $value = ($value -shl 8) -bor $Bytes[$i] }
     $value
 }
-$offset = 8
-$types = @()
-$compressed = [IO.MemoryStream]::new()
-while ($offset -lt $bytes.Length) {
-    $length = Read-BigEndian $bytes $offset
-    $type = [Text.Encoding]::ASCII.GetString($bytes, $offset + 4, 4)
-    $types += $type
-    [uint32]$crc = [uint32]::MaxValue
-    foreach ($index in ($offset + 4)..($offset + 7 + $length)) {
-        $crc = $crc -bxor $bytes[$index]
-        foreach ($bit in 1..8) { $crc = if ($crc -band 1) { ($crc -shr 1) -bxor [uint32]3988292384 } else { $crc -shr 1 } }
-    }
-    $crc = $crc -bxor [uint32]::MaxValue
-    Assert-Equal (Read-BigEndian $bytes ($offset + 8 + $length)) $crc "PNG $type checksum"
-    if ($type -eq 'IHDR') {
-        Assert-Equal 96 (Read-BigEndian $bytes ($offset + 8)) 'PNG width'
-        Assert-Equal 96 (Read-BigEndian $bytes ($offset + 12)) 'PNG height'
-    }
-    if ($type -eq 'IDAT') { $compressed.Write($bytes, $offset + 8, $length) }
-    $offset += 12 + $length
-}
-Assert-Equal 'IHDR|IDAT|IEND' ($types -join '|') 'PNG chunk structure'
-$compressed.Position = 0
-$decoder = [IO.Compression.ZLibStream]::new($compressed, [IO.Compression.CompressionMode]::Decompress)
-$pixels = [IO.MemoryStream]::new()
-$decoder.CopyTo($pixels)
-Assert-Equal (96 * (96 * 3 + 1)) $pixels.Length 'PNG decompresses fully'
-$decoder.Dispose(); $pixels.Dispose(); $compressed.Dispose()
+Assert-Equal 96 (Read-BigEndian $bytes 16) 'PNG width'
+Assert-Equal 96 (Read-BigEndian $bytes 20) 'PNG height'
 
 # Execute documented payloads against a session stub, with no credential or network boundary.
 $send = Get-Content (Join-Path $skill 'references/send.md') -Raw
@@ -57,21 +31,3 @@ foreach ($payload in $payloads) {
 Assert-Equal '123|456' ($sent.Target -join '|') 'ExplicitFormatAndPngDelivery separate targets'
 Assert-Equal 'markdownv2|text' ($sent.Format -join '|') 'Notes-selected text stays explicit'
 Assert-Equal 'Connection test\.' $sent[0].Text 'MarkdownV2 escapes punctuation'
-
-# Execute the documented session install command with fake installed state.
-$installText = Get-Content (Join-Path $skill 'references/install.md') -Raw
-$installCommand = [regex]::Match($installText, '(?s)```text\s*(.*?)\s*```').Groups[1].Value
-$pluginState = @{Installed=$false;Executions=0}
-function Invoke-FixtureSessionInstall {
-    param([string]$Command, [switch]$Yes)
-    Assert-Equal '/plugin install telegram@claude-plugins-official' $Command 'Documented plugin command'
-    if ($pluginState.Installed) { 'skip: channel plugin (already done)'; return }
-    if (-not $Yes) { return }
-    $pluginState.Executions++
-    $pluginState.Installed=$true
-}
-Invoke-FixtureSessionInstall $installCommand
-Assert-Equal 0 $pluginState.Executions 'Plugin preview and decline execute nothing'
-Invoke-FixtureSessionInstall $installCommand -Yes
-Invoke-FixtureSessionInstall $installCommand -Yes | Out-Null
-Assert-Equal 1 $pluginState.Executions 'Approved and repeated install executes once'

@@ -6,26 +6,6 @@
       "id": "Claude_1",
       "tool": "claude",
       "configDir": "~/.agents/accounts/Claude_1"
-    },
-    {
-      "id": "claude-b",
-      "tool": "claude",
-      "configDir": "~/.claude-b"
-    },
-    {
-      "id": "codex-a",
-      "tool": "codex",
-      "configDir": "~/.codex"
-    },
-    {
-      "id": "codex-b",
-      "tool": "codex",
-      "configDir": "~/.agents/accounts/codex-b"
-    },
-    {
-      "id": "copilot",
-      "tool": "copilot",
-      "configDir": "~/.agents/accounts/copilot"
     }
   ],
   "channels": []

@@ -10,6 +10,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $catalog.tools[0].hooks.hint = 'remote catalog selected'
         $catalog | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $sandbox 'remote.json')
         $overrides = @'
+function Get-InstallHome { $PSScriptRoot }
 function Get-InstallSourceText { Get-Content (Join-Path $PSScriptRoot 'remote.json') -Raw }
 function Ensure-InstallPowerShell { $true }
 function Test-InstallStepDone { $false }

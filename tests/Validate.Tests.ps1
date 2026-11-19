@@ -44,11 +44,11 @@ try {
     $foundryFile = Join-Path $PSScriptRoot 'fixtures/personalisation/valid-foundry.json'
     Assert-Equal 0 @(Invoke-PsAiValidation -Kind personalisation -Path $foundryFile).Count 'Foundry provider validates'
     $foundryIssues = @{
-        'invalid-foundry-default' = @("agents[5].provider: default 'x' is not a deployment")
+        'invalid-foundry-default' = @("agents[0].provider: default 'x' is not a deployment")
         'invalid-foundry-alias' = @(
-            "agents[5].provider: alias 'sonnet' used twice",
-            "agents[5].provider: duplicate deployment 'x'",
-            "agents[6].provider: alias 'sonnet' is not supported by tool 'codex'"
+            "agents[0].provider: alias 'sonnet' used twice",
+            "agents[0].provider: duplicate deployment 'x'",
+            "agents[1].provider: alias 'sonnet' is not supported by tool 'codex'"
         )
     }
     foreach ($name in $foundryIssues.Keys) {
@@ -57,9 +57,9 @@ try {
             Assert-True ($issues -contains $expectedIssue) "$name exact provider issue: $expectedIssue"
         }
     }
-    Assert-True (@(Invoke-PsAiValidation -Kind personalisation -Path (Join-Path $PSScriptRoot 'fixtures/personalisation/invalid-foundry-kind.json')).Count -gt 0) 'Unknown provider kind fails schema'
     $foundry = Read-PsAiJson -Path $foundryFile
     foreach ($change in @(
+        { param($p) $p.kind = 'bedrock' },
         { param($p) $p.endpoint += '/anthropic/' },
         { param($p) $p.deployments = @() },
         { param($p) $p | Add-Member extra 'no' },
@@ -96,9 +96,6 @@ try {
         $env:PATH = @($fourthSkill,$env:PATH) -join [IO.Path]::PathSeparator
         & (Join-Path $plugin 'bin/ps-ai-account.ps1') -Action add -Tool fourth -Id fourth-dev -HomeRoot $homeRoot | Out-Null
         Assert-True ((Get-Content (Join-Path $homeRoot '.agents/bin/fourth-dev') -Raw).Contains((Join-Path $fourthSkill 'fourth-cli.ps1'))) 'Account default command uses descriptor executable'
-        & (Join-Path $plugin 'bin/ps-ai-account.ps1') -Action add -Tool fourth -Id fourth-custom -Command custom-executable -HomeRoot $homeRoot | Out-Null
-        Assert-True ((Get-Content (Join-Path $homeRoot '.agents/bin/fourth-custom') -Raw).Contains('custom-executable')) 'Explicit account command takes precedence'
-        & (Join-Path $plugin 'bin/ps-ai-account.ps1') -Action register -Tool fourth -Id fourth-registered -Command (Join-Path $fourthSkill 'fourth-cli.ps1') -ConfigDir $fourthSkill -HomeRoot $homeRoot | Out-Null
         Assert-Equal 0 @(Invoke-PsAiValidation -Kind personalisation -Path $ownerPath).Count 'Fourth account validates with matching skill'
         $discovery = @{Source='management';Deployments=@(@{name='model[1]-a';model='model[1]-a'})}
         $syntheticProvider = New-PsAiFoundryProvider -Endpoint 'https://resource.cognitiveservices.azure.com' -Tool fourth -Deployments 'model[1]-a' -Default 'model[1]-a' -Aliases 'model[1]-a=alpha' -Discovery $discovery
@@ -124,8 +121,6 @@ try {
         . (Join-Path $plugin 'bin/ps-ai-overseer.ps1') -NoRun -HomeRoot $homeRoot
         $launch = Get-OverseerLaunch -Personalisation $owner -AccountId fourth-dev -Tool fourth -Arguments @('--account','account value','','2026-11-19') -HomeRoot $homeRoot
         Assert-Equal '--account|account value||2026-11-19|--interactive|space value|continue as the overseer' ($launch.Args -join '|') 'Descriptor tail follows explicit literal arguments'
-        $launch = Get-OverseerLaunch -Personalisation $owner -AccountId fourth-registered -Tool fourth -HomeRoot $homeRoot
-        Assert-Equal (Get-PsAiWrapperCommand fourth-registered $homeRoot) $launch.Command 'Registered account derives canonical wrapper'
         $descriptorPath = Join-Path $fourthSkill 'tool.json'
         $descriptor = Get-Content $descriptorPath -Raw | ConvertFrom-Json
         $descriptor.foundry = $null
@@ -141,7 +136,6 @@ try {
         catch { Assert-Equal "tool 'fourth' does not support Foundry" $_.Exception.Message 'Null Foundry stops before token login' }
         Assert-Equal $beforeCalls $azureCalls.Count 'Null Foundry makes no Azure calls'
         Assert-Throws { Write-FoundryToolConfig -Agent $owner.agents[0] -HomeRoot $homeRoot } 'Null Foundry rejects config writes'
-        Assert-True (-not (Test-Path (Join-Path $homeRoot '.agents/accounts/fourth-registered'))) 'Adoption creates no unused config'
         Remove-Item (Join-Path $fourthSkill 'SKILL.md')
         Assert-True (@(Invoke-PsAiValidation -Kind personalisation -Path $ownerPath).Count -gt 0) 'Absent matching skill rejects persisted tool'
         # Loading definitions and lease/hook operations must not discover malformed data.

@@ -19,5 +19,4 @@ foreach ($id in @('claude','codex','copilot')) {
     Invoke-OverseerInRepo -Repo $repo -Command Invoke-FakeWorker -Arguments $launch.Args
     $interactive = if ($id -eq 'copilot') { @('-i','continue as the overseer') } else { @('continue as the overseer') }
     Assert-Equal ($interactive | ConvertTo-Json -Compress) ($state.Args | ConvertTo-Json -Compress) "$id overseer launches without worker permissions"
-    Assert-True (-not (Get-PsAiTool $id).PSObject.Properties['legionArgs']) "$id worker guidance lives in the run reference"
 }

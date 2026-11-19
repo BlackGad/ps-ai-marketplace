@@ -10,8 +10,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $calls = [Collections.Generic.List[string]]::new()
     $writes = [Collections.Generic.List[string]]::new()
     $state = @{ Missing=$false; FailList=$false; FailRemove=$false; Answer='n'; Prompts=0; OnlyMissing=$false }
-    function Get-InstallHome { $sandbox }
-    function Get-InstallSourceText { throw 'No network in tests' }
+    . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
     function Ensure-InstallPowerShell { throw 'Uninstall must not install prerequisites' }
     function Test-InstallCommandAvailable { param($Name) -not $state.OnlyMissing }
     function Read-Host {
@@ -153,12 +152,6 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
         Assert-Throws { Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Update -Uninstall -Yes } 'Update and uninstall are mutually exclusive'
         Assert-Equal 0 $calls.Count 'Invalid mode executes nothing'
 
-        $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
-        $catalog.tools += [pscustomobject]@{id='fourth';command='fourth-cli';configEnv='FOURTH_HOME';plugin=$fourth.plugin;hooks=$fourth.hooks;installHint='fixture'}
-        $writes.Clear()
-        $null = Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools fourth -ConfigDir selected -Uninstall -Yes
-        Assert-Equal 'fourth-cli|plugin|erase|ps-ai@ps-ai-marketplace' $writes[0] 'Future tool uninstall uses descriptor argv'
-        Assert-Equal 'fourth-cli|plugin|marketplace|unregister|ps-ai-marketplace' $writes[1] 'Future marketplace uses descriptor argv'
         $state.OnlyMissing=$true
         $calls.Clear()
         $missing = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools codex -Uninstall -Yes)

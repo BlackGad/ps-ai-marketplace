@@ -470,6 +470,8 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
         Assert-Equal 'fourth-v42.3.1' $download.PathFolder 'First LTS retains leading v in PATH folder'
         Assert-True ($requests -contains 'https://fixture.test/v42.3.1/sums') 'Checksum URL retains leading v'
         Assert-Equal ('3' * 64) $download.Hash 'LTS checksum filename uses the same version'
+        $sources['https://fixture.test/v42.3.1/sums'] = ('3' * 64) + '  other.zip'
+        Assert-Throws { Get-ToolDownload -Tool fourth -Method zip } 'Checksum for another filename stops LTS resolution'
         $sources['https://fixture.test/versions'] = '[{"version":"v99.0.0","lts":false}]'
         $message = ''
         try { Get-ToolDownload -Tool fourth -Method zip | Out-Null } catch { $message=$_.Exception.Message }

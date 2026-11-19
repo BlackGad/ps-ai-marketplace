@@ -6,10 +6,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $sandbox = Join-Path $repo ('.agents/temp/install-targets-' + [guid]::NewGuid().ToString('N'))
     $file = Join-Path $sandbox '.agents/configuration/ps-ai-personalisation.json'
     New-Item -ItemType Directory -Path (Split-Path $file) -Force | Out-Null
-    function Get-InstallHome { $sandbox }
-    function Get-InstallSourceText { throw 'No network in tests' }
-    function Ensure-InstallPowerShell { $true }
-    function Test-InstallCommandAvailable { $true }
+    . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
     $calls = New-Object 'Collections.Generic.List[string]'
     function Invoke-ClosedInput {
         param([string[]]$Command)

@@ -9,7 +9,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $marker = Join-Path $sandbox 'refreshed.txt'
     $state = @{Updated=$false; Fail=$false; Missing=$false; Disappeared=$false}
     $realClosedInput = ${function:Invoke-ClosedInput}
-    function Get-InstallHome { Join-Path $sandbox 'selected-home' }
+    . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome (Join-Path $sandbox 'selected-home')
     function Invoke-ClosedInput {
         param($Command)
         if ($Command[0] -ne 'claude') { return & $realClosedInput -Command $Command }
@@ -73,7 +73,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $sandbox = Join-Path $repo ('.agents/temp/refresh-cache-' + [guid]::NewGuid().ToString('N'))
     $configRoot = Join-Path $sandbox 'selected-account'
     $calls = [Collections.Generic.List[object]]::new()
-    function Get-InstallHome { Join-Path $sandbox 'selected-home' }
+    . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome (Join-Path $sandbox 'selected-home')
     function Invoke-ClosedInput {
         param($Command)
         if ($Command[0] -eq 'copilot') { return @{ExitCode=0;Output=@('ps-ai@ps-ai-marketplace (v0.3.0) (enabled)')} }

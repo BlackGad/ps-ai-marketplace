@@ -7,8 +7,7 @@ $entries = ($catalogText | ConvertFrom-Json).tools
 $fixtureHome = Split-Path $Catalog
 $states = @{}
 foreach ($entry in $entries) { $states[$entry.command] = @{Added=$false; Refreshed=$false; Installed=$false} }
-function Get-InstallHome { $fixtureHome }
-function Ensure-InstallPowerShell { $true }
+. (Join-Path $PSScriptRoot 'InstallerSandbox.ps1') -InstallFixtureHome ($fixtureHome)
 function Get-InstallSourceText {
     param($Url)
     if ($Url -ne 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/tools.json') { throw 'Unexpected catalog URL' }
@@ -16,9 +15,6 @@ function Get-InstallSourceText {
 }
 function Test-InstallCommandAvailable { param($Name) $Name -in @('claude','codex','copilot') }
 function Invoke-InstallRefresh { 'fixture artifacts refreshed' }
-function claude { 'fixture-version' }
-function codex { 'fixture-version' }
-function copilot { 'fixture-version' }
 function Invoke-ClosedInput {
     param($Command)
     $entry = $entries | Where-Object command -EQ $Command[0]
