@@ -346,8 +346,8 @@ Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains option
         $sibling = Join-Path $sandbox 'home1/tools/fourth/fourth-v9'
         New-Item -ItemType Directory $sibling -Force | Out-Null
         [IO.File]::WriteAllText((Join-Path $sibling 'fourth-cli.exe'), '')
-        $expectedCommand = Join-Path (Get-ToolInstallRoot fourth) 'fourth-v2/fourth-cli.exe'
-        Assert-Equal $expectedCommand (Get-ToolPortableCommand fourth) 'Portable glob uses descending directory-name order'
+        $expectedCommand = Join-Path (Get-ToolInstallRoot fourth) 'fourth-v10/fourth-cli.exe'
+        Assert-Equal $expectedCommand (Get-ToolPortableCommand fourth) 'Portable glob compares numeric version components'
         $pathState = @{Value='existing'}
         $writes = [Collections.Generic.List[string]]::new()
         function Get-UserPath { $pathState.Value }

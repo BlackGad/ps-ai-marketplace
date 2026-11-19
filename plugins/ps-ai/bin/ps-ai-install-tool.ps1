@@ -233,7 +233,11 @@ function Get-ToolPortableCommand {
     $path = Resolve-ToolRelativePath -Root $root -RelativePath $relative
     if ([Management.Automation.WildcardPattern]::ContainsWildcardCharacters($relative)) {
         $pattern = Join-Path ([Management.Automation.WildcardPattern]::Escape($root)) $relative
-        $entry = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
+        # Compare digit groups numerically so 22.10 sorts after 22.9.
+        $entry = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Sort-Object {
+            $relativeName = [IO.Path]::GetRelativePath($root, $_.FullName)
+            [regex]::Replace($relativeName, '\d+', { param($number) $number.Value.PadLeft(20, '0') })
+        } -Descending | Select-Object -First 1
         if ($entry) {
             return Resolve-ToolRelativePath -Root $root -RelativePath ([IO.Path]::GetRelativePath($root, $entry.FullName))
         }
