@@ -1,3 +1,4 @@
+$ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $sandbox = Join-Path $repo ('.agents/temp/restructure/update-hook-' + [guid]::NewGuid().ToString('N'))
 $plugin = Join-Path $sandbox 'plugin'
@@ -53,7 +54,7 @@ function Get-PsAiUpdateText {
         'fail' | Set-Content (Join-Path $plugin 'response.txt') -NoNewline
         $text = @(& pwsh -NoProfile -File $hook -Repo $fixtureRepo)
         Assert-Equal 1 $text.Count 'Failed check adds no output'
-        Assert-True ($text[0].Contains('M1; task 1')) 'Failed check preserves mode context'
+        Assert-True ($text[0].Contains('Say continue')) 'Failed check preserves overseer activation guidance'
         Assert-Equal 0 $LASTEXITCODE 'Failed update check exits zero'
         $json = & pwsh -NoProfile -File $hook -Repo $fixtureRepo -Format context-json | ConvertFrom-Json
         Assert-Equal $text[0] $json.additionalContext 'Failed check preserves JSON context'

@@ -7,13 +7,6 @@ param(
 
 . (Join-Path $PSScriptRoot '../bin/PsAi.Common.ps1')
 
-function Get-PsAiHandoffLine {
-    param([string]$Content, [string]$Heading)
-    $match = [regex]::Match($Content, "(?m)^## $([regex]::Escape($Heading))\s*\r?\n([^\r\n]*)")
-    if ($match.Success) { return $match.Groups[1].Value.Trim() }
-    return ''
-}
-
 function Find-PsAiRepoRoot {
     param([string]$Path)
     $current = $Path
@@ -38,7 +31,7 @@ function Get-PsAiMode {
             }
         }
         $task = [string]$Environment.PS_AI_TASK
-        $message = "ps-ai: you are a legion member. Your task: $task. Load the ps-ai-legion skill and follow it. "
+        $message = 'ps-ai: you are a legion member. Load the ps-ai-legion skill to read your task from PS_AI_TASK and follow it. '
         $message += 'Do not load ps-ai-overseer. A summoned unit cannot summon: never start other agents.'
         return [pscustomobject]@{ Mode = 'legion'; Task = $task; Lease = 'free'; Text = $message }
     }
@@ -47,15 +40,12 @@ function Get-PsAiMode {
     if (-not (Test-Path -LiteralPath $handoff)) {
         return [pscustomobject]@{ Mode = 'none'; Task = $null; Lease = 'free'; Text = '' }
     }
-    $content = Get-Content -Raw -LiteralPath $handoff
-    $milestone = Get-PsAiHandoffLine -Content $content -Heading 'Milestone'
-    $task = Get-PsAiHandoffLine -Content $content -Heading 'Current task'
     $lease = Get-PsAiLease -Repo $Repo
-    $message = "ps-ai: this repo is orchestrated ($milestone; $task). Say continue to act as the overseer."
+    $message = 'ps-ai: this repo is orchestrated. Say continue to act as the overseer.'
     if ($lease.State -eq 'held') {
-        $message += " Another overseer is active ($($lease.Data.tool), $($lease.Data.account), since $($lease.Data.startedAt))."
+        $message += ' Another overseer is active.'
     } elseif ($lease.State -eq 'foreign') {
-        $message += " An overseer lease from host $($lease.Data.host) exists; ask the owner before taking over."
+        $message += ' An overseer lease from another host exists; ask the owner before taking over.'
     }
     try {
         . (Join-Path $PSScriptRoot '../bin/ps-ai-update.ps1') -NoRun
