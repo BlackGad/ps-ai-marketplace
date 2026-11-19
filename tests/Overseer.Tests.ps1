@@ -1,3 +1,4 @@
+$ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $root 'plugins/ps-ai/bin/ps-ai-overseer.ps1'
 $ownerFile = Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json'
@@ -8,6 +9,38 @@ try {
     $personalisation = Get-Content -Raw $ownerFile | ConvertFrom-Json
     $project = Get-Content -Raw $projectFile | ConvertFrom-Json
     . $script -NoRun
+    if ($IsWindows) {
+        $wrapper = Join-Path $tempRoot 'fixture-wrapper'
+        '' | Set-Content $wrapper
+        '@exit /b 0' | Set-Content "$wrapper.cmd"
+        $localOwner = Get-Content -Raw $ownerFile | ConvertFrom-Json
+        $localOwner.agents[0].command = $wrapper
+        $resolved = Get-OverseerLaunch -Personalisation $localOwner -Project $project -AccountId claude -Tool claude
+        Assert-Equal "$wrapper.cmd" $resolved.Command 'Legacy extensionless wrapper selects batch sibling'
+    }
+    & {
+        $owner = Get-Content -Raw $ownerFile | ConvertFrom-Json
+        foreach ($toolId in @('claude', 'codex', 'copilot')) {
+            $agent = @($owner.agents | Where-Object tool -eq $toolId)[0]
+            $agent | Add-Member models ([pscustomobject]@{ overseer='role-model' }) -Force
+            $project.id = 'model-project'
+            $modelLaunch = Get-OverseerLaunch -Personalisation $owner -Project $project -AccountId $agent.id -Tool $toolId
+            Assert-True (($modelLaunch.Args -join '|').Contains('--model|role-model')) "$toolId honors the overseer role model"
+            foreach ($scope in @('account', 'channel', 'project')) {
+                $agent | Add-Member launch ([pscustomobject]@{args=@()}) -Force
+                $owner.projects | Add-Member 'model-project' ([pscustomobject]@{ notify=@(); launch=[pscustomobject]@{} }) -Force
+                if ($scope -eq 'account') { $agent.launch.args = @('--model=explicit-model') }
+                if ($scope -eq 'channel') {
+                    $owner.projects.'model-project'.notify = @('fixture')
+                    $owner.communication.channels | Add-Member fixture ([pscustomobject]@{launch=[pscustomobject]@{$toolId=@('--model', 'explicit-model')}}) -Force
+                }
+                if ($scope -eq 'project') { $owner.projects.'model-project'.launch | Add-Member $toolId @('-m', 'explicit-model') -Force }
+                $modelLaunch = Get-OverseerLaunch -Personalisation $owner -Project $project -AccountId $agent.id -Tool $toolId
+                Assert-True ($modelLaunch.Args -notcontains 'role-model') "$toolId $scope model overrides the role model"
+            }
+        }
+    }
+    $project = Get-Content -Raw $projectFile | ConvertFrom-Json
     $launch = Get-OverseerLaunch -Personalisation $personalisation -Project $project -AccountId claude -Tool claude
     Assert-Equal 'claude' $launch.Command 'Claude command'
     Assert-Equal '--channels|plugin:telegram@claude-plugins-official|continue as the overseer' ($launch.Args -join '|') 'Claude flags'
@@ -38,6 +71,33 @@ try {
     Invoke-OverseerInRepo -Repo $repoPath -Command $probe -Arguments @($resultFile)
     Assert-Equal $repoPath ([System.IO.File]::ReadAllText($resultFile)) 'Unix launch runs in repo'
     Assert-Equal $beforeLocation (Get-Location).Path 'Unix launch restores caller location'
+    & {
+        function Get-Command { param($Name, $CommandType, $ErrorAction) if ($Name -eq 'wt') { return $null }; throw 'Unexpected discovery' }
+        $state = @{ Called=$false }
+        function Invoke-OverseerInRepo {
+            param($Repo, $Command, $Arguments)
+            $state.Called = $true
+            Assert-Equal $repoPath $Repo 'Fallback selects the project folder'
+            Assert-Equal $state.Expected $Arguments[0] 'Fallback preserves literal arguments'
+        }
+        foreach ($value in @('ordinary argument','literal;argument')) {
+            $state.Expected = $value
+            Start-OverseerLaunch -Repo $repoPath -Launch @{Command='fixture';Args=@($value)}
+        }
+        Assert-True $state.Called 'Missing Windows Terminal uses the current terminal'
+    }
+    if ($IsWindows) {
+        & {
+            $state = @{Arguments=@()}
+            function fixture-terminal { $state.Arguments=@($args) }
+            function Get-Command { param($Name,$CommandType,$ErrorAction) @{Source='fixture-terminal'} }
+            Start-OverseerLaunch -Repo $repoPath -Launch @{Command='fixture.cmd';Args=@('two words',"apostrophe'argument")}
+            Assert-True ($state.Arguments -contains '-EncodedCommand') 'Terminal executes batch wrappers through PowerShell'
+            $encoded = $state.Arguments[-1]
+            $decoded = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
+            Assert-True ($decoded.Contains("& 'fixture.cmd' 'two words' 'apostrophe''argument'")) 'Terminal transport preserves literal values'
+        }
+    }
     try {
         Get-OverseerLaunch -Personalisation $personalisation -Project $project -AccountId codex9 -Tool codex | Out-Null
         throw 'Expected unknown account error'

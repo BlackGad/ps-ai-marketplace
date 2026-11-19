@@ -18,6 +18,7 @@ function Get-OverseerLaunch {
     $descriptor = Get-PsAiTool -Tool $Tool
     $command = [string]$agent.command
     if ($command.StartsWith('~/')) { $command = Join-Path $HomeRoot $command.Substring(2) }
+    if ($IsWindows -and -not [IO.Path]::GetExtension($command) -and (Test-Path -LiteralPath "$command.cmd")) { $command += '.cmd' }
     $arguments = [System.Collections.Generic.List[string]]::new()
     $warnings = [System.Collections.Generic.List[string]]::new()
     foreach ($arg in @($agent.launch.args)) { if ($null -ne $arg) { $arguments.Add([string]$arg) } }
@@ -36,6 +37,12 @@ function Get-OverseerLaunch {
     if ($null -ne $settings) {
         $flags = $settings.launch.PSObject.Properties[$Tool].Value
         foreach ($arg in @($flags)) { if ($null -ne $arg) { $arguments.Add([string]$arg) } }
+    }
+    if ($agent.models.overseer) {
+        $modelAdapter = Join-Path $descriptor.SkillRoot 'scripts/overseer-model.ps1'
+        if (-not (Test-Path -LiteralPath $modelAdapter)) { throw "tool '$Tool' does not support overseer model selection" }
+        $modelArgs = [string[]]@(& $modelAdapter -Model $agent.models.overseer -Arguments $arguments.ToArray())
+        $arguments.InsertRange(0, $modelArgs)
     }
     foreach ($arg in $descriptor.overseerArgs) { $arguments.Add($arg) }
     $arguments.Add('continue as the overseer')
@@ -66,6 +73,27 @@ function Invoke-OverseerInRepo {
     finally { Pop-Location }
 }
 
+function Start-OverseerLaunch {
+    param([string]$Repo, $Launch, [switch]$DryRun)
+    # Terminal parses semicolons as its own commands. Use the current terminal for literal ones.
+    $terminal = $null
+    if ($IsWindows -and -not (($Repo + $Launch.Command + ($Launch.Args -join '')) -match ';')) {
+        $terminal = Get-Command wt -CommandType Application -ErrorAction SilentlyContinue
+    }
+    if ($terminal) {
+        $literals = @($Launch.Command) + $Launch.Args | ForEach-Object { "'" + $_.Replace("'", "''") + "'" }
+        $commandText = '& ' + ($literals -join ' ') + '; exit $LASTEXITCODE'
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($commandText))
+        $terminalArgs = @('new-tab', '-d', $Repo, (Get-Process -Id $PID).Path, '-NoProfile', '-EncodedCommand', $encoded)
+        if ($DryRun) { @('wt') + $terminalArgs }
+        else { & $terminal.Source @terminalArgs }
+    } elseif ($DryRun) {
+        @($Repo, $Launch.Command) + $Launch.Args
+    } else {
+        Invoke-OverseerInRepo -Repo $Repo -Command $Launch.Command -Arguments $Launch.Args
+    }
+}
+
 if (-not $launcherNoRun) {
     $projectFile = Join-Path $Repo '.agents/configuration/project.json'
     if (-not (Test-Path -LiteralPath $projectFile)) {
@@ -78,12 +106,5 @@ if (-not $launcherNoRun) {
     if (-not $Tool) { $Tool = $selected.tool }
     $launch = Get-OverseerLaunch -Personalisation $personalisation -Project $project -AccountId $selected.id -Tool $Tool -HomeRoot $HomeRoot
     foreach ($warning in $launch.Warnings) { Write-Warning $warning }
-    if ($IsWindows) {
-        $parts = @('wt', 'new-tab', '-d', $Repo, $launch.Command) + $launch.Args
-    } else {
-        $parts = @($launch.Command) + $launch.Args
-    }
-    if ($DryRun) { $parts | Write-Output }
-    elseif ($IsWindows) { & wt new-tab -d $Repo $launch.Command @($launch.Args) }
-    else { Invoke-OverseerInRepo -Repo $Repo -Command $launch.Command -Arguments $launch.Args }
+    Start-OverseerLaunch -Repo $Repo -Launch $launch -DryRun:$DryRun
 }
