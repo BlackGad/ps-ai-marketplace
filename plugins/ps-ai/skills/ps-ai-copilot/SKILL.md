@@ -7,9 +7,9 @@ description: Use when the overseer dispatches Copilot CLI work or the owner asks
 
 ## Identity and hard rules
 
-Use this tool skill for Copilot CLI commands only. Load `ps-ai-personalisation` and its notes first; choose the account, role, model, and any `cost: paid` approval there. The overseer owns task selection and the handoff.
+Use this tool skill for Copilot CLI operations only. Load `ps-ai-personalisation` and its notes first; choose the account, role, model, and any paid-account approval there. The overseer owns task selection and the handoff. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
 
-- Set `PS_AI_ROLE=legion` and `PS_AI_TASK=<prompt path>` only for a legion process.
+- Mark only a legion process as a legion task using [run.md](references/run.md).
 - Read-only reviewers require explicit write and shell tool denials. Never let a review modify the frozen checkout.
 - Resume only on the same account and folder. Never read credentials.
 - Ping before declaring an account out of credit. Copilot has no supported limit readout in this workflow.
@@ -17,9 +17,9 @@ Use this tool skill for Copilot CLI commands only. Load `ps-ai-personalisation` 
 
 ## Operations
 
-1. **Run or resume:** [run.md](references/run.md) gives prompt mode and the read-only reviewer flags.
+1. **Run or resume:** follow [run.md](references/run.md) to supply the task and restrict reviewers to read-only access.
 2. **Limits:** [limits.md](references/limits.md) describes the quota-error ping and unknown result.
-3. **Accounts:** [accounts.md](references/accounts.md) gives `ps-ai-account.ps1`, `COPILOT_HOME`, owner login, installation, and validation.
+3. **Accounts:** use [accounts.md](references/accounts.md) for account changes, owner login, installation, and validation.
 4. **Missing CLI:** follow [install.md](references/install.md) before adding an account or running Copilot CLI.
 
 ## Stop and verification
@@ -28,5 +28,5 @@ Stop when account/model or report path is missing, a resume would switch account
 
 ## Launcher and plugins
 
-Use [launcher.md](references/launcher.md) for account, channel, project, and interactive-launch arguments.
-For manual ps-ai installation in the selected account, use the commands in [install.md](references/install.md).
+Use [launcher.md](references/launcher.md) to open an overseer session with the chosen account, channel, and project.
+Use [install.md](references/install.md) for ps-ai setup in the selected account and restarting after an update.

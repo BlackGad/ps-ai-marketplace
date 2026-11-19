@@ -7,19 +7,19 @@ description: Use when the overseer dispatches Claude Code work or the owner asks
 
 ## Identity and hard rules
 
-Use this tool skill for Claude Code commands only. Load `ps-ai-personalisation` and its notes first; select the configured Claude account, role, and model there. The overseer chooses the task and writes the handoff; this skill only runs the chosen tool.
+Use this tool skill for Claude Code operations only. Load `ps-ai-personalisation` and its notes first; select the configured Claude account, role, and model there. The overseer chooses the task and writes the handoff; this skill only runs the chosen tool. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
 
-- Set `PS_AI_ROLE=legion` and `PS_AI_TASK=<prompt path>` only for a legion process. Do not turn an interactive session into legion mode.
+- Mark only a legion process as a legion task using [run.md](references/run.md). Do not turn an interactive session into legion mode.
 - Resume only with the same account, config directory, and repository folder. Never read credential files.
 - Ping before declaring an account out of credit. Do not infer limits from a failed long run alone.
 - Run long work in a background process and wait for its completion event or process exit; do not poll its logs. Capture the report and exit status.
-- Keep fixed repository checks in listed `.agents/scripts/` scripts. Do not install tools without owner approval.
+- Keep fixed repository checks in the repository's script index. Do not install tools without owner approval.
 
 ## Operations
 
-1. **Run or resume:** read [run.md](references/run.md). Print mode takes the task prompt on stdin and writes its response to the report path. Keep the task environment on that process only.
+1. **Run or resume:** read [run.md](references/run.md). Supply the task prompt and capture the response in its report. Keep the task environment on that process only.
 2. **Limits:** read [limits.md](references/limits.md). Ping the selected account before interpreting its limits.
-3. **Accounts:** read [accounts.md](references/accounts.md). Add, register, rename, or remove via `ps-ai-account.ps1`; use the installer only after the owner's login step for a new account.
+3. **Accounts:** read [accounts.md](references/accounts.md) to add, register, rename, or remove accounts; use the installer only after the owner's login step for a new account.
 4. **Missing CLI:** follow [install.md](references/install.md) before adding an account or running Claude Code.
 
 ## Stop and verification
@@ -28,5 +28,5 @@ Stop and report when the account is missing from personalisation, the task promp
 
 ## Launcher and plugins
 
-Use [launcher.md](references/launcher.md) for account, channel, project, and interactive-launch arguments.
-Use [plugins.md](references/plugins.md) for manual plugin commands and optional wiki hints.
+Use [launcher.md](references/launcher.md) to open an overseer session with the chosen account, channel, and project.
+Use [plugins.md](references/plugins.md) for plugin setup, restarting after an update, and optional wiki help.

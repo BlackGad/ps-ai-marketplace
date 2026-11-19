@@ -1,6 +1,6 @@
 # Repository tool hints
 
-At setup, check `git` with `pwsh -NoProfile -File <plugin>/bin/ps-ai-install-tool.ps1 -Tool git`. If it is missing, show the script's status and exact command, ask once whether to install, and pass `-Yes` only after an explicit yes. If the owner declines, respect that for the rest of this setup session. Stop Git-dependent setup until Git is available.
+At setup, check `git` with `pwsh -NoProfile -File <plugin>/bin/ps-ai-install-tool.ps1 -Tool git`. If it is missing, tell the owner and ask once whether to install, then pass `-Yes` only after an explicit yes. Show commands only when requested or when the owner must run them themselves. If the owner declines, respect that for the rest of this setup session. Stop Git-dependent setup until Git is available.
 
 When Git is available, read `git remote -v` without changing remotes. Offer one relevant missing host CLI:
 

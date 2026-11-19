@@ -1,5 +1,15 @@
 # Personalisation fields
 
+Read both `~/.agents/configuration/ps-ai-personalisation.json` and `~/.agents/configuration/ps-ai-notes.md` before applying another ps-ai skill. For tool operations, read `skills/ps-ai-<agent.tool>/SKILL.md` using the selected account's `agent.tool`; stop if it is missing. Account IDs are unique lowercase hyphenated names and must not shadow commands on PATH. Account operations belong to the selected tool's `references/accounts.md`.
+
+After every JSON change, validate:
+
+```text
+pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.agents/configuration/ps-ai-personalisation.json
+```
+
+Use [create.md](create.md) for fixture or alternate-home handling. Keep commands internal unless the owner asks for them or must run them themselves.
+
 `<plugin>/schemas/personalisation.schema.json` is authoritative. Set `$schema` to that local path for editor help. Examples are illustrative; use owner answers.
 
 | Field | Meaning and example |

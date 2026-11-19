@@ -40,6 +40,7 @@ function Get-PsAiUpdateText {
         Assert-Equal 0 $LASTEXITCODE 'Text hook exits zero'
         Assert-Equal 2 $text.Count 'Text hook adds exactly one notice line'
         Assert-Equal $notice $text[1] 'Notice matches owner wording'
+        Assert-True ($text[1] -notmatch '(?i)\b(pwsh|irm)\b|\.ps1| -[A-Za-z]') 'Update notice uses plain words without a command'
         $json = & pwsh -NoProfile -File $hook -Repo $fixtureRepo -Format context-json | ConvertFrom-Json
         Assert-Equal ($text -join "`n") $json.additionalContext 'JSON includes same notice'
         Assert-Equal 1 @(Get-Content (Join-Path $plugin 'downloads.txt')).Count 'Hook uses daily cache'
