@@ -79,6 +79,15 @@ function Get-InstallCatalog {
             Assert-InstallArguments $tool.plugin.$field "plugin.$field"
         }
         Assert-InstallString $tool.plugin.marketplaceRemoveHint 'plugin.marketplaceRemoveHint' -AllowEmpty
+        if ($null -ne $tool.plugin.listingEnv) {
+            $environment = $tool.plugin.listingEnv
+            Assert-InstallObject $environment 'plugin.listingEnv'
+            $names = if ($environment -is [Collections.IDictionary]) { $environment.Keys } else { $environment.PSObject.Properties.Name }
+            foreach ($name in $names) {
+                if ($name -cnotmatch '^[A-Z_][A-Z0-9_]*$') { throw 'invalid catalog listingEnv name' }
+                Assert-InstallString $environment.$name "plugin.listingEnv.$name" -AllowEmpty
+            }
+        }
         foreach ($field in @('defaultConfigDir','installedRoot')) {
             $present = if ($tool.plugin -is [Collections.IDictionary]) { $tool.plugin.Contains($field) } else { $null -ne $tool.plugin.PSObject.Properties[$field] }
             if (-not $present) { continue }
@@ -102,6 +111,18 @@ function Get-InstallCatalog {
             Assert-InstallString $listing.rejectPattern 'listing.rejectPattern' -AllowEmpty
             $null = [regex]::new($listing.rejectPattern)
         } else { throw 'invalid catalog listing format' }
+        $marketplaceListing = $tool.plugin.marketplaceListing
+        if ($null -ne $marketplaceListing) {
+            Assert-InstallObject $marketplaceListing 'marketplaceListing'
+            if ($marketplaceListing.format -cne 'json') { throw 'invalid catalog marketplace listing format' }
+            Assert-InstallString $marketplaceListing.nameField 'marketplaceListing.nameField'
+            Assert-InstallArguments $marketplaceListing.sourceFields 'marketplaceListing.sourceFields'
+            if (-not $marketplaceListing.sourceFields.Count) { throw 'marketplaceListing.sourceFields cannot be empty' }
+            foreach ($field in @('collectionField', 'sourcePattern')) {
+                if ($null -ne $marketplaceListing.$field) { Assert-InstallString $marketplaceListing.$field "marketplaceListing.$field" }
+            }
+            if ($marketplaceListing.sourcePattern) { $null = [regex]::new($marketplaceListing.sourcePattern) }
+        }
         Assert-InstallObject $tool.hooks 'hooks'
         Assert-InstallString $tool.hooks.status 'hooks.status' -AllowEmpty
         Assert-InstallString $tool.hooks.hint 'hooks.hint' -AllowEmpty
@@ -154,7 +175,7 @@ function Resolve-InstallSource {
 
 function Invoke-ClosedInput {
     # Some CLI shims refuse a non-terminal stdin that stays open; a closed stdin works like `< /dev/null`.
-    param([string[]]$Command)
+    param([string[]]$Command, $Environment)
     $executable = (Get-Command $Command[0] -CommandType Application -ErrorAction Stop)[0].Source
     $info = New-Object System.Diagnostics.ProcessStartInfo
     $info.FileName = $executable
@@ -174,6 +195,13 @@ function Invoke-ClosedInput {
     $info.RedirectStandardInput = $true
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
+    # CLI output is UTF-8 regardless of the launching terminal's code page.
+    $info.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $info.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+    if ($null -ne $Environment) {
+        $names = if ($Environment -is [Collections.IDictionary]) { $Environment.Keys } else { $Environment.PSObject.Properties.Name }
+        foreach ($name in $names) { $info.EnvironmentVariables[$name] = [string]$Environment.$name }
+    }
     $process = [System.Diagnostics.Process]::Start($info)
     $process.StandardInput.Close()
     $errorTask = $process.StandardError.ReadToEndAsync()
@@ -186,6 +214,13 @@ function Invoke-ClosedInput {
     }
     $process.Dispose()
     return $result
+}
+
+function Set-InstallConfigEnvironment {
+    param([string]$Name, $Value)
+    # Passing null to SetEnvironmentVariable can create an empty variable on newer runtimes.
+    if ($null -eq $Value) { Remove-Item -LiteralPath "Env:$Name" -ErrorAction SilentlyContinue }
+    else { [Environment]::SetEnvironmentVariable($Name, [string]$Value, 'Process') }
 }
 
 function Test-InstallStepDone {
@@ -208,25 +243,58 @@ function Test-InstallStepDone {
     $previous = if ($ConfigEnv) { [Environment]::GetEnvironmentVariable($ConfigEnv, 'Process') } else { $null }
     try {
         if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $ConfigDir, 'Process') }
-        $result = Invoke-ClosedInput -Command $list
+        $result = Invoke-ClosedInput -Command $list -Environment $entry.plugin.listingEnv
         if ($result.ExitCode -ne 0) { throw "$($entry.command) listing exited $($result.ExitCode)" }
         return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output -Source $requestedSource -IncludeDisabled:$IncludeDisabled
     } finally {
-        if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $previous, 'Process') }
+        if ($ConfigDir) { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $previous }
     }
+}
+
+function Get-InstallListingField {
+    param($Item, [string]$Field)
+    foreach ($part in $Field.Split('.')) {
+        if ($null -eq $Item) { return $null }
+        $Item = $Item.$part
+    }
+    return ,$Item
 }
 
 function Test-InstallListing {
     # Installation requires enabled plugins; updates also refresh disabled installed copies.
     param([ValidateSet('marketplace', 'plugin')][string]$Kind, [string]$Tool, [string[]]$Lines, [switch]$IncludeDisabled, [string]$Source)
     if ($Kind -eq 'marketplace') {
-        for ($index = 0; $index -lt $Lines.Count; $index++) {
-            if ($Lines[$index] -notmatch '(^|[\s`])ps-ai-marketplace(\s|`|"|$)') { continue }
+        $entry = if ($Tool) { Get-InstallTool -Tool $Tool } else { $null }
+        $listing = if ($entry) { $entry.plugin.marketplaceListing } else { $null }
+        $sources = @()
+        if ($listing -and $listing.format -eq 'json') {
+            try { $items = ($Lines -join "`n") | ConvertFrom-Json -ErrorAction Stop }
+            catch { throw "$Tool marketplace listing returned invalid JSON" }
+            if ($listing.collectionField -and $null -ne $items) {
+                $items = Get-InstallListingField -Item $items -Field $listing.collectionField
+                if ($null -eq $items) { throw "$Tool marketplace listing is missing its collection" }
+            }
+            foreach ($item in @($items)) {
+                if ((Get-InstallListingField -Item $item -Field $listing.nameField) -cne 'ps-ai-marketplace') { continue }
+                $registered = ''
+                foreach ($field in $listing.sourceFields) {
+                    $value = Get-InstallListingField -Item $item -Field $field
+                    if ($value -is [string] -and $value) { $registered = $value; break }
+                }
+                if ($listing.sourcePattern -and $registered -match $listing.sourcePattern) { $registered = $Matches.source }
+                $sources += $registered
+            }
+        } else {
+            for ($index = 0; $index -lt $Lines.Count; $index++) {
+                if ($Lines[$index] -notmatch '(^|[\s`])ps-ai-marketplace(\s|`|"|$)') { continue }
+                $registered = ($Lines[$index] -replace '^.*?ps-ai-marketplace[\s`"]*', '').Trim()
+                if (-not $registered -and $index + 1 -lt $Lines.Count -and $Lines[$index + 1] -match '^\s*Source:\s*(.+)$') { $registered = $Matches[1] }
+                $sources += $registered
+            }
+        }
+        foreach ($registered in $sources) {
             if (-not $Source) { return $true }
-            $registered = ($Lines[$index] -replace '^.*?ps-ai-marketplace[\s`"]*', '').Trim()
-            if (-not $registered -and $index + 1 -lt $Lines.Count -and $Lines[$index + 1] -match '^\s*Source:\s*(.+)$') { $registered = $Matches[1] }
             if ((ConvertTo-InstallMarketplaceSource $registered) -ceq (ConvertTo-InstallMarketplaceSource $Source)) { return $true }
-            $entry = if ($Tool) { Get-InstallTool -Tool $Tool } else { $null }
             $folder = if ($entry) { [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process') } else { '' }
             $target = if ($folder) { $folder } else { 'default config' }
             $currentSource = if ($registered) { $registered } else { 'unknown' }
@@ -290,7 +358,7 @@ function Invoke-InstallCommand {
         $result.ErrorOutput
         if ($result.ExitCode -ne 0) { throw "$($Command[0]) exited $($result.ExitCode)" }
     } finally {
-        [Environment]::SetEnvironmentVariable($ConfigEnv, $previous, 'Process')
+        Set-InstallConfigEnvironment -Name $ConfigEnv -Value $previous
     }
 }
 
@@ -301,7 +369,7 @@ function Invoke-PsAiInstallSteps {
     $marketplaceAdded = $false
     for ($index = 0; $index -lt $commands.Count; $index++) {
         $command = $commands[$index]
-        if (-not $DryRun -and -not $marketplaceAdded -and (Test-InstallStepDone -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir)) {
+        if (-not $marketplaceAdded -and (Test-InstallStepDone -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir)) {
             "skip: $($command -join ' ') (already done)"
             continue
         }
@@ -430,7 +498,8 @@ function Invoke-PsAiUninstall {
             $entry = $target.Entry
             $previous = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
             try {
-                [Environment]::SetEnvironmentVariable($entry.configEnv, $target.Folder, 'Process')
+                if ($target.Folder) { Set-InstallConfigEnvironment -Name $entry.configEnv -Value $target.Folder }
+                else { Set-InstallConfigEnvironment -Name $entry.configEnv -Value $null }
                 foreach ($kind in @('plugin', 'marketplace')) {
                     $check = if ($kind -eq 'plugin') { @($entry.command) + $entry.plugin.install }
                         else { @($entry.command) + @($entry.plugin.marketplaceAdd | ForEach-Object { if ($_ -ceq '{source}') { '' } else { $_ } }) }
@@ -441,7 +510,7 @@ function Invoke-PsAiUninstall {
                     $arguments = if ($kind -eq 'plugin') { $entry.plugin.uninstall } else { $entry.plugin.marketplaceRemove }
                     Invoke-InstallCommand -Command (@($entry.command) + $arguments) -ConfigEnv $entry.configEnv -ConfigDir $target.Folder
                 }
-            } finally { [Environment]::SetEnvironmentVariable($entry.configEnv, $previous, 'Process') }
+            } finally { Set-InstallConfigEnvironment -Name $entry.configEnv -Value $previous }
         }
         $bin = [IO.Path]::GetFullPath((Join-Path $homeRoot '.agents/bin'))
         foreach ($path in $files) {
@@ -474,16 +543,15 @@ function Invoke-PsAiUpdateSteps {
     $configEnv = $Entry.configEnv
     $previous = [Environment]::GetEnvironmentVariable($configEnv, 'Process')
     try {
-        [Environment]::SetEnvironmentVariable($configEnv, $ConfigDir, 'Process')
+        if ($ConfigDir) { Set-InstallConfigEnvironment -Name $configEnv -Value $ConfigDir }
+        else { Set-InstallConfigEnvironment -Name $configEnv -Value $null }
         $list = @($Entry.command) + $Entry.plugin.list
         Format-InstallCommand -Command $list -ConfigEnv $configEnv -ConfigDir $ConfigDir
-        if (-not $DryRun) {
-            $install = @($Entry.command) + $Entry.plugin.install
-            if (-not (Test-InstallStepDone -Command $install -ConfigEnv $configEnv -ConfigDir $ConfigDir -IncludeDisabled)) {
-                $target = if ($ConfigDir) { $ConfigDir } else { 'default config' }
-                "skip: $($Entry.id) ps-ai in $target (not installed)"
-                return
-            }
+        $install = @($Entry.command) + $Entry.plugin.install
+        if (-not (Test-InstallStepDone -Command $install -ConfigEnv $configEnv -ConfigDir $ConfigDir -IncludeDisabled)) {
+            $target = if ($ConfigDir) { $ConfigDir } else { 'default config' }
+            "skip: $($Entry.id) ps-ai in $target (not installed)"
+            return
         }
         foreach ($arguments in @($Entry.plugin.marketplaceUpdate, $Entry.plugin.update)) {
             if (-not $arguments.Count) { continue }
@@ -493,14 +561,14 @@ function Invoke-PsAiUpdateSteps {
         }
         if (-not $DryRun) { Invoke-InstallRefresh -Entry $Entry -ConfigDir $ConfigDir }
     } finally {
-        [Environment]::SetEnvironmentVariable($configEnv, $previous, 'Process')
+        Set-InstallConfigEnvironment -Name $configEnv -Value $previous
     }
 }
 
 function Invoke-InstallRefresh {
     param($Entry, [string]$ConfigDir)
     # Resolve after the update: the previous plugin cache can already be obsolete.
-    $result = Invoke-ClosedInput -Command (@($Entry.command) + $Entry.plugin.list)
+    $result = Invoke-ClosedInput -Command (@($Entry.command) + $Entry.plugin.list) -Environment $Entry.plugin.listingEnv
     if ($result.ExitCode -ne 0) { throw "$($Entry.command) post-update listing exited $($result.ExitCode)" }
     if (-not (Test-InstallListing -Kind plugin -Tool $Entry.id -Lines $result.Output -IncludeDisabled)) {
         throw "$($Entry.id) ps-ai is absent from the post-update listing; generated artifacts were not refreshed."
@@ -766,5 +834,11 @@ function Invoke-PsAiInstaller {
 }
 
 if (-not $NoRun) {
-    Invoke-PsAiInstaller -Tools $Tools -Source $Source -SourceRef $SourceRef -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes -Update:$Update -Uninstall:$Uninstall
+    $catalog = $null
+    # A checked-out installer uses its matching catalog; downloaded script text fetches it.
+    if (-not $PSBoundParameters.ContainsKey('Source') -and -not $PSBoundParameters.ContainsKey('SourceRef') -and
+        $PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'tools.json') -PathType Leaf)) {
+        $catalog = Get-InstallCatalog -Source $PSScriptRoot
+    }
+    Invoke-PsAiInstaller -Tools $Tools -Source $Source -SourceRef $SourceRef -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes -Update:$Update -Uninstall:$Uninstall -Catalog $catalog
 }

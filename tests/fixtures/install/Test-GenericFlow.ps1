@@ -1,5 +1,6 @@
 param([string]$Installer, [string]$Catalog, [ValidateSet('fresh','cached','update','conflict')][string]$Mode)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'MarketplaceListing.ps1')
 . ([scriptblock]::Create((Get-Content -LiteralPath $Installer -Raw))) -NoRun
 $catalogText = Get-Content -LiteralPath $Catalog -Raw
 $entries = ($catalogText | ConvertFrom-Json).tools
@@ -25,7 +26,8 @@ function Invoke-ClosedInput {
     $state = $states[$entry.command]
     $line = $Command -join '|'
     if ($line -eq ((@($entry.command) + $entry.plugin.marketplaceList) -join '|')) {
-        $output = if ($Mode -eq 'conflict' -and $entry.id -eq 'claude') { @('ps-ai-marketplace https://github.com/example/old-source') } else { @() }
+        $source = if ($Mode -eq 'conflict' -and $entry.id -eq 'claude') { 'https://github.com/example/old-source' } else { '' }
+        $output = @(Get-FixtureMarketplaceListing -Tool $entry.id -Source $source)
         return @{ExitCode=0; Output=$output}
     }
     if ($line -eq ((@($entry.command) + $entry.plugin.list) -join '|')) {

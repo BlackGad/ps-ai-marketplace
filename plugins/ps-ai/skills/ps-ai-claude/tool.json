@@ -14,7 +14,9 @@
     "install": ["plugin", "install", "ps-ai@ps-ai-marketplace"],
     "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
     "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
-    "marketplaceList": ["plugin", "marketplace", "list"],
+    "marketplaceList": ["plugin", "marketplace", "list", "--json"],
+    "listingEnv": {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"},
+    "marketplaceListing": {"format": "json", "nameField": "name", "sourceFields": ["repo", "url", "path"]},
     "list": ["plugin", "list", "--json"],
     "listing": {"format": "json", "idField": "id", "enabledField": "enabled"}
   },

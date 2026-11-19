@@ -69,10 +69,9 @@
     $legion = Get-Content (Join-Path $skills 'ps-ai-legion/SKILL.md') -Raw
     $legionTask = Get-Content (Join-Path $skills 'ps-ai-legion/references/task.md') -Raw
     Assert-True ($legion.Contains('A summoned unit cannot summon') -and $legionTask.Contains('{REPORT_FILE}')) 'Legion keeps no-summoning and referenced report contract'
-    $readme = Get-Content (Join-Path $repo 'README.md') -Raw
-    Assert-True ($readme.Contains('-SourceRef <release-tag>')) 'Pinned script pins matching catalog ref'
-    Assert-True ($readme -notmatch '(?i)(claude|codex|copilot) plugin|Copilot supports|any Claude') 'README links instead of duplicating commands/capabilities'
+    $reference = Get-Content (Join-Path $repo 'docs/reference.md') -Raw
+    Assert-True ($reference.Contains('-SourceRef <release-tag>')) 'Pinned script pins matching catalog ref'
     foreach ($tool in @('claude','codex','copilot')) {
-        foreach ($ref in @('install','accounts')) { Assert-True ($readme.Contains("ps-ai-$tool/references/$ref.md")) "README links $tool $ref" }
+        foreach ($ref in @('install','accounts')) { Assert-True ($reference.Contains("../plugins/ps-ai/skills/ps-ai-$tool/references/$ref.md")) "Reference links $tool $ref" }
     }
 }

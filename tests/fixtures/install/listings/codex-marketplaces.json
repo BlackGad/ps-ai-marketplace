@@ -1,0 +1,12 @@
+{
+  "marketplaces": [
+    {
+      "name": "ps-ai-marketplace",
+      "root": "C:\\Users\\example\\.codex\\.tmp\\marketplaces\\ps-ai-marketplace",
+      "marketplaceSource": {
+        "sourceType": "git",
+        "source": "https://github.com/BlackGad/ps-ai-marketplace.git"
+      }
+    }
+  ]
+}

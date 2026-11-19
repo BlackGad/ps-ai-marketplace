@@ -1,4 +1,5 @@
 $repo = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
 & {
     . (Join-Path $repo 'install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
@@ -12,7 +13,8 @@ $repo = Split-Path $PSScriptRoot -Parent
             Assert-Equal 'selected account' ([Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')) 'Every step uses selected config'
             $line = $Command -join '|'
             if ($line -ceq ((@($entry.command) + $entry.plugin.marketplaceList) -join '|')) {
-                $output = if ($state.Added) { @('ps-ai-marketplace example/new-source') } else { @() }
+                $source = if ($state.Added) { 'example/new-source' } else { '' }
+                $output = @(Get-FixtureMarketplaceListing -Tool $entry.id -Source $source)
                 return @{ExitCode=0; Output=$output}
             }
             if ($line -ceq ((@($entry.command) + $entry.plugin.list) -join '|')) {

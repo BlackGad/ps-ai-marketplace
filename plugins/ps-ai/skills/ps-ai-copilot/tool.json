@@ -14,7 +14,8 @@
     "install": ["plugin", "install", "ps-ai@ps-ai-marketplace"],
     "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
     "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
-    "marketplaceList": ["plugin", "marketplace", "list"],
+    "marketplaceList": ["plugin", "marketplace", "list", "--json"],
+    "marketplaceListing": {"format": "json", "nameField": "name", "sourceFields": ["source"], "sourcePattern": "^GitHub: (?<source>.+)$"},
     "list": ["plugin", "list"],
     "listing": {"format": "lines", "rejectPattern": "not installed|disabled"}
   },

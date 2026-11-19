@@ -1,0 +1,12 @@
+[
+  {
+    "id": "ps-ai@ps-ai-marketplace",
+    "version": "0.3.0",
+    "scope": "user",
+    "enabled": true,
+    "installPath": "C:\\Users\\example\\.claude\\plugins\\cache\\ps-ai-marketplace\\ps-ai\\0.3.0",
+    "installedAt": "2026-11-19T09:47:42.176Z",
+    "lastUpdated": "2026-11-19T09:47:42.176Z",
+    "projectEnabled": false
+  }
+]

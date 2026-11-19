@@ -2,8 +2,9 @@ $repo = Split-Path $PSScriptRoot -Parent
 & {
     . (Join-Path $repo 'install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
+    $script:installCatalog.tools += Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
     function Invoke-ClosedInput { @{ExitCode=0; Output=@('ps-ai-marketplace https://github.com/example/old-source')} }
-    $command = @('codex','plugin','marketplace','add','example/requested-source')
+    $command = @('fourth-cli','plugin','marketplace','add','example/requested-source')
     Assert-Throws { Test-InstallStepDone -Command $command } 'Existing marketplace with different source is a conflict'
     $command[-1] = 'example/old-source'
     Assert-True (Test-InstallStepDone -Command $command) 'Same GitHub source counts as already registered'

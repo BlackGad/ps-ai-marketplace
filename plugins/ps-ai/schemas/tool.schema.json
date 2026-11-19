@@ -111,6 +111,12 @@
         "update": {
           "$ref": "#/$defs/arguments"
         },
+        "marketplaceListing": { "$ref": "#/$defs/marketplaceListing" },
+        "listingEnv": {
+          "type": "object",
+          "propertyNames": {"pattern": "^[A-Z_][A-Z0-9_]*$"},
+          "additionalProperties": {"type": "string"}
+        },
         "marketplaceList": {
           "$ref": "#/$defs/arguments"
         },
@@ -144,6 +150,18 @@
     }
   },
   "$defs": {
+    "marketplaceListing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "nameField", "sourceFields"],
+      "properties": {
+        "format": {"const": "json"},
+        "collectionField": {"type": "string", "minLength": 1},
+        "nameField": {"type": "string", "minLength": 1},
+        "sourceFields": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "sourcePattern": {"type": "string", "minLength": 1, "format": "regex"}
+      }
+    },
     "arguments": {
       "type": "array",
       "items": {

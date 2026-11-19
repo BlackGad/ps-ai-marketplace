@@ -237,6 +237,7 @@
     $fixtureText = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw
     function Get-InstallSourceText { param($Url) $state.Reads++; return $fixtureText }
     $before = $state.Reads
+    function Test-InstallStepDone { $false }
     $null = Invoke-PsAiInstaller -Source 'example/market' -Tools claude -DryRun
     Assert-Equal ($before + 1) $state.Reads 'Dry run reads metadata exactly once'
     Assert-Equal 1 $state.Bootstrap 'Valid invocation reaches bootstrap once'

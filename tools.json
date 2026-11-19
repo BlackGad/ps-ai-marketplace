@@ -64,8 +64,21 @@
         "marketplaceList": [
           "plugin",
           "marketplace",
-          "list"
+          "list",
+          "--json"
         ],
+        "listingEnv": {
+          "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+        },
+        "marketplaceListing": {
+          "format": "json",
+          "nameField": "name",
+          "sourceFields": [
+            "repo",
+            "url",
+            "path"
+          ]
+        },
         "list": [
           "plugin",
           "list",
@@ -126,8 +139,18 @@
         "marketplaceList": [
           "plugin",
           "marketplace",
-          "list"
+          "list",
+          "--json"
         ],
+        "marketplaceListing": {
+          "format": "json",
+          "collectionField": "marketplaces",
+          "nameField": "name",
+          "sourceFields": [
+            "marketplaceSource.source",
+            "root"
+          ]
+        },
         "list": [
           "plugin",
           "list"
@@ -188,8 +211,17 @@
         "marketplaceList": [
           "plugin",
           "marketplace",
-          "list"
+          "list",
+          "--json"
         ],
+        "marketplaceListing": {
+          "format": "json",
+          "nameField": "name",
+          "sourceFields": [
+            "source"
+          ],
+          "sourcePattern": "^GitHub: (?<source>.+)$"
+        },
         "list": [
           "plugin",
           "list"

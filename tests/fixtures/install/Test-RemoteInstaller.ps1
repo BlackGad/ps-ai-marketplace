@@ -118,12 +118,23 @@ try {
     # Run a copied, standalone script from script text, with no repository context or real CLIs.
     $fakeBin = Join-Path $sandbox 'fake-bin'
     New-Item -ItemType Directory -Path $fakeBin | Out-Null
+    $listingScript = Join-Path $fakeBin 'listing.ps1'
+    @'
+param($Tool)
+if ($args -contains 'marketplace') {
+    if ($Tool -eq 'codex') { '{"marketplaces":[]}' } else { '[]' }
+} elseif ($Tool -eq 'claude') { '[]' }
+else { 'ps-ai@ps-ai-marketplace installed, enabled' }
+'@ | Set-Content -LiteralPath $listingScript
     if ($env:OS -eq 'Windows_NT') {
-        foreach ($tool in @('claude','codex','copilot')) { '@echo off' | Set-Content -LiteralPath (Join-Path $fakeBin "$tool.cmd") }
+        foreach ($tool in @('claude','codex','copilot')) {
+            @('@echo off', ('"' + $fixturePwshExe + '" -NoProfile -File "%~dp0listing.ps1" ' + $tool + ' %*')) |
+                Set-Content -LiteralPath (Join-Path $fakeBin "$tool.cmd")
+        }
     } else {
         foreach ($tool in @('claude','codex','copilot')) {
             $fake = Join-Path $fakeBin $tool
-            "#!/bin/sh`nexit 0" | Set-Content -LiteralPath $fake
+            "#!/bin/sh`nprintf '%s\n' 'ps-ai@ps-ai-marketplace installed, enabled'" | Set-Content -LiteralPath $fake
             & chmod +x $fake
         }
     }
@@ -203,7 +214,13 @@ if ($env:CODEX_HOME -ne 'inherited-account') { throw 'Caller config environment 
         Assert-True ($result.Output -contains 'standalone update passed') 'Standalone update uses fakes and preserves account environment'
     }
 
-    # The script-block entry point forwards -Update and -DryRun without executing a CLI.
+    # The script-block entry point lists the fake CLI during update preview.
+    if ($env:OS -eq 'Windows_NT') {
+        @('@echo off', ('"' + $fixturePwshExe + '" -NoProfile -File "%~dp0listing.ps1" codex %*')) |
+            Set-Content -LiteralPath (Join-Path $fakeBin 'codex.cmd')
+    } else {
+        "#!/bin/sh`nprintf '%s\n' 'ps-ai@ps-ai-marketplace installed, enabled'" | Set-Content -LiteralPath (Join-Path $fakeBin 'codex')
+    }
     'param($Installer); & ([scriptblock]::Create((Get-Content -Raw $Installer))) -Update -DryRun -Tools codex -ConfigDir selected -Source (Split-Path $Installer)' |
         Set-Content -LiteralPath $runner
     foreach ($runtime in $runtimes) {
