@@ -46,6 +46,9 @@ $repo = Split-Path $PSScriptRoot -Parent
         $entry = $catalog.tools | Where-Object command -EQ $Command[0]
         $folder = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
         $calls.Add("$($entry.id):$folder|$($Command -join '|')")
+        if ($Command -contains 'marketplace' -and $Command -contains 'list') {
+            return @{ExitCode=0; Output=@('[]')}
+        }
         if ($Command[2] -eq 'list') {
             if ($state.FailList) { return @{ExitCode=7; Output=@('list failed')} }
             if ($state.Missing) { return @{ExitCode=0; Output=@($(if ($entry.id -eq 'claude') { '[]' }))} }
@@ -73,7 +76,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $custom = Join-Path $sandbox 'custom account'
         Assert-True ($calls -contains "claude:$custom|claude|plugin|update|ps-ai@ps-ai-marketplace") 'Registered custom folder refreshes'
         Assert-True ($calls -contains "codex:$(Join-Path $sandbox '.agents/accounts/codex-a')|codex|plugin|add|ps-ai@ps-ai-marketplace") 'Codex refresh repeats add without remove'
-        Assert-Equal 0 @($calls | Where-Object { $_ -match '\|remove\||\|install\|' }).Count 'Update never removes or installs missing plugins'
+        Assert-Equal 0 @($calls | Where-Object { $_ -match '\|remove\||\|install\|' }).Count 'Installed plugin updates do not remove or reinstall'
         Assert-True (($output -join "`n").Contains('claude plugin update ps-ai@ps-ai-marketplace')) 'Each mutation prints its command'
 
         $calls.Clear()
@@ -90,9 +93,10 @@ $repo = Split-Path $PSScriptRoot -Parent
 
         $calls.Clear()
         $state.Missing = $true
-        $skip = @(Invoke-PsAiInstaller -Tools claude -ConfigDir absent -Source $repo -Catalog $catalog -Update)
-        Assert-Equal 1 $calls.Count 'Missing plugin is only listed'
-        Assert-True (($skip -join "`n") -match 'skip: .*\(not installed\)') 'Missing plugin prints required skip'
+        $output = @(Invoke-PsAiInstaller -Tools claude -ConfigDir absent -Source $repo -Catalog $catalog -Update)
+        Assert-True ($calls -contains "claude:absent|claude|plugin|marketplace|add|$(Resolve-InstallSource $repo)") 'Update registers marketplace for missing plugin'
+        Assert-True ($calls -contains 'claude:absent|claude|plugin|install|ps-ai@ps-ai-marketplace') 'Update installs missing plugin'
+        Assert-True (($output -join "`n") -notmatch 'skip: .*\(not installed\)') 'Missing plugin is no longer skipped'
         $state.Missing = $false
 
         foreach ($failure in @('FailList','FailUpdate')) {
