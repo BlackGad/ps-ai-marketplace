@@ -329,9 +329,67 @@ function Invoke-PsAiUpdateSteps {
             Format-InstallCommand -Command $command -ConfigEnv $configEnv -ConfigDir $ConfigDir
             if (-not $DryRun) { Invoke-InstallCommand -Command $command -ConfigEnv $configEnv -ConfigDir $ConfigDir }
         }
+        if (-not $DryRun) { Invoke-InstallRefresh -Entry $Entry -ConfigDir $ConfigDir }
     } finally {
         [Environment]::SetEnvironmentVariable($configEnv, $previous, 'Process')
     }
+}
+
+function Invoke-InstallRefresh {
+    param($Entry, [string]$ConfigDir)
+    # Resolve after the update: the previous plugin cache can already be obsolete.
+    $result = Invoke-ClosedInput -Command (@($Entry.command) + $Entry.plugin.list)
+    if ($result.ExitCode -ne 0) { throw "$($Entry.command) post-update listing exited $($result.ExitCode)" }
+    if (-not (Test-InstallListing -Kind plugin -Tool $Entry.id -Lines $result.Output -IncludeDisabled)) {
+        throw "$($Entry.id) ps-ai is absent from the post-update listing; generated artifacts were not refreshed."
+    }
+    $paths = @()
+    $installedVersion = ''
+    if ($Entry.plugin.listing.format -eq 'json') {
+        $listing = $Entry.plugin.listing
+        $plugins = @((($result.Output -join "`n") | ConvertFrom-Json -ErrorAction Stop))
+        foreach ($plugin in $plugins) {
+            if ($plugin.($listing.idField) -cne 'ps-ai@ps-ai-marketplace') { continue }
+            if ($plugin.installPath) { $paths += [string]$plugin.installPath }
+            if ($plugin.version) { $installedVersion = [string]$plugin.version }
+        }
+    } else {
+        foreach ($line in $result.Output) {
+            if ($line -notmatch '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' -or $line -match 'not installed') { continue }
+            if ($line -match '\b(v?\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b') { $installedVersion = $Matches[1] -replace '^v', '' }
+            if ($line -match '\s((?:[A-Za-z]:[/\\]|/).+?)\s*$') { $paths += $Matches[1] }
+        }
+    }
+    if (-not $paths.Count) {
+        $homeRoot = Get-InstallHome
+        $configRoot = if ($ConfigDir) { $ConfigDir } else { Join-Path $homeRoot ('.' + $Entry.id) }
+        if ($configRoot -match '^~[/\\]') { $configRoot = Join-Path $homeRoot $configRoot.Substring(2) }
+        $cacheRoot = Join-Path $configRoot 'plugins/cache/ps-ai-marketplace/ps-ai'
+        # Copilot documents this installed-files root without a fixed version hierarchy.
+        # https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference
+        if ($Entry.id -eq 'copilot') { $cacheRoot = Join-Path $configRoot 'installed-plugins' }
+        if (Test-Path -LiteralPath $cacheRoot -PathType Container) {
+            $paths = @(Get-ChildItem -LiteralPath $cacheRoot -Filter plugin.json -File -Recurse -ErrorAction Stop | ForEach-Object { $_.DirectoryName })
+        }
+    }
+    $scripts = @()
+    foreach ($path in ($paths | Select-Object -Unique)) {
+        try {
+            $manifest = Get-Content -LiteralPath (Join-Path $path 'plugin.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            if ($manifest.name -cne 'ps-ai' -or ($installedVersion -and $manifest.version -cne $installedVersion)) { continue }
+            $script = Join-Path $path 'bin/ps-ai-refresh.ps1'
+            if (Test-Path -LiteralPath $script -PathType Leaf) { $scripts += $script }
+        } catch { continue }
+    }
+    if ($scripts.Count -ne 1) {
+        throw "$($Entry.id) updated, but its installed ps-ai refresh script could not be identified uniquely; generated artifacts still need refreshing."
+    }
+    $powerShell = Get-InstallPowerShellCommand
+    if (-not $powerShell) { throw 'PowerShell 7 is required to refresh generated ps-ai artifacts.' }
+    $result = Invoke-ClosedInput -Command @($powerShell.Source, '-NoProfile', '-File', $scripts[0], '-HomeRoot', (Get-InstallHome))
+    $result.Output
+    $result.ErrorOutput
+    if ($result.ExitCode -ne 0) { throw "ps-ai artifact refresh exited $($result.ExitCode)" }
 }
 
 function Test-InstallCommandAvailable {

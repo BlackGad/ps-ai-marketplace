@@ -35,6 +35,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     )
     @{agents=$agents} | ConvertTo-Json | Set-Content -LiteralPath $personalisation
     function Get-InstallHome { $sandbox }
+    function Invoke-InstallRefresh { } # The installed-script boundary has dedicated coverage.
     function Ensure-InstallPowerShell { throw 'Update must not install prerequisites' }
     function Get-InstallSourceText { throw 'Tests must not use network' }
     $calls = [Collections.Generic.List[string]]::new()

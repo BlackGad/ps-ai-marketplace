@@ -178,6 +178,7 @@ New-Item -ItemType Directory -Path $configFolder -Force | Out-Null
 '{"agents":[{"tool":"codex","configDir":"~/.agents/accounts/codex-a"}]}' |
     Set-Content -LiteralPath (Join-Path $configFolder 'ps-ai-personalisation.json')
 function Get-InstallHome { $fixtureHome }
+function Invoke-InstallRefresh { } # Dedicated refresh tests exercise the installed script process.
 function Ensure-InstallPowerShell { throw 'Update attempted prerequisite installation' }
 function Test-InstallCommandAvailable { param($Name) $Name -eq 'codex' }
 $state = @{ Calls=0; Default=0; Account=0 }
