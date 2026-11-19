@@ -1,5 +1,3 @@
 param([string]$Model, [string[]]$Arguments)
-
-if (@($Arguments | Where-Object { $_ -match '^(--model|-m)(=|$)' }).Count) { return }
-'--model'
-$Model
+. (Join-Path $PSScriptRoot '../../../bin/lib/common.ps1')
+Get-PsAiExplicitModelArguments -Model $Model -Arguments $Arguments -Codex:$false

@@ -1,60 +1,72 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $root 'plugins/ps-ai/bin/ps-ai-overseer.ps1'
-$ownerFile = Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json'
-$projectFile = Join-Path $PSScriptRoot 'fixtures/project/valid.json'
-$tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
-try {
-    $personalisation = Get-Content -Raw $ownerFile | ConvertFrom-Json
-    $project = Get-Content -Raw $projectFile | ConvertFrom-Json
-    . $script -NoRun
-    & {
-        $owner = Get-Content -Raw $ownerFile | ConvertFrom-Json
-        foreach ($toolId in @('claude', 'codex', 'copilot')) {
-            $agent = @($owner.agents | Where-Object tool -eq $toolId)[0]
-            $agent | Add-Member models ([pscustomobject]@{ overseer='role-model' }) -Force
-            $project.id = 'model-project'
-            $modelLaunch = Get-OverseerLaunch -Personalisation $owner -Project $project -AccountId $agent.id -Tool $toolId
-            Assert-True (($modelLaunch.Args -join '|').Contains('--model|role-model')) "$toolId honors the overseer role model"
-            foreach ($scope in @('account', 'channel', 'project')) {
-                $agent | Add-Member launch ([pscustomobject]@{args=@()}) -Force
-                $owner.projects | Add-Member 'model-project' ([pscustomobject]@{ notify=@(); launch=[pscustomobject]@{} }) -Force
-                if ($scope -eq 'account') { $agent.launch.args = @('--model=explicit-model') }
-                if ($scope -eq 'channel') {
-                    $owner.projects.'model-project'.notify = @('fixture')
-                    $owner.communication.channels | Add-Member fixture ([pscustomobject]@{launch=[pscustomobject]@{$toolId=@('--model', 'explicit-model')}}) -Force
-                }
-                if ($scope -eq 'project') { $owner.projects.'model-project'.launch | Add-Member $toolId @('-m', 'explicit-model') -Force }
-                $modelLaunch = Get-OverseerLaunch -Personalisation $owner -Project $project -AccountId $agent.id -Tool $toolId
-                Assert-True ($modelLaunch.Args -notcontains 'role-model') "$toolId $scope model overrides the role model"
-            }
-        }
+$tempRoot = Join-Path $root ('.agents/temp/overseer-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory $tempRoot -Force | Out-Null
+$lines = @(& pwsh -NoProfile -File $script -HomeRoot $tempRoot)
+Assert-Equal 0 $LASTEXITCODE 'BareLauncherOnlyPrintsUsage without configuration'
+Assert-True ($lines -match 'Usage:') 'Bare launcher usage'
+. $script -NoRun -HomeRoot $tempRoot
+$owner = [pscustomobject]@{schemaVersion=1;agents=@(
+    @{id='claude-a';tool='claude';configDir='~/a'},
+    @{id='claude-b';tool='claude';configDir='~/b'},
+    @{id='codex-a';tool='codex';configDir='~/c'},
+    @{id='copilot-a';tool='copilot';configDir='~/d'}
+);channels=@(
+    @{id='main';kind='telegram';target='123';accounts=@('claude-a','claude-b')},
+    @{id='alerts';kind='telegram';target='456';accounts=@('claude-a')}
+)}
+Assert-Throws { Select-OverseerAccount $owner } 'Explicit account required'
+Assert-Throws { Select-OverseerAccount $owner claude-a codex } 'Tool mismatch'
+foreach ($tool in @('claude','codex','copilot')) {
+    $launch = Get-OverseerLaunch -Personalisation $owner -AccountId "$tool-a" -Model chosen -Arguments @('two words','','2026-11-19','semi;literal',"apostrophe'value") -HomeRoot $tempRoot
+    Assert-Equal (Get-PsAiWrapperCommand "$tool-a" $tempRoot) $launch.Command 'Derived canonical wrapper'
+    $expected = '--model|chosen|two words||2026-11-19|semi;literal|apostrophe''value|'
+    if ($tool -eq 'copilot') { $expected += '-i|' }
+    $expected += 'continue as the overseer'
+    Assert-Equal $expected ($launch.Args -join '|') 'ExplicitAccountAndModel preserve argv'
+    foreach ($form in @(@('--model','chosen'),@('--model=chosen'),@('-m','chosen'))) {
+        $matching = Get-OverseerLaunch -Personalisation $owner -AccountId "$tool-a" -Model chosen -Arguments $form
+        Assert-Equal 1 @($matching.Args | Where-Object { $_ -match '^(--model|-m)(=|$)' }).Count 'Matching model suppresses extra flags'
     }
-    $project = Get-Content -Raw $projectFile | ConvertFrom-Json
-    $launch = Get-OverseerLaunch -Personalisation $personalisation -Project $project -AccountId claude -Tool claude
-    Assert-Equal 'claude' $launch.Command 'Claude command'
-    Assert-Equal '--channels|plugin:telegram@claude-plugins-official|continue as the overseer' ($launch.Args -join '|') 'Claude flags'
-    Assert-Equal 0 $launch.Warnings.Count 'Claude channel has no warning'
-    $personalisation.agents[2].roles += 'overseer'
-    $launch = Get-OverseerLaunch -Personalisation $personalisation -Project $project -AccountId codex-a -Tool codex
-    Assert-True ($launch.Warnings -contains "channel 'telegram-main' has no launch flags for codex; updates go to the terminal only.") 'Codex warning'
-    $project.id = 'other-project'
-    $launch = Get-OverseerLaunch -Personalisation $personalisation -Project $project -AccountId claude -Tool claude
-    Assert-Equal 'continue as the overseer' ($launch.Args -join '|') 'Unknown project uses default notify'
-    Assert-Equal 0 $launch.Warnings.Count 'No default channel warning'
-    $launch = Get-OverseerLaunch -Personalisation $personalisation -Project $project -AccountId copilot -Tool copilot
-    Assert-Equal '-i|continue as the overseer' ($launch.Args -join '|') 'Copilot launches interactively with first prompt after -i'
-    $repoPath = Join-Path $tempRoot 'My Projects'
-    $config = Join-Path $repoPath '.agents/configuration'
-    New-Item -ItemType Directory -Path $config -Force | Out-Null
-    Copy-Item $projectFile (Join-Path $config 'project.json')
-    $ownerConfig = Join-Path $tempRoot '.agents/configuration'
-    New-Item -ItemType Directory -Path $ownerConfig -Force | Out-Null
-    Copy-Item $ownerFile (Join-Path $ownerConfig 'ps-ai-personalisation.json')
-    $lines = @(& pwsh -NoProfile -File $script -Repo $repoPath -HomeRoot $tempRoot -Tool claude -DryRun)
-    Assert-Equal 0 $LASTEXITCODE 'Dry run exits zero'
-    Assert-True ($lines -contains $repoPath) 'Repo path with space is one dry-run argument'
+    foreach ($form in @(@('--model','other'),@('--model=other'),@('-m','other'),@('--model'),@('--model='),@('-m'))) {
+        Assert-Throws { Get-OverseerLaunch -Personalisation $owner -AccountId "$tool-a" -Model chosen -Arguments $form } 'ModelConflicts and missing values'
+    }
+}
+foreach ($form in @(@('-c','model="other"'),@('--config=model="other"'),@('-cmodel="other"'),@('-c=model="other"'))) {
+    Assert-Throws { Get-OverseerLaunch -Personalisation $owner -AccountId codex-a -Model chosen -Arguments $form } 'Codex root model conflict'
+}
+foreach ($form in @(@('--config='),@('-c='),@('--config','model='),@('-c'))) {
+    Assert-Throws { Get-OverseerLaunch -Personalisation $owner -AccountId codex-a -Arguments $form } 'Missing Codex config/model values fail'
+}
+$launch = Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -Channel @('main','alerts','main')
+Assert-Equal '--channels|plugin:telegram@claude-plugins-official|continue as the overseer' ($launch.Args -join '|') 'SameKindFlagsPreserveArgv'
+Assert-Throws { Get-OverseerLaunch -Personalisation $owner -AccountId claude-b -Channel alerts } 'Unbound chosen account fails'
+Assert-Throws { Get-OverseerLaunch -Personalisation $owner -AccountId codex-a -Channel main } 'Unsupported tool fails'
+$owner.channels[1].accounts=@('claude-b')
+$owner.channels[0].accounts=@('claude-a')
+try { Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -Channel @('main','alerts'); throw 'Expected disjoint failure' }
+catch { Assert-Equal 'selected channels cannot share one launch' $_.Exception.Message 'ChannelIntersection exact failure' }
+& {
+    $plugin = Join-Path $tempRoot 'plugin'
+    Copy-Item (Join-Path $root 'plugins/ps-ai') $plugin -Recurse
+    $fixtureKindFolder = Join-Path $plugin 'skills/ps-ai-fixture-channel'
+    New-Item -ItemType Directory $fixtureKindFolder -Force | Out-Null
+    'Fixture channel.' | Set-Content (Join-Path $fixtureKindFolder 'SKILL.md')
+    '{"schemaVersion":1,"id":"fixture-channel","launch":{"claude":["--channels","second value","","2026-11-19","semi;literal","quote''value"]}}' | Set-Content (Join-Path $fixtureKindFolder 'channel.json')
+    . (Join-Path $plugin 'bin/ps-ai-overseer.ps1') -NoRun
+    $copy = $owner | ConvertTo-Json -Depth 100 | ConvertFrom-Json
+    $copy.channels[1].kind='fixture-channel'
+    $copy.channels[1].accounts=@('claude-a')
+    $launch = Get-OverseerLaunch -Personalisation $copy -AccountId claude-a -Channel @('main','alerts','alerts')
+    Assert-Equal '--channels|plugin:telegram@claude-plugins-official|--channels|second value||2026-11-19|semi;literal|quote''value|continue as the overseer' ($launch.Args -join '|') 'SameKindFlagsPreserveArgv never deduplicates individual strings'
+    'different' | Set-Content (Join-Path $fixtureKindFolder 'SKILL.md')
+    $missingSkill = Join-Path $plugin 'skills/ps-ai-telegram/SKILL.md'
+    Move-Item -LiteralPath $missingSkill -Destination ($missingSkill + '.fixture')
+    Assert-Throws { Get-OverseerLaunch -Personalisation $copy -AccountId claude-a -Channel main } 'Missing channel skill fails before execution'
+}
+$repoPath = Join-Path $tempRoot 'My Projects'
+New-Item -ItemType Directory $repoPath -Force | Out-Null
     $probe = Join-Path $tempRoot 'cwd-probe.ps1'
     $resultFile = Join-Path $tempRoot 'cwd.txt'
     'param($ResultFile) [System.IO.File]::WriteAllText($ResultFile, (Get-Location).Path)' | Set-Content -LiteralPath $probe
@@ -89,34 +101,3 @@ try {
             Assert-True ($decoded.Contains("& 'fixture.cmd' 'two words' 'apostrophe''argument'")) 'Terminal transport preserves literal values'
         }
     }
-    try {
-        Get-OverseerLaunch -Personalisation $personalisation -Project $project -AccountId codex9 -Tool codex | Out-Null
-        throw 'Expected unknown account error'
-    } catch {
-        Assert-Equal "unknown account 'codex9'" $_.Exception.Message 'Unknown account error'
-    }
-    $owner = Read-PsAiJson -Path (Join-Path $root 'tests/fixtures/personalisation/valid-owner.json')
-    Assert-Equal 'claude' (Select-OverseerAccount -Personalisation $owner -Tool claude).id 'Overseer account for the named tool'
-    try {
-        Select-OverseerAccount -Personalisation $owner -Tool copilot | Out-Null
-        throw 'Expected missing overseer for tool'
-    } catch {
-        Assert-Equal 'no copilot account has the overseer role; add it to one or pass -Account' $_.Exception.Message 'No silent tool switch'
-    }
-    try {
-        Select-OverseerAccount -Personalisation $owner -Account claude-b -Tool codex | Out-Null
-        throw 'Expected account and tool mismatch'
-    } catch {
-        Assert-Equal "account 'claude-b' is a claude account, not codex" $_.Exception.Message 'Account and tool must agree'
-    }
-    $emptyRepo = Join-Path $tempRoot 'empty'
-    New-Item -ItemType Directory -Path $emptyRepo -Force | Out-Null
-    try {
-        & $script -Repo $emptyRepo -HomeRoot $tempRoot -DryRun | Out-Null
-        throw 'Expected missing project error'
-    } catch {
-        Assert-Equal "no .agents/configuration/project.json in $emptyRepo; run setup first" $_.Exception.Message 'Missing project error'
-    }
-} finally {
-    Remove-Item -LiteralPath $tempRoot -Recurse -Force
-}
