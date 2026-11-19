@@ -195,6 +195,9 @@ function Invoke-ClosedInput {
         $info.Arguments = ($arguments | ForEach-Object { ConvertTo-InstallArgument $_ }) -join ' '
     }
     $info.UseShellExecute = $false
+    # Codex reads <cwd>/.codex/config.toml as project settings; from the home folder that leaks
+    # the default account's marketplaces into every other account.
+    $info.WorkingDirectory = [IO.Path]::GetTempPath()
     $info.RedirectStandardInput = $true
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
