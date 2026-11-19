@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="420" viewBox="0 0 960 420" role="img" aria-labelledby="title desc">
+  <title id="title">The overseer and legion workflow</title>
+  <desc id="desc">The owner directs the overseer. It dispatches tasks to Claude Code, Codex CLI and Copilot CLI members on different accounts. Their reports return for review, then a repository handoff supports the next session.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1 1 7 4 1 7" fill="none" stroke="#91aaa9" stroke-width="1.5"/></marker>
+  </defs>
+  <rect x="1" y="1" width="958" height="418" rx="12" fill="#192630" stroke="#607580"/>
+  <g fill="none" stroke="#91aaa9" stroke-width="1.5" marker-end="url(#arrow)">
+    <path d="M184 96H248"/>
+    <path d="M448 96H560V76H620"/>
+    <path d="M560 96V160H620"/>
+    <path d="M560 160V244H620"/>
+    <path d="M914 76H934V310H450"/>
+    <path d="M914 160H934"/>
+    <path d="M914 244H934"/>
+    <path d="M348 270V140"/>
+    <path d="M248 310H210"/>
+    <path d="M116 354V388H226V186H300V140" stroke-dasharray="5 5"/>
+  </g>
+  <g font-family="sans-serif" fill="#e0e8ec" font-size="22" text-anchor="middle">
+    <rect x="24" y="56" width="160" height="80" rx="6" fill="#2c3c49" stroke="#718593"/>
+    <text x="104" y="103">Owner</text>
+    <rect x="248" y="52" width="200" height="88" rx="6" fill="#29434a" stroke="#719994"/>
+    <text x="348" y="88">Overseer</text>
+    <text x="348" y="119" font-size="18" fill="#b9ced0">Plan · track · assign</text>
+    <text x="532" y="64" font-size="18" fill="#a6b6c1">Tasks</text>
+    <rect x="620" y="36" width="294" height="80" rx="6" fill="#2c3c49" stroke="#718593"/>
+    <text x="767" y="68">Claude Code</text>
+    <text x="767" y="98" font-size="18" fill="#b9ced0">Legion · account A</text>
+    <rect x="620" y="120" width="294" height="80" rx="6" fill="#2c3c49" stroke="#718593"/>
+    <text x="767" y="152">Codex CLI</text>
+    <text x="767" y="182" font-size="18" fill="#b9ced0">Legion · account B</text>
+    <rect x="620" y="204" width="294" height="80" rx="6" fill="#2c3c49" stroke="#718593"/>
+    <text x="767" y="236">Copilot CLI</text>
+    <text x="767" y="266" font-size="18" fill="#b9ced0">Legion · account C</text>
+    <text x="694" y="342" font-size="18" fill="#a6b6c1">Reports</text>
+    <rect x="248" y="270" width="200" height="84" rx="6" fill="#29434a" stroke="#719994"/>
+    <text x="348" y="306">Review</text>
+    <text x="348" y="336" font-size="18" fill="#b9ced0">Check results</text>
+    <rect x="24" y="270" width="186" height="84" rx="6" fill="#2c3c49" stroke="#718593"/>
+    <text x="117" y="306">Handoff</text>
+    <text x="117" y="336" font-size="18" fill="#b9ced0">Saved in the repo</text>
+    <text x="238" y="409" font-size="18" fill="#a6b6c1">Next session</text>
+  </g>
+</svg>

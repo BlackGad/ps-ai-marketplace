@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="330" viewBox="0 0 960 330" role="img" aria-labelledby="title desc">
+  <title id="title">From a stalled session to work that continues</title>
+  <desc id="desc">One session loses context, hits limits and works alone. With ps-ai, accounts share tasks, reports get reviewed and a handoff carries work forward.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M1 1 7 4 1 7" fill="none" stroke="#91aaa9" stroke-width="1.5"/></marker>
+  </defs>
+  <rect x="1" y="1" width="958" height="328" rx="12" fill="#192630" stroke="#607580"/>
+  <g font-family="sans-serif" fill="#e0e8ec" font-size="22">
+    <text x="32" y="44" font-size="18" fill="#a6b6c1" letter-spacing="2">ONE SESSION</text>
+    <text x="520" y="44" font-size="18" fill="#91bbb7" letter-spacing="2">WITH PS-AI</text>
+    <path d="M480 28V302" stroke="#465d69" stroke-width="1"/>
+    <rect x="32" y="68" width="400" height="64" rx="6" fill="#2c3c49" stroke="#718593"/>
+    <text x="232" y="108" text-anchor="middle">All work in one session</text>
+    <text x="48" y="174" fill="#bdc8d0">Context lost · limits reached</text>
+    <text x="48" y="210" fill="#bdc8d0">No independent review</text>
+    <text x="48" y="246" fill="#bdc8d0">Other accounts idle</text>
+    <text x="48" y="294" fill="#a6b6c1">Next session: explain it again</text>
+    <rect x="520" y="68" width="408" height="64" rx="6" fill="#29434a" stroke="#719994"/>
+    <text x="724" y="108" text-anchor="middle">Overseer + legion members</text>
+    <text x="536" y="174" fill="#c4d4d6">Tasks shared across accounts</text>
+    <text x="536" y="210" fill="#c4d4d6">Reports reviewed</text>
+    <text x="536" y="246" fill="#c4d4d6">Progress saved in a handoff</text>
+    <path d="M536 264V288H568" fill="none" stroke="#91aaa9" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="584" y="294" fill="#b4d0cb">Next session: continue</text>
+  </g>
+</svg>
