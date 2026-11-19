@@ -14,8 +14,12 @@ How task scope, tests, report, review, and local commit are handled. Legion memb
 
 ## Before and after steps
 
-Name indexed scripts in `project.json` and describe when each runs. Fixed steps are scripts, not inline command recipes.
+Name indexed scripts here and describe when each runs. Fixed steps are scripts, not inline command recipes.
 
 ## Delivery
 
 `merge-request` or `direct`; describe the repo-specific branch/approval path.
+
+## Repository choices
+
+Record the rules file, roadmap/spec/plan paths, indexed task/milestone gates, account routing, notification destinations and neutral knowledge label here. Keep scripts/index and handoff conventions. Record only agreed choices.

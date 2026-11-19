@@ -1,40 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "description": "Shared repository orchestration settings.",
   "additionalProperties": false,
-  "required": ["schemaVersion", "id", "rulesFile", "paths", "delivery", "steps"],
+  "required": ["schemaVersion"],
   "properties": {
-    "$schema": { "type": "string", "description": "Editor schema location for this file." },
-    "schemaVersion": { "const": 1, "description": "Project format version." },
-    "id": { "type": "string", "description": "Stable repository id, independent of its path." },
-    "rulesFile": { "type": "string", "description": "Repository agent rules file." },
-    "paths": {
-      "type": "object", "description": "Roadmap, plan and spec locations.", "additionalProperties": false,
-      "required": ["roadmap", "plans", "specs"],
-      "properties": {
-        "roadmap": { "type": "string", "description": "Roadmap file path." },
-        "plans": { "type": "string", "description": "Plan directory path." },
-        "specs": { "type": "string", "description": "Spec directory path." }
-      }
-    },
-    "delivery": { "enum": ["merge-request", "direct"], "description": "How completed work reaches the main branch." },
-    "steps": {
-      "type": "object", "description": "Named scripts run around tasks and milestones.",
-      "additionalProperties": false, "required": ["task", "milestone"],
-      "properties": {
-        "task": { "$ref": "#/$defs/step", "description": "Task gates." },
-        "milestone": { "$ref": "#/$defs/step", "description": "Milestone gates." }
-      }
-    }
-  },
-  "$defs": {
-    "step": {
-      "type": "object", "additionalProperties": false, "required": ["before", "after"],
-      "properties": {
-        "before": { "type": "array", "items": { "type": "string" }, "description": "Scripts before this stage." },
-        "after": { "type": "array", "items": { "type": "string" }, "description": "Scripts after this stage." }
-      }
-    }
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 1}
   }
 }

@@ -1,16 +1,4 @@
 {
   "$schema": "https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/schemas/project.schema.json",
-  "schemaVersion": 1,
-  "id": "<stable-repo-id>",
-  "rulesFile": "AGENTS.md",
-  "paths": {
-    "roadmap": "docs/roadmap.md",
-    "plans": ".agents/docs/plans",
-    "specs": ".agents/docs/specs"
-  },
-  "delivery": "merge-request",
-  "steps": {
-    "task": { "before": [], "after": [] },
-    "milestone": { "before": [], "after": [] }
-  }
+  "schemaVersion": 1
 }
