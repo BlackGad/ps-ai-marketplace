@@ -9,7 +9,7 @@ function Get-FixtureMarketplaceListing {
     if ($Source) {
         switch ($Tool) {
             claude { $items += @{name='ps-ai-marketplace'; source='github'; repo=$Source} }
-            codex { $items += @{name='ps-ai-marketplace'; root='C:\fixture\checkout'; marketplaceSource=@{sourceType='git'; source=$Source}} }
+            codex { $items += @{name='ps-ai-marketplace'; root=$PSScriptRoot; marketplaceSource=@{sourceType='git'; source=$Source}} }
             copilot { $items += @{name='ps-ai-marketplace'; source="GitHub: $Source"; isDefault=$false} }
             default { throw "Unknown fixture tool $Tool" }
         }

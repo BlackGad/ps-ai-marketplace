@@ -3,6 +3,8 @@ $repo = Split-Path $PSScriptRoot -Parent
 & {
     . (Join-Path $repo 'install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
+    $fixtureHome = Join-Path $repo ('.agents/temp/conflict-home-' + [guid]::NewGuid().ToString('N'))
+    function Get-InstallHome { $fixtureHome }
     $expectedRemove = @{
         claude='claude plugin marketplace remove ps-ai-marketplace'
         codex='codex plugin marketplace remove ps-ai-marketplace'

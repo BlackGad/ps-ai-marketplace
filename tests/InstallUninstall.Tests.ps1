@@ -116,7 +116,8 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
         $output = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -Yes)
         Assert-Equal 12 $writes.Count 'Three defaults plus three unique account targets removed'
         foreach ($entry in $catalog.tools) {
-            Assert-True ($calls -contains "$($entry.id):|$($entry.command)|plugin|list$(if ($entry.id -eq 'claude') { '|--json' })") 'Default ignores inherited config override'
+            $inherited = [IO.Path]::GetFullPath('inherited-account')
+            Assert-True ($calls -contains "$($entry.id):$inherited|$($entry.command)|plugin|list$(if ($entry.id -eq 'claude') { '|--json' })") 'Default honors inherited config override'
             Assert-Equal 'inherited-account' ([Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')) 'Caller environment restored'
         }
         foreach ($name in @('codex-a','codex-a.cmd','codex-b','codex-b.cmd','ps-ai-overseer')) {

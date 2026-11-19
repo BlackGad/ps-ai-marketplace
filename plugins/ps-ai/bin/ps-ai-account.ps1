@@ -62,6 +62,9 @@ function Update-AllPsAiRouting {
 function Write-PsAiPersonalisation {
     param($Data, [string]$Path)
     $original = [System.IO.File]::ReadAllText($Path)
+    if ($Data.PSObject.Properties['$schema']) {
+        $Data.'$schema' = 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/schemas/personalisation.schema.json'
+    }
     $json = $Data | ConvertTo-Json -Depth 100
     [System.IO.File]::WriteAllText($Path, $json + "`n", [System.Text.UTF8Encoding]::new($false))
     $issues = @(Invoke-PsAiValidation -Kind personalisation -Path $Path)

@@ -14,10 +14,15 @@ $repo = Split-Path $PSScriptRoot -Parent
         $file = if ($Command -contains 'marketplace') { "$($Command[0])-marketplaces.json" } else { 'claude-plugins.json' }
         $output = if ($Command -contains 'marketplace' -or $Command[0] -eq 'claude') { Get-Content (Join-Path $fixtures $file) }
             else { @('ps-ai@ps-ai-marketplace installed, enabled 0.3.1') }
+        if ($Command[0] -eq 'codex' -and $Command -contains 'marketplace') {
+            $listing = ($output -join "`n") | ConvertFrom-Json
+            $listing.marketplaces[0].root = $fixtures
+            $output = @($listing | ConvertTo-Json -Depth 10)
+        }
         @{ExitCode=0; Output=$output; ErrorOutput=@()}
     }
     $preview = @(Invoke-PsAiInstaller -Catalog $catalog -DryRun)
-    Assert-Equal 6 $calls.Count 'Install DryRun reads marketplaces and installed plugins for all three tools'
+    Assert-Equal 7 $calls.Count 'Install DryRun reads registrations, checkout health and installed plugins'
     Assert-Equal 6 @($preview | Where-Object { $_ -match '^skip: .*already done' }).Count 'Install DryRun proves matching sources and enabled plugins'
     $calls.Clear()
     $preview = @(Invoke-PsAiInstaller -Catalog $catalog -Update -DryRun)

@@ -49,7 +49,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         $env:CLAUDE_CONFIG_DIR = 'inherited-account'
         $env:CODEX_HOME = 'inherited-account'
         $null = Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Yes
-        $expected = @('claude:', "claude:$(Join-Path $sandbox '.claude-account2')", 'codex:', "codex:$(Join-Path $sandbox '.codex-account2')") | Sort-Object
+        $inherited = [IO.Path]::GetFullPath('inherited-account')
+        $expected = @("claude:$inherited", "claude:$(Join-Path $sandbox '.claude-account2')", "codex:$inherited", "codex:$(Join-Path $sandbox '.codex-account2')") | Sort-Object
         $targets = @($calls | ForEach-Object { ($_ -split '\|')[0] } | Sort-Object -Unique)
         Assert-Equal ($expected -join '|') ($targets -join '|') 'Install covers defaults and recorded folders once'
         Assert-Equal 4 $installed.Count 'Install installs each distinct target'

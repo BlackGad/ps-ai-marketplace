@@ -16,7 +16,7 @@
     "marketplaceUpdate": ["plugin", "marketplace", "upgrade"],
     "update": ["plugin", "add", "ps-ai@ps-ai-marketplace"],
     "marketplaceList": ["plugin", "marketplace", "list", "--json"],
-    "marketplaceListing": {"format": "json", "collectionField": "marketplaces", "nameField": "name", "sourceFields": ["marketplaceSource.source", "root"]},
+    "marketplaceListing": {"format": "json", "collectionField": "marketplaces", "nameField": "name", "sourceFields": ["marketplaceSource.source", "root"], "rootField": "root"},
     "list": ["plugin", "list"],
     "listing": {"format": "lines", "rejectPattern": "not installed|disabled"}
   },

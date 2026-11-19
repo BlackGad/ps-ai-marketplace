@@ -196,7 +196,7 @@ $state = @{ Calls=0; Default=0; Account=0 }
 function Invoke-ClosedInput {
     param($Command)
     $state.Calls++
-    if (-not $env:CODEX_HOME) { $state.Default++ }
+    if ($env:CODEX_HOME -eq [IO.Path]::GetFullPath('inherited-account')) { $state.Default++ }
     elseif ($env:CODEX_HOME -eq (Join-Path $fixtureHome '.agents/accounts/codex-a')) { $state.Account++ }
     else { throw 'Incorrect config target' }
     if ($Command[2] -eq 'remove') { throw 'Update removed plugin approval' }
