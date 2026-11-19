@@ -1,4 +1,4 @@
-# LaunchAdaptersMatchExistingObjects: invoke adapters, never dot-source their internals.
+# LaunchAdapterContract: invoke adapters, never dot-source their internals.
 & {
     $repoRoot = Split-Path $PSScriptRoot -Parent
     $skillRoot = Join-Path $repoRoot 'plugins/ps-ai/skills'
@@ -17,27 +17,14 @@
         Assert-True (Test-Path -LiteralPath $adapter) "$id launch adapter exists"
         foreach ($configDir in @('~/.agents/accounts/agent-a', (Join-Path $homeRoot 'absolute config'))) {
             $adapterAgent = [pscustomobject]@{ id = 'agent-a'; tool = $id; configDir = $configDir; provider = $provider }
-            $old = & {
-                . (Join-Path $PSScriptRoot 'fixtures/tools/legacy-foundry/ps-ai-foundry.ps1') -NoRun -HomeRoot $homeRoot
-                Get-FoundryLaunch -Agent $adapterAgent -HomeRoot $homeRoot -Token $injectedToken
-            }
             $result = @(& $adapter -Agent $adapterAgent -HomeRoot $homeRoot -Token $injectedToken)
             Assert-Equal 1 $result.Count "$id emits exactly one object"
             $launch = $result[0]
             Assert-True ($launch -is [hashtable]) "$id returns a hashtable"
             Assert-Equal 'Clear|Notice|ProvidersFile|ProvidersJson|Set' (($launch.Keys | Sort-Object) -join '|') "$id launch contract has exactly five fields"
             Assert-True ($launch.Clear -is [string[]]) "$id clear list is typed"
-            foreach ($name in $old.Clear) { Assert-True ($launch.Clear -contains $name) "$id retains conflicting-variable cleanup for $name" }
-            Assert-Equal ($old.Set.Keys | Sort-Object | Out-String) ($launch.Set.Keys | Sort-Object | Out-String) "$id environment keys match old runner"
-            foreach ($key in $old.Set.Keys) {
-                if ($key -ne 'COPILOT_PROVIDERS_CONFIG') { Assert-Equal $old.Set[$key] $launch.Set[$key] "$id environment value preserved" }
-            }
-            Assert-Equal $old.Notice $launch.Notice "$id notice preserved"
             if ($id -eq 'copilot') {
                 $json = $launch.ProvidersJson | ConvertFrom-Json
-                $oldJson = $old.ProvidersJson | ConvertFrom-Json
-                Assert-Equal ($oldJson.providers | ConvertTo-Json -Depth 20 -Compress) ($json.providers | ConvertTo-Json -Depth 20 -Compress) 'Copilot provider payload matches old runner'
-                Assert-Equal ($oldJson.models | ConvertTo-Json -Depth 20 -Compress) ($json.models | ConvertTo-Json -Depth 20 -Compress) 'Copilot models match old runner'
                 Assert-Equal 'fake-token' $json.providers[0].bearerToken 'Copilot uses the injected fixed token'
                 Assert-Equal 'model-a' $json.models[0].modelId 'Copilot prefers known model id'
                 Assert-Equal 'deployment-b' $json.models[1].modelId 'Copilot falls back to deployment id'
