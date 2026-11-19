@@ -10,6 +10,7 @@ description: Use when the overseer dispatches Copilot CLI work or the owner asks
 Use this tool skill for Copilot CLI operations only. Load `ps-ai-personalisation` and its notes first; choose the account, role, model, and any paid-account approval there. The overseer owns task selection and the handoff. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
 
 - Mark only a legion process as a legion task using [run.md](references/run.md).
+- Legion runs without a sandbox, with full user rights, so it can use the owner's installed tools; follow the legion safeguards.
 - Read-only reviewers require explicit write and shell tool denials. Never let a review modify the frozen checkout.
 - Resume only on the same account and folder. Never read credentials.
 - Ping before declaring an account out of credit. Copilot has no supported limit readout in this workflow.

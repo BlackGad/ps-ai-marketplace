@@ -12,7 +12,7 @@ Use this tool skill for Codex CLI operations only. Load `ps-ai-personalisation` 
 - Mark only a legion run as a legion task using [run.md](references/run.md). Never turn an interactive session into legion mode.
 - Resume only on the same account and in the same repository folder. Never read credential files.
 - Ping before declaring an account out of credit; report an absent rate-limit record as unknown.
-- Keep the configured sandbox and approval boundaries; see [run.md](references/run.md) before changing them.
+- Legion runs without a sandbox, with full user rights, so it can use the owner's installed tools; follow the legion safeguards.
 - Launch long work in the background and wait for completion rather than polling logs. Capture exit status and report.
 
 ## Operations
@@ -24,7 +24,7 @@ Use this tool skill for Codex CLI operations only. Load `ps-ai-personalisation` 
 
 ## Stop and verification
 
-Stop and report when the account or model is unconfigured, prompt/report path is missing, a resume would use another account, or bypass permission is unclear. Verify exit status and report after a run, and validate personalisation after account changes. Do not claim exhaustion without a ping result.
+Stop and report when the account or model is unconfigured, prompt/report path is missing, a resume would use another account, or the required launch mode cannot be applied. Verify exit status and report after a run, and validate personalisation after account changes. Do not claim exhaustion without a ping result.
 
 ## Launcher and plugins
 

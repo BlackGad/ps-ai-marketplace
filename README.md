@@ -81,6 +81,14 @@ A hook at session start decides the mode:
 
 A session you start yourself is never a legion member.
 
+## Security: legion runs without a sandbox
+
+Legion workers run with your full user rights so they can edit, run checks, and commit using your installed SDKs, user PATH, and tools. Sandboxes can hide installed tools; agents then download their own SDKs and drift from your machine's setup. Setup explains this and asks for your yes before saving the first legion routing.
+
+The overseer starts legion only inside an assigned repository worktree and only for planned tasks. Workers must stay inside that repository or worktree, never push or touch other folders, and never download or install an SDK, runtime, package manager, or tool. If a needed tool is missing or the wrong version, they stop and report it so the overseer can ask you. These safeguards are instructions, not an enforced access boundary. Reviewer runs keep their read-only restrictions.
+
+To opt out, leave legion unused. To limit its use, route legion only to accounts you trust.
+
 ## Files and folders
 
 | What | Where | Tracked |

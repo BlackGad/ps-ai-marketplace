@@ -10,6 +10,7 @@ description: Use when the overseer dispatches Claude Code work or the owner asks
 Use this tool skill for Claude Code operations only. Load `ps-ai-personalisation` and its notes first; select the configured Claude account, role, and model there. The overseer chooses the task and writes the handoff; this skill only runs the chosen tool. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
 
 - Mark only a legion process as a legion task using [run.md](references/run.md). Do not turn an interactive session into legion mode.
+- Legion runs without a sandbox, with full user rights, so it can use the owner's installed tools; follow the legion safeguards.
 - Resume only with the same account, config directory, and repository folder. Never read credential files.
 - Ping before declaring an account out of credit. Do not infer limits from a failed long run alone.
 - Run long work in a background process and wait for its completion event or process exit; do not poll its logs. Capture the report and exit status.

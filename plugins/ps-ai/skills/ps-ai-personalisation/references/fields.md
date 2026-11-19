@@ -52,6 +52,8 @@ Use [create.md](create.md) for fixture or alternate-home handling. Keep commands
 
 Do not guess model names. Routing entries must refer to defined account IDs; the validator checks this and the schema.
 
+Before saving the first legion routing in global settings or a project override, follow the explanation and yes step in [create.md](create.md). Do not add a consent field or note to settings; this is only a conversation step.
+
 ## Foundry provider
 
 `agents[].provider` is optional. Without it, the agent uses its subscription. A Foundry agent has one endpoint and at least one selected deployment:

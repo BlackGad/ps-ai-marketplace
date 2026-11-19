@@ -13,6 +13,7 @@ This context provider grounds every ps-ai mode. Read both the owner's settings a
 
 - Never read, print, log, or store credentials or token files. Store command paths and configuration folder names only.
 - Change personalisation only when the owner requested it. Keep project facts in the repo and personal habits in notes.
+- Before saving the first legion routing, explain its full user rights and why it runs without a sandbox, then ask for the owner's yes using [create.md](references/create.md). This is a conversation step, not a new setting.
 - Validate settings after every change using [fields.md](references/fields.md).
 - Use unique account names that do not conflict with installed commands. Register existing account shortcuts and manage accounts through the matching tool skill; see [fields.md](references/fields.md) for naming rules.
 - Never install a tool, launch an agent, or open an overseer window without authorization. The session launcher offer asks first; direct launcher invocation is itself a request to launch.

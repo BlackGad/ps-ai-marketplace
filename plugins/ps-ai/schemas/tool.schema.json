@@ -63,6 +63,9 @@
     "overseerArgs": {
       "$ref": "#/$defs/arguments"
     },
+    "legionArgs": {
+      "$ref": "#/$defs/arguments"
+    },
     "plugin": {
       "type": "object",
       "additionalProperties": false,
