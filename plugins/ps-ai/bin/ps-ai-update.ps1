@@ -53,6 +53,16 @@ function Get-PsAiUpdateSource {
             $config = Join-Path $folder $relative
             if (-not (Test-Path -LiteralPath $config -PathType Leaf)) { continue }
             try {
+                $checkout = Split-Path (Split-Path $config -Parent) -Parent
+                $catalog = Get-Content -LiteralPath (Join-Path $checkout '.claude-plugin/marketplace.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                if ($catalog.name -cne 'ps-ai-marketplace') { continue }
+                $owned = $false
+                foreach ($plugin in $catalog.plugins) {
+                    if ($plugin.name -cne 'ps-ai' -or $plugin.source -isnot [string]) { continue }
+                    $candidate = [IO.Path]::GetFullPath((Join-Path $checkout $plugin.source))
+                    if ($candidate -eq [IO.Path]::GetFullPath($PluginRoot)) { $owned = $true }
+                }
+                if (-not $owned) { continue }
                 $text = Get-Content -LiteralPath $config -Raw -ErrorAction Stop
                 $origin = [regex]::Match($text, '(?ms)^\[remote "origin"\]\s*\r?\n(.*?)(?=^\[|\z)').Groups[1].Value
                 $url = [regex]::Match($origin, '(?m)^\s*url\s*=\s*(\S+)').Groups[1].Value
@@ -106,7 +116,7 @@ function Get-PsAiUpdate {
             Installed = $manifest.version
             Available = $cached.Available
             Newer = ([semver]$cached.Available -gt $installed)
-            Command = "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/$source/main/install.ps1))) -Update"
+            Command = "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/$source/main/install.ps1))) -Source '$source' -Update"
         }
     } catch {
         if ($Force) { throw }
