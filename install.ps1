@@ -88,7 +88,7 @@ function Get-InstallCatalog {
                 Assert-InstallString $environment.$name "plugin.listingEnv.$name" -AllowEmpty
             }
         }
-        foreach ($field in @('defaultConfigDir','installedRoot')) {
+        foreach ($field in @('defaultConfigDir','installedRoot','cacheDir')) {
             $present = if ($tool.plugin -is [Collections.IDictionary]) { $tool.plugin.Contains($field) } else { $null -ne $tool.plugin.PSObject.Properties[$field] }
             if (-not $present) { continue }
             $value = $tool.plugin.$field
@@ -97,8 +97,11 @@ function Get-InstallCatalog {
                 if (-not $value.StartsWith('~/')) { throw 'invalid catalog plugin.defaultConfigDir: expected ~/ relative path' }
                 Assert-InstallRelativePath $value.Substring(2) 'plugin.defaultConfigDir'
             } else {
-                Assert-InstallRelativePath $value 'plugin.installedRoot'
-                if ($value -match '^~[/\\]') { throw 'invalid catalog plugin.installedRoot: expected relative path' }
+                Assert-InstallRelativePath $value "plugin.$field"
+                if ($value -match '^~[/\\]') { throw "invalid catalog plugin.${field}: expected relative path" }
+            }
+            if ($field -eq 'cacheDir' -and $value -match '(^~|(^|[/\\])\.([/\\]|$)|[*?]|[/\\]$|[/\\]{2})') {
+                throw 'invalid catalog plugin.cacheDir: expected exact relative folder path'
             }
         }
         $listing = $tool.plugin.listing
@@ -472,6 +475,41 @@ function Get-UninstallFiles {
     }
 }
 
+function Get-UninstallCachePath {
+    param($Entry, [string]$ConfigDir)
+    if (-not $Entry.plugin.cacheDir) { return }
+    if (-not $ConfigDir) {
+        if (-not $Entry.plugin.defaultConfigDir) { throw 'Missing plugin.defaultConfigDir for cache cleanup' }
+        $ConfigDir = Join-Path (Get-InstallHome) $Entry.plugin.defaultConfigDir.Substring(2)
+    }
+    $root = [IO.Path]::GetFullPath($ConfigDir).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $path = [IO.Path]::GetFullPath((Join-Path $root $Entry.plugin.cacheDir))
+    $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if (-not $path.StartsWith($root + [IO.Path]::DirectorySeparatorChar, $comparison)) { throw 'Unsafe plugin cache path' }
+    if (-not (Test-Path -LiteralPath $path -PathType Container)) { return }
+    # Refuse linked ancestors and linked contents, including junctions on Windows PowerShell.
+    $current = $path
+    while ($current) {
+        if ((Get-Item -LiteralPath $current -Force -ErrorAction Stop).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            Write-Host "skip: plugin cache $path (linked folder)"
+            return
+        }
+        $current = Split-Path $current -Parent
+    }
+    $pending = New-Object 'Collections.Generic.Stack[string]'
+    $pending.Push($path)
+    while ($pending.Count) {
+        foreach ($item in (Get-ChildItem -LiteralPath $pending.Pop() -Force -ErrorAction Stop)) {
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                Write-Host "skip: plugin cache $path (linked contents)"
+                return
+            }
+            if ($item.PSIsContainer) { $pending.Push($item.FullName) }
+        }
+    }
+    return $path
+}
+
 function Invoke-PsAiUninstall {
     param([string[]]$Tools, [string]$ConfigDir, [switch]$DryRun, [switch]$Yes)
     $homeRoot = Get-InstallHome
@@ -485,36 +523,62 @@ function Invoke-PsAiUninstall {
     foreach ($tool in ($selectedTools | Select-Object -Unique)) {
         $entry = Get-InstallTool -Tool $tool
         if (-not (Test-InstallCommandAvailable -Name $entry.command)) { "skip: $tool (not installed)"; continue }
+        $seenFolders = @()
         foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
-            $targets += [pscustomobject]@{ Entry=$entry; Folder=$folder }
+            $resolved = if ($folder) { $folder } else { $entry.plugin.defaultConfigDir }
+            if ($resolved -match '^~[/\\]') { $resolved = Join-Path $homeRoot $resolved.Substring(2) }
+            if ($resolved) { $resolved = [IO.Path]::GetFullPath($resolved).TrimEnd('\', '/') }
+            $seen = if ($env:OS -eq 'Windows_NT') { $seenFolders -contains $resolved } else { $seenFolders -ccontains $resolved }
+            if ($seen) { continue }
+            $seenFolders += $resolved
             $label = if ($folder) { $folder } else { 'default config' }
-            "Target: $tool in $label"
-            foreach ($arguments in @($entry.plugin.uninstall, $entry.plugin.marketplaceRemove)) {
-                Format-InstallCommand -Command (@($entry.command) + $arguments) -ConfigEnv $entry.configEnv -ConfigDir $folder
+            $steps = @()
+            foreach ($kind in @('plugin', 'marketplace')) {
+                $check = if ($kind -eq 'plugin') { @($entry.command) + $entry.plugin.install }
+                    else { @($entry.command) + @($entry.plugin.marketplaceAdd | ForEach-Object { if ($_ -ceq '{source}') { '' } else { $_ } }) }
+                if (-not (Test-InstallStepDone -Command $check -ConfigEnv $entry.configEnv -ConfigDir $folder -IncludeDisabled)) {
+                    "skip: $tool $kind in $label (not installed)"
+                    continue
+                }
+                $arguments = if ($kind -eq 'plugin') { $entry.plugin.uninstall } else { $entry.plugin.marketplaceRemove }
+                $steps += [pscustomobject]@{ Kind=$kind; Check=$check; Command=(@($entry.command) + $arguments) }
             }
+            $cache = Get-UninstallCachePath -Entry $entry -ConfigDir $folder
+            if (-not $steps.Count -and -not $cache) { continue }
+            $targets += [pscustomobject]@{ Entry=$entry; Folder=$folder; Steps=$steps; Cache=$cache }
+            "Target: $tool in $label"
+            foreach ($step in $steps) {
+                Format-InstallCommand -Command $step.Command -ConfigEnv $entry.configEnv -ConfigDir $folder
+            }
+            if ($cache) { "Remove cache folder: $cache" }
         }
     }
     $files = @(Get-UninstallFiles -Tools $Tools -ConfigDir $ConfigDir -Owner $owner)
     foreach ($path in $files) { "Remove file: $path" }
     if (-not $files.Count) { 'skip: ps-ai generated files (not installed)' }
-    if (-not $DryRun -and ($Yes -or (Read-Host 'Uninstall ps-ai from these targets? [y/N]') -match '^(?i:y|yes)$')) {
+    $hasWork = $targets.Count -or $files.Count
+    if (-not $hasWork) { 'Nothing to uninstall.' }
+    if ($hasWork -and -not $DryRun -and ($Yes -or (Read-Host 'Uninstall ps-ai from these targets? [y/N]') -match '^(?i:y|yes)$')) {
         foreach ($target in $targets) {
             $entry = $target.Entry
-            $previous = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
-            try {
-                if ($target.Folder) { Set-InstallConfigEnvironment -Name $entry.configEnv -Value $target.Folder }
-                else { Set-InstallConfigEnvironment -Name $entry.configEnv -Value $null }
-                foreach ($kind in @('plugin', 'marketplace')) {
-                    $check = if ($kind -eq 'plugin') { @($entry.command) + $entry.plugin.install }
-                        else { @($entry.command) + @($entry.plugin.marketplaceAdd | ForEach-Object { if ($_ -ceq '{source}') { '' } else { $_ } }) }
-                    if (-not (Test-InstallStepDone -Command $check -ConfigEnv $entry.configEnv -ConfigDir $target.Folder -IncludeDisabled)) {
-                        "skip: $($entry.id) $kind in $(if ($target.Folder) { $target.Folder } else { 'default config' }) (not installed)"
-                        continue
-                    }
-                    $arguments = if ($kind -eq 'plugin') { $entry.plugin.uninstall } else { $entry.plugin.marketplaceRemove }
-                    Invoke-InstallCommand -Command (@($entry.command) + $arguments) -ConfigEnv $entry.configEnv -ConfigDir $target.Folder
+            foreach ($step in $target.Steps) {
+                if (-not (Test-InstallStepDone -Command $step.Check -ConfigEnv $entry.configEnv -ConfigDir $target.Folder -IncludeDisabled)) {
+                    "skip: $($entry.id) $($step.Kind) in $(if ($target.Folder) { $target.Folder } else { 'default config' }) (not installed)"
+                    continue
                 }
-            } finally { Set-InstallConfigEnvironment -Name $entry.configEnv -Value $previous }
+                Invoke-InstallCommand -Command $step.Command -ConfigEnv $entry.configEnv -ConfigDir $target.Folder
+            }
+            if ($target.Cache) {
+                $check = @($entry.command) + $entry.plugin.install
+                if (Test-InstallStepDone -Command $check -ConfigEnv $entry.configEnv -ConfigDir $target.Folder -IncludeDisabled) {
+                    throw "$($entry.id) plugin is still listed; cache kept."
+                }
+                # Recheck the exact descriptor path and links immediately before recursive deletion.
+                $cache = Get-UninstallCachePath -Entry $entry -ConfigDir $target.Folder
+                if ($cache -and $cache -ceq $target.Cache) {
+                    Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction Stop
+                }
+            }
         }
         $bin = [IO.Path]::GetFullPath((Join-Path $homeRoot '.agents/bin'))
         foreach ($path in $files) {
@@ -526,18 +590,20 @@ function Invoke-PsAiUninstall {
             }
         }
     }
-    "Kept settings and notes: $(Join-Path $homeRoot '.agents/configuration')"
-    "Kept account folders and logins: $(Join-Path $homeRoot '.agents/accounts')"
+    $configuration = Join-Path $homeRoot '.agents/configuration'
+    $accounts = Join-Path $homeRoot '.agents/accounts'
+    if (Test-Path -LiteralPath $configuration) { "Kept settings and notes: $configuration" }
+    if (Test-Path -LiteralPath $accounts) { "Kept account folders and logins: $accounts" }
     foreach ($entry in $script:installCatalog.tools) {
         foreach ($folder in (Get-UpdateConfigDirs -Tool $entry.id)) {
             if (-not $folder) {
                 $folder = $entry.plugin.defaultConfigDir
                 if ($folder -match '^~[/\\]') { $folder = Join-Path $homeRoot $folder.Substring(2) }
             }
-            if ($folder) { "Kept config folder and login: $folder" }
+            if ($folder -and (Test-Path -LiteralPath $folder)) { "Kept config folder and login: $folder" }
         }
     }
-    if ($ConfigDir) { "Kept config folder and login: $ConfigDir" }
+    if ($ConfigDir -and (Test-Path -LiteralPath $ConfigDir)) { "Kept config folder and login: $ConfigDir" }
     'Kept repositories at their existing paths; CLIs and PowerShell at their existing install locations.'
     'You can delete kept data by hand if you no longer need it.'
 }

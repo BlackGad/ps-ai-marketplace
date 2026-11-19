@@ -90,7 +90,8 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
         } finally { $env:OS = $savedOS }
         Assert-Equal 2 @(Get-UninstallFiles -Owner ([pscustomobject]@{agents=$agents}) -ConfigDir ($account + [IO.Path]::DirectorySeparatorChar)).Count 'Directory filters match a trailing separator'
         $preview = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -DryRun)
-        Assert-Equal 0 $calls.Count 'Dry run never calls any CLI'
+        Assert-True ($calls.Count -gt 0) 'Dry run checks installed state'
+        Assert-Equal 0 $writes.Count 'Dry run never changes any CLI'
         Assert-Equal 0 $state.Prompts 'Dry run never asks'
         Assert-True (($preview -join "`n").Contains('copilot plugin marketplace remove ps-ai-marketplace --force')) 'Preview includes force from metadata'
         Assert-True (($preview -join "`n").Contains($account)) 'Preview includes recorded targets'
