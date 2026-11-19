@@ -400,7 +400,23 @@ Assert-True ($readme.Contains('[Details for maintainers and power users](docs/re
             $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
             Assert-Throws { Get-ToolPortableCommand fourth } 'Unsafe portable path rejected'
         }
+        # CompactSchemaKeepsRuntimeGuards: copied loaders fail before fake execution/extraction.
         $data.install.windows.portableCommand = 'fourth-v*/fourth-cli.exe'
+        foreach ($change in @(
+            { param($d) $d.plugin | Add-Member -NotePropertyName cacheDir -NotePropertyValue '../outside' -Force },
+            { param($d) $d.overseerArgs = @('--flag',42) }
+        )) {
+            $bad = $data | ConvertTo-Json -Depth 100 | ConvertFrom-Json
+            & $change $bad
+            $bad | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+            Assert-Throws { Invoke-ToolInstall -Tool fourth -Platform windows -Yes } 'Unsafe descriptor stops before installation'
+        }
+        $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+        $adapter = Join-Path $fourthSkill 'scripts/foundry-launch.ps1'
+        Move-Item -LiteralPath $adapter -Destination ($adapter + '.held')
+        Assert-Throws { Invoke-ToolInstall -Tool fourth -Platform windows -Yes } 'Missing adapter stops before installation'
+        Move-Item -LiteralPath ($adapter + '.held') -Destination $adapter
+        Assert-Equal 0 $calls.Count 'Rejected descriptors execute no commands'
         $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
         foreach ($badPath in @('../fourth-sibling',(Join-Path $sandbox 'outside'),'sub/../../fourth-sibling')) {
             Assert-Throws { Install-ToolZip -Tool fourth -Archive unused.zip -PathFolder $badPath } 'Unsafe PATH folder rejected'

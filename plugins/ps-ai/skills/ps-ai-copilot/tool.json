@@ -3,7 +3,6 @@
   "id": "copilot", "command": "copilot", "configEnv": "COPILOT_HOME",
   "foundry": {"deploymentPrefix": "claude", "aliases": []},
   "overseerArgs": ["-i"],
-  "legionArgs": ["-p", "--allow-all-tools", "--deny-tool=shell(git push)"],
   "plugin": {
     "defaultConfigDir": "~/.copilot",
     "installedRoot": "installed-plugins",

@@ -3,7 +3,6 @@
   "id": "codex", "command": "codex", "configEnv": "CODEX_HOME",
   "foundry": {"deploymentPrefix": "gpt", "aliases": []},
   "overseerArgs": [],
-  "legionArgs": ["exec", "--dangerously-bypass-approvals-and-sandbox"],
   "plugin": {
     "defaultConfigDir": "~/.codex",
     "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",

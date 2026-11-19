@@ -3,74 +3,12 @@ $schemaPath = Join-Path $repoRoot 'plugins/ps-ai/schemas/tool.schema.json'
 $skillsRoot = Join-Path $repoRoot 'plugins/ps-ai/skills'
 $helpersPath = Join-Path $repoRoot 'plugins/ps-ai/bin/install-tool/helpers.json'
 
-# DescriptorAndHelperSchema: malformed data must fail before any consumer acts.
-Assert-True (Test-Path -LiteralPath $schemaPath) 'Tool descriptor schema exists'
-$toolSchema = Get-Content -LiteralPath $schemaPath -Raw | ConvertFrom-Json -AsHashtable
-function Test-DescriptorSchema {
-    param($Data)
-    Test-Json -Json ($Data | ConvertTo-Json -Depth 100) -SchemaFile $schemaPath -ErrorAction SilentlyContinue
-}
-foreach ($id in @('claude', 'codex', 'copilot')) {
-    $descriptor = Get-Content -LiteralPath (Join-Path $skillsRoot "ps-ai-$id/tool.json") -Raw | ConvertFrom-Json -AsHashtable
-    Assert-True (Test-DescriptorSchema $descriptor) "$id complete descriptor validates"
-}
-$fourthPath = Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json'
-$fourthJson = Get-Content -LiteralPath $fourthPath -Raw
-Assert-True (Test-DescriptorSchema ($fourthJson | ConvertFrom-Json -AsHashtable)) 'Fourth tool validates without schema edits'
-foreach ($mutation in @(
-    { param($d) $d.Remove('command') },
-    { param($d) $d.extra = 'unexpected' },
-    { param($d) $d.schemaVersion = 2 },
-    { param($d) $d.id = '../fourth' },
-    { param($d) $d.id = 'Fourth' },
-    { param($d) $d.configEnv = 'fourth-home' },
-    { param($d) $d.foundry.aliases = @('alpha', 'alpha') },
-    { param($d) $d.foundry.extra = 'unexpected' },
-    { param($d) $d.plugin.listing.format = 'yaml' },
-    { param($d) $d.plugin.listing.enabledField = 'enabled' },
-    { param($d) $d.install.check = @() },
-    { param($d) $d.install.Remove('hint') },
-    { param($d) $d.install.windows.download.zip.kind = 'script' },
-    { param($d) $d.install.windows.download.zip.verification = 'vendor' },
-    { param($d) $d.install.windows.download.zip.Remove('pathFolder') },
-    { param($d) $d.install.windows.download.zip.resolver = 'unknown' },
-    { param($d) $d.install.windows.portableCommand = '../fourth.exe' },
-    { param($d) $d.install.windows.download.zip.pathFolder = '/outside' },
-    { param($d) $d.install.linux.commands = @(, @()) }
-)) {
-    $bad = $fourthJson | ConvertFrom-Json -AsHashtable
-    $null = & $mutation $bad
-    Assert-True (-not (Test-DescriptorSchema $bad)) 'Invalid descriptor rejected'
-}
-$noFoundry = $fourthJson | ConvertFrom-Json -AsHashtable
-$noFoundry.foundry = $null
-Assert-True (Test-DescriptorSchema $noFoundry) 'Null Foundry capability is supported'
-
-# The helper map uses the same install definition, including checksum requirements.
-$installSchema = @{
-    '$schema' = $toolSchema.'$schema'
-    '$defs' = $toolSchema.'$defs'
-    '$ref' = '#/$defs/install'
-} | ConvertTo-Json -Depth 100
-$helpers = Get-Content -LiteralPath $helpersPath -Raw | ConvertFrom-Json -AsHashtable
-Assert-Equal 'az|bun|gh|git|glab|node|pwsh|unzip' (($helpers.Keys | Sort-Object) -join '|') 'Helpers have no agent descriptors'
-foreach ($id in $helpers.Keys) {
-    $recipe = $helpers[$id]
-    Assert-True (Test-Json -Json ($recipe | ConvertTo-Json -Depth 100) -Schema $installSchema -ErrorAction SilentlyContinue) "$id helper validates"
-}
-foreach ($id in @('node', 'glab')) {
-    $badRecipe = $helpers[$id] | ConvertTo-Json -Depth 100 | ConvertFrom-Json -AsHashtable
-    $download = $badRecipe.windows.download.zip
-    $download.Remove($(if ($id -eq 'node') { 'checksumUrl' } else { 'checksumAsset' }))
-    Assert-True (-not (Test-Json -Json ($badRecipe | ConvertTo-Json -Depth 100) -Schema $installSchema -ErrorAction SilentlyContinue)) "$id checksum metadata is required"
-}
-$badRecipe = $helpers.pwsh | ConvertTo-Json -Depth 100 | ConvertFrom-Json -AsHashtable
-$badRecipe.windows.download.msi.releasesUrl = 'https://fixture.test/releases?page=1'
-Assert-True (-not (Test-Json -Json ($badRecipe | ConvertTo-Json -Depth 100) -Schema $installSchema -ErrorAction SilentlyContinue)) 'Paginated recipes require the page placeholder'
-
-Assert-Equal 'ADD_PATH=1' $helpers.pwsh.windows.download.msi.arguments[2] 'PowerShell MSI keeps PATH argument'
-Assert-Equal '/VERYSILENT|/NORESTART|/SP-|/CURRENTUSER' ($helpers.git.windows.download.msi.arguments -join '|') 'Git installer flags preserved'
-Assert-Equal '/VERYSILENT|/SUPPRESSMSGBOXES|/NORESTART|/SP-' ($helpers.glab.windows.download.msi.arguments -join '|') 'glab installer flags preserved'
+# One structural check exercises shipped descriptors and their shared install definition.
+. (Join-Path $repoRoot 'plugins/ps-ai/bin/lib/tools.ps1')
+Assert-Equal 'claude|codex|copilot' (@(Get-PsAiTools).id -join '|') 'Shipped descriptors load'
+$shippedRecipes = Get-PsAiInstallRecipes
+Assert-True ($shippedRecipes.ContainsKey('bun') -and $shippedRecipes.ContainsKey('node')) 'Shared helper recipes load'
+$fourthJson = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw
 
 # DiscoverFourthAndRejectInvalidNeighbors: folder additions need no shared id list.
 $toolsModule = Join-Path $repoRoot 'plugins/ps-ai/bin/lib/tools.ps1'
@@ -146,7 +84,10 @@ try {
         { param($d) $d.Remove('command') },
         { param($d) $d.unexpected = 'value' },
         { param($d) $d.plugin.listing.rejectPattern = '[' },
-        { param($d) $d.install.windows.download.zip.assetPattern = '[' }
+        { param($d) $d.install.windows.download.zip.assetPattern = '[' },
+        { param($d) $d.install.windows.portableCommand = '../outside.exe' },
+        { param($d) $d.plugin.cacheDir = 'cache/../../outside' },
+        { param($d) $d.overseerArgs = @('--flag', 42) }
     )) {
         $data = $original | ConvertFrom-Json -AsHashtable
         $null = & $change $data

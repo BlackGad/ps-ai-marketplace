@@ -255,6 +255,7 @@ approval_policy = "never"
         Assert-Equal 1 $syncOutput.Count 'Runtime sync returns only the runner path'
         Assert-Equal $snapshot (@($allFiles | ForEach-Object { [IO.File]::GetLastWriteTimeUtc($_.FullName).Ticks.ToString() + ':' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)) }) -join '|') 'Repeated sync preserves bytes and timestamps of both tools'
         Assert-True (Test-Path (Join-Path $runtime 'skills/ps-ai-codex/tool.json')) 'Refreshing Claude retains Codex'
+        Assert-True (-not (Test-Path (Join-Path $runtime 'bin/install-tool/helpers.json'))) 'RelocatedRuntimeWithoutHelpers keeps discovery independent of installation'
         $resolvedCopy = [IO.Path]::GetFullPath($pluginCopy)
         if (-not $resolvedCopy.StartsWith([IO.Path]::GetFullPath($tempRoot) + [IO.Path]::DirectorySeparatorChar)) { throw 'Unsafe source cleanup' }
         Remove-Item -LiteralPath $resolvedCopy -Recurse -Force
