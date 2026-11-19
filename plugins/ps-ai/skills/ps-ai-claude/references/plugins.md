@@ -15,5 +15,3 @@ claude plugin install wiki@llm-wiki
 ```
 
 After installation use the shared [wiki hub setup](../../ps-ai-knowledge/references/llm-wiki-setup.md).
-
-For local plugin development, run `claude plugin validate .` from the marketplace root.

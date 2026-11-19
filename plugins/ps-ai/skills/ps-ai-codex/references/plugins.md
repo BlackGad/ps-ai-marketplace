@@ -1,5 +1,7 @@
 # Codex plugins
 
+After updating ps-ai, tell the owner to resume the session to load the refreshed plugin copy.
+
 After the owner logs in to the selected account, use the account-specific [installer flow](accounts.md). For a manual install in that account's environment:
 
 ```text

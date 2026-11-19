@@ -1,9 +1,22 @@
 ---
 name: ps-ai-overseer
-description: Use when the owner says continue, progress, next step, or next milestone in a repo with .agents/state, or asks to orchestrate repository work; never in legion mode.
+description: Use when the owner says continue, progress, next step, or next milestone in a repo with .agents/state, asks to orchestrate repository work, or says "check ps-ai updates" or "update ps-ai"; never in legion mode.
 ---
 
 # Overseer
+
+## Plugin updates
+
+Handle these phrases before repository takeover; they do not require a lease or a configured repository. Never handle them in legion mode.
+
+- "check ps-ai updates": run `pwsh -NoProfile -File <plugin>/bin/ps-ai-update.ps1 -Check -Force` from the running plugin copy and show its result.
+- "update ps-ai": run the same check to obtain the GitHub script-block `-Update` command and show it. Run that command only after the owner's yes. If the check fails, show the default command below instead. After a successful update, tell the owner to restart the session to load the new skills; follow the selected tool skill's restart/resume guidance.
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Update
+```
+
+The session-start notice only checks; it never authorizes or runs an update.
 
 ## Identity and hard rules
 

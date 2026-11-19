@@ -57,6 +57,13 @@ function Get-PsAiMode {
     } elseif ($lease.State -eq 'foreign') {
         $message += " An overseer lease from host $($lease.Data.host) exists; ask the owner before taking over."
     }
+    try {
+        . (Join-Path $PSScriptRoot '../bin/ps-ai-update.ps1') -NoRun
+        $update = Get-PsAiUpdate
+        if ($update.Newer) {
+            $message += "`nps-ai $($update.Available) is available (installed $($update.Installed)); say `"update ps-ai`" to update."
+        }
+    } catch { } # Update failures must preserve the existing mode context.
     return [pscustomobject]@{ Mode = 'orchestrated'; Task = $null; Lease = $lease.State; Text = $message }
 }
 

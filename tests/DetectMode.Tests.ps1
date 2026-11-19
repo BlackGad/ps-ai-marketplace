@@ -3,6 +3,17 @@ $script = Join-Path $root 'plugins/ps-ai/hooks/detect-mode.ps1'
 $tempRoot = Join-Path $root ('.agents/temp/restructure/hook-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
+    # Child hooks use a private cache and a replaced downloader, never the network.
+    $hookPlugin = Join-Path $tempRoot 'hook-plugin'
+    New-Item -ItemType Directory -Path (Join-Path $hookPlugin 'hooks'), (Join-Path $hookPlugin 'bin') -Force | Out-Null
+    foreach ($file in @('hooks/detect-mode.ps1','bin/PsAi.Common.ps1','bin/PsAi.Tools.ps1','bin/ps-ai-update.ps1','plugin.json')) {
+        Copy-Item (Join-Path $root "plugins/ps-ai/$file") (Join-Path $hookPlugin $file)
+    }
+    @'
+function Get-PsAiUpdateHome { Join-Path $PSScriptRoot '../../home' }
+function Get-PsAiUpdateText { throw 'offline fixture' }
+'@ | Add-Content (Join-Path $hookPlugin 'bin/ps-ai-update.ps1')
+    $script = Join-Path $hookPlugin 'hooks/detect-mode.ps1'
     $fixtureRepo = Join-Path $tempRoot 'repo'
     $state = Join-Path $fixtureRepo '.agents/state'
     $temp = Join-Path $fixtureRepo '.agents/temp'
@@ -66,6 +77,7 @@ try {
     $copy = Join-Path $tempRoot 'plugin'
     New-Item -ItemType Directory (Join-Path $copy 'hooks'), (Join-Path $copy 'bin') -Force | Out-Null
     Copy-Item -LiteralPath $script -Destination (Join-Path $copy 'hooks/detect-mode.ps1')
+    Copy-Item -LiteralPath (Join-Path $hookPlugin 'bin/ps-ai-update.ps1') -Destination (Join-Path $copy 'bin/ps-ai-update.ps1')
     'function Get-PsAiLease { throw "fixture lease read failure" }' | Set-Content (Join-Path $copy 'bin/PsAi.Common.ps1')
     $failedHook = Join-Path $copy 'hooks/detect-mode.ps1'
     $warning = 'ps-ai: mode detection failed; continuing without mode context.'

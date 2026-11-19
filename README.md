@@ -25,7 +25,7 @@ pwsh -c "irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/i
 
 By default, the script installs ps-ai for every installed coding CLI. If none is installed, it prints the official CLI install commands and stops successfully. Install one and rerun the script. Repeated runs skip completed steps and preserve hook approval.
 
-To refresh installed ps-ai copies in every CLI's default config and every recorded account folder, run the command below; `-Tools` and `-ConfigDir` narrow the targets, and `-DryRun` previews commands. Restart agents afterward to load the new skills. During development, Claude and Copilot can load the working copy directly with `--plugin-dir ./plugins/ps-ai`.
+To refresh installed ps-ai copies in every CLI's default config and every recorded account folder, run the command below; `-Tools` and `-ConfigDir` narrow the targets, and `-DryRun` previews commands. Restart the session afterward to load the new skills (Codex: resume).
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Update
@@ -37,7 +37,9 @@ For options, use the script-block form in PowerShell. This example selects an ex
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools <tool-id> -ConfigDir <account folder>
 ```
 
-Use `-Tools <tool-id>` (or an array of ids) to choose tools, `-Source <repository or local path>` to override the marketplace source, and `-DryRun` to print the steps without changing anything. Local sources resolve to an absolute path. The default source is `BlackGad/ps-ai-marketplace`. `-SourceRef` selects its catalog revision (default `main`); local sources must contain the generated `tools.json`. Remote dry runs read that metadata once. It does not change the marketplace source passed to the CLI.
+Use `-Tools <tool-id>` (or an array of ids) to choose tools, `-Source <owner/repository>` to override the GitHub marketplace source, and `-DryRun` to print the steps without changing anything. The default source is `BlackGad/ps-ai-marketplace`. `-SourceRef` selects its catalog revision (default `main`). Remote dry runs read that metadata once. It does not change the marketplace source passed to the CLI.
+
+Overseer sessions check for a newer ps-ai version once a day and show a notice when one is available. Say "check ps-ai updates" for a fresh check, or "update ps-ai" to see the update command and approve running it. Checks never install updates. The shared checker is `pwsh -NoProfile -File <plugin>/bin/ps-ai-update.ps1 -Check [-Force]`; `-Force` refreshes `~/.agents/temp/ps-ai-update.json` and reports check failures.
 
 To pin the installer, replace `<release-tag>` with a published release tag:
 
