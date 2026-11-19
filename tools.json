@@ -41,9 +41,7 @@
           "plugin",
           "marketplace",
           "remove",
-          "ps-ai-marketplace",
-          "--scope",
-          "user"
+          "ps-ai-marketplace"
         ],
         "install": [
           "plugin",
