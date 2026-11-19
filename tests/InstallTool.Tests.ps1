@@ -109,7 +109,7 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
     Assert-Equal 'fixture-installer-ran' $result 'README invocation executes the downloaded installer'
     Assert-Equal 'caller' $fixtureInstallerScope 'README installer invocation isolates caller variables'
 }
-Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains optional CLI install hints'
+Assert-True ($readme.Contains('[Details for maintainers and power users](docs/reference.md)')) 'README links the technical reference'
 
 # Local archives and official-shaped metadata; no network, installers, or real PATH writes.
 & {
