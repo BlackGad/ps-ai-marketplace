@@ -11,7 +11,7 @@ try {
     $file = Join-Path $config 'ps-ai-personalisation.json'
     @{
         agents=@(
-            @{id='foundry-a';tool='claude';command=$(if ($IsWindows) { '~/.agents/bin/foundry-a.cmd' } else { '~/.agents/bin/foundry-a' });configDir='~/.agents/accounts/foundry-a';provider=@{kind='foundry'}},
+            @{id='foundry-a';tool='claude';command=$(if ($IsWindows) { '~/.agents/bin/foundry-a.cmd' } else { '~/.agents/bin/foundry-a' });configDir='~/.agents/legion/foundry-a';provider=@{kind='foundry'}},
             @{id='external';tool='claude';command='~/custom/external';provider=@{kind='foundry'}}
         )
         projects=@{example=@{custom='keep'}}

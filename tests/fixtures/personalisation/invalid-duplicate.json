@@ -10,7 +10,7 @@
     {
       "id": "codex-a",
       "tool": "codex",
-      "configDir": "~/.agents/accounts/codex-a"
+      "configDir": "~/.agents/legion/codex-a"
     }
   ],
   "channels": []

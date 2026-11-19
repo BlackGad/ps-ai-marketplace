@@ -16,6 +16,8 @@ This creates a wrapper that sets `CLAUDE_CONFIG_DIR`, a config folder, and the p
 pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.agents/configuration/ps-ai-personalisation.json
 ```
 
+To check from the system temp folder, run `claude plugin list --json` with `CLAUDE_CONFIG_DIR` set to the account's recorded folder (never guess paths); ps-ai is installed when `ps-ai@ps-ai-marketplace` is listed and enabled.
+
 To adopt a signed-in folder, pass `-ConfigDir <existing folder>` to `add`. Follow the [shared account rules](../../ps-ai-personalisation/references/fields.md#account-setup) for retained logins, installation approval and incomplete work.
 
 For an existing wrapper, use `-Action register -Id <id> -Tool claude -Command <wrapper> -ConfigDir <dir> -HomeRoot <home>`; do not recreate its login. Rename with `-Action rename -Id <old> -NewId <new>`, or remove with `-Action remove -Id <id>`, then validate. The script updates exact channel account bindings, keeps the config folder, and prints its location. Do not rename or delete that folder without the owner's explicit choice.
@@ -24,17 +26,7 @@ For an existing wrapper, use `-Action register -Id <id> -Tool claude -Command <w
 
 Use this flow for a Foundry endpoint instead of the subscription login flow above. One agent uses one endpoint. Run these commands in PowerShell 7; use `-HomeRoot <home>` for an alternate home.
 
-First discover without writing agent files:
-
-```powershell
-& "<plugin>/bin/ps-ai-account.ps1" -Action add -Tool claude -Id '<id>' -Provider foundry -Endpoint "https://<resource>.cognitiveservices.azure.com" -List
-```
-
-The script checks the Azure token and runs interactive `az login` once if needed. It trims any endpoint path and trailing slash. Discovery checks the current subscription, then the login's other subscriptions. Claude sees deployments whose model starts with `claude`.
-
-Present the JSON `source`, `error`, and deployments grouped as `new`, `gone`, and `kept`. Add lists only `new`. If discovery fails or finds no usable deployments, ask the owner to paste names from `https://ai.azure.com` → your project → Models + endpoints. A failed management read is not evidence that a deployment is gone.
-
-Ask which deployments to keep, which Claude aliases to assign, and which deployment is the default. Show the proposed selection and wait for the owner's answer before running `add` without `-List`. The script does not ask for approval itself. After approval, pass the agreed values; these names are examples:
+Use these commands for a Foundry provider configuration request. Ordinary setup can adopt an existing folder and keep its provider settings. For Foundry only, ask “Standard mapping or choose deployments yourself?” Reuse choices already supplied. Follow [Foundry model mapping](../../ps-ai-personalisation/references/foundry-models.md) for discovery, `-Standard` and unresolved aliases. These examples show explicit choices:
 
 ```powershell
 & "<plugin>/bin/ps-ai-account.ps1" -Action add -Tool claude -Id '<id>' -Provider foundry -Endpoint "https://<resource>.cognitiveservices.azure.com" -Deployments @('claude-opus-x','claude-sonnet-x') -Default claude-opus-x -Aliases @('claude-opus-x=opus','claude-sonnet-x=sonnet')
@@ -42,13 +34,7 @@ Ask which deployments to keep, which Claude aliases to assign, and which deploym
 
 Aliases are optional: `opus`, `sonnet`, `haiku`, or `fable`, each used once. The default must be a selected deployment name. Add writes the provider entry with the wrappers, and `modelPicker` in the account's `settings.json`. Other settings remain. Invalid JSON stops with `settings.json is not valid JSON; fix or remove it`. Repeating the same id, tool, provider, and endpoint prints `skip: account <id> (already done)`.
 
-For "update models for <id>", first list without writing:
-
-```powershell
-& "<plugin>/bin/ps-ai-account.ps1" -Action models -Id '<id>' -List
-```
-
-Show `new`, `gone`, and `kept`. `source: none` keeps existing deployments as `kept`; show the error and ask for names instead of dropping them. Ask which names to add or drop, which aliases to keep or change, and the default. Wait for the owner's answer before writing:
+For a requested provider configuration change, reuse the supplied settings and apply the complete replacement with:
 
 ```powershell
 & "<plugin>/bin/ps-ai-account.ps1" -Action models -Id '<id>' -Deployments @('claude-opus-x','claude-sonnet-x') -Default claude-opus-x -Aliases @('claude-opus-x=opus','claude-sonnet-x=sonnet')
@@ -56,6 +42,6 @@ Show `new`, `gone`, and `kept`. `source: none` keeps existing deployments as `ke
 
 `models` replaces the full deployment list. Omit `-Aliases` to keep aliases for retained names; pass `-Aliases @()` to clear them. An unchanged result prints `skip: models <id> (no changes)` and writes nothing. Validate personalisation after a write with the command above. Install ps-ai into this account's config folder with the installer command above.
 
-Launch `<id>` in a terminal. The wrapper uses `CLAUDE_CONFIG_DIR`, the Foundry endpoint, default, and alias variables. Claude uses its own Azure token refresh. Use `/model` to select a configured deployment; an alias can be passed as `--model sonnet` when mapped. Keep the same agent and endpoint when resuming. A missing CLI stops with `claude is not installed; run ps-ai-install-tool.ps1 -Tool claude`.
+Launch `<id>` in a terminal. The wrapper uses `CLAUDE_CONFIG_DIR`, the Foundry endpoint, default, and alias variables. Claude uses its own Azure token refresh. Pass a model flag only when owner notes name a model or allow a tier for the run; follow [Foundry routing](../../ps-ai-overseer/references/task-loop.md#foundry-runs). Keep the same agent and endpoint when resuming. A missing CLI stops with `claude is not installed; run ps-ai-install-tool.ps1 -Tool claude`.
 
 Account selection and launch-field examples are in [launcher.md](launcher.md). The base `claude` executable may be the `command` for a separately named account such as `agent-a`; account ids must not shadow commands on PATH.

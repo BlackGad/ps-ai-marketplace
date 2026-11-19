@@ -17,4 +17,4 @@ Codex is **not yet proven against Foundry**. When `provider.kind` is `foundry`, 
 az account get-access-token --resource https://cognitiveservices.azure.com -o none
 ```
 
-Exit 0 means Azure can issue a token. Foundry has no subscription window to report. This does not prove GPT deployment access or a working Codex session. On failure, show the Azure error; do not declare subscription exhaustion. Do not print or save the token. Add, model discovery, and launch try interactive `az login` once after a failure.
+Exit 0 means Azure can issue a token. Foundry has no subscription window to report. This does not prove GPT deployment access or a working Codex session. On failure, show the Azure error; do not declare subscription exhaustion. Do not print or save the token. Add and launch try interactive `az login` once after a failure.

@@ -5,7 +5,7 @@
     {
       "id": "claude",
       "tool": "claude",
-      "configDir": "~/.agents/accounts/claude"
+      "configDir": "~/.agents/legion/claude"
     },
     {
       "id": "claude-b",
@@ -20,12 +20,12 @@
     {
       "id": "codex-b",
       "tool": "codex",
-      "configDir": "~/.agents/accounts/codex-b"
+      "configDir": "~/.agents/legion/codex-b"
     },
     {
       "id": "copilot",
       "tool": "copilot",
-      "configDir": "~/.agents/accounts/copilot"
+      "configDir": "~/.agents/legion/copilot"
     }
   ],
   "channels": []

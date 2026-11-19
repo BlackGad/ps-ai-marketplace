@@ -15,7 +15,7 @@
     foreach ($id in @('claude', 'codex', 'copilot')) {
         $adapter = Join-Path $skillRoot "ps-ai-$id/scripts/foundry-launch.ps1"
         Assert-True (Test-Path -LiteralPath $adapter) "$id launch adapter exists"
-        foreach ($configDir in @('~/.agents/accounts/agent-a', (Join-Path $homeRoot 'absolute config'))) {
+        foreach ($configDir in @('~/.agents/legion/agent-a', (Join-Path $homeRoot 'absolute config'))) {
             $adapterAgent = [pscustomobject]@{ id = 'agent-a'; tool = $id; configDir = $configDir; provider = $provider }
             $result = @(& $adapter -Agent $adapterAgent -HomeRoot $homeRoot -Token $injectedToken)
             Assert-Equal 1 $result.Count "$id emits exactly one object"

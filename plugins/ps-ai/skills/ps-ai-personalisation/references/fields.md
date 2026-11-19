@@ -1,6 +1,6 @@
 # Settings fields
 
-Preferences belong in `~/.agents/configuration/ps-ai-notes.md`. Read notes before selecting accounts or actual models, dispatching, communicating or knowledge work. Follow stated models, exclusions, account purposes, reviewer and worker order, careful-use choices and paid-use approval. Re-read after edits. Current owner instructions win. Scripts never parse notes.
+Preferences belong in `~/.agents/configuration/ps-ai-notes.md`. Read notes before selecting accounts, dispatching, communicating or knowledge work. Follow stated models, exclusions, account purposes, reviewer and worker order, careful-use choices and paid-use approval. Omit model flags unless notes name a model or allow a tier for the run; follow [model tiers](../../ps-ai-overseer/references/task-loop.md#model-tiers). Discover models only for Foundry agents through [Foundry model mapping](foundry-models.md). Save new owner preferences as plain sentences when stated; ask model questions during setup only for Foundry mapping. Re-read after edits. Current owner instructions win. Scripts never parse notes.
 
 Route channel operations through `skills/ps-ai-<kind>/SKILL.md`; stop if missing. Any chosen session may oversee without channels.
 
@@ -13,7 +13,7 @@ Route channel operations through `skills/ps-ai-<kind>/SKILL.md`; stop if missing
 | `agents[].configDir` | Account wrappers, Foundry adapters and root installer select the account folder. Use a concrete folder, never `default`. |
 | `agents[].provider.kind` | Foundry runner selects provider dispatch; only Foundry is implemented. |
 | `provider.endpoint` | Foundry adapters connect to the selected HTTPS host. |
-| `provider.default` | Foundry adapters select a deployment; the model-mapping adapter still needs its picker. |
+| `provider.default` | Foundry adapters select the default deployment. |
 | `provider.deployments[].name` | Foundry picker and adapters use wire deployment IDs. |
 | `provider.deployments[].model` | The model-mapping adapter maps model IDs. |
 | `provider.deployments[].alias` | The alias adapter maps supported aliases. |
@@ -31,7 +31,7 @@ pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Pat
 
 ```
 
-Use the stable editor URL `https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/schemas/personalisation.schema.json` or omit `$schema`. Unknown fields require setup. Do not invent defaults or copy sample preferences. Use [create.md](create.md) for setup and [notes-template.md](notes-template.md) for headings. Record stated models, exclusions, purposes, careful/paid-use choices, notifications, format, knowledge location and durable lessons. Put deferred choices and “Finish my ps-ai setup” under Finish later. Add no consent or status properties. The agent repairs prose references after account/channel changes and reports unresolved wording.
+Use the stable editor URL `https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/schemas/personalisation.schema.json` or omit `$schema`. Unknown fields require setup. Do not invent defaults or copy sample preferences. Use [create.md](create.md) for setup and [notes-template.md](notes-template.md) for headings. Record stated models, exclusions, purposes, careful/paid-use choices, notifications, format, knowledge location and durable lessons. Put unfinished requested work and “Finish my ps-ai setup” under Finish later. Add no consent or status properties. The agent repairs prose references after account/channel changes and reports unresolved wording.
 
 For tool operations read `skills/ps-ai-<agent.tool>/SKILL.md`; stop if missing.
 

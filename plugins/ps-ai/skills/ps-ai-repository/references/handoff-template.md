@@ -1,14 +1,14 @@
 ## Branch
 <branch or detached commit>
 
-## Milestone
-<milestone and base commit>
+## Goal and milestone
+<goal id or none; milestone or none; base commit>
 
 ## State
-<milestone-flow step>
+<milestone-flow step, ad hoc work, or none>
 
 ## Current task
-<task number and plan path, or none>
+<task number and plan path, scoped ad hoc task, or none>
 
 ## Legion running
 none

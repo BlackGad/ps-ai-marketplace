@@ -61,6 +61,10 @@ Assert-Equal $before ([IO.File]::ReadAllText($file)) 'Rename collision preserves
 Assert-Equal 'owner file' (Get-Content (Join-Path $homeRoot '.agents/bin/destination')) 'Rename preserves unrelated file'
 $output = & $accountScript -Action add -Id codex-new -Tool codex -Command $fake -HomeRoot $homeRoot
 Assert-Equal "Run 'codex-new' in a terminal and log in once." $output 'New account requests owner login'
+$accountDir = Join-Path $homeRoot '.agents/legion/codex-new'
+Assert-Equal $accountDir ((Read-PsAiJson $file).agents | Where-Object id -EQ codex-new).configDir 'New account records the legion folder'
+Assert-True (Test-Path -LiteralPath $accountDir -PathType Container) 'New account creates the legion folder'
+Assert-True ((Get-Content (Join-Path $homeRoot '.agents/bin/codex-new') -Raw).Contains($accountDir)) 'Shortcut keeps the account id and selects the legion folder'
 $repeat = & $accountScript -Action add -Id codex-new -Tool codex -Command $fake -HomeRoot $homeRoot
 Assert-Equal 'skip: account codex-new (already done)' $repeat 'Added account repeat skips'
 Assert-Throws { & $accountScript -Action add -Id Invalid_id -Tool codex -Command $fake -HomeRoot $homeRoot } 'Invalid ID rejected'

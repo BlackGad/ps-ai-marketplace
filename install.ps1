@@ -582,7 +582,7 @@ function Invoke-PsAiUninstall {
         }
     }
     $configuration = Join-Path $homeRoot '.agents/configuration'
-    $accounts = Join-Path $homeRoot '.agents/accounts'
+    $accounts = Join-Path $homeRoot '.agents/legion'
     if (Test-Path -LiteralPath $configuration) { "Kept settings and notes: $configuration" }
     if (Test-Path -LiteralPath $accounts) { "Kept account folders and logins: $accounts" }
     foreach ($entry in $script:installCatalog.tools) {

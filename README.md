@@ -18,26 +18,15 @@ Run this in PowerShell to install ps-ai for your installed AI tools; it asks bef
 
 ## Why mix tools
 
-Each AI tool brings its own model families, so each account can have a purpose:
-
-| Tool | Models | Good for |
-| --- | --- | --- |
-| Claude Code | Anthropic models, such as Opus and Fable | Overseer work, planning, careful reviews |
-| Codex CLI | OpenAI GPT models, such as astra | Implementation tasks, deep reviews |
-| Copilot CLI | Several providers, such as Gemini argon and Grok | Second opinions from other model families |
-
-Because the models come from different providers, the overseer can ask for independent reviews: the same change is checked by models that do not share the same blind spots. You choose which account does what during setup.
+Different tools and providers give independent reviews another perspective. The overseer spreads work across your available accounts and says which account it chose. Each CLI uses that account's own default model. Preferences you state later are saved in notes and take priority.
 
 ## First-time setup
 
-Open your AI tool and work through these steps by saying:
+1. **Install.** Run the install command above. In Codex, open `/hooks` once per account and approve the ps-ai hooks.
+2. **Add accounts.** Open your AI tool and say “Add a Codex agent called `<name>`” or “Add my existing Claude account from `<account folder>`.” You can also say “summon a minion”. Setup asks only which accounts to add. One yes approves installing ps-ai into the selected accounts. You log in yourself for new accounts. Existing folders keep their settings and login.
+3. **Start work.** Open a session in your repository and describe what you want done. Ask to set up orchestration if needed, then say “Continue.” Before the first legion task, the overseer asks once about running without a sandbox and saves your answer in notes. Future sessions continue from the handoff.
 
-1. **Set your preferences.** “Set up my agent preferences.” Answer the questions about how you want to work and receive updates. In Codex, open `/hooks` once per account and approve the ps-ai hooks.
-2. **Add accounts and choose legion members.** “Add a Codex account called `<your name for it>` and make it a legion member.” You pick the name; it becomes the command that starts that account. For an account you already use: “Add my existing Claude Code account from `<account folder>` and make it a legion member.” If the tool for an account isn't installed yet, ps-ai can install it when you ask. You log in yourself for a new account; existing folders keep their settings and login. Approve installing ps-ai into each added account.
-3. **Approve legion access.** Setup explains that legion members run without a sandbox, with your full user rights, so they can use your installed tools. Read the note and say “Yes, enable legion” if you accept.
-4. **Set up your repository.** Open a session in the repository and say “Set up orchestration in this repository.”
-5. **Start work.** Describe what you want done, then say “Continue” or “Next milestone.” The overseer plans, assigns tasks, and brings questions and results back to you.
-6. **Come back later.** Open a new session in the same repository and say “Continue.” The overseer reads the handoff and picks up where the previous session stopped.
+Add preferences later in your own words. Say “use Telegram” when you want a channel.
 
 ## What you can do
 

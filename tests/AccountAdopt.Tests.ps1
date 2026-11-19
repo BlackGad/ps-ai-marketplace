@@ -17,7 +17,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $data = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
         Assert-Equal $folder $data.agents[0].configDir 'Adopt records the supplied folder'
         Assert-Equal $before ([IO.File]::ReadAllText($settings)) 'Adopt preserves existing settings bytes'
-        Assert-True (-not (Test-Path (Join-Path $sandbox '.agents/accounts/claude-existing'))) 'Adopt does not create an unused account folder'
+        Assert-True (-not (Test-Path (Join-Path $sandbox '.agents/legion/claude-existing'))) 'Adopt does not create an unused account folder'
         $wrapper = Get-Content (Join-Path $sandbox '.agents/bin/claude-existing') -Raw
         Assert-True ($wrapper.Contains($folder)) 'Adopted wrapper selects existing folder'
         Assert-True (($output -join "`n") -notmatch 'log in once') 'Adopt does not request a new login'

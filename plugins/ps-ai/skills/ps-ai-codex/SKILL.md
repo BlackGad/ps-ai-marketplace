@@ -1,6 +1,6 @@
 ---
 name: ps-ai-codex
-description: Use when the overseer dispatches Codex CLI work or the owner asks about Codex accounts, resuming work, limits, or "update models for <id>" for a Codex agent.
+description: Use when the overseer dispatches Codex CLI work or the owner asks about Codex accounts, resuming work, limits, or Foundry provider configuration.
 ---
 
 # Codex CLI tool
@@ -9,7 +9,7 @@ Follow [owner notes](../ps-ai-personalisation/references/fields.md) before choos
 
 ## Identity and hard rules
 
-Use this tool skill for Codex CLI operations only. Load `ps-ai-personalisation` and its notes first; choose the account, role, and model there. The overseer owns task selection and the handoff. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
+Use this tool skill for Codex CLI operations only. Load `ps-ai-personalisation` and its notes first. Use the account's CLI default model unless notes name a model or allow a tier for this run; follow the overseer's [model guidance](../ps-ai-overseer/references/task-loop.md#model-tiers). The overseer owns account and task selection and the handoff. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
 
 - Mark only a legion run as a legion task using [run.md](references/run.md). Never turn an interactive session into legion mode.
 - Resume only on the same account and in the same repository folder. Never read credential files.
@@ -26,7 +26,7 @@ Use this tool skill for Codex CLI operations only. Load `ps-ai-personalisation` 
 
 ## Stop and verification
 
-Stop and report when the account or model is unconfigured, prompt/report path is missing, a resume would use another account, or the required launch mode cannot be applied. Verify exit status and report after a run, and validate personalisation after account changes. Do not claim exhaustion without a ping result.
+Stop and report when the account is unconfigured, prompt/report path is missing, a resume would use another account, or the required launch mode cannot be applied. Verify exit status and report after a run, and validate personalisation after account changes. Do not claim exhaustion without a ping result.
 
 ## Launcher and plugins
 

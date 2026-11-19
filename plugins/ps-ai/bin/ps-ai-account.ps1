@@ -10,6 +10,7 @@ param(
     [string[]]$Deployments,
     [string]$Default,
     [string[]]$Aliases,
+    [switch]$Standard,
     [switch]$List,
     [string]$HomeRoot = $HOME,
     [switch]$NoRun
@@ -103,11 +104,16 @@ function Write-PsAiGeneratedFile {
     if ($null -ne $Changes) { $Changes.Add($Path) }
 }
 
+function Get-PsAiNewAccountDir {
+    param([string]$Id, [string]$HomeRoot)
+    return Join-Path $HomeRoot ".agents/legion/$Id"
+}
+
 function New-PsAiWrappers {
     param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$RealCommand, [string]$ConfigDir, [switch]$CheckOnly)
     Assert-PsAiId $Id
     $bin = Join-Path $HomeRoot '.agents/bin'
-    $folder = if ($ConfigDir) { $ConfigDir } else { Join-Path $HomeRoot ".agents/accounts/$Id" }
+    $folder = if ($ConfigDir) { $ConfigDir } else { Get-PsAiNewAccountDir -Id $Id -HomeRoot $HomeRoot }
     if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }
     $folder = [IO.Path]::GetFullPath($folder)
     foreach ($suffix in @('', '.cmd')) { Assert-PsAiWrapperPath (Join-Path $bin "$Id$suffix") $Id }
@@ -211,10 +217,79 @@ function Write-PsAiFoundryList {
     @{ source = $Discovery.Source; error = $Discovery.Error; deployments = @($rows) } | ConvertTo-Json -Depth 100
 }
 
+function Select-PsAiFoundryStandard {
+    param([object[]]$Deployments, $Tool)
+    $aliases = @($Tool.foundry.aliases | Where-Object { $_ -ne 'fable' })
+    $available = @(
+        foreach ($deployment in $Deployments) {
+            $tokens = @(("$($deployment.name) $($deployment.model)" -split '[-_.\s]+'))
+            if ($tokens -contains 'fable') { continue }
+            $version = @($deployment.name -split '[-_.\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [long]$_ })
+            if (-not $version.Count) {
+                $version = @($deployment.model -split '[-_.\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [long]$_ })
+            }
+            @{ Name = $deployment.name; Tokens = $tokens; Version = $version }
+        }
+    )
+    $result = @{ Aliases = @(); Default = $null; Unresolved = @() }
+    $slots = if ($aliases.Count) { $aliases } else { @('default') }
+    foreach ($alias in $slots) {
+        $word = if ($alias -eq 'default') { 'sol' } else { $alias }
+        $candidates = @($available | Where-Object { $_.Tokens -contains $word })
+        if ($alias -eq 'default' -and -not $candidates.Count) { $candidates = $available }
+        $best = $null
+        $newest = @()
+        foreach ($candidate in $candidates) {
+            $comparison = 0
+            if ($null -eq $best) { $comparison = 1 }
+            else {
+                # Compare numeric tokens left to right; missing trailing tokens count as zero.
+                for ($index = 0; $index -lt [Math]::Max($candidate.Version.Count, $best.Version.Count); $index++) {
+                    $left = if ($index -lt $candidate.Version.Count) { $candidate.Version[$index] } else { 0 }
+                    $right = if ($index -lt $best.Version.Count) { $best.Version[$index] } else { 0 }
+                    $comparison = ([long]$left).CompareTo([long]$right)
+                    if ($comparison -ne 0) { break }
+                }
+            }
+            if ($comparison -gt 0) { $best = $candidate; $newest = @($candidate) }
+            elseif ($comparison -eq 0) { $newest += $candidate }
+        }
+        if ($newest.Count -ne 1) {
+            $names = if ($newest.Count) { @($newest.Name) } else { @($Deployments | ForEach-Object { $_.name }) }
+            $result.Unresolved += @{ Alias = $alias; Candidates = $names }
+            continue
+        }
+        $name = $newest[0].Name
+        if ($alias -eq 'default') { $result.Default = $name }
+        else {
+            $result.Aliases += "$name=$alias"
+            if (-not $result.Default -or $alias -eq 'sonnet') { $result.Default = $name }
+        }
+    }
+    return $result
+}
+
 function New-PsAiFoundryProvider {
-    param([string]$Endpoint, [string]$Tool, [string[]]$Deployments, [string]$Default, [string[]]$Aliases, $Discovery, $Existing)
+    param([string]$Endpoint, [string]$Tool, [string[]]$Deployments, [string]$Default, [string[]]$Aliases, [switch]$Standard, $Discovery, $Existing)
     $descriptor = Get-PsAiTool -Tool $Tool
     if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
+    if ($Standard) {
+        $discovered = @($Discovery.Deployments)
+        if ($Deployments.Count) {
+            foreach ($name in $Deployments) {
+                if ($name -cnotin @($discovered.name)) { throw "standard mapping requires discovery of deployment '$name'" }
+            }
+            $discovered = @($discovered | Where-Object { $_.name -cin $Deployments })
+        } else { $Deployments = @($discovered.name) }
+        $mapping = Select-PsAiFoundryStandard -Deployments $discovered -Tool $descriptor
+        if ($mapping.Unresolved.Count) {
+            $unresolved = $mapping.Unresolved[0]
+            $names = if ($unresolved.Candidates.Count) { $unresolved.Candidates -join ', ' } else { '(none discovered)' }
+            throw "standard mapping unresolved for '$($unresolved.Alias)'; candidates: $names. Ask the owner about this choice, then use explicit -Aliases/-Default."
+        }
+        $Aliases = $mapping.Aliases
+        $Default = $mapping.Default
+    }
     if (-not $Deployments.Count -or -not $Default) { throw 'Foundry requires -Deployments and -Default' }
     if ($Default -cnotin $Deployments) { throw "default '$Default' is not one of -Deployments" }
     $aliasMap = @{}
@@ -269,6 +344,13 @@ function Remove-PsAiWrappers {
 
 if ($accountNoRun) { return }
 
+if ($Standard -and ($PSBoundParameters.ContainsKey('Aliases') -or $PSBoundParameters.ContainsKey('Default'))) {
+    throw '-Standard cannot be combined with -Aliases or -Default'
+}
+if ($Standard -and $Action -ne 'models' -and -not ($Action -eq 'add' -and $Provider -eq 'foundry')) {
+    throw '-Standard is only for Foundry add or models'
+}
+
 $file = Join-Path $HomeRoot '.agents/configuration/ps-ai-personalisation.json'
 $data = Read-PsAiJson -Path $file
 switch ($Action) {
@@ -288,9 +370,9 @@ switch ($Action) {
             $discovery = Get-PsAiFoundryDiscovery -Endpoint $Endpoint -Tool $Tool
             if ($List) { Write-PsAiFoundryList -Discovery $discovery -Existing @(); break }
             Assert-PsAiNewId -Id $Id -Data $data
-            $providerBlock = New-PsAiFoundryProvider -Endpoint $Endpoint -Tool $Tool -Deployments $Deployments -Default $Default -Aliases $Aliases -Discovery $discovery
+            $providerBlock = New-PsAiFoundryProvider -Endpoint $Endpoint -Tool $Tool -Deployments $Deployments -Default $Default -Aliases $Aliases -Standard:$Standard -Discovery $discovery
             $entry = [pscustomobject]@{
-                id = $Id; tool = $Tool; configDir = (Join-Path $HomeRoot ".agents/accounts/$Id"); provider = $providerBlock
+                id = $Id; tool = $Tool; configDir = (Get-PsAiNewAccountDir -Id $Id -HomeRoot $HomeRoot); provider = $providerBlock
             }
             foreach ($suffix in @('', '.cmd')) { Assert-PsAiWrapperPath (Join-Path $HomeRoot ".agents/bin/$Id$suffix") $Id }
             $null = Write-FoundryToolConfig -Agent $entry -HomeRoot $HomeRoot
@@ -300,7 +382,7 @@ switch ($Action) {
             "Run '$Id' in a terminal; it signs in to Azure through az when needed."
             break
         }
-        $accountDir = if ($ConfigDir) { $ConfigDir } else { "~/.agents/accounts/$Id" }
+        $accountDir = if ($ConfigDir) { $ConfigDir } else { Get-PsAiNewAccountDir -Id $Id -HomeRoot $HomeRoot }
         if ($ConfigDir) {
             $folder = $ConfigDir
             if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }
@@ -339,7 +421,7 @@ switch ($Action) {
         if ($agent.provider.kind -cne 'foundry') { throw "account '$Id' is not a Foundry agent" }
         $discovery = Get-PsAiFoundryDiscovery -Endpoint $agent.provider.endpoint -Tool $agent.tool
         if ($List) { Write-PsAiFoundryList -Discovery $discovery -Existing $agent.provider.deployments; break }
-        $providerBlock = New-PsAiFoundryProvider -Endpoint $agent.provider.endpoint -Tool $agent.tool -Deployments $Deployments -Default $Default -Aliases $Aliases -Discovery $discovery -Existing $agent.provider.deployments
+        $providerBlock = New-PsAiFoundryProvider -Endpoint $agent.provider.endpoint -Tool $agent.tool -Deployments $Deployments -Default $Default -Aliases $Aliases -Standard:$Standard -Discovery $discovery -Existing $agent.provider.deployments
         if (($providerBlock | ConvertTo-Json -Depth 100 -Compress) -ceq ($agent.provider | ConvertTo-Json -Depth 100 -Compress)) {
             "skip: models $Id (no changes)"
             break
