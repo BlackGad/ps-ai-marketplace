@@ -16,6 +16,18 @@ ps-ai connects **Claude Code, Codex CLI and Copilot CLI** into a team. An **over
 
 Run this in PowerShell to install ps-ai for your installed AI tools; it asks before installing missing prerequisites.
 
+## Why mix tools
+
+Each AI tool brings its own model families, so each account can have a purpose:
+
+| Tool | Models | Good for |
+| --- | --- | --- |
+| Claude Code | Anthropic models, such as Opus and Fable | Overseer work, planning, careful reviews |
+| Codex CLI | OpenAI GPT models, such as astra | Implementation tasks, deep reviews |
+| Copilot CLI | Several providers, such as Gemini argon and Grok | Second opinions from other model families |
+
+Because the models come from different providers, the overseer can ask for independent reviews: the same change is checked by models that do not share the same blind spots. You choose which account does what during setup.
+
 ## First-time setup
 
 Open your AI tool and work through these steps by saying:
