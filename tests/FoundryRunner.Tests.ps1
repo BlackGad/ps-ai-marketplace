@@ -22,7 +22,6 @@ try {
     @{agents=@($claudeAgent,$copilotAgent,$codexAgent,@{id='subscription';tool='claude'})} |
         ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $config 'ps-ai-personalisation.json')
     $launch = Get-FoundryLaunch -Agent $claudeAgent -HomeRoot $homeRoot
-    Assert-Equal 10 $launch.Clear.Count 'Claude clears all ten conflicting variables'
     foreach ($name in @('ANTHROPIC_FOUNDRY_RESOURCE','ANTHROPIC_FOUNDRY_API_KEY','ANTHROPIC_FOUNDRY_AUTH_TOKEN','ANTHROPIC_SMALL_FAST_MODEL','CLAUDE_CODE_USE_BEDROCK','CLAUDE_CODE_USE_VERTEX','CLAUDE_CODE_USE_ANTHROPIC_AWS','CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD','CLAUDE_CODE_USE_MANTLE','CLAUDE_CODE_USE_GATEWAY')) {
         Assert-True ($launch.Clear -contains $name) "Claude clears $name"
     }

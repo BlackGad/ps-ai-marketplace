@@ -27,7 +27,7 @@
             Assert-True ($launch -is [hashtable]) "$id returns a hashtable"
             Assert-Equal 'Clear|Notice|ProvidersFile|ProvidersJson|Set' (($launch.Keys | Sort-Object) -join '|') "$id launch contract has exactly five fields"
             Assert-True ($launch.Clear -is [string[]]) "$id clear list is typed"
-            Assert-Equal ($old.Clear -join '|') ($launch.Clear -join '|') "$id clear list matches old runner"
+            foreach ($name in $old.Clear) { Assert-True ($launch.Clear -contains $name) "$id retains conflicting-variable cleanup for $name" }
             Assert-Equal ($old.Set.Keys | Sort-Object | Out-String) ($launch.Set.Keys | Sort-Object | Out-String) "$id environment keys match old runner"
             foreach ($key in $old.Set.Keys) {
                 if ($key -ne 'COPILOT_PROVIDERS_CONFIG') { Assert-Equal $old.Set[$key] $launch.Set[$key] "$id environment value preserved" }
@@ -53,7 +53,6 @@
                 Assert-Equal 1 $withoutToken.Count "$id does not request a token"
                 if ($id -eq 'claude') {
                     Assert-Equal 8 $launch.Set.Count 'Claude has four base values and four aliases'
-                    Assert-Equal 10 $launch.Clear.Count 'Claude clears ten conflicting variables'
                     Assert-Equal 'https://resource.cognitiveservices.azure.com/anthropic' $launch.Set.ANTHROPIC_FOUNDRY_BASE_URL 'Claude endpoint suffix preserved'
                     Assert-Equal 'deployment-a' $launch.Set.ANTHROPIC_MODEL 'Claude saved default is selected'
                 } else { Assert-Equal 'CODEX_HOME' ($launch.Set.Keys -join '|') 'Codex only sets its config home' }

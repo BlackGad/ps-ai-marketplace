@@ -17,4 +17,7 @@ $launch.Clear = [string[]]@(
     'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_ANTHROPIC_AWS',
     'CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD', 'CLAUDE_CODE_USE_MANTLE', 'CLAUDE_CODE_USE_GATEWAY'
 )
+foreach ($alias in (Get-PsAiTool -Tool claude).foundry.aliases) {
+    $launch.Clear = [string[]]($launch.Clear + ('ANTHROPIC_DEFAULT_' + $alias.ToUpperInvariant() + '_MODEL'))
+}
 return $launch
