@@ -1,56 +1,4 @@
 {
-  "pwsh": {
-    "check": [
-      "pwsh",
-      "--version"
-    ],
-    "windows": {
-      "wingetId": "Microsoft.PowerShell",
-      "portableCommand": "pwsh.exe",
-      "download": {
-        "msi": {
-          "kind": "msi",
-          "resolver": "release-assets",
-          "assetPattern": "^PowerShell-[\\d.]+-win-x64\\.msi$",
-          "verification": "asset-digest",
-          "arguments": [
-            "/qn",
-            "/norestart",
-            "ADD_PATH=1"
-          ],
-          "releasesUrl": "https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=100&page={page}",
-          "tagPattern": "^v7\\.6\\.\\d+$",
-          "stableOnly": true
-        },
-        "zip": {
-          "kind": "zip",
-          "resolver": "release-assets",
-          "metadataUrl": "https://api.github.com/repos/PowerShell/PowerShell/releases/latest",
-          "assetPattern": "^PowerShell-[\\d.]+-win-x64\\.zip$",
-          "verification": "asset-digest",
-          "arguments": [],
-          "pathFolder": ""
-        }
-      }
-    },
-    "macos": {
-      "needs": [],
-      "commands": [
-        [
-          "brew",
-          "install",
-          "--cask",
-          "powershell"
-        ]
-      ],
-      "docs": ""
-    },
-    "linux": {
-      "needs": [],
-      "commands": [],
-      "docs": "https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-linux"
-    }
-  },
   "git": {
     "check": [
       "git",
@@ -99,54 +47,6 @@
       "needs": [],
       "commands": [],
       "docs": "https://git-scm.com/download/linux"
-    }
-  },
-  "gh": {
-    "check": [
-      "gh",
-      "--version"
-    ],
-    "windows": {
-      "wingetId": "GitHub.cli",
-      "portableCommand": "bin/gh.exe",
-      "download": {
-        "msi": {
-          "kind": "msi",
-          "resolver": "release-assets",
-          "metadataUrl": "https://api.github.com/repos/cli/cli/releases/latest",
-          "assetPattern": "^gh_[\\d.]+_windows_amd64\\.msi$",
-          "verification": "asset-digest",
-          "arguments": [
-            "/qn",
-            "/norestart"
-          ]
-        },
-        "zip": {
-          "kind": "zip",
-          "resolver": "release-assets",
-          "metadataUrl": "https://api.github.com/repos/cli/cli/releases/latest",
-          "assetPattern": "^gh_[\\d.]+_windows_amd64\\.zip$",
-          "verification": "asset-digest",
-          "arguments": [],
-          "pathFolder": "bin"
-        }
-      }
-    },
-    "macos": {
-      "needs": [],
-      "commands": [
-        [
-          "brew",
-          "install",
-          "gh"
-        ]
-      ],
-      "docs": ""
-    },
-    "linux": {
-      "needs": [],
-      "commands": [],
-      "docs": "https://github.com/cli/cli/blob/trunk/docs/install_linux.md"
     }
   },
   "az": {
@@ -247,58 +147,6 @@
       "needs": [],
       "commands": [],
       "docs": "https://nodejs.org/en/download"
-    }
-  },
-  "glab": {
-    "check": [
-      "glab",
-      "--version"
-    ],
-    "windows": {
-      "wingetId": "GLab.GLab",
-      "portableCommand": "bin/glab.exe",
-      "download": {
-        "msi": {
-          "kind": "exe",
-          "resolver": "release-links",
-          "metadataUrl": "https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/releases/permalink/latest",
-          "assetPattern": "^glab_[\\d.]+_Windows_x86_64_installer\\.exe$",
-          "checksumAsset": "checksums.txt",
-          "verification": "checksum-file",
-          "arguments": [
-            "/VERYSILENT",
-            "/SUPPRESSMSGBOXES",
-            "/NORESTART",
-            "/SP-"
-          ]
-        },
-        "zip": {
-          "kind": "zip",
-          "resolver": "release-links",
-          "metadataUrl": "https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/releases/permalink/latest",
-          "assetPattern": "^glab_[\\d.]+_windows_amd64\\.zip$",
-          "checksumAsset": "checksums.txt",
-          "verification": "checksum-file",
-          "arguments": [],
-          "pathFolder": "bin"
-        }
-      }
-    },
-    "macos": {
-      "needs": [],
-      "commands": [
-        [
-          "brew",
-          "install",
-          "glab"
-        ]
-      ],
-      "docs": ""
-    },
-    "linux": {
-      "needs": [],
-      "commands": [],
-      "docs": "https://gitlab.com/gitlab-org/cli#installation"
     }
   },
   "bun": {

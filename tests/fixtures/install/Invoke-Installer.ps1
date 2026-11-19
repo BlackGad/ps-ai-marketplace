@@ -1,4 +1,4 @@
-param([string]$Installer, [ValidateSet('missing','error','blocked','ok')][string]$Winget, [switch]$Preview, [string]$Tool = 'gh', [string]$Method)
+param([string]$Installer, [ValidateSet('missing','error','blocked','ok')][string]$Winget, [switch]$Preview, [string]$Tool = 'az', [string]$Method)
 $fixtureTool = $Tool
 $fixtureMethod = $Method
 . $Installer -NoRun

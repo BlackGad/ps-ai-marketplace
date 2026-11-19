@@ -131,36 +131,13 @@ function Get-ToolDownload {
     $result.PathFolder = [string]$recipe.pathFolder
     switch ($recipe.resolver) {
         'release-assets' {
-            if ($recipe.releasesUrl) {
-                $page = 1
-                do {
-                    $url = $recipe.releasesUrl.Replace('{page}', [string]$page)
-                    $releases = @(Get-ToolSourceText -Url $url | ConvertFrom-Json)
-                    $release = $releases | Where-Object {
-                        (-not $recipe.stableOnly -or (-not $_.prerelease -and -not $_.draft)) -and
-                        $_.tag_name -match $recipe.tagPattern -and
-                        ($_.assets.name -match $recipe.assetPattern)
-                    } | Sort-Object { [version]($_.tag_name -replace '^v','') } -Descending | Select-Object -First 1
-                    $page++
-                } while (-not $release -and $releases.Count -eq 100)
-            } else {
-                $release = Get-ToolSourceText -Url $recipe.metadataUrl | ConvertFrom-Json
-            }
+            $release = Get-ToolSourceText -Url $recipe.metadataUrl | ConvertFrom-Json
             $asset = $release.assets | Where-Object name -Match $recipe.assetPattern | Select-Object -First 1
             if (-not $asset) { throw "no official $Tool $Method release asset found" }
             $digest = [regex]::Match([string]$asset.digest, '^sha256:([a-fA-F0-9]{64})$')
             if (-not $digest.Success) { throw "no SHA-256 digest for $($asset.name)" }
             $result.Url = $asset.browser_download_url
             $result.Hash = $digest.Groups[1].Value.ToLowerInvariant()
-        }
-        'release-links' {
-            $release = Get-ToolSourceText -Url $recipe.metadataUrl | ConvertFrom-Json
-            $asset = $release.assets.links | Where-Object name -Match $recipe.assetPattern | Select-Object -First 1
-            $checksumAsset = $release.assets.links | Where-Object name -CEQ $recipe.checksumAsset | Select-Object -First 1
-            if (-not $asset -or -not $checksumAsset) { throw "no official $Tool $Method release asset found" }
-            $result.Url = $asset.url
-            $checksums = Get-ToolSourceText -Url $checksumAsset.url
-            $result.Hash = Get-ToolChecksum -Text $checksums -Name $asset.name
         }
         'lts-index' {
             $versions = Get-ToolSourceText -Url $recipe.metadataUrl | ConvertFrom-Json

@@ -12,8 +12,8 @@
     Assert-Equal $trackedTime ([IO.File]::GetLastWriteTimeUtc($indexPath)) 'NoRun does not write the index'
 
     $tools = @(Get-PsAiTools)
-    $recipes = Get-PsAiInstallRecipes
-    $rendered = Get-ToolsIndexContent -Tools $tools -Bootstrap $recipes.pwsh
+    $bootstrap = Get-Content (Join-Path $repoRoot 'tools/bootstrap.json') -Raw | ConvertFrom-Json
+    $rendered = Get-ToolsIndexContent -Tools $tools -Bootstrap $bootstrap
     Assert-True ($rendered -is [string]) 'Renderer returns one string'
     Assert-Equal ([Convert]::ToBase64String($trackedBytes)) ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($rendered))) 'Fresh projection equals tracked bytes'
     Assert-True (-not ($trackedBytes[0] -eq 239 -and $trackedBytes[1] -eq 187 -and $trackedBytes[2] -eq 191)) 'Index has no UTF-8 BOM'
@@ -21,14 +21,14 @@
     Assert-True ($rendered.EndsWith("`n") -and -not $rendered.EndsWith("`n`n")) 'Index has one final newline'
     $reversed = @($tools)
     [Array]::Reverse($reversed)
-    Assert-Equal $rendered (Get-ToolsIndexContent -Tools $reversed -Bootstrap $recipes.pwsh) 'Renderer sorts input by id'
+    Assert-Equal $rendered (Get-ToolsIndexContent -Tools $reversed -Bootstrap $bootstrap) 'Renderer sorts input by id'
     $index = $rendered | ConvertFrom-Json
     Assert-Equal 'schemaVersion|bootstrap|tools' ($index.PSObject.Properties.Name -join '|') 'Catalog has only ordered projection fields'
     Assert-Equal 1 $index.schemaVersion 'Catalog schema version'
     Assert-Equal 'windows' ($index.bootstrap.PSObject.Properties.Name -join '|') 'Bootstrap includes only consumed Windows data'
     Assert-Equal 'wingetId|portableCommand|download' ($index.bootstrap.windows.PSObject.Properties.Name -join '|') 'Bootstrap excludes unused installer fields'
     Assert-Equal 'zip' ($index.bootstrap.windows.download.PSObject.Properties.Name -join '|') 'Bootstrap includes only the supported ZIP fallback'
-    Assert-Equal ($recipes.pwsh.windows.download.zip | ConvertTo-Json -Depth 100 -Compress) ($index.bootstrap.windows.download.zip | ConvertTo-Json -Depth 100 -Compress) 'Bootstrap ZIP recipe preserves validation and integrity metadata'
+    Assert-Equal ($bootstrap.windows.download.zip | ConvertTo-Json -Depth 100 -Compress) ($index.bootstrap.windows.download.zip | ConvertTo-Json -Depth 100 -Compress) 'Bootstrap ZIP recipe preserves validation and integrity metadata'
     Assert-Equal ($tools.id -join '|') ($index.tools.id -join '|') 'Catalog tools are sorted'
     foreach ($entry in $index.tools) {
         $source = $tools | Where-Object id -CEQ $entry.id
@@ -46,6 +46,7 @@
     New-Item -ItemType Directory -Path (Join-Path $copyRoot 'tools'), (Join-Path $copyRoot 'plugins') -Force | Out-Null
     try {
         Copy-Item -LiteralPath $generator -Destination (Join-Path $copyRoot 'tools/update-tools-index.ps1')
+        Copy-Item -LiteralPath (Join-Path $repoRoot 'tools/bootstrap.json') -Destination (Join-Path $copyRoot 'tools/bootstrap.json')
         Copy-Item -LiteralPath (Join-Path $repoRoot 'plugins/ps-ai') -Destination (Join-Path $copyRoot 'plugins/ps-ai') -Recurse
         $copyGenerator = Join-Path $copyRoot 'tools/update-tools-index.ps1'
         $copyIndex = Join-Path $copyRoot 'tools.json'
@@ -94,10 +95,7 @@
         Assert-Equal $checkoutBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))) 'Checkout preserves LF index bytes with autocrlf enabled'
         & $copyGenerator -Check | Out-Null
 
-        $copyHelpers = Join-Path $copyRoot 'plugins/ps-ai/bin/install-tool/helpers.json'
-        $helperData = Get-Content -LiteralPath $copyHelpers -Raw | ConvertFrom-Json -AsHashtable
-        $helperData.Remove('pwsh')
-        $helperData | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $copyHelpers
+        Remove-Item -LiteralPath (Join-Path $copyRoot 'tools/bootstrap.json')
         $beforeMissingTime = [IO.File]::GetLastWriteTimeUtc($copyIndex)
         Assert-Throws { & $copyGenerator } 'Missing PowerShell bootstrap recipe stops generation'
         Assert-Throws { & $copyGenerator -Check } 'Missing PowerShell bootstrap recipe also stops Check'
@@ -117,7 +115,7 @@
     . (Join-Path $repo 'install.ps1') -NoRun
     $schema = Join-Path $repo 'plugins/ps-ai/schemas/tool.schema.json'
     $descriptorJson = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw
-    $bootstrap = (Get-PsAiInstallRecipes).pwsh
+    $bootstrap = Get-Content (Join-Path $repo 'tools/bootstrap.json') -Raw | ConvertFrom-Json
     $fields = @('marketplaceAdd', 'marketplaceRemove', 'install', 'marketplaceList', 'list', 'marketplaceUpdate', 'update')
     $scratchRoot = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/restructure'))
     $scratch = Join-Path $scratchRoot ('catalog-boundaries-' + [guid]::NewGuid().ToString('N'))

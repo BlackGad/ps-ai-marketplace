@@ -28,11 +28,6 @@ Assert-Equal 'unzip' ((Get-ToolRecipe -Tool bun -Platform linux).Needs -join '|'
     Assert-Equal 1 $bunState.Calls 'Installed Bun skips repeat'
 }
 
-# Exercise the real entry point using the already running PowerShell, without installing.
-$entryPreview = & pwsh -NoProfile -File $scriptPath -Tool pwsh 2>&1
-Assert-Equal 0 $LASTEXITCODE 'Real CLI allows omitted Method'
-Assert-True (($entryPreview -join "`n").Contains('pwsh: installed')) 'Real CLI preview checks installed tool'
-
 # Exercise the process exit contract without contacting a server or starting winget.
 $choiceMessage = 'choose -Method msi (official installer, needs admin) or -Method zip (user folder, no admin)'
 foreach ($wingetState in @('missing','error','blocked','ok')) {
@@ -51,8 +46,8 @@ foreach ($tool in @('claude','codex')) {
 }
 
 $expected = @{
-    windows = @{ pwsh='winget install --id Microsoft.PowerShell -e'; git='winget install --id Git.Git -e'; node='winget install --id OpenJS.NodeJS.LTS -e'; claude='winget install --id Anthropic.ClaudeCode -e'; codex='winget install --id OpenAI.Codex -e'; copilot='winget install --id GitHub.Copilot -e'; gh='winget install --id GitHub.cli -e'; glab='winget install --id GLab.GLab -e'; az='winget install --id Microsoft.AzureCLI -e' }
-    macos = @{ pwsh='brew install --cask powershell'; git='brew install git'; node='brew install node'; claude='bash -c curl -fsSL https://claude.ai/install.sh | bash'; codex='npm install -g @openai/codex'; copilot='npm install -g @github/copilot'; gh='brew install gh'; glab='brew install glab'; az='brew install azure-cli' }
+    windows = @{ git='winget install --id Git.Git -e'; node='winget install --id OpenJS.NodeJS.LTS -e'; claude='winget install --id Anthropic.ClaudeCode -e'; codex='winget install --id OpenAI.Codex -e'; copilot='winget install --id GitHub.Copilot -e'; az='winget install --id Microsoft.AzureCLI -e' }
+    macos = @{ git='brew install git'; node='brew install node'; claude='bash -c curl -fsSL https://claude.ai/install.sh | bash'; codex='npm install -g @openai/codex'; copilot='npm install -g @github/copilot'; az='brew install azure-cli' }
 }
 foreach ($platform in @('windows','macos')) {
     foreach ($tool in $expected[$platform].Keys) {
@@ -60,7 +55,7 @@ foreach ($platform in @('windows','macos')) {
         Assert-Equal $expected[$platform][$tool] ($recipe.Install[0] -join ' ') "$platform $tool recipe"
     }
 }
-$linuxDocs = @{ pwsh='https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-linux'; git='https://git-scm.com/download/linux'; node='https://nodejs.org/en/download'; gh='https://github.com/cli/cli/blob/trunk/docs/install_linux.md'; glab='https://gitlab.com/gitlab-org/cli#installation'; az='https://learn.microsoft.com/cli/azure/install-azure-cli-linux' }
+$linuxDocs = @{ git='https://git-scm.com/download/linux'; node='https://nodejs.org/en/download'; az='https://learn.microsoft.com/cli/azure/install-azure-cli-linux' }
 foreach ($tool in $linuxDocs.Keys) {
     $recipe = Get-ToolRecipe -Tool $tool -Platform linux
     Assert-Equal 0 $recipe.Install.Count "Linux $tool is docs only"
@@ -171,13 +166,12 @@ Assert-True ($readme.Contains('[Details for maintainers and power users](docs/re
         $downloadedFiles.Add($OutFile)
         if ($sources.ContainsKey($Url)) { $sources[$Url] | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $OutFile }
         elseif ($Url -like '*SHASUMS256.txt') { "$testHash  node-v28.1.0-x64.msi`n$testHash  node-v28.1.0-win-x64.zip" | Set-Content -LiteralPath $OutFile }
-        elseif ($Url -like '*checksums.txt') { "$testHash  glab_1.2.3_windows_amd64.zip`n$testHash  glab_1.2.3_Windows_x86_64_installer.exe" | Set-Content -LiteralPath $OutFile }
         elseif ($Url -like '*install.ps1') { '# inert test installer' | Set-Content -LiteralPath $OutFile }
-        elseif ($Url -eq 'https://fixture.test/gh.zip') { Copy-Item -LiteralPath $archive -Destination $OutFile }
+        elseif ($Url -eq 'https://fixture.test/az.zip') { Copy-Item -LiteralPath $archive -Destination $OutFile }
         else { throw "unexpected test download: $Url" }
     }
     try {
-        $folders = @{ pwsh=''; git='cmd'; node='node-v28.1.0-win-x64'; az='bin'; gh='bin'; glab='bin'; copilot='' }
+        $folders = @{ git='cmd'; node='node-v28.1.0-win-x64'; az='bin'; copilot='' }
         foreach ($tool in $folders.Keys) {
             foreach ($method in @('msi','zip')) {
                 $download = Get-ToolDownload -Tool $tool -Method $method
@@ -186,7 +180,7 @@ Assert-True ($readme.Contains('[Details for maintainers and power users](docs/re
                 if ($method -eq 'zip') {
                     Assert-Equal 'zip' $download.Kind "$tool archive kind"
                     Assert-Equal $folders[$tool] $download.PathFolder "$tool executable folder"
-                } elseif ($tool -in @('git','glab')) {
+                } elseif ($tool -in @('git')) {
                     Assert-Equal 'exe' $download.Kind "$tool installer kind"
                     Assert-True ($download.Arguments -contains '/VERYSILENT') "$tool silent installer"
                     if ($tool -eq 'git') { Assert-True ($download.Arguments -contains '/CURRENTUSER') 'Git installs for current user' }
@@ -194,7 +188,6 @@ Assert-True ($readme.Contains('[Details for maintainers and power users](docs/re
                     Assert-Equal 'msi' $download.Kind "$tool MSI kind"
                     Assert-True ($download.Arguments -contains '/qn') "$tool silent MSI"
                 }
-                if ($tool -eq 'pwsh' -and $method -eq 'msi') { Assert-True ($download.Url.Contains('7.6.9')) 'PowerShell MSI selects newest stable 7.6 release' }
                 if ($tool -eq 'node') { Assert-True ($download.Url.Contains('v28.1.0')) 'Node selects latest LTS' }
             }
         }
@@ -205,68 +198,68 @@ Assert-True ($readme.Contains('[Details for maintainers and power users](docs/re
                 Assert-True ($download.Url.EndsWith('/install.ps1')) "$tool script URL"
             }
         }
-        $ghAsset = $sources['https://api.github.com/repos/cli/cli/releases/latest'].assets[0]
-        $ghAsset.digest = ''
-        Assert-Throws { Get-ToolDownload -Tool gh -Method zip } 'Missing vendor digest blocks download'
-        $ghAsset.digest = 'sha256:' + $testHash
+        $azAsset = $sources['https://api.github.com/repos/Azure/azure-cli/releases/latest'].assets[0]
+        $azAsset.digest = ''
+        Assert-Throws { Get-ToolDownload -Tool az -Method zip } 'Missing vendor digest blocks download'
+        $azAsset.digest = 'sha256:' + $testHash
         $requests.Clear()
-        Invoke-ToolInstall -Tool gh -Platform windows -Method zip | Out-Null
+        Invoke-ToolInstall -Tool az -Platform windows -Method zip | Out-Null
         Assert-Equal 0 $requests.Count 'Explicit method preview has no network'
         Assert-Equal 0 $commands.Count 'Explicit method preview executes nothing'
-        Assert-Throws { Invoke-ToolInstall -Tool gh -Platform linux -Method zip -Yes } 'Method is Windows only'
+        Assert-Throws { Invoke-ToolInstall -Tool az -Platform linux -Method zip -Yes } 'Method is Windows only'
 
         $archiveSource = Join-Path $sandbox 'archive/bin'
         New-Item -ItemType Directory -Path $archiveSource -Force | Out-Null
-        'inert fixture, never execute' | Set-Content -LiteralPath (Join-Path $archiveSource 'gh.exe')
-        $archive = Join-Path $sandbox 'gh.zip'
+        'inert fixture, never execute' | Set-Content -LiteralPath (Join-Path $archiveSource 'az.cmd')
+        $archive = Join-Path $sandbox 'az.zip'
         Compress-Archive -Path (Join-Path $sandbox 'archive/*') -DestinationPath $archive
         $goodHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
         Assert-True (Test-DownloadHash -Path $archive -Expected $goodHash.ToLowerInvariant()) 'SHA-256 comparison accepts hex case'
         Assert-True (-not (Test-DownloadHash -Path $archive -Expected ('0' * 64))) 'SHA-256 comparison rejects mismatch'
-        function Get-ToolDownload { param($Tool,$Method) @{ Url='https://fixture.test/gh.zip'; Hash=$goodHash; Kind='zip'; Arguments=@(); PathFolder='bin' } }
-        Invoke-ToolInstall -Tool gh -Platform windows -Method zip -Yes | Out-Null
-        $exe = Join-Path $sandbox 'tools/gh/bin/gh.exe'
+        function Get-ToolDownload { param($Tool,$Method) @{ Url='https://fixture.test/az.zip'; Hash=$goodHash; Kind='zip'; Arguments=@(); PathFolder='bin' } }
+        Invoke-ToolInstall -Tool az -Platform windows -Method zip -Yes | Out-Null
+        $exe = Join-Path $sandbox 'tools/az/bin/az.cmd'
         Assert-True (Test-Path -LiteralPath $exe) 'Verified archive is extracted to user tool folder'
         $exeTime = (Get-Item -LiteralPath $exe).LastWriteTimeUtc
         $requestCount = $requests.Count
-        $second = @(Invoke-ToolInstall -Tool gh -Platform windows -Method zip -Yes)
+        $second = @(Invoke-ToolInstall -Tool az -Platform windows -Method zip -Yes)
         Assert-Equal $requestCount $requests.Count 'Repeat portable install performs no downloads'
         Assert-Equal $exeTime (Get-Item -LiteralPath $exe).LastWriteTimeUtc 'Repeat portable install writes nothing'
-        Assert-True (($second -join "`n").Contains('skip: gh already installed (')) 'Repeat portable install reports skip'
-        Install-ToolZip -Tool gh -Archive $archive -PathFolder bin | Out-Null
+        Assert-True (($second -join "`n").Contains('skip: az already installed (')) 'Repeat portable install reports skip'
+        Install-ToolZip -Tool az -Archive $archive -PathFolder bin | Out-Null
         Assert-Equal 1 $pathWrites.Count 'Portable folder is added to user PATH only once'
         Assert-True ($userPathState.Value.Contains((Split-Path $exe -Parent))) 'PATH points at executable folder'
         Assert-True ($userPathState.Value.StartsWith('%SYSTEMROOT%\existing')) 'Existing user PATH placeholders preserved'
         Assert-Equal $originalProcessPath $env:PATH 'Installer does not mutate process PATH'
         $userPathState.Value = 'C:\existing'
-        Invoke-ToolInstall -Tool gh -Platform windows -Method zip | Out-Null
+        Invoke-ToolInstall -Tool az -Platform windows -Method zip | Out-Null
         Assert-Equal 1 $pathWrites.Count 'Portable preview never repairs PATH without Yes'
-        Invoke-ToolInstall -Tool gh -Platform windows -Method zip -Yes | Out-Null
+        Invoke-ToolInstall -Tool az -Platform windows -Method zip -Yes | Out-Null
         Assert-Equal 2 $pathWrites.Count 'Retry repairs a missing portable user PATH entry'
         Assert-Equal $requestCount $requests.Count 'PATH repair does not download again'
         Assert-Equal $exeTime (Get-Item -LiteralPath $exe).LastWriteTimeUtc 'PATH repair preserves installed files'
         $savedTestRoot = $env:PS_AI_INSTALL_TEST_ROOT
         try {
             $env:PS_AI_INSTALL_TEST_ROOT = $sandbox
-            $userPathState.Value = '%PS_AI_INSTALL_TEST_ROOT%\tools\gh\bin\'
-            Install-ToolZip -Tool gh -Archive $archive -PathFolder bin | Out-Null
+            $userPathState.Value = '%PS_AI_INSTALL_TEST_ROOT%\tools\az\bin\'
+            Install-ToolZip -Tool az -Archive $archive -PathFolder bin | Out-Null
             Assert-Equal 2 $pathWrites.Count 'Expanded equivalent PATH entry is not duplicated'
         } finally { $env:PS_AI_INSTALL_TEST_ROOT = $savedTestRoot }
 
-        $installed['gh'] = $true
+        $installed['az'] = $true
         $requests.Clear()
-        $skip = @(Invoke-ToolInstall -Tool gh -Platform windows -Method msi -Yes)
-        Assert-True (($skip -join "`n").Contains('skip: gh already installed (test-version)')) 'Installed tool skips with version'
+        $skip = @(Invoke-ToolInstall -Tool az -Platform windows -Method msi -Yes)
+        Assert-True (($skip -join "`n").Contains('skip: az already installed (test-version)')) 'Installed tool skips with version'
         Assert-Equal 0 $requests.Count 'Installed tool does not resolve downloads'
-        $installed.Remove('gh')
+        $installed.Remove('az')
         # Move only the harmless local fixture, so the next attempt reaches download verification.
-        Move-Item -LiteralPath (Join-Path $sandbox 'tools/gh') -Destination (Join-Path $sandbox 'saved-gh')
+        Move-Item -LiteralPath (Join-Path $sandbox 'tools/az') -Destination (Join-Path $sandbox 'saved-az')
         $goodHash = '0' * 64
         $errorText = ''
-        try { Invoke-ToolInstall -Tool gh -Platform windows -Method zip -Yes | Out-Null } catch { $errorText = $_.Exception.Message }
-        Assert-Equal 'hash mismatch for gh download' $errorText 'Hash mismatch has exact error'
+        try { Invoke-ToolInstall -Tool az -Platform windows -Method zip -Yes | Out-Null } catch { $errorText = $_.Exception.Message }
+        Assert-Equal 'hash mismatch for az download' $errorText 'Hash mismatch has exact error'
         Assert-True (-not (Test-Path -LiteralPath $downloadedFiles[$downloadedFiles.Count - 1])) 'Hash mismatch deletes download'
-        Assert-True (-not (Test-Path -LiteralPath (Join-Path $sandbox 'tools/gh'))) 'Hash mismatch never extracts archive'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $sandbox 'tools/az'))) 'Hash mismatch never extracts archive'
         Assert-Equal 0 $commands.Count 'Zip and hash mismatch never start commands'
         $badSource = Join-Path $sandbox 'bad/bin'
         New-Item -ItemType Directory -Path $badSource -Force | Out-Null
@@ -274,15 +267,15 @@ Assert-True ($readme.Contains('[Details for maintainers and power users](docs/re
         $badArchive = Join-Path $sandbox 'bad.zip'
         Compress-Archive -Path (Join-Path $sandbox 'bad/*') -DestinationPath $badArchive
         $writesBeforeBadZip = $pathWrites.Count
-        Assert-Throws { Install-ToolZip -Tool gh -Archive $badArchive -PathFolder bin } 'Missing executable blocks portable installation'
+        Assert-Throws { Install-ToolZip -Tool az -Archive $badArchive -PathFolder bin } 'Missing executable blocks portable installation'
         Assert-Equal $writesBeforeBadZip $pathWrites.Count 'Invalid ZIP never updates PATH'
 
         foreach ($kind in @('msi','exe')) {
             function Get-ToolDownload {
                 param($Tool,$Method)
-                @{ Url='https://fixture.test/gh.zip'; Hash=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash; Kind=$kind; Arguments=@('/qn','/norestart'); PathFolder='' }
+                @{ Url='https://fixture.test/az.zip'; Hash=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash; Kind=$kind; Arguments=@('/qn','/norestart'); PathFolder='' }
             }
-            Invoke-ToolInstall -Tool gh -Platform windows -Method msi -Yes | Out-Null
+            Invoke-ToolInstall -Tool az -Platform windows -Method msi -Yes | Out-Null
             $command = $commands[$commands.Count - 1]
             if ($kind -eq 'msi') {
                 Assert-Equal 'msiexec.exe' $command[0] 'MSI uses msiexec'
@@ -290,10 +283,10 @@ Assert-True ($readme.Contains('[Details for maintainers and power users](docs/re
             } else { Assert-True ($command[0].EndsWith('.exe')) 'EXE runs verified downloaded path' }
             Assert-True ($command -contains '/qn') "$kind passes silent arguments"
             $commandState.Exit = 3010
-            Invoke-ToolInstall -Tool gh -Platform windows -Method msi -Yes | Out-Null
+            Invoke-ToolInstall -Tool az -Platform windows -Method msi -Yes | Out-Null
             Assert-Equal 0 $LASTEXITCODE "$kind reboot-success code normalized for CLI"
             $commandState.Exit = 5
-            Assert-Throws { Invoke-ToolInstall -Tool gh -Platform windows -Method msi -Yes } "$kind propagates installer failure"
+            Assert-Throws { Invoke-ToolInstall -Tool az -Platform windows -Method msi -Yes } "$kind propagates installer failure"
             $commandState.Exit = 0
             Assert-True (-not (Test-Path -LiteralPath $downloadedFiles[$downloadedFiles.Count - 1])) "$kind failure deletes download"
         }
@@ -317,7 +310,7 @@ Assert-True ($readme.Contains('[Details for maintainers and power users](docs/re
             Set-Item Function:Test-ToolInstalled $realInstalledCheck
             function Test-ToolCommandAvailable { param($Name) $false }
             function Get-UserPath { Join-Path $PSScriptRoot 'fixtures/install/path-only' }
-            $state = Test-ToolInstalled -Tool gh
+            $state = Test-ToolInstalled -Tool az
             Assert-True $state.Installed 'Installed tool is found on persisted PATH before shell refresh'
             Assert-Equal 'persisted PATH' $state.Version 'Persisted-only tool is recognized without execution'
         }
@@ -441,7 +434,7 @@ Assert-True ($readme.Contains('[Details for maintainers and power users](docs/re
         Assert-Throws { Get-ToolRecipe -Tool fourth -Platform macos } 'Helper dependency cycle is rejected'
         $helpers.node.macos.needs = @()
         $helpers.git.macos.needs = @()
-        $helpers.fourth = $helpers.gh
+        $helpers.fourth = $helpers.az
         $helpers | ConvertTo-Json -Depth 100 | Set-Content $helpersPath
         Assert-Throws { Get-ToolRecipe -Tool fourth -Platform windows } 'Helper/agent id collision fails before installation'
     } finally {
@@ -452,7 +445,7 @@ Assert-True ($readme.Contains('[Details for maintainers and power users](docs/re
     }
 }
 
-# SyntheticDownloadsAndPagedStableSelection: source formats, never ids, select resolution.
+# SyntheticDownloads: source formats, never ids, select resolution.
 & {
     $ErrorActionPreference = 'Stop'
     $repoRoot = Split-Path $PSScriptRoot -Parent
@@ -485,15 +478,6 @@ Assert-True ($readme.Contains('[Details for maintainers and power users](docs/re
             Assert-Throws { Get-ToolDownload -Tool fourth -Method zip } 'Missing or malformed release digest stops resolution'
         }
         $sources['https://fixture.test/releases/latest'].assets[0].digest = 'sha256:' + ('1' * 64)
-        $data.install.windows.download.zip = [pscustomobject]@{kind='zip';resolver='release-links';metadataUrl='https://fixture.test/links/latest';assetPattern='^fourth\.zip$';checksumAsset='checksums.txt';verification='checksum-file';arguments=@();pathFolder='bin'}
-        $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
-        $download = Get-ToolDownload -Tool fourth -Method zip
-        Assert-Equal 'https://fixture.test/linked-fourth.zip' $download.Url 'Fourth release-links URL'
-        Assert-Equal ('2' * 64) $download.Hash 'Fourth exact checksum file'
-        Assert-True ($requests -contains 'https://fixture.test/checksums.txt') 'Named checksum asset is fetched'
-        Assert-True (-not ($requests -contains 'https://fixture.test/decoy-checksums')) 'Similarly named checksum is ignored'
-        $sources['https://fixture.test/checksums.txt'] = ('2' * 64) + '  other.zip'
-        Assert-Throws { Get-ToolDownload -Tool fourth -Method zip } 'Checksum for another filename is rejected'
         $data.install.windows.download.zip = [pscustomobject]@{kind='zip';resolver='lts-index';metadataUrl='https://fixture.test/versions';assetName='fourth-{version}.zip';url='https://fixture.test/{version}/fourth-{version}.zip';checksumUrl='https://fixture.test/{version}/sums';verification='checksum-file';arguments=@();pathFolder='fourth-{version}'}
         $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
         $download = Get-ToolDownload -Tool fourth -Method zip
@@ -505,17 +489,6 @@ Assert-True ($readme.Contains('[Details for maintainers and power users](docs/re
         $message = ''
         try { Get-ToolDownload -Tool fourth -Method zip | Out-Null } catch { $message=$_.Exception.Message }
         Assert-Equal 'no fourth LTS release found' $message 'LTS failure names the requested tool'
-        $helpers = Get-Content (Join-Path $plugin 'bin/install-tool/helpers.json') -Raw | ConvertFrom-Json
-        $data.install.windows.download.msi = $helpers.pwsh.windows.download.msi
-        $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
-        $requests.Clear()
-        $download = Get-ToolDownload -Tool fourth -Method msi
-        Assert-True ($download.Url.Contains('7.6.9')) 'Fourth paginated recipe selects newest qualifying stable MSI on second page'
-        Assert-True ($requests -contains 'https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=100&page=2') 'Full unusable first page advances to second page'
-        Assert-True (-not ($requests -contains 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest')) 'Paged selector uses only its declared source'
-        Assert-Equal '/qn|/norestart|ADD_PATH=1' ($download.Arguments -join '|') 'Installer flags are recipe data even for fourth tool'
-        $latest = Get-ToolDownload -Tool pwsh -Method zip
-        Assert-True ($latest.Url.Contains('7.7.0')) 'Latest ZIP selection remains independent of stable MSI'
         $data.install.windows.download.zip = [pscustomobject]@{kind='script';url='https://fixture.test/install.ps1';verification='vendor'}
         $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
         $download = Get-ToolDownload -Tool fourth -Method zip

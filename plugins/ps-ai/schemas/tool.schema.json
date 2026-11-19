@@ -87,16 +87,12 @@
       "type": "object", "additionalProperties": false, "required": ["kind", "resolver", "verification", "arguments"],
       "properties": {
         "kind": {"enum": ["msi", "exe", "zip"]},
-        "resolver": {"enum": ["release-assets", "release-links", "lts-index"]},
+        "resolver": {"enum": ["release-assets", "lts-index"]},
         "metadataUrl": {"type": "string", "minLength": 1},
-        "releasesUrl": {"type": "string", "minLength": 1, "pattern": "\\{page\\}"},
-        "tagPattern": {"type": "string", "minLength": 1, "format": "regex"},
-        "stableOnly": {"const": true},
         "assetPattern": {"type": "string", "minLength": 1, "format": "regex"},
         "assetName": {"type": "string", "minLength": 1},
         "url": {"type": "string", "minLength": 1},
         "checksumUrl": {"type": "string", "minLength": 1},
-        "checksumAsset": {"type": "string", "minLength": 1},
         "verification": {"enum": ["asset-digest", "checksum-file"]},
         "arguments": {"$ref": "#/$defs/arguments"},
         "pathFolder": {"type": "string", "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).*$"}
@@ -106,42 +102,15 @@
         {
           "if": {"properties": {"resolver": {"const": "release-assets"}}},
           "then": {
-            "required": ["assetPattern"],
-            "properties": {"verification": {"const": "asset-digest"}, "checksumAsset": false, "assetName": false, "url": false, "checksumUrl": false},
-            "oneOf": [
-              {"required": ["metadataUrl"], "properties": {"releasesUrl": false, "tagPattern": false, "stableOnly": false}},
-              {"required": ["releasesUrl", "tagPattern", "stableOnly"], "properties": {"metadataUrl": false}}
-            ]
-          }
-        },
-        {
-          "if": {"properties": {"resolver": {"const": "release-links"}}},
-          "then": {
-            "required": ["metadataUrl", "assetPattern", "checksumAsset"],
-            "properties": {
-              "verification": {"const": "checksum-file"},
-              "checksumAsset": {"const": "checksums.txt"},
-              "releasesUrl": false,
-              "tagPattern": false,
-              "stableOnly": false,
-              "assetName": false,
-              "url": false,
-              "checksumUrl": false
-            }
+            "required": ["metadataUrl", "assetPattern"],
+            "properties": {"verification": {"const": "asset-digest"}, "assetName": false, "url": false, "checksumUrl": false}
           }
         },
         {
           "if": {"properties": {"resolver": {"const": "lts-index"}}},
           "then": {
             "required": ["metadataUrl", "assetName", "url", "checksumUrl"],
-            "properties": {
-              "verification": {"const": "checksum-file"},
-              "assetPattern": false,
-              "checksumAsset": false,
-              "releasesUrl": false,
-              "tagPattern": false,
-              "stableOnly": false
-            }
+            "properties": {"verification": {"const": "checksum-file"}, "assetPattern": false}
           }
         }
       ]
