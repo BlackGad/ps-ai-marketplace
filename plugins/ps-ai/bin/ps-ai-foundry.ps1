@@ -71,18 +71,22 @@ function Write-FoundryProviderFile {
         $stream = [IO.FileSystemAclExtensions]::Create([IO.FileInfo]::new($Path), [IO.FileMode]::CreateNew,
             [Security.AccessControl.FileSystemRights]::FullControl, [IO.FileShare]::None, 4096, [IO.FileOptions]::None, $security)
     } else {
-        $options = [IO.FileStreamOptions]::new()
-        $options.Mode = [IO.FileMode]::CreateNew
-        $options.Access = [IO.FileAccess]::Write
-        $options.Share = [IO.FileShare]::None
-        $options.UnixCreateMode = [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite
-        $stream = [IO.FileStream]::new($Path, $options)
+        $stream = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
     }
+    $written = $false
     try {
-        # The file is private from creation, before any credential bytes are written.
+        if (-not $IsWindows) {
+            # Restrict the empty file before writing; chmod also overrides a restrictive umask.
+            & chmod 600 -- $Path
+            if ($LASTEXITCODE -ne 0) { throw 'could not restrict provider file permissions' }
+        }
         $bytes = [Text.UTF8Encoding]::new($false).GetBytes($Json)
         $stream.Write($bytes, 0, $bytes.Length)
-    } finally { $stream.Dispose() }
+        $written = $true
+    } finally {
+        $stream.Dispose()
+        if (-not $written) { Remove-Item -LiteralPath $Path -Force -ErrorAction Stop }
+    }
 }
 
 if (-not $NoRun) {

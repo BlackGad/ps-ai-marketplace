@@ -22,7 +22,8 @@ if ($IsWindows) {
     $rules = @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
     $private = $acl.AreAccessRulesProtected -and $rules.Count -eq 1 -and $rules[0].IdentityReference.Value -eq $sid -and $rules[0].AccessControlType -eq 'Allow'
 } else {
-    $private = [IO.File]::GetUnixFileMode($file) -eq ([IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+    $mode = if ($IsLinux) { & /usr/bin/stat -c '%a' -- $file } else { & /usr/bin/stat -f '%Lp' $file }
+    $private = $LASTEXITCODE -eq 0 -and $mode -eq '600'
 }
 @{ Private = $private; HasToken = ([IO.File]::ReadAllText($file).Contains('FAKE-NONCREDENTIAL')); File = $file } | ConvertTo-Json | Set-Content $env:PS_AI_PRIVACY_LOG
 exit 0
@@ -42,6 +43,41 @@ exit 0
     Assert-True $observation.Private 'Provider file grants access only to current owner'
     Assert-True (-not (Test-Path -LiteralPath $observation.File)) 'Private provider file is removed after launch'
     Assert-True (-not (($output -join "`n").Contains('FAKE-NONCREDENTIAL'))) 'Runner output does not expose fake token'
+
+    # Exercise the Unix ordering even when the test host is Windows.
+    & {
+        . $runner -NoRun
+        $savedIsWindows = $IsWindows
+        $savedExitCode = $global:LASTEXITCODE
+        $script:chmodCalls = 0
+        $script:chmodExitCode = 0
+        function chmod {
+            param([string]$Mode, [string]$Path)
+            Assert-Equal '600' $Mode 'Unix provider requests exact owner read/write mode'
+            Assert-Equal 0 (Get-Item -LiteralPath $Path).Length 'Permission change happens before credential bytes'
+            $script:chmodCalls++
+            $global:LASTEXITCODE = $script:chmodExitCode
+        }
+        try {
+            Set-Variable IsWindows -Value $false -Force
+            $providerFile = Join-Path $tempRoot 'unix-success.json'
+            $writeError = ''
+            try { Write-FoundryProviderFile -Path $providerFile -Json 'FAKE-NONCREDENTIAL' }
+            catch { $writeError = $_.Exception.Message }
+            Assert-Equal 1 $script:chmodCalls "Unix provider changes permissions before writing ($writeError)"
+            Assert-Equal '' $writeError 'Successful permission change allows writing'
+            Assert-Equal 'FAKE-NONCREDENTIAL' ([IO.File]::ReadAllText($providerFile)) 'Unix provider writes after permissions succeed'
+
+            $script:chmodExitCode = 7
+            $failedFile = Join-Path $tempRoot 'unix-failure.json'
+            Assert-Throws { Write-FoundryProviderFile -Path $failedFile -Json 'FAKE-NONCREDENTIAL' } 'Permission failure stops provider write'
+            Assert-Equal 2 $script:chmodCalls 'Failed permission change is checked'
+            Assert-True (-not (Test-Path -LiteralPath $failedFile)) 'Permission failure removes the empty file'
+        } finally {
+            Set-Variable IsWindows -Value $savedIsWindows -Force
+            $global:LASTEXITCODE = $savedExitCode
+        }
+    }
 } finally {
     foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
     if ($fakeRoot -and (Test-Path -LiteralPath $fakeRoot)) { Remove-Item -LiteralPath $fakeRoot -Recurse -Force }
