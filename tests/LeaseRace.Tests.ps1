@@ -15,7 +15,7 @@ try {
     Assert-Equal 'stale' (Get-PsAiLease -Repo $repo).State 'An old unreadable lease is stale'
 
     # Several sessions find the same stale lease at once: exactly one takes it.
-    $stale = @{ tool = 'codex'; account = 'dead'; pid = 99999999; host = [System.Net.Dns]::GetHostName(); startedAt = '2026-11-18T09:00:00Z' }
+    $stale = @{ tool = 'codex'; account = 'dead'; pid = 99999999; processStartedAt = '2026-11-18T08:00:00Z'; host = [System.Net.Dns]::GetHostName(); startedAt = '2026-11-18T09:00:00Z' }
     [System.IO.File]::WriteAllText($leasePath, ($stale | ConvertTo-Json -Compress))
     $runner = Join-Path $tempRoot 'runner.ps1'
     @'

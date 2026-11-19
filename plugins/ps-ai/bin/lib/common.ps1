@@ -21,10 +21,10 @@ function Get-PsAiLease {
         }
         if ([string]::IsNullOrWhiteSpace($content)) { throw "lease file is empty" }
         $data = $content | ConvertFrom-Json -ErrorAction Stop
-        if (-not $data.host -or -not $data.pid) { return @{ State = 'stale'; Data = $data } }
+        if (-not $data.host -or -not $data.pid -or -not $data.processStartedAt) { return @{ State = 'stale'; Data = $data } }
         if ($data.host -ine [System.Net.Dns]::GetHostName()) { return @{ State = 'foreign'; Data = $data } }
         $process = Get-Process -Id ([int]$data.pid) -ErrorAction SilentlyContinue
-        if ($process -and $data.processStartedAt -and
+        if ($process -and
             $process.StartTime.ToUniversalTime() -eq ([datetime]$data.processStartedAt).ToUniversalTime()) {
             return @{ State = 'held'; Data = $data }
         }

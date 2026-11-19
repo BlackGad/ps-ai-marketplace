@@ -14,6 +14,12 @@ try {
     Assert-True ([bool]$saved.processStartedAt) 'Lease records owner process lifetime'
     & pwsh -NoProfile -File $script -Action release -Repo $repo | Out-Null
     Assert-True (-not (Test-Path $path)) 'A fresh helper releases the session lock'
+    $invalid = $saved | Select-Object * -ExcludeProperty processStartedAt
+    foreach ($leaseHost in @($saved.host, 'fixture-foreign-host')) {
+        $invalid.host = $leaseHost
+        $invalid | ConvertTo-Json | Set-Content $path
+        Assert-Equal 'stale' (Get-PsAiLease -Repo $repo).State 'A lease without process identity is invalid on any host'
+    }
     $saved.pid = $PID
     $saved.processStartedAt = (Get-Process -Id $PID).StartTime.ToUniversalTime().AddSeconds(-1).ToString('o')
     $saved | ConvertTo-Json | Set-Content $path
