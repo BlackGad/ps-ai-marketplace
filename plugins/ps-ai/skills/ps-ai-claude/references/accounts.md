@@ -13,7 +13,7 @@ This creates a wrapper that sets `CLAUDE_CONFIG_DIR`, a config folder, and the p
 
 ```text
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools claude -ConfigDir <account folder> -Yes
-pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.agents/configuration/ps-ai-personalisation.json
+pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.legion/configuration/ps-ai-personalisation.json
 ```
 
 To check from the system temp folder, run `claude plugin list --json` with `CLAUDE_CONFIG_DIR` set to the account's recorded folder (never guess paths); ps-ai is installed when `ps-ai@ps-ai-marketplace` is listed and enabled.

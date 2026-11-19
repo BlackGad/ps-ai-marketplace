@@ -7,7 +7,7 @@ $previousExpand = $env:PS_AI_WRAPPER_EXPAND
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
     $homeRoot = Join-Path $tempRoot 'owner $(printf expanded) & quoted '' fixture'
-    $config = Join-Path $homeRoot '.agents/configuration'
+    $config = Join-Path $homeRoot '.legion/configuration'
     New-Item -ItemType Directory -Path $config -Force | Out-Null
     Copy-Item (Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json') (Join-Path $config 'ps-ai-personalisation.json')
     $fake = Join-Path $tempRoot 'fake command.ps1'
@@ -17,10 +17,10 @@ exit 37
 '@ | Set-Content -LiteralPath $fake
     $env:PS_AI_WRAPPER_LOG = Join-Path $tempRoot 'log.json'
     & $account -Action add -Id wrapper-test -Tool codex -HomeRoot $homeRoot -Command $fake | Out-Null
-    $bin = Join-Path $homeRoot '.agents/bin'
+    $bin = Join-Path $homeRoot '.legion/bin'
     $owner = Get-Content (Join-Path $config 'ps-ai-personalisation.json') -Raw | ConvertFrom-Json
     $entry = $owner.agents | Where-Object id -eq wrapper-test
-    $expected = if ($IsWindows) { '~/.agents/bin/wrapper-test.cmd' } else { '~/.agents/bin/wrapper-test' }
+    $expected = if ($IsWindows) { '~/.legion/bin/wrapper-test.cmd' } else { '~/.legion/bin/wrapper-test' }
     Assert-True (-not $entry.PSObject.Properties['command']) 'Canonical command is derived'
     if ($IsWindows) {
         $caller = Join-Path $tempRoot 'caller.cmd'
@@ -38,7 +38,7 @@ exit /b %result%
         Assert-Equal 'caller-account' (Get-Content $envLog) 'Batch config does not leak into its caller'
         $seen = Get-Content $env:PS_AI_WRAPPER_LOG -Raw | ConvertFrom-Json
         Assert-Equal 'first|two words|semi;literal' ($seen.Args -join '|') 'Batch forwards literal arguments'
-        Assert-Equal (Join-Path $homeRoot '.agents/legion/wrapper-test') $seen.Home 'Batch selects account config'
+        Assert-Equal (Join-Path $homeRoot '.legion/agents/wrapper-test') $seen.Home 'Batch selects account config'
         $fakeBatch = Join-Path $tempRoot 'fake command.cmd'
         '@pwsh -NoProfile -File "' + $fake + '" %*' | Set-Content $fakeBatch
         & $account -Action add -Id wrapper-batch -Tool codex -HomeRoot $homeRoot -Command $fakeBatch | Out-Null
@@ -57,7 +57,7 @@ exit /b %result%
         function Sync-PsAiFoundryRuntime { param($Tool,$HomeRoot,$Changes) return $fakeRunner }
         $env:PS_AI_WRAPPER_EXPAND = 'expanded'
         New-FoundryWrappers -Id percent-test -Tool claude -HomeRoot $tempRoot
-        & (Join-Path $tempRoot '.agents/bin/percent-test.cmd') 'literal'
+        & (Join-Path $tempRoot '.legion/bin/percent-test.cmd') 'literal'
         Assert-Equal 37 $LASTEXITCODE 'Foundry wrapper preserves literal percent sequences in runner paths'
         }
     }
@@ -67,7 +67,7 @@ exit /b %result%
         Assert-Equal 37 $LASTEXITCODE 'POSIX wrapper executes a PowerShell shim'
         $seen = Get-Content $env:PS_AI_WRAPPER_LOG -Raw | ConvertFrom-Json
         Assert-Equal 'first|two words|semi;literal' ($seen.Args -join '|') 'POSIX wrapper forwards literal arguments'
-        Assert-Equal (Join-Path $homeRoot '.agents/legion/wrapper-test') $seen.Home 'POSIX wrapper preserves shell-significant paths'
+        Assert-Equal (Join-Path $homeRoot '.legion/agents/wrapper-test') $seen.Home 'POSIX wrapper preserves shell-significant paths'
     }
 } finally {
     $env:PS_AI_WRAPPER_LOG = $previousLog

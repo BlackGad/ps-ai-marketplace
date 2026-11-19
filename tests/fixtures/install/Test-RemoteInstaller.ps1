@@ -42,7 +42,7 @@ $downloaded = [Collections.Generic.List[string]]::new()
 function Get-InstallHome { $sandbox }
 function Get-InstallPowerShellCommand {
     if ($state.Present) { return @{ Source='fixture-pwsh' } }
-    $portable = Join-Path $sandbox '.agents/tools/pwsh/bin/shell.exe'
+    $portable = Join-Path $sandbox '.legion/tools/pwsh/bin/shell.exe'
     if (Test-Path -LiteralPath $portable) { return @{ Source=$portable } }
 }
 function Test-InstallCommandAvailable { param($Name) $Name -eq 'winget' -and $state.Winget }
@@ -93,7 +93,7 @@ try {
     try { $null = Ensure-InstallPowerShell -OnWindows $true -Yes } catch { $failure = $_.Exception.Message }
     Assert-True ($failure -match 'SHA-256.*mismatch') 'Digest mismatch stops installation'
     Assert-True (-not (Test-Path -LiteralPath $downloaded[$downloaded.Count - 1])) 'Digest mismatch deletes download'
-    Assert-True (-not (Test-Path -LiteralPath (Join-Path $sandbox '.agents/tools/pwsh'))) 'Digest mismatch never unpacks'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $sandbox '.legion/tools/pwsh'))) 'Digest mismatch never unpacks'
     Assert-Equal 0 $state.Writes 'Digest mismatch never writes PATH'
     Assert-Equal $savedPath $env:PATH 'Digest mismatch preserves process PATH'
     $state.Digest = ''
@@ -103,7 +103,7 @@ try {
     $null = & { $script:ready = Ensure-InstallPowerShell -OnWindows $true -Yes } 6>&1
     Assert-True $script:ready 'Failed winget falls back to verified ZIP'
     Assert-Equal 1 $state.Calls 'Winget tried once before ZIP'
-    $portableFolder = Join-Path $sandbox '.agents/tools/pwsh/bin'
+    $portableFolder = Join-Path $sandbox '.legion/tools/pwsh/bin'
     Assert-True (Test-Path -LiteralPath (Join-Path $portableFolder 'shell.exe')) 'Verified ZIP unpacks per user'
     Assert-True ($state.UserPath.Contains($portableFolder)) 'ZIP adds user PATH'
     Assert-True ($env:PATH.Contains($portableFolder)) 'ZIP adds process PATH'
@@ -184,9 +184,9 @@ param($Installer)
 $ErrorActionPreference = 'Stop'
 . ([scriptblock]::Create((Get-Content -Raw $Installer))) -NoRun
 $fixtureHome = Split-Path $Installer
-$configFolder = Join-Path $fixtureHome '.agents/configuration'
+$configFolder = Join-Path $fixtureHome '.legion/configuration'
 New-Item -ItemType Directory -Path $configFolder -Force | Out-Null
-'{"agents":[{"tool":"codex","configDir":"~/.agents/legion/codex-a"}]}' |
+'{"agents":[{"tool":"codex","configDir":"~/.legion/agents/codex-a"}]}' |
     Set-Content -LiteralPath (Join-Path $configFolder 'ps-ai-personalisation.json')
 function Get-InstallHome { $fixtureHome }
 function Invoke-InstallRefresh { } # Dedicated refresh tests exercise the installed script process.
@@ -197,7 +197,7 @@ function Invoke-ClosedInput {
     param($Command)
     $state.Calls++
     if ($env:CODEX_HOME -eq [IO.Path]::GetFullPath('inherited-account')) { $state.Default++ }
-    elseif ($env:CODEX_HOME -eq (Join-Path $fixtureHome '.agents/legion/codex-a')) { $state.Account++ }
+    elseif ($env:CODEX_HOME -eq (Join-Path $fixtureHome '.legion/agents/codex-a')) { $state.Account++ }
     else { throw 'Incorrect config target' }
     if ($Command[2] -eq 'remove') { throw 'Update removed plugin approval' }
     return @{ ExitCode=0; Output=@('ps-ai@ps-ai-marketplace installed, enabled') }

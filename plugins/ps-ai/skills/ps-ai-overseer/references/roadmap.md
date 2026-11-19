@@ -11,7 +11,7 @@ Use the terms and work sizes in [the overseer skill](../SKILL.md#terms-and-work-
 
 ## File rules
 
-Store one committed file per goal at `.agents/state/roadmap/<goal-id>.md`. Use lowercase hyphenated ids. The folder listing is the index; add no index file. A missing or empty folder is normal. Spec and plan paths still come from `workflow.md` and stay local.
+Store one committed file per goal at `.legion/state/roadmap/<goal-id>.md`. Use lowercase hyphenated ids. The folder listing is the index; add no index file. A missing or empty folder is normal. Spec and plan paths still come from `workflow.md` and stay local.
 
 Milestone statuses are `planned`, `active`, `paused`, `done`, and `dropped`. Before making a milestone active, check all roadmaps and the handoff for another active milestone. Paused work or no current work may leave none active.
 

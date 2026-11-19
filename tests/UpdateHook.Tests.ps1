@@ -3,9 +3,9 @@ $repo = Split-Path $PSScriptRoot -Parent
 $sandbox = Join-Path $repo ('.agents/temp/restructure/update-hook-' + [guid]::NewGuid().ToString('N'))
 $plugin = Join-Path $sandbox 'plugin'
 $fixtureRepo = Join-Path $sandbox 'repo'
-New-Item -ItemType Directory -Path (Join-Path $plugin 'hooks'), (Join-Path $plugin 'bin/lib'), (Join-Path $fixtureRepo '.agents/state') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $plugin 'hooks'), (Join-Path $plugin 'bin/lib'), (Join-Path $fixtureRepo '.legion/state') -Force | Out-Null
 try {
-    foreach ($file in @('hooks/detect-mode.ps1','bin/lib/common.ps1','bin/lib/tools.ps1','bin/ps-ai-update.ps1')) {
+    foreach ($file in @('hooks/detect-mode.ps1','bin/lib/common.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','bin/ps-ai-update.ps1')) {
         Copy-Item (Join-Path $repo "plugins/ps-ai/$file") (Join-Path $plugin $file)
     }
     '{"name":"ps-ai","version":"0.3.0"}' | Set-Content (Join-Path $plugin 'plugin.json')
@@ -29,7 +29,7 @@ function Get-PsAiUpdateText {
         $env:PS_AI_TASK = ''
         Assert-Equal '{}' (& pwsh -NoProfile -File $hook -Repo $fixtureRepo -Format context-json) 'Ad hoc mode has no notice'
         Assert-True (-not (Test-Path (Join-Path $plugin 'downloads.txt'))) 'Ad hoc never checks'
-        "## Goal and milestone`nM1`n## Current task`ntask 1`n" | Set-Content (Join-Path $fixtureRepo '.agents/state/handoff.md')
+        "## Goal and milestone`nM1`n## Current task`ntask 1`n" | Set-Content (Join-Path $fixtureRepo '.legion/state/handoff.md')
         $env:PS_AI_ROLE = 'legion'
         $env:PS_AI_TASK = 'task.md'
         $null = & pwsh -NoProfile -File $hook -Repo $fixtureRepo
@@ -47,11 +47,11 @@ function Get-PsAiUpdateText {
         Assert-Equal ($text -join "`n") $json.additionalContext 'JSON includes same notice'
         Assert-Equal 1 @(Get-Content (Join-Path $plugin 'downloads.txt')).Count 'Hook uses daily cache'
         foreach ($version in @('0.3.0','0.2.0')) {
-            Remove-Item (Join-Path $sandbox 'home/.agents/temp/ps-ai-update.json')
+            Remove-Item (Join-Path $sandbox 'home/.legion/temp/ps-ai-update.json')
             "{`"name`":`"ps-ai`",`"version`":`"$version`"}" | Set-Content (Join-Path $plugin 'response.txt') -NoNewline
             Assert-Equal 1 @(& pwsh -NoProfile -File $hook -Repo $fixtureRepo).Count 'Equal or older release adds no notice'
         }
-        Remove-Item (Join-Path $sandbox 'home/.agents/temp/ps-ai-update.json')
+        Remove-Item (Join-Path $sandbox 'home/.legion/temp/ps-ai-update.json')
         'fail' | Set-Content (Join-Path $plugin 'response.txt') -NoNewline
         $text = @(& pwsh -NoProfile -File $hook -Repo $fixtureRepo)
         Assert-Equal 1 $text.Count 'Failed check adds no output'

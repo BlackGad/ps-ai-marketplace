@@ -12,13 +12,13 @@ New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 $fakeRoot = $null
 try {
     $homeRoot = Join-Path $tempRoot 'owner with spaces'
-    $config = Join-Path $homeRoot '.agents/configuration'
+    $config = Join-Path $homeRoot '.legion/configuration'
     New-Item -ItemType Directory -Path $config -Force | Out-Null
     $provider = @{kind='foundry';endpoint='https://res-a.cognitiveservices.azure.com';default='claude-opus-x';deployments=@(@{name='claude-opus-x';model='claude-opus-x';alias='opus'},@{name='claude-sonnet-x'})}
-    $claudeAgent = [pscustomobject]@{id='claude-dev';tool='claude';configDir='~/.agents/legion/claude-dev';provider=$provider}
+    $claudeAgent = [pscustomobject]@{id='claude-dev';tool='claude';configDir='~/.legion/agents/claude-dev';provider=$provider}
     $copilotProvider = @{kind='foundry';endpoint=$provider.endpoint;default=$provider.default;deployments=@(@{name='claude-opus-x';model='claude-opus-x'},@{name='claude-sonnet-x'})}
-    $copilotAgent = [pscustomobject]@{id='copilot-dev';tool='copilot';configDir='~/.agents/legion/copilot-dev';provider=$copilotProvider}
-    $codexAgent = [pscustomobject]@{id='codex-dev';tool='codex';configDir='~/.agents/legion/codex-dev';provider=@{kind='foundry';endpoint=$provider.endpoint;default='gpt-x';deployments=@(@{name='gpt-x'})}}
+    $copilotAgent = [pscustomobject]@{id='copilot-dev';tool='copilot';configDir='~/.legion/agents/copilot-dev';provider=$copilotProvider}
+    $codexAgent = [pscustomobject]@{id='codex-dev';tool='codex';configDir='~/.legion/agents/codex-dev';provider=@{kind='foundry';endpoint=$provider.endpoint;default='gpt-x';deployments=@(@{name='gpt-x'})}}
     @{agents=@($claudeAgent,$copilotAgent,$codexAgent,@{id='subscription';tool='claude'})} |
         ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $config 'ps-ai-personalisation.json')
     $launch = Get-FoundryLaunch -Agent $claudeAgent -HomeRoot $homeRoot
@@ -48,14 +48,14 @@ try {
     Assert-Equal 'claude-opus-x' $log.environment.ANTHROPIC_MODEL 'Claude default'
     Assert-Equal 'claude-opus-x' $log.environment.ANTHROPIC_DEFAULT_OPUS_MODEL 'Claude opus alias'
     Assert-Equal $null $log.environment.CLAUDE_CODE_USE_BEDROCK 'Claude child clears Bedrock'
-    Assert-Equal (Join-Path $homeRoot '.agents/legion/claude-dev') $log.environment.CLAUDE_CONFIG_DIR 'Claude config home'
+    Assert-Equal (Join-Path $homeRoot '.legion/agents/claude-dev') $log.environment.CLAUDE_CONFIG_DIR 'Claude config home'
     Assert-Equal '-p|hi' ($log.arguments -join '|') 'Claude forwards arguments'
     Assert-Equal '1' $env:CLAUDE_CODE_USE_BEDROCK 'Parent Bedrock unchanged'
     Assert-Equal 'parent-config' $env:CLAUDE_CONFIG_DIR 'Parent config unchanged'
     $output = @(& $pwshPath -NoProfile -File $runnerScript -Agent codex-dev -HomeRoot $homeRoot -p 'hi there' 2>&1)
     Assert-Equal 0 $LASTEXITCODE 'Codex runner succeeds'
     $log = Get-Content -Raw $env:PS_AI_FAKE_TOOL_LOG | ConvertFrom-Json
-    Assert-Equal (Join-Path $homeRoot '.agents/legion/codex-dev') $log.environment.CODEX_HOME 'Codex config home'
+    Assert-Equal (Join-Path $homeRoot '.legion/agents/codex-dev') $log.environment.CODEX_HOME 'Codex config home'
     Assert-Equal '-p|hi there' ($log.arguments -join '|') 'Argument with space preserved'
     foreach ($exitCode in @(0,3)) {
         $env:PS_AI_FAKE_TOOL_EXIT = [string]$exitCode
@@ -67,8 +67,8 @@ try {
         $log = Get-Content -Raw $env:PS_AI_FAKE_TOOL_LOG | ConvertFrom-Json
         Assert-True $log.providersExisted 'Copilot providers existed during run'
         Assert-True (-not (Test-Path -LiteralPath $log.environment.COPILOT_PROVIDERS_CONFIG)) 'Copilot providers deleted afterwards'
-        Assert-Equal (Join-Path $homeRoot '.agents/legion/copilot-dev') $log.environment.COPILOT_HOME 'Copilot config home'
-        Assert-Equal (Join-Path $homeRoot '.agents/temp') (Split-Path $log.environment.COPILOT_PROVIDERS_CONFIG -Parent) 'Provider file in per-home temp'
+        Assert-Equal (Join-Path $homeRoot '.legion/agents/copilot-dev') $log.environment.COPILOT_HOME 'Copilot config home'
+        Assert-Equal (Join-Path $homeRoot '.legion/temp') (Split-Path $log.environment.COPILOT_PROVIDERS_CONFIG -Parent) 'Provider file in per-home temp'
         $providers = $log.providersJson | ConvertFrom-Json
         Assert-Equal 1 $providers.providers.Count 'One Copilot provider'
         Assert-Equal 'ps-ai-foundry' $providers.providers[0].name 'Copilot provider name'
@@ -99,7 +99,7 @@ try {
         Assert-True (($output -join "`n").Contains($case.error)) 'Invalid account message'
     }
     # A wrapper directory on PATH must not be selected as the real tool.
-    $bin = Join-Path $homeRoot '.agents/bin'
+    $bin = Join-Path $homeRoot '.legion/bin'
     New-Item -ItemType Directory -Path $bin -Force | Out-Null
     $bundledRunner = & {
         . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -HomeRoot $homeRoot
@@ -120,12 +120,12 @@ try {
     'throw "owned wrapper selected"' | Set-Content (Join-Path $bin 'fourth-cli.ps1')
     $file = Join-Path $config 'ps-ai-personalisation.json'
     $data = Get-Content $file -Raw | ConvertFrom-Json
-    $data.agents += @([pscustomobject]@{id='fourth-dev';tool='fourth';configDir='~/.agents/legion/fourth-dev';provider=$provider})
+    $data.agents += @([pscustomobject]@{id='fourth-dev';tool='fourth';configDir='~/.legion/agents/fourth-dev';provider=$provider})
     $data | ConvertTo-Json -Depth 100 | Set-Content $file
     $output = @(& $pwshPath -NoProfile -File $bundledRunner -Agent fourth-dev -HomeRoot $homeRoot --flag 'space value' 2>&1)
     Assert-Equal 0 $LASTEXITCODE 'Fourth runner resolves descriptor executable rather than id'
     $log = Get-Content $env:PS_AI_FAKE_TOOL_LOG -Raw | ConvertFrom-Json
-    Assert-Equal (Join-Path $homeRoot '.agents/legion/fourth-dev') $log.config 'Fourth adapter sets child config home'
+    Assert-Equal (Join-Path $homeRoot '.legion/agents/fourth-dev') $log.config 'Fourth adapter sets child config home'
     Assert-Equal '--flag|space value' ($log.arguments -join '|') 'Fourth runner preserves argument boundaries'
     $descriptorPath = Join-Path $fourthSkill 'tool.json'
     $descriptor = Get-Content $descriptorPath -Raw | ConvertFrom-Json
@@ -140,7 +140,7 @@ try {
         Assert-Equal 1 $LASTEXITCODE 'Unsupported capability exits one'
         Assert-Equal $calls @(Get-FakeAzCalls).Count 'Unsupported capability stops before Azure'
         Assert-True (-not (Test-Path $env:PS_AI_FAKE_TOOL_LOG)) 'Unsupported capability starts no tool'
-        Assert-Equal 0 @(Get-ChildItem (Join-Path $homeRoot '.agents/temp') -Filter '*providers*' -ErrorAction SilentlyContinue).Count 'Unsupported capability creates no provider file'
+        Assert-Equal 0 @(Get-ChildItem (Join-Path $homeRoot '.legion/temp') -Filter '*providers*' -ErrorAction SilentlyContinue).Count 'Unsupported capability creates no provider file'
     }
     # An invalid executable fails Process.Start after provider JSON has been written.
     $brokenName = if ($IsWindows) { 'broken-child.exe' } else { 'broken-child' }
@@ -155,7 +155,7 @@ try {
     $output = @(& $pwshPath -NoProfile -File $bundledRunner -Agent copilot-dev -HomeRoot $homeRoot 2>&1)
     Assert-Equal 1 $LASTEXITCODE 'Child start failure exits one'
     Assert-True (($output -join "`n").Contains('token valid until')) 'Child start failure occurs after provider construction'
-    Assert-Equal 0 @(Get-ChildItem (Join-Path $homeRoot '.agents/temp') -Filter '*providers*').Count 'Child start failure cleans provider file'
+    Assert-Equal 0 @(Get-ChildItem (Join-Path $homeRoot '.legion/temp') -Filter '*providers*').Count 'Child start failure cleans provider file'
     Assert-True (-not (($output -join "`n").Contains('fake-token'))) 'Start failure never prints token'
 
 } finally {

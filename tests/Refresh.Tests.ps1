@@ -4,14 +4,14 @@ $refresh = Join-Path $root 'plugins/ps-ai/bin/ps-ai-refresh.ps1'
 $tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
-    $config = Join-Path $tempRoot '.agents/configuration'
-    $bin = Join-Path $tempRoot '.agents/bin'
+    $config = Join-Path $tempRoot '.legion/configuration'
+    $bin = Join-Path $tempRoot '.legion/bin'
     $runtime = Join-Path $bin '.ps-ai-runtime/bin'
     New-Item -ItemType Directory -Path $config, $runtime -Force | Out-Null
     $file = Join-Path $config 'ps-ai-personalisation.json'
     @{
         agents=@(
-            @{id='foundry-a';tool='claude';command=$(if ($IsWindows) { '~/.agents/bin/foundry-a.cmd' } else { '~/.agents/bin/foundry-a' });configDir='~/.agents/legion/foundry-a';provider=@{kind='foundry'}},
+            @{id='foundry-a';tool='claude';command=$(if ($IsWindows) { '~/.legion/bin/foundry-a.cmd' } else { '~/.legion/bin/foundry-a' });configDir='~/.legion/agents/foundry-a';provider=@{kind='foundry'}},
             @{id='external';tool='claude';command='~/custom/external';provider=@{kind='foundry'}}
         )
         projects=@{example=@{custom='keep'}}

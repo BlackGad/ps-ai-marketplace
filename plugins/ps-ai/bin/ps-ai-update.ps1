@@ -4,6 +4,8 @@ param(
     [switch]$NoRun
 )
 
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
+
 function Get-PsAiUpdateHome {
     return [Environment]::GetFolderPath('UserProfile')
 }
@@ -26,7 +28,7 @@ function Get-PsAiUpdate {
         if ($manifest.name -ne 'ps-ai') { throw 'Invalid installed manifest' }
         $installed = [semver]::Parse([string]$manifest.version)
         $source = 'BlackGad/ps-ai-marketplace'
-        $cachePath = Join-Path (Get-PsAiUpdateHome) '.agents/temp/ps-ai-update.json'
+        $cachePath = Get-PsAiHomePath -HomeRoot (Get-PsAiUpdateHome) -Path 'temp/ps-ai-update.json'
         $cached = $null
         if (-not $Force -and (Test-Path -LiteralPath $cachePath -PathType Leaf)) {
             try {

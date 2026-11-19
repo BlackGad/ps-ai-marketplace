@@ -31,7 +31,7 @@ function Invoke-ClosedInput {
     $state.Writes++
     return @{ExitCode=0;Output=@()}
 }
-$bin = Join-Path $fixtureHome '.agents/bin'
+$bin = Join-Path $fixtureHome '.legion/bin'
 New-Item -ItemType Directory -Path $bin -Force | Out-Null
 '#!/bin/sh
 exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Content (Join-Path $bin 'ps-ai-overseer')

@@ -7,7 +7,7 @@ try {
     # Child hooks use a private cache and a replaced downloader, never the network.
     $hookPlugin = Join-Path $tempRoot 'hook-plugin'
     New-Item -ItemType Directory -Path (Join-Path $hookPlugin 'hooks'), (Join-Path $hookPlugin 'bin/lib') -Force | Out-Null
-    foreach ($file in @('hooks/detect-mode.ps1','bin/lib/common.ps1','bin/lib/tools.ps1','bin/ps-ai-update.ps1','plugin.json')) {
+    foreach ($file in @('hooks/detect-mode.ps1','bin/lib/common.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','bin/ps-ai-update.ps1','plugin.json')) {
         Copy-Item (Join-Path $root "plugins/ps-ai/$file") (Join-Path $hookPlugin $file)
     }
     @'
@@ -16,8 +16,8 @@ function Get-PsAiUpdateText { throw 'offline fixture' }
 '@ | Add-Content (Join-Path $hookPlugin 'bin/ps-ai-update.ps1')
     $script = Join-Path $hookPlugin 'hooks/detect-mode.ps1'
     $fixtureRepo = Join-Path $tempRoot 'repo'
-    $state = Join-Path $fixtureRepo '.agents/state'
-    $temp = Join-Path $fixtureRepo '.agents/temp'
+    $state = Join-Path $fixtureRepo '.legion/state'
+    $temp = Join-Path $fixtureRepo '.legion/temp'
     New-Item -ItemType Directory -Path $state, $temp -Force | Out-Null
     $handoff = Join-Path $state 'handoff.md'
     $lease = Join-Path $temp 'overseer.lock'
@@ -102,7 +102,8 @@ function Get-PsAiUpdateText { throw 'offline fixture' }
     New-Item -ItemType Directory (Join-Path $copy 'hooks'), (Join-Path $copy 'bin/lib') -Force | Out-Null
     Copy-Item -LiteralPath $script -Destination (Join-Path $copy 'hooks/detect-mode.ps1')
     Copy-Item -LiteralPath (Join-Path $hookPlugin 'bin/ps-ai-update.ps1') -Destination (Join-Path $copy 'bin/ps-ai-update.ps1')
-    'function Get-PsAiLease { throw "fixture lease read failure" }' | Set-Content (Join-Path $copy 'bin/lib/common.ps1')
+    Copy-Item (Join-Path $hookPlugin 'bin/lib/paths.ps1') (Join-Path $copy 'bin/lib/paths.ps1')
+    '. (Join-Path $PSScriptRoot ''paths.ps1''); function Get-PsAiLease { throw "fixture lease read failure" }' | Set-Content (Join-Path $copy 'bin/lib/common.ps1')
     $failedHook = Join-Path $copy 'hooks/detect-mode.ps1'
     $warning = 'ps-ai: mode detection failed; continuing without mode context.'
     Assert-Equal $warning (& pwsh -NoProfile -File $failedHook -Repo $fixtureRepo -Format text) 'Text hook fails open'

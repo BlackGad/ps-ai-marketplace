@@ -9,7 +9,7 @@ try {
     & pwsh -NoProfile -File $script -Action take -Repo $repo -Tool codex -Account session | Out-Null
     . (Join-Path $root 'plugins/ps-ai/bin/lib/common.ps1')
     Assert-Equal 'held' (Get-PsAiLease -Repo $repo).State 'A short-lived helper leases for its long-lived parent'
-    $path = Join-Path $repo '.agents/temp/overseer.lock'
+    $path = Join-Path $repo '.legion/temp/overseer.lock'
     $saved = Get-Content $path -Raw | ConvertFrom-Json
     Assert-True ([bool]$saved.processStartedAt) 'Lease records owner process lifetime'
     & pwsh -NoProfile -File $script -Action release -Repo $repo | Out-Null
@@ -36,7 +36,7 @@ $env:PS_AI_TEST_LEASE_REPO = $Repo
 & $Bash -c 'pwsh -NoProfile -File "$PS_AI_TEST_LEASE_SCRIPT" -Action take -Repo "$PS_AI_TEST_LEASE_REPO" -Tool codex -Account session'
 Assert-Equal 0 $LASTEXITCODE 'Bash helper takes the session lease'
 Assert-Equal 'held' (Get-PsAiLease -Repo $Repo).State 'A short-lived bash helper leases for its long-lived parent'
-$lease = Get-Content (Join-Path $Repo '.agents/temp/overseer.lock') -Raw | ConvertFrom-Json
+$lease = Get-Content (Join-Path $Repo '.legion/temp/overseer.lock') -Raw | ConvertFrom-Json
 Assert-Equal $PID $lease.pid 'Shell-only ancestry uses the surviving session, not bash or the helper'
 Assert-Equal (Get-Process -Id $PID).StartTime.ToUniversalTime() ([datetime]$lease.processStartedAt).ToUniversalTime() 'Lease start time belongs to the selected session'
 & $Bash -c 'pwsh -NoProfile -File "$PS_AI_TEST_LEASE_SCRIPT" -Action release -Repo "$PS_AI_TEST_LEASE_REPO"'
@@ -99,7 +99,7 @@ exit $result
     }
     $processes | Wait-Process
     Assert-Equal 1 @($processes | Where-Object ExitCode -eq 0).Count 'Only one concurrent lease take succeeds'
-    $leasePath = Join-Path $repo '.agents/temp/overseer.lock'
+    $leasePath = Join-Path $repo '.legion/temp/overseer.lock'
     $lease = Get-Content -Raw $leasePath | ConvertFrom-Json
     Assert-Equal ([System.Net.Dns]::GetHostName()) $lease.host 'Lease records DNS host'
     . $hook -NoRun

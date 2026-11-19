@@ -10,4 +10,4 @@ Before and after writing, check:
 - [ ] No secrets, credentials, tokens, or credential file contents.
 - [ ] The project tag is only the neutral `label`.
 
-Replace specifics with roles such as “the service” or “the readiness signal.” If removing specifics destroys the lesson, drop it. A behavior-changing lesson also belongs in `~/.agents/configuration/ps-ai-notes.md`.
+Replace specifics with roles such as “the service” or “the readiness signal.” If removing specifics destroys the lesson, drop it. A behavior-changing lesson also belongs in `~/.legion/configuration/ps-ai-notes.md`.

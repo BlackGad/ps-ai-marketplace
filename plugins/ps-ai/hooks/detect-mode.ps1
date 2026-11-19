@@ -11,7 +11,7 @@ function Find-PsAiRepoRoot {
     param([string]$Path)
     $current = $Path
     while ($current) {
-        if (Test-Path -LiteralPath (Join-Path $current '.agents/state')) { return $current }
+        if (Test-Path -LiteralPath (Get-PsAiRepoPath -Repo $current -Path 'state')) { return $current }
         if (Test-Path -LiteralPath (Join-Path $current '.git')) { return $current }
         $current = Split-Path $current -Parent
     }
@@ -36,7 +36,7 @@ function Get-PsAiMode {
         return [pscustomobject]@{ Mode = 'legion'; Task = $task; Lease = 'free'; Text = $message }
     }
     $Repo = Find-PsAiRepoRoot -Path $Repo
-    $handoff = Join-Path $Repo '.agents/state/handoff.md'
+    $handoff = Get-PsAiRepoPath -Repo $Repo -Path 'state/handoff.md'
     if (-not (Test-Path -LiteralPath $handoff)) {
         return [pscustomobject]@{ Mode = 'none'; Task = $null; Lease = 'free'; Text = '' }
     }

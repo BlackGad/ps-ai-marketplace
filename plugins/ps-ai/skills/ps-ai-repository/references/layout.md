@@ -1,7 +1,7 @@
 # Shared layout
 
 ```
-<repo>/.agents/
+<repo>/.legion/
   configuration/project.json
   configuration/workflow.md
   scripts/index.md
@@ -14,7 +14,7 @@
   temp/
 ```
 
-This is the authoritative ignore list for setup, migration, and final verification: `.agents/temp/` and `.agents/docs/`. Add missing entries to `.gitignore` without broadening existing ignores; preserve unrelated rules. `temp/` is ps-ai scratch, cleaned at milestone close-out; `docs/` holds specs and plans, which are temporary working documents that stay local and are never committed or cleaned. Keep `.agents/configuration`, `.agents/scripts`, `.agents/state`, `.agents/skills`, and `.agents/plugins` trackable. Git cannot track an empty directory; use a `.gitkeep` in `history/` when needed. Create `temp/` locally; it stays untracked.
+This is the authoritative ignore list for setup, migration, and final verification: `.legion/temp/` and `.legion/docs/`. Add missing entries to `.gitignore` without broadening existing ignores; preserve unrelated rules. `temp/` is ps-ai scratch, cleaned at milestone close-out; `docs/` holds specs and plans, which are temporary working documents that stay local and are never committed or cleaned. Keep `.legion/configuration`, `.legion/scripts`, `.legion/state`, `.agents/skills`, and `.agents/plugins` trackable. Git cannot track an empty directory; use a `.gitkeep` in `history/` when needed. Create `temp/` locally; it stays untracked.
 
 `state/roadmap/` is tracked and optional. Leave it missing or empty until a goal is approved. It needs no placeholder or index. See `ps-ai-overseer/references/roadmap.md` for file rules.
 

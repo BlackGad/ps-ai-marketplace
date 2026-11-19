@@ -378,6 +378,11 @@ function Get-InstallHome {
     return [Environment]::GetFolderPath('UserProfile')
 }
 
+function Get-InstallLegionPath {
+    param([string]$Path)
+    return Join-Path (Join-Path (Get-InstallHome) '.legion') $Path
+}
+
 function Resolve-InstallConfigDir {
     param([string]$Path)
     $Path = $Path.Replace('\', '/')
@@ -397,7 +402,7 @@ function Get-UpdateConfigDirs {
     if ($defaultFolder) { $defaultFolder = Resolve-InstallConfigDir $defaultFolder }
     $folders = @()
     $homeRoot = Get-InstallHome
-    $file = Join-Path $homeRoot '.agents/configuration/ps-ai-personalisation.json'
+    $file = Get-InstallLegionPath 'configuration/ps-ai-personalisation.json'
     if (Test-Path -LiteralPath $file -PathType Leaf) {
         $data = Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         foreach ($agent in $data.agents) {
@@ -419,7 +424,7 @@ function Get-UpdateConfigDirs {
 function Get-UninstallFiles {
     param([string[]]$Tools, [string]$ConfigDir, $Owner)
     $homeRoot = Get-InstallHome
-    $bin = [IO.Path]::GetFullPath((Join-Path $homeRoot '.agents/bin'))
+    $bin = [IO.Path]::GetFullPath((Get-InstallLegionPath 'bin'))
     $paths = @()
     $remaining = $false
     foreach ($agent in $Owner.agents) {
@@ -447,7 +452,7 @@ function Get-UninstallFiles {
         }
         # Exact files published by Sync-PsAiFoundryRuntime; never remove the directory tree.
         $runtime = Join-Path $bin '.ps-ai-runtime'
-        foreach ($name in @('bin/lib/tools.ps1', 'bin/lib/foundry.ps1', 'bin/ps-ai-foundry.ps1', 'schemas/tool.schema.json')) {
+        foreach ($name in @('bin/lib/tools.ps1', 'bin/lib/foundry.ps1', 'bin/lib/paths.ps1', 'bin/ps-ai-foundry.ps1', 'schemas/tool.schema.json')) {
             $paths += Join-Path $runtime $name
         }
         foreach ($entry in $script:installCatalog.tools) {
@@ -510,7 +515,7 @@ function Get-UninstallCachePath {
 function Invoke-PsAiUninstall {
     param([string[]]$Tools, [string]$ConfigDir, [switch]$DryRun, [switch]$Yes)
     $homeRoot = Get-InstallHome
-    $file = Join-Path $homeRoot '.agents/configuration/ps-ai-personalisation.json'
+    $file = Get-InstallLegionPath 'configuration/ps-ai-personalisation.json'
     $owner = $null
     if (Test-Path -LiteralPath $file -PathType Leaf) {
         $owner = Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
@@ -571,7 +576,7 @@ function Invoke-PsAiUninstall {
                 }
             }
         }
-        $bin = [IO.Path]::GetFullPath((Join-Path $homeRoot '.agents/bin'))
+        $bin = [IO.Path]::GetFullPath((Get-InstallLegionPath 'bin'))
         foreach ($path in $files) {
             Remove-Item -LiteralPath $path -Force -ErrorAction Stop
             $parent = Split-Path $path -Parent
@@ -581,8 +586,8 @@ function Invoke-PsAiUninstall {
             }
         }
     }
-    $configuration = Join-Path $homeRoot '.agents/configuration'
-    $accounts = Join-Path $homeRoot '.agents/legion'
+    $configuration = Get-InstallLegionPath 'configuration'
+    $accounts = Get-InstallLegionPath 'agents'
     if (Test-Path -LiteralPath $configuration) { "Kept settings and notes: $configuration" }
     if (Test-Path -LiteralPath $accounts) { "Kept account folders and logins: $accounts" }
     foreach ($entry in $script:installCatalog.tools) {
@@ -699,7 +704,7 @@ function Get-InstallPowerShellCommand {
 }
 
 function Get-InstallPortablePowerShell {
-    $root = Join-Path (Get-InstallHome) '.agents/tools/pwsh'
+    $root = Get-InstallLegionPath 'tools/pwsh'
     $pattern = Join-Path ([WildcardPattern]::Escape($root)) $script:installCatalog.bootstrap.windows.portableCommand
     $file = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
     if ($file) { return $file.FullName }
@@ -766,7 +771,7 @@ function Invoke-InstallWinget {
 }
 
 function Install-PowerShellZip {
-    $temporary = Join-Path (Get-InstallHome) ('.agents/temp/ps-ai-install-' + [guid]::NewGuid().ToString('N'))
+    $temporary = Get-InstallLegionPath ('temp/ps-ai-install-' + [guid]::NewGuid().ToString('N'))
     $metadata = Join-Path $temporary 'release.json'
     $archive = Join-Path $temporary 'pwsh.zip'
     try {
@@ -783,7 +788,7 @@ function Install-PowerShellZip {
         if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256 -ErrorAction Stop).Hash -ine $expectedHash) {
             throw 'PowerShell ZIP SHA-256 digest mismatch; download deleted.'
         }
-        $destination = Join-Path (Get-InstallHome) '.agents/tools/pwsh'
+        $destination = Get-InstallLegionPath 'tools/pwsh'
         Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force -ErrorAction Stop
         if (-not (Get-InstallPortablePowerShell)) { throw 'PowerShell ZIP does not contain the configured executable.' }
         $folder = $recipe.pathFolder.Replace('{version}', [string]$release.tag_name)
@@ -815,7 +820,7 @@ function Ensure-InstallPowerShell {
         return $false
     }
     Write-Host ('winget install --id ' + $script:installCatalog.bootstrap.windows.wingetId + ' -e')
-    Write-Host 'ZIP fallback: latest official PowerShell ZIP, verified with its SHA-256 digest, to ~/.agents/tools/pwsh/ (user and process PATH).'
+    Write-Host 'ZIP fallback: latest official PowerShell ZIP, verified with its SHA-256 digest, to ~/.legion/tools/pwsh/ (user and process PATH).'
     if ($DryRun) { return $false }
     if (-not $Yes -and (Read-Host 'Install PowerShell 7 now? [y/N]') -notmatch '^(?i:y|yes)$') { return $false }
     if (Test-InstallCommandAvailable -Name winget) {

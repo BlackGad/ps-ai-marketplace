@@ -5,7 +5,7 @@
     {
       "id": "claude-dev",
       "tool": "claude",
-      "configDir": "~/.agents/legion/claude-dev",
+      "configDir": "~/.legion/agents/claude-dev",
       "provider": {
         "kind": "foundry",
         "endpoint": "https://res-a.cognitiveservices.azure.com",

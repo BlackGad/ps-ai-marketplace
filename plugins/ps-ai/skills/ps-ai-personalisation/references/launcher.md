@@ -1,6 +1,6 @@
 # Overseer launcher shim
 
-When the owner requests the launcher, put `ps-ai-overseer` in `<home>/.agents/bin/` and ensure that folder is on PATH. The Unix shim uses `exec pwsh -NoProfile -File '<absolute plugin path>/bin/ps-ai-overseer.ps1' "$@"`; on Windows write `ps-ai-overseer.cmd` with `@pwsh -NoProfile -File "<absolute plugin path>\bin\ps-ai-overseer.ps1" %*`. Preserve each argument; ask before replacing a conflicting command.
+When the owner requests the launcher, put `ps-ai-overseer` in `<home>/.legion/bin/` and ensure that folder is on PATH. The Unix shim uses `exec pwsh -NoProfile -File '<absolute plugin path>/bin/ps-ai-overseer.ps1' "$@"`; on Windows write `ps-ai-overseer.cmd` with `@pwsh -NoProfile -File "<absolute plugin path>\bin\ps-ai-overseer.ps1" %*`. Preserve each argument; ask before replacing a conflicting command.
 
 Usage: `ps-ai-overseer -Account <id> [-Tool <tool-id>] [-Channel <id[]>] [-Arguments <string[]>] [-Repo <path>]`. In a fixture pass `-HomeRoot <temp home>`; `-DryRun` prints arguments without opening a window. The shipped launcher validates minimal owner/project JSON and merges explicit arguments, channel vectors and interactive arguments before the initial prompt. Do not reimplement this in the shim.
 

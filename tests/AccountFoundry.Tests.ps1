@@ -11,7 +11,7 @@ New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
     $env:PS_AI_FAKE_TOOL_LOG = Join-Path $tempRoot 'tool-log.json'
     $homeRoot = Join-Path $tempRoot 'owner with spaces'
-    $file = Join-Path $homeRoot '.agents/configuration/ps-ai-personalisation.json'
+    $file = Join-Path $homeRoot '.legion/configuration/ps-ai-personalisation.json'
     New-Item -ItemType Directory -Path (Split-Path $file -Parent) -Force | Out-Null
     @{schemaVersion=1;agents=@();channels=@()} |
         ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $file
@@ -31,8 +31,8 @@ try {
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($listed.deployments.name -join '|') 'Add lists matching models'
     Assert-Equal 'new|new' ($listed.deployments.state -join '|') 'Add states are new'
     Assert-Equal $before ([Convert]::ToBase64String([IO.File]::ReadAllBytes($file))) 'List leaves personalisation bytes unchanged'
-    Assert-True (-not (Test-Path (Join-Path $homeRoot '.agents/bin'))) 'List creates no wrappers'
-    $claudeDir = Join-Path $homeRoot '.agents/legion/claude-dev'
+    Assert-True (-not (Test-Path (Join-Path $homeRoot '.legion/bin'))) 'List creates no wrappers'
+    $claudeDir = Join-Path $homeRoot '.legion/agents/claude-dev'
     New-Item -ItemType Directory -Path $claudeDir -Force | Out-Null
     $settings = Join-Path $claudeDir 'settings.json'
     '{"theme":"dark"}' | Set-Content -LiteralPath $settings
@@ -52,14 +52,14 @@ try {
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.model -join '|') 'Picker uses deployment names'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.label -join '|') 'Picker labels'
     foreach ($name in @('claude-dev','claude-dev.cmd','.ps-ai-runtime/bin/ps-ai-foundry.ps1','.ps-ai-runtime/bin/lib/foundry.ps1','.ps-ai-runtime/bin/lib/tools.ps1','.ps-ai-runtime/schemas/tool.schema.json')) {
-        Assert-True (Test-Path (Join-Path $homeRoot ".agents/bin/$name")) "Foundry writes $name"
+        Assert-True (Test-Path (Join-Path $homeRoot ".legion/bin/$name")) "Foundry writes $name"
     }
     # RuntimeSurvivesRelocation: only selected runtime files are bundled.
-    $runtime = Join-Path $homeRoot '.agents/bin/.ps-ai-runtime'
-    $expectedFiles = @('bin/ps-ai-foundry.ps1','bin/lib/foundry.ps1','bin/lib/tools.ps1','schemas/tool.schema.json','skills/ps-ai-claude/SKILL.md','skills/ps-ai-claude/tool.json','skills/ps-ai-claude/scripts/foundry-launch.ps1','skills/ps-ai-claude/scripts/foundry-config.ps1')
+    $runtime = Join-Path $homeRoot '.legion/bin/.ps-ai-runtime'
+    $expectedFiles = @('bin/ps-ai-foundry.ps1','bin/lib/foundry.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','schemas/tool.schema.json','skills/ps-ai-claude/SKILL.md','skills/ps-ai-claude/tool.json','skills/ps-ai-claude/scripts/foundry-launch.ps1','skills/ps-ai-claude/scripts/foundry-config.ps1')
     Assert-Equal (($expectedFiles | Sort-Object) -join '|') ((Get-ChildItem $runtime -File -Recurse | ForEach-Object { [IO.Path]::GetRelativePath($runtime, $_.FullName).Replace('\','/') } | Sort-Object) -join '|') 'Bundle contains only runtime dependencies'
-    Assert-True ((Get-Content (Join-Path $homeRoot '.agents/bin/claude-dev') -Raw).Contains((Join-Path $runtime 'bin/ps-ai-foundry.ps1'))) 'Wrapper targets bundled runner'
-    $tracked = @($file, $settings, (Join-Path $homeRoot '.agents/bin/claude-dev'), (Join-Path $homeRoot '.agents/bin/.ps-ai-runtime/bin/ps-ai-foundry.ps1'))
+    Assert-True ((Get-Content (Join-Path $homeRoot '.legion/bin/claude-dev') -Raw).Contains((Join-Path $runtime 'bin/ps-ai-foundry.ps1'))) 'Wrapper targets bundled runner'
+    $tracked = @($file, $settings, (Join-Path $homeRoot '.legion/bin/claude-dev'), (Join-Path $homeRoot '.legion/bin/.ps-ai-runtime/bin/ps-ai-foundry.ps1'))
     $timestamps = @($tracked | ForEach-Object { [IO.File]::GetLastWriteTimeUtc($_).Ticks })
     $repeat = & $accountScript -Action add @common @selection
     Assert-Equal 'skip: account claude-dev (already done)' $repeat 'Repeated add skips'
@@ -96,7 +96,7 @@ try {
     Assert-Equal 'claude-haiku-x' $updated.provider.default 'Models updates default'
     Assert-Equal 'haiku' $updated.provider.deployments[1].alias 'Models updates aliases'
     Assert-Equal 'claude-opus-x|claude-haiku-x' ((Get-Content -Raw $settings | ConvertFrom-Json).modelPicker.options.model -join '|') 'Models refreshes picker'
-    $badDir = Join-Path $homeRoot '.agents/legion/claude-bad'
+    $badDir = Join-Path $homeRoot '.legion/agents/claude-bad'
     New-Item -ItemType Directory -Path $badDir -Force | Out-Null
     $badSettings = Join-Path $badDir 'settings.json'
     [IO.File]::WriteAllText($badSettings, '{bad')
@@ -106,7 +106,7 @@ try {
     } catch { Assert-Equal 'settings.json is not valid JSON; fix or remove it' $_.Exception.Message 'Unreadable settings stops add' }
     Assert-Equal '{bad' (Get-Content -Raw $badSettings) 'Unreadable settings unchanged'
     Assert-Equal 1 (Read-PsAiJson $file).agents.Count 'Invalid settings does not add partial account'
-    $codexDir = Join-Path $homeRoot '.agents/legion/codex-dev'
+    $codexDir = Join-Path $homeRoot '.legion/agents/codex-dev'
     New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
     $toml = Join-Path $codexDir 'config.toml'
     @'
@@ -212,7 +212,7 @@ approval_policy = "never"
         }
     )
     foreach ($tomlCase in $tomlCases) {
-        $caseDir = Join-Path $homeRoot ".agents/legion/$($tomlCase.id)"
+        $caseDir = Join-Path $homeRoot ".legion/agents/$($tomlCase.id)"
         New-Item -ItemType Directory -Path $caseDir -Force | Out-Null
         $caseFile = Join-Path $caseDir 'config.toml'
         [IO.File]::WriteAllText($caseFile, $tomlCase.text.Replace("`r`n", "`n"))
@@ -227,11 +227,11 @@ approval_policy = "never"
         . $accountScript -HomeRoot $homeRoot
         # Runtime namespace must not consume any valid account name.
         $collisionHome = Join-Path $tempRoot 'collision-home'
-        $collisionFile = Join-Path $collisionHome '.agents/configuration/ps-ai-personalisation.json'
+        $collisionFile = Join-Path $collisionHome '.legion/configuration/ps-ai-personalisation.json'
         New-Item -ItemType Directory (Split-Path $collisionFile -Parent) -Force | Out-Null
         Copy-Item $file $collisionFile
         & $accountScript -Action add -Id ps-ai-runtime -Tool claude -Command preserved-cli -HomeRoot $collisionHome | Out-Null
-        $collisionWrapper = Join-Path $collisionHome '.agents/bin/ps-ai-runtime'
+        $collisionWrapper = Join-Path $collisionHome '.legion/bin/ps-ai-runtime'
         $collisionBytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))
         $runtimeChanges = [Collections.Generic.List[string]]::new()
         $collisionRunner = Sync-PsAiFoundryRuntime -Tool claude -HomeRoot $collisionHome -Changes $runtimeChanges
@@ -261,9 +261,9 @@ approval_policy = "never"
         Assert-Equal 0 $LASTEXITCODE 'Bundle launches after source plugin removal from a home with spaces'
     }
     & $accountScript -Action rename -Id claude-dev -NewId claude-renamed -HomeRoot $homeRoot | Out-Null
-    Assert-True ((Get-Content -Raw (Join-Path $homeRoot '.agents/bin/claude-renamed')).Contains('-Agent claude-renamed')) 'Foundry rename retargets wrapper'
+    Assert-True ((Get-Content -Raw (Join-Path $homeRoot '.legion/bin/claude-renamed')).Contains('-Agent claude-renamed')) 'Foundry rename retargets wrapper'
     & $accountScript -Action remove -Id claude-renamed -HomeRoot $homeRoot | Out-Null
-    Assert-True (-not (Test-Path (Join-Path $homeRoot '.agents/bin/claude-renamed'))) 'Remove deletes Foundry wrapper'
+    Assert-True (-not (Test-Path (Join-Path $homeRoot '.legion/bin/claude-renamed'))) 'Remove deletes Foundry wrapper'
     Assert-True (Test-Path $settings) 'Remove keeps Foundry settings'
 } finally {
     $env:PS_AI_FAKE_TOOL_LOG = $savedToolLog

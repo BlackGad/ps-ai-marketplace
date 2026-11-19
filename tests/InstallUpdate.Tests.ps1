@@ -22,14 +22,14 @@ $repo = Split-Path $PSScriptRoot -Parent
     . (Join-Path $repo 'install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/restructure/update-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path (Join-Path $sandbox '.agents/configuration') -Force | Out-Null
-    $personalisation = Join-Path $sandbox '.agents/configuration/ps-ai-personalisation.json'
+    New-Item -ItemType Directory -Path (Join-Path $sandbox '.legion/configuration') -Force | Out-Null
+    $personalisation = Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json'
     $agents = @(
-        @{tool='claude';configDir='~/.agents/legion/claude-a'},
-        @{tool='claude';configDir='~/.agents/legion/claude-a'},
+        @{tool='claude';configDir='~/.legion/agents/claude-a'},
+        @{tool='claude';configDir='~/.legion/agents/claude-a'},
         @{tool='claude';configDir=(Join-Path $sandbox 'custom account')},
-        @{tool='codex';configDir='~/.agents/legion/codex-a'},
-        @{tool='copilot';configDir='~/.agents/legion/copilot-a'}
+        @{tool='codex';configDir='~/.legion/agents/codex-a'},
+        @{tool='copilot';configDir='~/.legion/agents/copilot-a'}
     )
     @{agents=$agents} | ConvertTo-Json | Set-Content -LiteralPath $personalisation
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
@@ -74,7 +74,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         }
         $custom = Join-Path $sandbox 'custom account'
         Assert-True ($calls -contains "claude:$custom|claude|plugin|update|ps-ai@ps-ai-marketplace") 'Registered custom folder refreshes'
-        Assert-True ($calls -contains "codex:$(Join-Path $sandbox '.agents/legion/codex-a')|codex|plugin|add|ps-ai@ps-ai-marketplace") 'Codex refresh repeats add without remove'
+        Assert-True ($calls -contains "codex:$(Join-Path $sandbox '.legion/agents/codex-a')|codex|plugin|add|ps-ai@ps-ai-marketplace") 'Codex refresh repeats add without remove'
         Assert-Equal 0 @($calls | Where-Object { $_ -match '\|remove\||\|install\|' }).Count 'Installed plugin updates do not remove or reinstall'
         Assert-True (($output -join "`n").Contains('claude plugin update ps-ai@ps-ai-marketplace')) 'Each mutation prints its command'
 

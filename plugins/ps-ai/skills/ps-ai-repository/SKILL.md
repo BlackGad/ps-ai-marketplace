@@ -1,6 +1,6 @@
 ---
 name: ps-ai-repository
-description: Use when the owner asks to set up or migrate orchestration in a repository, the overseer finds no .agents/configuration, or a fixed repository step lacks a listed script.
+description: Use when the owner asks to set up or migrate orchestration in a repository, the overseer finds no .legion/configuration, or a fixed repository step lacks a listed script.
 ---
 
 # Repository orchestration setup

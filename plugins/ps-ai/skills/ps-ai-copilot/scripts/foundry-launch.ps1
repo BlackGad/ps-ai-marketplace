@@ -1,10 +1,12 @@
 param($Agent, [string]$HomeRoot, $Token)
 
+. (Join-Path $PSScriptRoot '../../../bin/lib/paths.ps1')
+
 $folder = [string]$Agent.configDir
 if ($folder.StartsWith('~/')) { $folder = Join-Path $HomeRoot $folder.Substring(2) }
 $launch = @{ Set = @{}; Clear = [string[]]@(); ProvidersFile = $null; ProvidersJson = $null; Notice = $null }
 if (-not $Token) { $Token = Get-FoundryToken }
-$tempFolder = Join-Path $HomeRoot '.agents/temp'
+$tempFolder = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'temp'
 $now = [DateTimeOffset]::UtcNow
 $guidPattern = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 if (Test-Path -LiteralPath $tempFolder) {

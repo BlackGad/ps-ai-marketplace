@@ -15,7 +15,7 @@ On Windows, run this in Windows PowerShell 5.1 or PowerShell 7 (`pwsh`):
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1)))
 ```
 
-The script checks for PowerShell 7, which the plugin needs at runtime. If it is missing on Windows, the script shows `winget install --id Microsoft.PowerShell -e` and asks before installing. If winget is missing or fails, it offers the official per-user ZIP, verifies its SHA-256 digest, extracts it to `~/.agents/tools/pwsh/`, and adds that folder to the user and current process PATH. Use `-Yes` to approve installation without prompts.
+The script checks for PowerShell 7, which the plugin needs at runtime. If it is missing on Windows, the script shows `winget install --id Microsoft.PowerShell -e` and asks before installing. If winget is missing or fails, it offers the official per-user ZIP, verifies its SHA-256 digest, extracts it to `~/.legion/tools/pwsh/`, and adds that folder to the user and current process PATH. Use `-Yes` to approve installation without prompts.
 
 On macOS or Linux, [install PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) first, then run:
 
@@ -30,7 +30,7 @@ By default, the script installs ps-ai for every installed coding CLI, using the 
 Plain install and `-Update` select the same targets:
 
 - Without `-Tools`, select the CLIs found on PATH from `tools.json`. `-Tools` selects the named descriptors instead; update skips a selected CLI if its executable is missing.
-- For each selected CLI, target its default config with the inherited account environment override cleared, then each matching `agents[].configDir` in `~/.agents/configuration/ps-ai-personalisation.json`. Ignore missing or blank `configDir` values and the value `default`; expand a leading `~/` or `~\` against the owner home and resolve recorded paths to full paths. Repeated recorded paths run once (case insensitive on Windows, case sensitive elsewhere).
+- For each selected CLI, target its default config with the inherited account environment override cleared, then each matching `agents[].configDir` in `~/.legion/configuration/ps-ai-personalisation.json`. Ignore missing or blank `configDir` values and the value `default`; expand a leading `~/` or `~\` against the owner home and resolve recorded paths to full paths. Repeated recorded paths run once (case insensitive on Windows, case sensitive elsewhere).
 - `-ConfigDir` replaces that folder list with only the supplied folder for each selected CLI. `-Tools` and `-ConfigDir` can be combined.
 - Plain install skips completed steps. Update refreshes installed copies, including disabled ones; if ps-ai is missing, it uses the same marketplace registration and plugin installation steps as plain install. Missing recorded folders can be created by installation. `-DryRun` reads listings and previews mutations.
 
@@ -56,7 +56,7 @@ To adopt a signed-in account folder, say “Add my existing Claude account in ~/
 
 ### Version checks and catalog revisions
 
-Overseer sessions check for a newer ps-ai version once a day and show a notice when one is available. Say "check ps-ai updates" for a fresh check, or "update ps-ai" to see the update command and approve running it. Checks never install updates. Checks and generated update commands follow `main` in `BlackGad/ps-ai-marketplace`, including after an installation using a tagged installer or catalog. The shared checker is `pwsh -NoProfile -File <plugin>/bin/ps-ai-update.ps1 -Check [-Force]`; `-Force` refreshes `~/.agents/temp/ps-ai-update.json` and reports check failures.
+Overseer sessions check for a newer ps-ai version once a day and show a notice when one is available. Say "check ps-ai updates" for a fresh check, or "update ps-ai" to see the update command and approve running it. Checks never install updates. Checks and generated update commands follow `main` in `BlackGad/ps-ai-marketplace`, including after an installation using a tagged installer or catalog. The shared checker is `pwsh -NoProfile -File <plugin>/bin/ps-ai-update.ps1 -Check [-Force]`; `-Force` refreshes `~/.legion/temp/ps-ai-update.json` and reports check failures.
 
 To run a specific installer and matching catalog revision, replace `<release-tag>` with a published release tag. This does not pin the installed plugin or future updates:
 
@@ -107,16 +107,16 @@ Codex hooks need one-time trust through `/hooks` in the selected account. Reinst
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Uninstall
 ```
 
-Shows the targets and generated files before asking. Use `-Yes` to skip the prompt, `-DryRun` to preview, or `-Tools` and `-ConfigDir` to narrow targets. Removes ps-ai and its marketplace registration, plus its generated account and overseer launchers and copied runtime in `~/.agents/bin` (shared files stay while other account launchers need them). Keeps `~/.agents/configuration` (settings and notes), account folders and logins, repositories, and the CLIs themselves. The script prints the kept locations so you can delete data by hand.
+Shows the targets and generated files before asking. Use `-Yes` to skip the prompt, `-DryRun` to preview, or `-Tools` and `-ConfigDir` to narrow targets. Removes ps-ai and its marketplace registration, plus its generated account and overseer launchers and copied runtime in `~/.legion/bin` (shared files stay while other account launchers need them). Keeps `~/.legion/configuration` (settings and notes), `~/.legion/agents` (account folders and logins), repositories, and the CLIs themselves. The script prints the kept locations so you can delete data by hand.
 
 ## First run
 
 Setup has three steps: install ps-ai, add accounts, and start work. After installation, ask any tool to add accounts. The `ps-ai-personalisation` skill asks only which agents to add: the tool, account name, and an existing folder or a new one. One yes approves installing ps-ai into every selected account. It writes:
 
-- `~/.agents/configuration/ps-ai-personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/ps-ai/schemas/personalisation.schema.json`. It never holds tokens.
-- `~/.agents/configuration/ps-ai-notes.md`: free-form preferences and lessons.
+- `~/.legion/configuration/ps-ai-personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/ps-ai/schemas/personalisation.schema.json`. It never holds tokens.
+- `~/.legion/configuration/ps-ai-notes.md`: free-form preferences and lessons.
 
-Then open a repository and describe the work. Ask to set up orchestration if needed. `ps-ai-repository` creates the `.agents/` layout below. Setup asks no questions about models, account purposes, worker or reviewer roles, notification timing, channels, or knowledge. State preferences later; they are saved in notes. Channels are set up only on request, such as “use Telegram”.
+Then open a repository and describe the work. Ask to set up orchestration if needed. `ps-ai-repository` creates the `.legion/` layout below. Setup asks no questions about models, account purposes, worker or reviewer roles, notification timing, channels, or knowledge. State preferences later; they are saved in notes. Channels are set up only on request, such as “use Telegram”.
 
 Legion and review runs pass no model flag by default. Each CLI uses that account's own default model. A model flag is passed only when owner notes name one, such as “use astra for reviews”. Routing chooses agents without model discovery or model lists. Without owner preferences, the overseer spreads work across available agents and chooses a different tool/provider for independent reviews. It says which agent was chosen. Owner preferences always win.
 
@@ -135,7 +135,7 @@ A hook at session start decides the mode:
 | Mode | When | What happens |
 | --- | --- | --- |
 | Legion | The overseer started this process with `PS_AI_ROLE=legion` and `PS_AI_TASK` | One task, local commits, a report; no other agents |
-| Overseer | You say continue, progress or next in a repo with `.agents/state/` | Takes the lease, reads the handoff, continues the work |
+| Overseer | You say continue, progress or next in a repo with `.legion/state/` | Takes the lease, reads the handoff, continues the work |
 | Setup | You ask to set up orchestration | Creates the repo layout and registers the project |
 | Ad hoc | Anything else | Nothing changes; an orchestrated repo shows one hint line |
 
@@ -153,16 +153,16 @@ To opt out, leave legion unused. To limit its use, route legion only to accounts
 
 | What | Where | Tracked |
 | --- | --- | --- |
-| Personalisation and notes | `~/.agents/configuration/` | no |
-| Launcher and account wrappers | `~/.agents/bin/` | no |
-| New account config folders (adopted folders keep their names) | `~/.agents/legion/<id>/` | no |
-| Portable prerequisite tools | `~/.agents/tools/<tool>/` | no |
-| Cross-project knowledge wiki (optional, llm-wiki) | `~/.agents/knowledge/` | no |
-| Repo workflow configuration | `<repo>/.agents/configuration/` (`project.json`, `workflow.md`) | yes |
-| Repo scripts and their index | `<repo>/.agents/scripts/`, `index.md` | yes |
-| Overseer state | `<repo>/.agents/state/handoff.md`, `history/` | yes |
-| Local specs and plans | `<repo>/.agents/docs/specs/`, `plans/` | no |
-| Agent scratch files | `<repo>/.agents/temp/` | no |
+| Personalisation and notes | `~/.legion/configuration/` | no |
+| Launcher and account wrappers | `~/.legion/bin/` | no |
+| New account config folders (adopted folders keep their names) | `~/.legion/agents/<id>/` | no |
+| Portable prerequisite tools | `~/.legion/tools/<tool>/` | no |
+| Cross-project knowledge wiki (optional, llm-wiki) | `~/.legion/knowledge/` | no |
+| Repo workflow configuration | `<repo>/.legion/configuration/` (`project.json`, `workflow.md`) | yes |
+| Repo scripts and their index | `<repo>/.legion/scripts/`, `index.md` | yes |
+| Overseer state | `<repo>/.legion/state/handoff.md`, `history/` | yes |
+| Local specs and plans | `<repo>/.legion/docs/specs/`, `plans/` | no |
+| Agent scratch files | `<repo>/.legion/temp/` | no |
 
 ## Skills
 

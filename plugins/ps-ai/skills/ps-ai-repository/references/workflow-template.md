@@ -4,7 +4,7 @@
 
 How a milestone is selected and how research, design rulings, a spec, a plan, gates, reviews, and close-out are recorded for this repo.
 
-Goal roadmaps use the fixed folder `.agents/state/roadmap/`. Follow `ps-ai-overseer/references/roadmap.md`; do not record a roadmap path choice here.
+Goal roadmaps use the fixed folder `.legion/state/roadmap/`. Follow `ps-ai-overseer/references/roadmap.md`; do not record a roadmap path choice here.
 
 ## Task
 

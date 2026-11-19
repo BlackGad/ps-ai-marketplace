@@ -3,7 +3,7 @@ param([string]$HomeRoot = $HOME)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ps-ai-account.ps1') -NoRun -HomeRoot $HomeRoot
 $changes = [Collections.Generic.List[string]]::new()
-$file = Join-Path $HomeRoot '.agents/configuration/ps-ai-personalisation.json'
+$file = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
 if (Test-Path -LiteralPath $file) {
     $owner = Read-PsAiJson -Path $file
     foreach ($agent in $owner.agents) {
@@ -16,7 +16,7 @@ if (Test-Path -LiteralPath $file) {
 
 $runner = Join-Path $PSScriptRoot 'ps-ai-overseer.ps1'
 foreach ($name in @('ps-ai-overseer', 'ps-ai-overseer.cmd')) {
-    $path = Join-Path $HomeRoot ".agents/bin/$name"
+    $path = Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$name"
     if (-not (Test-Path -LiteralPath $path)) { continue }
     $text = [IO.File]::ReadAllText($path)
     # Retarget the generated quoted -File argument, preserving the owner's other shim flags.

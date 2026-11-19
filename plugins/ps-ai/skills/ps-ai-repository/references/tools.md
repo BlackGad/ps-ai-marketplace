@@ -18,7 +18,7 @@ For an agent CLI, use the selected tool skill's `references/install.md` for meth
 
 ## Official Windows sources
 
-Checked 2026-11-18; these downloads target Windows x64. `msi` selects the vendor's MSI or EXE; MSIs require an administrator session. Git's EXE uses `/CURRENTUSER`. No unverified MSI per-user properties are supplied. `zip` extracts into `~/.agents/tools/<tool>/` and adds the executable folder to the user PATH once; open a new terminal afterwards.
+Checked 2026-11-18; these downloads target Windows x64. `msi` selects the vendor's MSI or EXE; MSIs require an administrator session. Git's EXE uses `/CURRENTUSER`. No unverified MSI per-user properties are supplied. `zip` extracts into `~/.legion/tools/<tool>/` and adds the executable folder to the user PATH once; open a new terminal afterwards.
 
 GitHub release metadata comes from `https://api.github.com/repos/<repo>/releases/latest`; the asset's `browser_download_url` supplies the download URL and its `digest` supplies `sha256:<hex>`. A missing hash stops the install. Node uses its vendor checksum file. A mismatch deletes the download before extraction or execution.
 

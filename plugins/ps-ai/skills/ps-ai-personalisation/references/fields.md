@@ -1,6 +1,6 @@
 # Settings fields
 
-Preferences belong in `~/.agents/configuration/ps-ai-notes.md`. Read notes before selecting accounts, dispatching, communicating or knowledge work. Follow stated models, exclusions, account purposes, reviewer and worker order, careful-use choices and paid-use approval. Omit model flags unless notes name a model or allow a tier for the run; follow [model tiers](../../ps-ai-overseer/references/task-loop.md#model-tiers). Discover models only for Foundry agents through [Foundry model mapping](foundry-models.md). Save new owner preferences as plain sentences when stated; ask model questions during setup only for Foundry mapping. Re-read after edits. Current owner instructions win. Scripts never parse notes.
+Preferences belong in `~/.legion/configuration/ps-ai-notes.md`. Read notes before selecting accounts, dispatching, communicating or knowledge work. Follow stated models, exclusions, account purposes, reviewer and worker order, careful-use choices and paid-use approval. Omit model flags unless notes name a model or allow a tier for the run; follow [model tiers](../../ps-ai-overseer/references/task-loop.md#model-tiers). Discover models only for Foundry agents through [Foundry model mapping](foundry-models.md). Save new owner preferences as plain sentences when stated; ask model questions during setup only for Foundry mapping. Re-read after edits. Current owner instructions win. Scripts never parse notes.
 
 Route channel operations through `skills/ps-ai-<kind>/SKILL.md`; stop if missing. Any chosen session may oversee without channels.
 
@@ -27,7 +27,7 @@ Validate every edit with the bundled schema:
 
 ```text
 
-pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.agents/configuration/ps-ai-personalisation.json
+pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.legion/configuration/ps-ai-personalisation.json
 
 ```
 

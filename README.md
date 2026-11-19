@@ -28,6 +28,8 @@ Different tools and providers give independent reviews another perspective. The 
 
 Add preferences later in your own words. Say “use Telegram” when you want a channel.
 
+ps-ai keeps settings in `~/.legion/configuration/`, account folders in `~/.legion/agents/`, and launchers in `~/.legion/bin/` on your PATH. Repository orchestration files live in `.legion/`.
+
 ## What you can do
 
 Open your AI tool and say:
