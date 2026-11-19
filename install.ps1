@@ -168,7 +168,11 @@ function Invoke-ClosedInput {
     $errorTask = $process.StandardError.ReadToEndAsync()
     $output = $process.StandardOutput.ReadToEnd()
     $process.WaitForExit()
-    $result = @{ ExitCode = $process.ExitCode; Output = @(($output + $errorTask.Result) -split "`r?`n" | Where-Object { $_ }) }
+    $result = @{
+        ExitCode = $process.ExitCode
+        Output = @($output -split "`r?`n" | Where-Object { $_ })
+        ErrorOutput = @($errorTask.Result -split "`r?`n" | Where-Object { $_ })
+    }
     $process.Dispose()
     return $result
 }
@@ -192,7 +196,9 @@ function Test-InstallStepDone {
     $previous = if ($ConfigEnv) { [Environment]::GetEnvironmentVariable($ConfigEnv, 'Process') } else { $null }
     try {
         if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $ConfigDir, 'Process') }
-        return Test-InstallListing -Kind $kind -Tool $entry.id -Lines (Invoke-ClosedInput -Command $list).Output
+        $result = Invoke-ClosedInput -Command $list
+        if ($result.ExitCode -ne 0) { throw "$($entry.command) listing exited $($result.ExitCode)" }
+        return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output
     } finally {
         if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $previous, 'Process') }
     }
@@ -212,7 +218,7 @@ function Test-InstallListing {
                 $_.($listing.idField) -is [string] -and $_.($listing.idField) -ceq 'ps-ai@ps-ai-marketplace' -and
                 $_.($listing.enabledField) -is [bool] -and ($IncludeDisabled -or $_.($listing.enabledField))
             }).Count)
-        } catch { return $false }
+        } catch { throw "$Tool plugin listing returned invalid JSON" }
     }
     $reject = if ($IncludeDisabled) { 'not installed' } elseif ($listing) { $listing.rejectPattern } else { 'not installed|disabled' }
     $pattern = if ($Tool) { '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' } else { 'ps-ai@ps-ai-marketplace' }
@@ -238,6 +244,7 @@ function Invoke-InstallCommand {
         if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $ConfigDir, 'Process') }
         $result = Invoke-ClosedInput -Command $Command
         $result.Output
+        $result.ErrorOutput
         if ($result.ExitCode -ne 0) { throw "$($Command[0]) exited $($result.ExitCode)" }
     } finally {
         [Environment]::SetEnvironmentVariable($ConfigEnv, $previous, 'Process')
@@ -385,7 +392,7 @@ function Invoke-InstallDownload {
 
 function Invoke-InstallWinget {
     $result = Invoke-ClosedInput -Command @('winget', 'install', '--id', $script:installCatalog.bootstrap.windows.wingetId, '-e')
-    foreach ($line in $result.Output) { Write-Host $line }
+    foreach ($line in @($result.Output) + @($result.ErrorOutput)) { Write-Host $line }
     return $result.ExitCode
 }
 

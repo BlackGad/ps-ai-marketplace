@@ -47,7 +47,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $calls.Add("$($entry.id):$folder|$($Command -join '|')")
         if ($Command[2] -eq 'list') {
             if ($state.FailList) { return @{ExitCode=7; Output=@('list failed')} }
-            if ($state.Missing) { return @{ExitCode=0; Output=@()} }
+            if ($state.Missing) { return @{ExitCode=0; Output=@($(if ($entry.id -eq 'claude') { '[]' }))} }
             # Disabled plugins still have an installed copy that needs refreshing.
             $output = if ($entry.id -eq 'claude') { '[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]' }
                 else { 'ps-ai@ps-ai-marketplace installed (disabled)' }
