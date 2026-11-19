@@ -3,31 +3,18 @@
 Preferences belong in `~/.agents/configuration/ps-ai-notes.md`. Read notes before selecting accounts or models, dispatching, communicating or knowledge work. Re-read after edits. Current owner instructions win. Scripts never parse notes.
 
 | Field | Operational consumer and purpose |
-
 | --- | --- |
-
 | `$schema` | `Write-PsAiPersonalisation` normalizes the stable editor URL; runtime uses the bundled schema. |
-
 | `schemaVersion` | `Invoke-PsAiValidation` checks the bundled runtime format. |
-
 | `agents[].id` | Account operations select identity; the launcher derives a canonical wrapper. |
-
 | `agents[].tool` | Tool discovery chooses account, Foundry and launch adapters. |
-
 | `agents[].configDir` | Account wrappers, Foundry adapters and root installer select the account folder. Use a concrete folder, never `default`. |
-
 | `agents[].provider.kind` | Foundry runner selects provider dispatch; only Foundry is implemented. |
-
 | `provider.endpoint` | Foundry adapters connect to the selected HTTPS host. |
-
-| `provider.default` | Foundry adapters select a deployment; The model-mapping adapter still needs its picker. |
-
+| `provider.default` | Foundry adapters select a deployment; the model-mapping adapter still needs its picker. |
 | `provider.deployments[].name` | Foundry picker and adapters use wire deployment IDs. |
-
-| `provider.deployments[].model` | The model-mapping adapter adapter maps model IDs. |
-
-| `provider.deployments[].alias` | The alias adapter adapter maps supported aliases. |
-
+| `provider.deployments[].model` | The model-mapping adapter maps model IDs. |
+| `provider.deployments[].alias` | The alias adapter maps supported aliases. |
 | `channels[].id/kind/target/accounts` | `Resolve-PsAiChannel` selects the descriptor, destination and eligible accounts; the launcher validates bindings. |
 
 Require `schemaVersion: 1`, `agents` and `channels`. Both arrays may be empty. Accounts require `id/tool/configDir`; provider is optional. Channels require `id/kind/target/accounts`; bindings are nonempty, unique and refer to supported accounts. IDs are lowercase hyphenated names, unique in each array. Descriptors determine supported tools and kinds.
