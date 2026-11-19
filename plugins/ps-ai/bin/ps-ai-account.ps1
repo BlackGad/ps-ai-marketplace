@@ -11,9 +11,11 @@ param(
     [string]$Default,
     [string[]]$Aliases,
     [switch]$List,
-    [string]$HomeRoot = $HOME
+    [string]$HomeRoot = $HOME,
+    [switch]$NoRun
 )
 
+$accountNoRun = $NoRun
 . (Join-Path $PSScriptRoot 'ps-ai-validate.ps1') -NoRun
 . (Join-Path $PSScriptRoot 'PsAi.Common.ps1')
 . (Join-Path $PSScriptRoot 'PsAi.Foundry.ps1')
@@ -69,19 +71,46 @@ function Write-PsAiPersonalisation {
     }
 }
 
+function ConvertTo-PsAiShellLiteral {
+    param([string]$Value)
+    return "'" + $Value.Replace("'", "'" + '"' + "'" + '"' + "'") + "'"
+}
+
+function Write-PsAiGeneratedFile {
+    param([string]$Path, [string]$Content, [Collections.Generic.List[string]]$Changes)
+    if ((Test-Path -LiteralPath $Path) -and [IO.File]::ReadAllText($Path) -ceq $Content) { return }
+    New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
+    [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
+    if ($null -ne $Changes) { $Changes.Add($Path) }
+}
+
 function New-PsAiWrappers {
     param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$RealCommand)
     $bin = Join-Path $HomeRoot '.agents/bin'
     $folder = Join-Path $HomeRoot ".agents/accounts/$Id"
     New-Item -ItemType Directory -Path $bin, $folder -Force | Out-Null
     $envName = Get-ConfigEnvName -Tool $Tool
-    $sh = '#!/bin/sh' + "`n" + ('{0}="{1}" exec "{2}" "$@"' -f $envName, $folder, $RealCommand)
+    $target = ConvertTo-PsAiShellLiteral $RealCommand
+    if ([IO.Path]::GetExtension($RealCommand) -ieq '.ps1') { $target = 'pwsh -NoProfile -File ' + $target }
+    $sh = '#!/bin/sh' + "`n" + ('{0}={1} exec {2} "$@"' -f $envName, (ConvertTo-PsAiShellLiteral $folder), $target)
     [System.IO.File]::WriteAllText((Join-Path $bin $Id), $sh + "`n", [System.Text.UTF8Encoding]::new($false))
     if (-not $IsWindows) { & chmod +x (Join-Path $bin $Id) }
     if ($IsWindows) {
-        $cmd = "@set `"$envName=$folder`"`r`n@`"$RealCommand`" %*`r`n"
+        $target = $RealCommand.Replace('%', '%%')
+        $invoke = if ([IO.Path]::GetExtension($RealCommand) -ieq '.ps1') {
+            '@pwsh -NoProfile -File "' + $target + '" %*'
+        } elseif ([IO.Path]::GetExtension($RealCommand) -in @('.cmd', '.bat')) {
+            '@call "' + $target + '" %*'
+        } else { '@"' + $target + '" %*' }
+        $cmd = "@setlocal`r`n@set `"$envName=$($folder.Replace('%', '%%'))`"`r`n$invoke`r`n@exit /b %errorlevel%`r`n"
         [System.IO.File]::WriteAllText((Join-Path $bin "$Id.cmd"), $cmd, [System.Text.UTF8Encoding]::new($false))
     }
+}
+
+function Get-PsAiWrapperCommand {
+    param([string]$Id)
+    if ($IsWindows) { return "~/.agents/bin/$Id.cmd" }
+    return "~/.agents/bin/$Id"
 }
 
 function Write-FoundryToolConfig {
@@ -93,7 +122,7 @@ function Write-FoundryToolConfig {
 }
 
 function Sync-PsAiFoundryRuntime {
-    param([string]$Tool, [string]$HomeRoot)
+    param([string]$Tool, [string]$HomeRoot, [Collections.Generic.List[string]]$Changes)
     $descriptor = Get-PsAiTool -Tool $Tool
     $null = Get-PsAiToolScript -Tool $descriptor -Name foundry-launch
     $runtime = [IO.Path]::GetFullPath((Join-Path $HomeRoot '.agents/bin/.ps-ai-runtime'))
@@ -106,7 +135,7 @@ function Sync-PsAiFoundryRuntime {
     foreach ($name in @('SKILL.md', 'tool.json')) {
         $files["skills/ps-ai-$Tool/$name"] = Join-Path $descriptor.SkillRoot $name
     }
-    foreach ($script in Get-ChildItem -LiteralPath (Join-Path $descriptor.SkillRoot 'scripts') -File) {
+    foreach ($script in Get-ChildItem -LiteralPath (Join-Path $descriptor.SkillRoot 'scripts') -File -Filter 'foundry-*.ps1') {
         $files["skills/ps-ai-$Tool/scripts/$($script.Name)"] = $script.FullName
     }
     foreach ($relativePath in $files.Keys) {
@@ -115,20 +144,21 @@ function Sync-PsAiFoundryRuntime {
         if ((Test-Path -LiteralPath $target) -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($target)) -ceq [Convert]::ToBase64String($bytes)) { continue }
         New-Item -ItemType Directory -Path (Split-Path $target -Parent) -Force | Out-Null
         [IO.File]::WriteAllBytes($target, $bytes)
+        if ($null -ne $Changes) { $Changes.Add($target) }
     }
     return Join-Path $runtime 'bin/ps-ai-foundry.ps1'
 }
 
 function New-FoundryWrappers {
-    param([string]$Id, [string]$HomeRoot, [string]$Tool)
-    $runner = Sync-PsAiFoundryRuntime -Tool $Tool -HomeRoot $HomeRoot
+    param([string]$Id, [string]$HomeRoot, [string]$Tool, [Collections.Generic.List[string]]$Changes)
+    $runner = Sync-PsAiFoundryRuntime -Tool $Tool -HomeRoot $HomeRoot -Changes $Changes
     $bin = Join-Path $HomeRoot '.agents/bin'
-    $shPath = "'" + $runner.Replace("'", "'" + '"' + "'" + '"' + "'") + "'"
+    $shPath = ConvertTo-PsAiShellLiteral $runner
     $sh = '#!/bin/sh' + "`n" + ('exec pwsh -NoProfile -File {0} -Agent {1} "$@"' -f $shPath, $Id) + "`n"
-    [IO.File]::WriteAllText((Join-Path $bin $Id), $sh, [Text.UTF8Encoding]::new($false))
+    Write-PsAiGeneratedFile -Path (Join-Path $bin $Id) -Content $sh -Changes $Changes
     if (-not $IsWindows) { & chmod +x (Join-Path $bin $Id) }
     $cmd = "@pwsh -NoProfile -File `"$runner`" -Agent $Id %*`r`n"
-    [IO.File]::WriteAllText((Join-Path $bin "$Id.cmd"), $cmd, [Text.UTF8Encoding]::new($false))
+    Write-PsAiGeneratedFile -Path (Join-Path $bin "$Id.cmd") -Content $cmd -Changes $Changes
 }
 
 function Get-PsAiFoundryDiscovery {
@@ -205,6 +235,8 @@ function Remove-PsAiWrappers {
     }
 }
 
+if ($accountNoRun) { return }
+
 $file = Join-Path $HomeRoot '.agents/configuration/ps-ai-personalisation.json'
 $data = Read-PsAiJson -Path $file
 switch ($Action) {
@@ -225,7 +257,7 @@ switch ($Action) {
             Assert-PsAiNewId -Id $Id -Data $data
             $providerBlock = New-PsAiFoundryProvider -Endpoint $Endpoint -Tool $Tool -Deployments $Deployments -Default $Default -Aliases $Aliases -Discovery $discovery
             $entry = [pscustomobject]@{
-                id = $Id; tool = $Tool; command = "~/.agents/bin/$Id"; configDir = "~/.agents/accounts/$Id"; roles = @(); provider = $providerBlock
+                id = $Id; tool = $Tool; command = (Get-PsAiWrapperCommand $Id); configDir = "~/.agents/accounts/$Id"; roles = @(); provider = $providerBlock
             }
             $null = Write-FoundryToolConfig -Agent $entry -HomeRoot $HomeRoot
             $data.agents = @($data.agents) + @($entry)
@@ -234,7 +266,7 @@ switch ($Action) {
             "Run '$Id' in a terminal; it signs in to Azure through az when needed."
             break
         }
-        if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and $existing.command -ceq "~/.agents/bin/$Id" -and $existing.configDir -ceq "~/.agents/accounts/$Id") {
+        if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and $existing.command -in @("~/.agents/bin/$Id", (Get-PsAiWrapperCommand $Id)) -and $existing.configDir -ceq "~/.agents/accounts/$Id") {
             "skip: account $Id (already done)"
             break
         }
@@ -242,7 +274,7 @@ switch ($Action) {
         $null = Get-ConfigEnvName -Tool $Tool
         $realCommand = if ($Command) { $Command } else { (Get-Command (Get-PsAiTool -Tool $Tool).command -ErrorAction Stop).Source }
         $entry = [pscustomobject]@{
-            id = $Id; tool = $Tool; command = "~/.agents/bin/$Id"; configDir = "~/.agents/accounts/$Id"; roles = @()
+            id = $Id; tool = $Tool; command = (Get-PsAiWrapperCommand $Id); configDir = "~/.agents/accounts/$Id"; roles = @()
         }
         $data.agents = @($data.agents) + @($entry)
         Write-PsAiPersonalisation -Data $data -Path $file
@@ -292,9 +324,9 @@ switch ($Action) {
         if ($null -eq $agent) { throw "unknown account '$Id'" }
         $oldCommand = $agent.command
         $agent.id = $NewId
-        $owned = @("~/.agents/bin/$Id", (Join-Path $HomeRoot ".agents/bin/$Id"))
+        $owned = @("~/.agents/bin/$Id", "~/.agents/bin/$Id.cmd", (Join-Path $HomeRoot ".agents/bin/$Id"), (Join-Path $HomeRoot ".agents/bin/$Id.cmd"))
         if ($oldCommand -in $owned) {
-            $agent.command = $oldCommand.Substring(0, $oldCommand.Length - $Id.Length) + $NewId
+            $agent.command = Get-PsAiWrapperCommand $NewId
         } else {
             "command kept at $oldCommand; rename the wrapper yourself if you want to"
         }

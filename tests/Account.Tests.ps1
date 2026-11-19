@@ -27,7 +27,8 @@ try {
     if ($IsWindows) { Assert-True (Test-Path (Join-Path $homeRoot '.agents/bin/codex3.cmd')) 'Add creates cmd wrapper' }
     $owner = Get-Content -Raw $file | ConvertFrom-Json
     $added = @($owner.agents | Where-Object id -eq codex3)[0]
-    Assert-Equal '~/.agents/bin/codex3' $added.command 'Add wrapper command'
+    $expectedCommand = if ($IsWindows) { '~/.agents/bin/codex3.cmd' } else { '~/.agents/bin/codex3' }
+    Assert-Equal $expectedCommand $added.command 'Add wrapper command'
     Assert-Equal '~/.agents/accounts/codex3' $added.configDir 'Add config folder'
     & pwsh -NoProfile -File $validator -Kind personalisation -Path $file | Out-Null
     Assert-Equal 0 $LASTEXITCODE 'Added account validates'

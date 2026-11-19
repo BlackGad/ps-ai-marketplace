@@ -46,7 +46,8 @@ try {
     Assert-Equal 'claude-opus-x' $agent.provider.deployments[0].model 'Add fills model name'
     Assert-Equal 'sonnet' $agent.provider.deployments[1].alias 'Add saves alias'
     Assert-Equal 0 $agent.roles.Count 'Foundry agent starts without roles'
-    Assert-Equal '~/.agents/bin/claude-dev' $agent.command 'Foundry command'
+    $expectedCommand = if ($IsWindows) { '~/.agents/bin/claude-dev.cmd' } else { '~/.agents/bin/claude-dev' }
+    Assert-Equal $expectedCommand $agent.command 'Foundry command'
     Assert-Equal '~/.agents/accounts/claude-dev' $agent.configDir 'Foundry config dir'
     Assert-Equal 0 @(Invoke-PsAiValidation -Kind personalisation -Path $file).Count 'Added Foundry agent validates'
     $picker = Get-Content -Raw $settings | ConvertFrom-Json
