@@ -1,10 +1,10 @@
 # Overseer launcher shim
 
-During owner setup, put `ps-ai-overseer` in `<home>/.agents/bin/` and ensure that folder is on PATH. The Unix shim uses `exec pwsh -NoProfile -File '<absolute plugin path>/bin/ps-ai-overseer.ps1' "$@"`; on Windows write `ps-ai-overseer.cmd` with `@pwsh -NoProfile -File "<absolute plugin path>\bin\ps-ai-overseer.ps1" %*`. Preserve each argument; ask before replacing a conflicting command.
+When the owner requests the launcher, put `ps-ai-overseer` in `<home>/.agents/bin/` and ensure that folder is on PATH. The Unix shim uses `exec pwsh -NoProfile -File '<absolute plugin path>/bin/ps-ai-overseer.ps1' "$@"`; on Windows write `ps-ai-overseer.cmd` with `@pwsh -NoProfile -File "<absolute plugin path>\bin\ps-ai-overseer.ps1" %*`. Preserve each argument; ask before replacing a conflicting command.
 
 Usage: `ps-ai-overseer -Account <id> [-Tool <tool-id>] [-Channel <id[]>] [-Arguments <string[]>] [-Repo <path>]`. In a fixture pass `-HomeRoot <temp home>`; `-DryRun` prints arguments without opening a window. The shipped launcher validates minimal owner/project JSON and merges explicit arguments, channel vectors and interactive arguments before the initial prompt. Do not reimplement this in the shim.
 
-`-Account` is required; bare invocation prints usage. Commands come from the canonical account wrapper. Pass model flags through literal `-Arguments`; the CLI validates them. Channel bindings and tool support are checked before launch. Same-kind destinations resolve separately while their launch vector is added once.
+`-Account` is required; bare invocation prints usage. Commands come from the canonical account wrapper. Omit model flags by default. When owner notes name a model, pass its flag through literal `-Arguments`; the CLI validates it. Channel bindings and tool support are checked before launch. Same-kind destinations resolve separately while their launch vector is added once.
 
 Any owner-started session may take the lease on request without a channel. Follow [owner notes](fields.md) for account, model and channel choices. Prefer the current account when bound and its session tools are available. Otherwise name a supported bound alternate before an authorized relaunch. Pass `-Account <id>` explicitly, with optional `-Tool`, `-Channel <id[]>` and literal `-Arguments`. Declining relaunch permits current channel-free work. Follow the overseer communication guide's handoff/release/launch/stop sequence. A direct shim invocation requests launch. Simulations describe actions without running them.
 

@@ -15,7 +15,7 @@ This context provider grounds every ps-ai mode. Read both the owner's settings a
 
 - Never read, print, log, or store credentials or token files. Store account identity, folders and verified channel bindings only.
 - Change personalisation only when the owner requested it. Keep project facts in the repo and personal habits in notes.
-- Before the first usable legion choice, explain its full user rights and why it runs without a sandbox, then ask for the owner's yes using [create.md](references/create.md). This is a conversation step, not a new setting.
+- Leave legion access consent to the overseer's [first dispatch](../ps-ai-overseer/references/task-loop.md#first-legion-dispatch). Setup asks only which agents to add and for one yes to install ps-ai into them.
 - Validate settings after every change using [fields.md](references/fields.md).
 - Use unique account names that do not conflict with installed commands. Add new accounts, adopt existing account folders, and register existing shortcuts through the matching tool skill; see [fields.md](references/fields.md) for naming rules. When the owner gives an existing folder, keep its settings and login and create a shortcut for that folder. Do not ask them to log in again.
 - Every account ps-ai knows needs ps-ai installed. Explain that account setup includes installing ps-ai into that account and get the owner's yes before installation; use the matching tool's account guide. Use approval already given in the conversation. One update then covers all known accounts.
@@ -25,8 +25,8 @@ This context provider grounds every ps-ai mode. Read both the owner's settings a
 
 1. Read and validate existing settings, then read notes. If settings are missing, use [create.md](references/create.md); if invalid, explain the validation issues and make only owner-requested corrections. During setup, create missing notes from [notes-template.md](references/notes-template.md).
 2. Read repository workflow for repository choices. Keep repository facts there.
-3. Choose accounts and actual models from notes. Follow exclusions and careful-use choices. Ask before paid use. Use the selected tool skill.
-4. Route channels through their kind skill. Follow the launcher guide only when a launch is requested. Pass explicit choices derived from the owner's words.
+3. Follow account preferences in notes. Leave model flags out so each CLI uses that account's default. Pass a model only when notes name one. Do not discover models or offer model lists. Save new owner preferences in notes. Follow exclusions and careful-use choices. Ask before paid use. Use the selected tool skill.
+4. Set up channels only when the owner asks. Route them through their kind skill. Learn knowledge and other preferences from the owner's words after setup. Follow the launcher guide only when a launch is requested. Pass explicit choices derived from the owner's words.
 5. Re-read changed settings and notes. Validate the final settings. Check that no secret or client detail entered them.
 
 ## Stop and verification

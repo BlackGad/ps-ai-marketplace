@@ -1,6 +1,6 @@
 ---
 name: ps-ai-claude
-description: Use when the overseer dispatches Claude Code work or the owner asks about Claude accounts, resuming work, limits, or "update models for <id>" for a Claude agent.
+description: Use when the overseer dispatches Claude Code work or the owner asks about Claude accounts, resuming work, limits, or Foundry provider configuration.
 ---
 
 # Claude Code tool
@@ -9,7 +9,7 @@ Follow [owner notes](../ps-ai-personalisation/references/fields.md) before choos
 
 ## Identity and hard rules
 
-Use this tool skill for Claude Code operations only. Load `ps-ai-personalisation` and its notes first; select the account from settings and its purpose and actual model from notes. The overseer chooses the task and writes the handoff; this skill only runs the chosen tool. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
+Use this tool skill for Claude Code operations only. Load `ps-ai-personalisation` and its notes first. Use the account's CLI default model unless notes name a model for this run. The overseer chooses the account and task and writes the handoff; this skill only runs the chosen tool. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
 
 - Mark only a legion process as a legion task using [run.md](references/run.md). Do not turn an interactive session into legion mode.
 - Legion runs without a sandbox, with full user rights, so it can use the owner's installed tools; follow the legion safeguards.

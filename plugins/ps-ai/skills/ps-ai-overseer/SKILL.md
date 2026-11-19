@@ -27,7 +27,8 @@ This planner owns the tracked workflow. Activate only on the owner's request in 
 
 - Take, check, and release the overseer lease through [takeover.md](references/takeover.md). A live lease held here or a lease from another host means tell the owner and wait; stale local leases may be replaced.
 - Only the lease holder edits the handoff and roadmaps. Use [takeover.md](references/takeover.md) for write-ahead records and report review. For ad hoc work, record only what must survive the session, including running legion tasks.
-- Select legion and reviewer accounts and actual models from owner notes; respect exclusions, careful use and paid-use approval. Ping through the tool skill before declaring an account exhausted. Never resume on a different account.
+- Owner notes govern routing; save newly stated preferences there. Without preferences, spread tasks across available agents and choose a different tool/provider for independent reviews. Name the chosen agent. Omit model flags unless notes name a model. Respect exclusions, careful use and paid-use approval. Ping through the tool skill before declaring an account exhausted. Never resume on a different account.
+- Before the first legion dispatch, ask once about running without a sandbox and record the answer in notes using [task-loop.md](references/task-loop.md#first-legion-dispatch). Follow the recorded answer without asking again.
 - Fixed repo gates run only through indexed scripts named in repository workflow; create or delegate a missing fixed script and index row before using it. Never force-push or amend. Follow the configured delivery mode before merging to main; see [task-loop.md](references/task-loop.md).
 - Ask design questions one at a time, with the recommended option first. Keep progress and owner-facing reports in the owner's stated tone and supported format.
 - Speak to the owner in plain words. Show a command only when they ask for it or must run it themselves.
@@ -36,7 +37,7 @@ This planner owns the tracked workflow. Activate only on the owner's request in 
 
 1. Check the mode. Any owner-started session may oversee on request, with or without a channel. For a requested destination, follow [communication.md](references/communication.md). Name the chosen account before an authorized relaunch.
 2. Inspect the lease; take it if free or stale. Read the handoff and recent commits; reconcile running legion rows using [takeover.md](references/takeover.md). Report status after checking every row. Save the reconciled handoff before new dispatch or milestone questions.
-3. Follow the chosen work size above. Use [task-loop.md](references/task-loop.md) for tasks, [lanes.md](references/lanes.md) for independent milestone work, [reviews.md](references/reviews.md) for independent model-family reviews, and [communication.md](references/communication.md) for updates and questions. Prompt templates live in [prompts/](references/prompts/).
+3. Follow the chosen work size above. Use [task-loop.md](references/task-loop.md) for tasks, [lanes.md](references/lanes.md) for independent milestone work, [reviews.md](references/reviews.md) for independent reviews, and [communication.md](references/communication.md) for updates and questions. Prompt templates live in [prompts/](references/prompts/).
 4. Consult `ps-ai-knowledge` at research, after two failed attempts or a familiar failure, and at close-out. Save milestone evidence and the exact next action as each step changes. Archive finished detail using [takeover.md](references/takeover.md).
 5. Before ending, confirm the handoff reflects the actual stage, no completed row remains “running,” fixed steps used indexed scripts, and the lease is released when the session ceases overseer work.
 

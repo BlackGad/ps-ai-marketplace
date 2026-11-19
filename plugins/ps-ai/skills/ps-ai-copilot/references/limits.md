@@ -17,4 +17,4 @@ When `provider.kind` is `foundry`, use this check instead of the subscription pi
 az account get-access-token --resource https://cognitiveservices.azure.com -o none
 ```
 
-Exit 0 means Azure can issue a token. Foundry has no subscription window to report; deployment access and capacity still need a real response. A failed token check is not subscription exhaustion. Do not print or save the token. Add, model discovery, and launch try interactive `az login` once after a failure. A new token check does not refresh a running Copilot agent's fixed token. Follow its expiry notice and restart with `<id> --resume`.
+Exit 0 means Azure can issue a token. Foundry has no subscription window to report; deployment access and capacity still need a real response. A failed token check is not subscription exhaustion. Do not print or save the token. Add and launch try interactive `az login` once after a failure. A new token check does not refresh a running Copilot agent's fixed token. Follow its expiry notice and restart with `<id> --resume`.

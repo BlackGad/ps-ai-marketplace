@@ -1,6 +1,6 @@
 ---
 name: ps-ai-copilot
-description: Use when the overseer dispatches Copilot CLI work or the owner asks about Copilot accounts, resuming work, limits, or "update models for <id>" for a Copilot agent.
+description: Use when the overseer dispatches Copilot CLI work or the owner asks about Copilot accounts, resuming work, limits, or Foundry provider configuration.
 ---
 
 # Copilot CLI tool
@@ -9,7 +9,7 @@ Follow [owner notes](../ps-ai-personalisation/references/fields.md) before choos
 
 ## Identity and hard rules
 
-Use this tool skill for Copilot CLI operations only. Load `ps-ai-personalisation` and its notes first; choose the account, role, model, and any paid-account approval there. The overseer owns task selection and the handoff. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
+Use this tool skill for Copilot CLI operations only. Load `ps-ai-personalisation` and its notes first. Use the account's CLI default model unless notes name a model for this run. Respect any paid-account approval in notes. The overseer owns account and task selection and the handoff. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
 
 - Mark only a legion process as a legion task using [run.md](references/run.md).
 - Legion runs without a sandbox, with full user rights, so it can use the owner's installed tools; follow the legion safeguards.
@@ -27,7 +27,7 @@ Use this tool skill for Copilot CLI operations only. Load `ps-ai-personalisation
 
 ## Stop and verification
 
-Stop when account/model or report path is missing, a resume would switch accounts, a paid account lacks owner approval, or reviewer tool denials cannot be applied. After a run, inspect exit status and captured report; after account changes, validate personalisation. Do not declare exhaustion without a quota error from that account's ping.
+Stop when the account or report path is missing, a resume would switch accounts, a paid account lacks owner approval, or reviewer tool denials cannot be applied. After a run, inspect exit status and captured report; after account changes, validate personalisation. Do not declare exhaustion without a quota error from that account's ping.
 
 ## Launcher and plugins
 

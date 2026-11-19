@@ -111,16 +111,18 @@ Shows the targets and generated files before asking. Use `-Yes` to skip the prom
 
 ## First run
 
-Start any of the tools and ask it to set up your agent preferences. The `ps-ai-personalisation` skill asks a few questions, one at a time, and writes your personalisation:
+Setup has three steps: install ps-ai, add accounts, and start work. After installation, ask any tool to add accounts. The `ps-ai-personalisation` skill asks only which agents to add: the tool, account name, and an existing folder or a new one. One yes approves installing ps-ai into every selected account. It writes:
 
-- `~/.agents/configuration/ps-ai-personalisation.json`: your accounts, which account does which job, notification channels and projects. Validated against `plugins/ps-ai/schemas/personalisation.schema.json`. It never holds tokens.
+- `~/.agents/configuration/ps-ai-personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/ps-ai/schemas/personalisation.schema.json`. It never holds tokens.
 - `~/.agents/configuration/ps-ai-notes.md`: free-form preferences and lessons.
 
-Then, in a repository, ask it to set up orchestration. `ps-ai-repository` creates the `.agents/` layout below.
+Then open a repository and describe the work. Ask to set up orchestration if needed. `ps-ai-repository` creates the `.agents/` layout below. Setup asks no questions about models, account purposes, worker or reviewer roles, notification timing, channels, or knowledge. State preferences later; they are saved in notes. Channels are set up only on request, such as “use Telegram”.
+
+Legion and review runs pass no model flag by default. Each CLI uses that account's own default model. A model flag is passed only when owner notes name one, such as “use astra for reviews”. Routing chooses agents without model discovery or model lists. Without owner preferences, the overseer spreads work across available agents and chooses a different tool/provider for independent reviews. It says which agent was chosen. Owner preferences always win.
 
 To open an overseer session with all your launch flags (for example a Telegram channel), run `ps-ai-overseer` in a terminal, or say "continue" in a session and accept the offer.
 
-Foundry agents use one Azure endpoint per agent, such as `https://<resource>.cognitiveservices.azure.com`, and the owner's `az` login. Use the matching account guide linked above to add an agent or ask "update models for <id>". Discovery presents deployments before the owner chooses what to save.
+Foundry agents use one Azure endpoint per agent, such as `https://<resource>.cognitiveservices.azure.com`, and the owner's `az` login. Setup can adopt an existing folder without changing its provider settings. For an explicit provider configuration request, use the matching account guide with values already supplied by the owner. Model preferences for work remain in notes.
 
 Manage accounts through the account's tool skill. See the shared [terms](../plugins/ps-ai/skills/ps-ai-overseer/references/terms.md) for account actions and model preferences.
 
@@ -141,7 +143,7 @@ A session you start yourself is never a legion member.
 
 ## Security: legion runs without a sandbox
 
-Legion workers run with your full user rights so they can edit, run checks, and commit using your installed SDKs, user PATH, and tools. Sandboxes can hide installed tools; agents then download their own SDKs and drift from your machine's setup. Setup explains this and asks for your yes before saving the first legion routing.
+Legion workers run with your full user rights so they can edit, run checks, and commit using your installed SDKs, user PATH, and tools. Sandboxes can hide installed tools; agents then download their own SDKs and drift from your machine's setup. Before the first legion dispatch, the overseer explains this and asks once. It records approval or refusal in notes and follows that answer without asking again.
 
 The overseer starts legion only inside an assigned repository worktree and only for planned tasks. Workers must stay inside that repository or worktree, never push or touch other folders, and never download or install an SDK, runtime, package manager, or tool. If a needed tool is missing or the wrong version, they stop and report it so the overseer can ask you. These safeguards are instructions, not an enforced access boundary. Reviewer runs keep their read-only restrictions.
 
