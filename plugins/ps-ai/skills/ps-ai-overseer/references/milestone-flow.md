@@ -25,4 +25,4 @@ When the owner starts a goal milestone, check the active-milestone rule in [road
 
 Legion runs plan tasks. Check owner routing, exclusions, paid-use approval, and account pings through [task-loop.md](task-loop.md) before deciding no legion account is usable. If none is usable, tell the owner and offer the installed planning method's own execution. Proceed with that method only if the owner chooses it. Keep the milestone's gates, reviews, and close-out. If the owner declines, or no method execution is available, record the pause and exact next action in the handoff and wait. This also applies when legion becomes unavailable during task execution.
 
-Open an investigation with [prompts/investigation.md](prompts/investigation.md) for intermittent failures; do not mark them green by rerunning alone. The close-out line **“Everything proceeds according to plan.”** is used only after every task and gate passed.
+Open an investigation with [prompts/investigation.md](prompts/investigation.md) for intermittent failures; do not mark them green by rerunning alone. Report close-out only after every task and gate passed.

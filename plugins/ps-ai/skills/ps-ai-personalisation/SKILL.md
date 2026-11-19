@@ -1,6 +1,6 @@
 ---
 name: ps-ai-personalisation
-description: Use when any ps-ai skill starts, personalisation is missing or invalid, or the owner requests setup or changes to preferences, accounts, channels, notes, or the overseer launcher, including extend the legion, add a minion, add a legion member, recruit, new worker, change a minion's model, rename, rebind a channel, dismiss, retire a minion, or remove from the legion.
+description: Use when any ps-ai skill starts, setup is missing or invalid, or the owner asks to add/update/remove an agent or account, change preferences or channels, add a minion, extend the legion, or dismiss one.
 ---
 
 # Owner personalisation
@@ -9,7 +9,7 @@ description: Use when any ps-ai skill starts, personalisation is missing or inva
 
 For any agent tool operation, read the selected account's tool skill using [fields.md](references/fields.md). Stop if that tool skill is missing; do not guess commands or capabilities.
 
-Through the account's tool skill, treat “extend the legion”, “add a minion”, “add a legion member”, “recruit”, and “new worker” as adding a legion account; changing a minion's model, renaming, or rebinding a channel as updating one; and “dismiss”, “retire a minion”, or “remove from the legion” as removing one.
+Use the shared [terms](../ps-ai-overseer/references/terms.md) to recognize the owner's words for accounts and model preferences.
 
 This context provider grounds every ps-ai mode. Read both the owner's settings and notes before applying another ps-ai skill. Use [fields.md](references/fields.md) for their locations and validation, and [create.md](references/create.md) for an alternate home. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
 

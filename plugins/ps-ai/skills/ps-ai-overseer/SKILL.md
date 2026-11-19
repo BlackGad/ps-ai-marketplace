@@ -1,11 +1,13 @@
 ---
 name: ps-ai-overseer
-description: Use when the owner asks to continue, orchestrate work, start a goal or milestone, make a roadmap, or report status in a repo with .agents/state; never in legion mode.
+description: Use when the owner asks to continue, check status, report in, make a roadmap, or orchestrate a goal or milestone in a repo with .agents/state; never in legion mode.
 ---
 
 # Overseer
 
 ## Terms and work size
+
+Use the shared [terms](references/terms.md) for accounts, models, and the owner's vocabulary.
 
 - **Goal:** a larger outcome the owner wants. It has a roadmap.
 - **Roadmap:** the ordered milestones of one goal, with their status. One committed file per goal.
@@ -33,7 +35,7 @@ This planner owns the tracked workflow. Activate only on the owner's request in 
 ## Take over and advance
 
 1. Check the mode. Any owner-started session may oversee on request, with or without a channel. For a requested destination, follow [communication.md](references/communication.md). Name the chosen account before an authorized relaunch.
-2. Inspect the lease; take it if free or stale. Read the handoff and recent commits; reconcile running legion rows using [takeover.md](references/takeover.md). After checking every row, say “All floors report in.” Save the reconciled handoff before new dispatch or milestone questions.
+2. Inspect the lease; take it if free or stale. Read the handoff and recent commits; reconcile running legion rows using [takeover.md](references/takeover.md). Report status after checking every row. Save the reconciled handoff before new dispatch or milestone questions.
 3. Follow the chosen work size above. Use [task-loop.md](references/task-loop.md) for tasks, [lanes.md](references/lanes.md) for independent milestone work, [reviews.md](references/reviews.md) for independent model-family reviews, and [communication.md](references/communication.md) for updates and questions. Prompt templates live in [prompts/](references/prompts/).
 4. Consult `ps-ai-knowledge` at research, after two failed attempts or a familiar failure, and at close-out. Save milestone evidence and the exact next action as each step changes. Archive finished detail using [takeover.md](references/takeover.md).
 5. Before ending, confirm the handoff reflects the actual stage, no completed row remains “running,” fixed steps used indexed scripts, and the lease is released when the session ceases overseer work.

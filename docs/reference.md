@@ -122,13 +122,7 @@ To open an overseer session with all your launch flags (for example a Telegram c
 
 Foundry agents use one Azure endpoint per agent, such as `https://<resource>.cognitiveservices.azure.com`, and the owner's `az` login. Use the matching account guide linked above to add an agent or ask "update models for <id>". Discovery presents deployments before the owner chooses what to save.
 
-Manage legion accounts through the account's tool skill:
-
-| Say | Action |
-| --- | --- |
-| “extend the legion”, “add a minion”, “add a legion member”, “recruit”, “new worker” | Add a legion account |
-| Change a minion's model, rename, rebind a channel | Update a legion account |
-| “dismiss”, “retire a minion”, “remove from the legion” | Remove a legion account |
+Manage accounts through the account's tool skill. See the shared [terms](../plugins/ps-ai/skills/ps-ai-overseer/references/terms.md) for account actions and model preferences.
 
 ## Modes
 
