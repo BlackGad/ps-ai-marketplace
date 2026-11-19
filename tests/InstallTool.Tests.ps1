@@ -1,3 +1,4 @@
+$ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $scriptPath = Join-Path $root 'plugins/ps-ai/bin/ps-ai-install-tool.ps1'
 $bootstrap = Join-Path $root 'install.ps1'
@@ -96,7 +97,19 @@ Assert-True ($repositorySkill.Contains('references/tools.md')) 'Repository skill
 $repositoryTools = Join-Path $root 'plugins/ps-ai/skills/ps-ai-repository/references/tools.md'
 Assert-True (Test-Path $repositoryTools) 'Repository tool reference exists'
 $readme = Get-Content -Raw (Join-Path $root 'README.md')
-Assert-True ($readme.Contains('irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1 | iex')) 'README gives remote Windows installer'
+$windowsExample = [regex]::Match($readme, '(?s)```powershell\r?\n(.*?)\r?\n```')
+Assert-True $windowsExample.Success 'README includes a Windows PowerShell installer example'
+& {
+    $fixtureInstallerScope = 'caller'
+    function Invoke-RestMethod {
+        param([string]$Uri)
+        Assert-Equal 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1' $Uri 'README downloads the remote installer'
+        '$fixtureInstallerScope = "installer"; "fixture-installer-ran"'
+    }
+    $result = . ([scriptblock]::Create($windowsExample.Groups[1].Value))
+    Assert-Equal 'fixture-installer-ran' $result 'README invocation executes the downloaded installer'
+    Assert-Equal 'caller' $fixtureInstallerScope 'README installer invocation isolates caller variables'
+}
 Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains optional CLI install hints'
 
 # Local archives and official-shaped metadata; no network, installers, or real PATH writes.
