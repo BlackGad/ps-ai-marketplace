@@ -8,7 +8,7 @@
 
 4. Re-read JSON and notes, validate JSON, and summarize accounts and any unfinished installs. Setup is complete when the selected accounts have ps-ai installed. Repeated setup skips completed actions with `skip: <what> (already done)` and preserves completed files byte-for-byte.
 
-Do not ask about models, account purposes, worker or reviewer roles, notification timing, channels, or knowledge during setup. Learn preferences later from the owner's words and save them in notes. Set up a channel only when requested, such as “use Telegram”. Route it through `skills/ps-ai-<kind>/SKILL.md`; stop if missing. That skill owns connection, approval and verified bindings. Make the launcher available through [launcher.md](launcher.md) when requested.
+Only Foundry agents ask about models during setup; follow the tool's account guide for standard mapping or owner choices. Do not ask about models for subscription agents, account purposes, worker or reviewer roles, notification timing, channels, or knowledge during setup. Learn preferences later from the owner's words and save them in notes. Set up a channel only when requested, such as “use Telegram”. Route it through `skills/ps-ai-<kind>/SKILL.md`; stop if missing. That skill owns connection, approval and verified bindings. Make the launcher available through [launcher.md](launcher.md) when requested.
 
 The overseer asks about legion access at the [first legion dispatch](../../ps-ai-overseer/references/task-loop.md#first-legion-dispatch), not during setup.
 

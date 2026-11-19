@@ -26,13 +26,13 @@ Register an existing wrapper with `-Action register -Id <id> -Tool copilot -Comm
 
 Use this flow instead of the subscription login flow above. One agent uses one endpoint. Copilot Foundry agents support **Claude deployments only**. GPT deployments are out of scope. Run these commands in PowerShell 7; pass `-HomeRoot <home>` for an alternate home.
 
-Use these commands only for an explicit Foundry provider configuration request. Ordinary setup can adopt an existing folder and keep its provider settings. Use the endpoint, deployments, default and any aliases already supplied by the owner. Do not discover models, present model lists or ask model questions. Leave a provider change unfinished if required values are missing. These example values stand for the owner-supplied provider settings:
+Use these commands for a Foundry provider configuration request. Ordinary setup can adopt an existing folder and keep its provider settings. For Foundry only, ask “Standard mapping or choose deployments yourself?” Reuse choices already supplied. Follow [Foundry model mapping](../../ps-ai-personalisation/references/foundry-models.md) for discovery, `-Standard` and unresolved aliases. These examples show explicit choices:
 
 ```powershell
 & "<plugin>/bin/ps-ai-account.ps1" -Action add -Tool copilot -Id '<id>' -Provider foundry -Endpoint "https://<resource>.cognitiveservices.azure.com" -Deployments @('claude-opus-x','claude-sonnet-x') -Default claude-opus-x
 ```
 
-Add writes the provider entry and the wrappers. It writes no persistent Copilot provider config. The provider default must name a configured deployment. The runner leaves run-time model selection to the account's CLI default unless owner notes name a model. Repeating the same id, tool, provider, and endpoint prints `skip: account <id> (already done)`.
+Add writes the provider entry and the wrappers. It writes no persistent Copilot provider config. The provider default must name a configured deployment. The runner leaves run-time model selection to the account's CLI default unless owner notes name a model or allow a tier; follow [Foundry routing](../../ps-ai-overseer/references/task-loop.md#foundry-runs). Repeating the same id, tool, provider, and endpoint prints `skip: account <id> (already done)`.
 
 For a requested provider configuration change, reuse the supplied settings and apply the complete replacement with:
 

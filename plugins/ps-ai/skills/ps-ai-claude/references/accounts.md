@@ -26,7 +26,7 @@ For an existing wrapper, use `-Action register -Id <id> -Tool claude -Command <w
 
 Use this flow for a Foundry endpoint instead of the subscription login flow above. One agent uses one endpoint. Run these commands in PowerShell 7; use `-HomeRoot <home>` for an alternate home.
 
-Use these commands only for an explicit Foundry provider configuration request. Ordinary setup can adopt an existing folder and keep its provider settings. Use the endpoint, deployments, default and any aliases already supplied by the owner. Do not discover models, present model lists or ask model questions. Leave a provider change unfinished if required values are missing. These example values stand for the owner-supplied provider settings:
+Use these commands for a Foundry provider configuration request. Ordinary setup can adopt an existing folder and keep its provider settings. For Foundry only, ask “Standard mapping or choose deployments yourself?” Reuse choices already supplied. Follow [Foundry model mapping](../../ps-ai-personalisation/references/foundry-models.md) for discovery, `-Standard` and unresolved aliases. These examples show explicit choices:
 
 ```powershell
 & "<plugin>/bin/ps-ai-account.ps1" -Action add -Tool claude -Id '<id>' -Provider foundry -Endpoint "https://<resource>.cognitiveservices.azure.com" -Deployments @('claude-opus-x','claude-sonnet-x') -Default claude-opus-x -Aliases @('claude-opus-x=opus','claude-sonnet-x=sonnet')
@@ -42,6 +42,6 @@ For a requested provider configuration change, reuse the supplied settings and a
 
 `models` replaces the full deployment list. Omit `-Aliases` to keep aliases for retained names; pass `-Aliases @()` to clear them. An unchanged result prints `skip: models <id> (no changes)` and writes nothing. Validate personalisation after a write with the command above. Install ps-ai into this account's config folder with the installer command above.
 
-Launch `<id>` in a terminal. The wrapper uses `CLAUDE_CONFIG_DIR`, the Foundry endpoint, default, and alias variables. Claude uses its own Azure token refresh. Pass a model flag or mapped alias only when owner notes name one for the run. Keep the same agent and endpoint when resuming. A missing CLI stops with `claude is not installed; run ps-ai-install-tool.ps1 -Tool claude`.
+Launch `<id>` in a terminal. The wrapper uses `CLAUDE_CONFIG_DIR`, the Foundry endpoint, default, and alias variables. Claude uses its own Azure token refresh. Pass a model flag only when owner notes name a model or allow a tier for the run; follow [Foundry routing](../../ps-ai-overseer/references/task-loop.md#foundry-runs). Keep the same agent and endpoint when resuming. A missing CLI stops with `claude is not installed; run ps-ai-install-tool.ps1 -Tool claude`.
 
 Account selection and launch-field examples are in [launcher.md](launcher.md). The base `claude` executable may be the `command` for a separately named account such as `agent-a`; account ids must not shadow commands on PATH.

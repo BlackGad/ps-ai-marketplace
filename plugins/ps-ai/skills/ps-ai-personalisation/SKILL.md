@@ -25,7 +25,7 @@ This context provider grounds every ps-ai mode. Read both the owner's settings a
 
 1. Read and validate existing settings, then read notes. If settings are missing, use [create.md](references/create.md); if invalid, explain the validation issues and make only owner-requested corrections. During setup, create missing notes from [notes-template.md](references/notes-template.md).
 2. Read repository workflow for repository choices. Keep repository facts there.
-3. Follow account preferences in notes. Leave model flags out so each CLI uses that account's default. Pass a model only when notes name one. Do not discover models or offer model lists. Save new owner preferences in notes. Follow exclusions and careful-use choices. Ask before paid use. Use the selected tool skill.
+3. Follow account preferences in notes. Leave model flags out so each CLI uses that account's default. Pass a model only when notes name one or allow a tier; follow [model tiers](../ps-ai-overseer/references/task-loop.md#model-tiers). Discover models only for Foundry agents through the tool account guide. Save new owner preferences in notes. Follow exclusions and careful-use choices. Ask before paid use. Use the selected tool skill.
 4. Set up channels only when the owner asks. Route them through their kind skill. Learn knowledge and other preferences from the owner's words after setup. Follow the launcher guide only when a launch is requested. Pass explicit choices derived from the owner's words.
 5. Re-read changed settings and notes. Validate the final settings. Check that no secret or client detail entered them.
 

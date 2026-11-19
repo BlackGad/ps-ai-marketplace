@@ -1,7 +1,7 @@
 # Run Claude Code
 
 Follow [owner notes](../../ps-ai-personalisation/references/fields.md) before account, model or channel choices.
-Legion and review runs omit model flags so the CLI uses that account's own default. Only when notes name a model, add `--model <named-model>` for that run. Do not discover models or offer a model list.
+Legion and review runs omit model flags so the CLI uses that account's own default. When notes name a model or allow a tier, follow [model tiers](../../ps-ai-overseer/references/task-loop.md#model-tiers) and add `--model <named-model>` for that run. For Foundry, pass the deployment name using [Foundry routing](../../ps-ai-overseer/references/task-loop.md#foundry-runs). Do not discover models or offer a model list for subscription agents.
 
 Derive `<command>` from account ID as `<home>/.agents/bin/<id>` on Unix or `<home>/.agents/bin/<id>.cmd` on Windows. The overseer supplies `<repo>`, `<prompt file>`, and `<report>`, all within the assigned repository or worktree. Start there and inherit the owner's environment, including user PATH and installed tools. Use a fresh process for each task; set `PS_AI_ROLE=legion` and `PS_AI_TASK=<prompt file>` for that process only. Use the worker profile below. From `<repo>`:
 

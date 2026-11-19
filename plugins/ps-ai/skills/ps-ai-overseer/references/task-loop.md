@@ -25,6 +25,10 @@ Before the first higher-tier choice, read notes and the current conversation for
 
 Tell the owner once: “The overseer works best when you start its session on a higher model; it cannot switch its own model.” Record that this was said in owner notes so later sessions do not repeat it.
 
+## Foundry runs
+
+For a Foundry agent, resolve a requested tier word against separate tokens in discovered deployment names or models and pass the matching deployment name, newest numeric version first; use the token and version rules in [Foundry model mapping](../../ps-ai-personalisation/references/foundry-models.md). If the word has no match or the newest versions tie, ask the owner about that choice only.
+
 ## First legion dispatch
 
 Read notes and the current conversation for the owner's legion access answer. If an explicit answer exists, follow it and record it in notes if missing. Never ask again. If no answer exists, explain and ask before the first dispatch:

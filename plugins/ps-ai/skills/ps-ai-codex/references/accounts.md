@@ -26,7 +26,7 @@ Register an existing wrapper with `-Action register -Id <id> -Tool codex -Comman
 
 Codex is **not yet proven against Foundry**. Use this flow when GPT access exists and the owner wants to verify it. It replaces the subscription login flow above. One agent uses one endpoint. Run the commands in PowerShell 7; pass `-HomeRoot <home>` for an alternate home.
 
-Use these commands only for an explicit Foundry provider configuration request. Ordinary setup can adopt an existing folder and keep its provider settings. Use the endpoint, deployments, default and any aliases already supplied by the owner. Do not discover models, present model lists or ask model questions. Leave a provider change unfinished if required values are missing. These example values stand for the owner-supplied provider settings:
+Use these commands for a Foundry provider configuration request. Ordinary setup can adopt an existing folder and keep its provider settings. For Foundry only, ask “Standard mapping or choose deployments yourself?” Reuse choices already supplied. Follow [Foundry model mapping](../../ps-ai-personalisation/references/foundry-models.md) for discovery, `-Standard` and unresolved aliases. These examples show explicit choices:
 
 ```powershell
 & "<plugin>/bin/ps-ai-account.ps1" -Action add -Tool codex -Id '<id>' -Provider foundry -Endpoint "https://<resource>.cognitiveservices.azure.com" -Deployments @('gpt-x') -Default gpt-x
