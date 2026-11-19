@@ -2,8 +2,10 @@ $failed = 0
 $passed = 0
 foreach ($test in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Sort-Object Name) {
     try {
-        . (Join-Path $PSScriptRoot 'Assert.ps1')
-        . $test.FullName
+        & {
+            . (Join-Path $PSScriptRoot 'Assert.ps1')
+            & $test.FullName
+        }
         Write-Output "PASS $($test.Name)"
         $passed++
     } catch {
@@ -11,5 +13,6 @@ foreach ($test in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Sort-Objec
         $failed++
     }
 }
+Write-Output 'Test files:'
 Write-Output "$passed passed, $failed failed"
 if ($failed) { exit 1 }

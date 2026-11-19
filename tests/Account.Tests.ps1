@@ -4,13 +4,20 @@ $validator = Join-Path $root 'plugins/ps-ai/bin/ps-ai-validate.ps1'
 $ownerFile = Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json'
 $tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+function Get-Command {
+    param($Name, $ErrorAction)
+    if ($Name -eq 'codex') { throw 'fixture: Codex is not installed' }
+    Microsoft.PowerShell.Core\Get-Command -Name $Name -ErrorAction $ErrorAction
+}
 try {
     $homeRoot = Join-Path $tempRoot 'owner'
     $config = Join-Path $homeRoot '.agents/configuration'
     New-Item -ItemType Directory -Path $config -Force | Out-Null
     $file = Join-Path $config 'ps-ai-personalisation.json'
     Copy-Item $ownerFile $file
-    $output = & $script -Action add -Id codex3 -Tool codex -HomeRoot $homeRoot
+    $fakeCommand = Join-Path $tempRoot 'fake-codex.ps1'
+    'exit 0' | Set-Content -LiteralPath $fakeCommand
+    $output = & $script -Action add -Id codex3 -Tool codex -HomeRoot $homeRoot -Command $fakeCommand
     Assert-True ($output -contains "Run 'codex3' in a terminal and log in once.") 'Add prints login instruction'
     $repeat = & pwsh -NoProfile -File $script -Action add -Id codex3 -Tool codex -HomeRoot $homeRoot
     Assert-Equal 0 $LASTEXITCODE 'Second add succeeds'

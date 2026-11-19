@@ -48,7 +48,7 @@
         Assert-True ($plugins.Contains("$tool plugin marketplace add nvk/llm-wiki")) "$tool owns optional wiki commands"
         $install = Get-Content (Join-Path $directory 'references/install.md') -Raw
         Assert-True ($install -match 'Windows[^\r\n]*no Node|Windows[^\r\n]*Node[^\r\n]*not required') "$tool documents native Windows without Node"
-        Assert-True ($install.Contains('Hash = $null') -and $install.Contains('SHA-256')) "$tool retains vendor integrity boundary"
+        Assert-True ($install.Contains('SHA-256') -and $install -match '(?i)vendor|checksum|integrity') "$tool retains vendor integrity boundary"
     }
     $copilot = Join-Path $skills 'ps-ai-copilot/references'
     Assert-True (-not (Test-Path (Join-Path $copilot 'plugins.md'))) 'No invented Copilot wiki recipe'

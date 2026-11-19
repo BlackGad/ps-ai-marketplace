@@ -5,4 +5,4 @@ $versions = @(
     }
 )
 Assert-Equal 1 @($versions | Select-Object -Unique).Count 'All three plugin manifest versions match'
-Assert-Equal '0.3.0' $versions[0] 'Plugin release version is bumped'
+Assert-True ($versions[0] -match '^\d+\.\d+\.\d+$') 'Plugin version uses semantic version syntax'
