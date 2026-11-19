@@ -55,6 +55,14 @@ Use the dedicated tool guides for CLI installation, account setup, plugin comman
 - Codex CLI: [installation](plugins/ps-ai/skills/ps-ai-codex/references/install.md), [accounts](plugins/ps-ai/skills/ps-ai-codex/references/accounts.md), [plugins and hook trust](plugins/ps-ai/skills/ps-ai-codex/references/plugins.md).
 - Copilot CLI: [installation and plugin commands](plugins/ps-ai/skills/ps-ai-copilot/references/install.md), [accounts](plugins/ps-ai/skills/ps-ai-copilot/references/accounts.md).
 
+## Uninstall
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Uninstall
+```
+
+Shows the targets and generated files before asking. Use `-Yes` to skip the prompt, `-DryRun` to preview, or `-Tools` and `-ConfigDir` to narrow targets. Removes ps-ai and its marketplace registration, plus its generated account and overseer launchers and copied runtime in `~/.agents/bin` (shared files stay while other account launchers need them). Keeps `~/.agents/configuration` (settings and notes), account folders and logins, repositories, and the CLIs themselves. The script prints the kept locations so you can delete data by hand.
+
 ## First run
 
 Start any of the tools and ask it to set up your agent preferences. The `ps-ai-personalisation` skill asks a few questions, one at a time, and writes your personalisation:

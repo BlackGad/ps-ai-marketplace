@@ -31,11 +31,18 @@
           "add",
           "{source}"
         ],
+        "uninstall": [
+          "plugin",
+          "uninstall",
+          "ps-ai@ps-ai-marketplace"
+        ],
         "marketplaceRemove": [
           "plugin",
           "marketplace",
           "remove",
-          "ps-ai-marketplace"
+          "ps-ai-marketplace",
+          "--scope",
+          "user"
         ],
         "marketplaceRemoveHint": "",
         "install": [
@@ -88,6 +95,11 @@
           "marketplace",
           "add",
           "{source}"
+        ],
+        "uninstall": [
+          "plugin",
+          "remove",
+          "ps-ai@ps-ai-marketplace"
         ],
         "marketplaceRemove": [
           "plugin",
@@ -143,6 +155,11 @@
           "marketplace",
           "add",
           "{source}"
+        ],
+        "uninstall": [
+          "plugin",
+          "uninstall",
+          "ps-ai@ps-ai-marketplace"
         ],
         "marketplaceRemove": [
           "plugin",

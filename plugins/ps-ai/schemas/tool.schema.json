@@ -74,6 +74,7 @@
         "marketplaceRemove",
         "marketplaceRemoveHint",
         "install",
+        "uninstall",
         "marketplaceUpdate",
         "update",
         "marketplaceList",
@@ -99,6 +100,9 @@
           "type": "string"
         },
         "install": {
+          "$ref": "#/$defs/arguments"
+        },
+        "uninstall": {
           "$ref": "#/$defs/arguments"
         },
         "marketplaceUpdate": {
