@@ -3,7 +3,7 @@ param(
     [string]$Repo = (Get-Location).Path,
     [string]$Tool,
     [string]$Account,
-    [int]$ProcessId = $PID
+    [int]$ProcessId
 )
 
 . (Join-Path $PSScriptRoot 'PsAi.Common.ps1')
@@ -16,16 +16,24 @@ if ($Action -eq 'status') {
     exit 0
 }
 
+$ownerProcess = if ($PSBoundParameters.ContainsKey('ProcessId')) {
+    Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+} else { Get-PsAiLeaseOwnerProcess }
+$ProcessId = if ($ownerProcess) { $ownerProcess.Id } else { $ProcessId }
+$processStartedAt = if ($ownerProcess) { $ownerProcess.StartTime.ToUniversalTime().ToString('o') } else { $null }
+
 if ($Action -eq 'release') {
     $lease = Get-PsAiLease -Repo $Repo
     if ($lease.State -eq 'free') { 'skip: lease release (already done)'; exit 0 }
-    if ($lease.Data -and $lease.Data.host -ieq $hostName -and [int]$lease.Data.pid -eq $ProcessId) {
+    if ($lease.Data -and $processStartedAt -and $lease.Data.host -ieq $hostName -and
+        [int]$lease.Data.pid -eq $ProcessId -and $lease.Data.processStartedAt -and
+        ([datetime]$lease.Data.processStartedAt).ToUniversalTime() -eq $ownerProcess.StartTime.ToUniversalTime()) {
         Remove-Item -LiteralPath $path -Force
         'lease released'
         exit 0
     }
-    'skip: lease release (already done)'
-    exit 0
+    [Console]::Error.WriteLine('lease belongs to another session; cannot release it')
+    exit 1
 }
 
 function Remove-PsAiStaleLease {
@@ -55,8 +63,9 @@ function Remove-PsAiStaleLease {
 }
 
 if (-not $Tool -or -not $Account) { throw 'take requires -Tool and -Account' }
+if (-not $ownerProcess) { throw 'lease owner process is not running' }
 New-Item -ItemType Directory -Path (Split-Path $path -Parent) -Force | Out-Null
-$data = @{ tool = $Tool; account = $Account; pid = $ProcessId; host = $hostName; startedAt = [DateTimeOffset]::UtcNow.ToString('o') }
+$data = @{ tool = $Tool; account = $Account; pid = $ProcessId; processStartedAt = $processStartedAt; host = $hostName; startedAt = [DateTimeOffset]::UtcNow.ToString('o') }
 for ($attempt = 0; $attempt -lt 2; $attempt++) {
     try {
         $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)

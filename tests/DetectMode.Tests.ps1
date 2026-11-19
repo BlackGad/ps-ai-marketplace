@@ -44,7 +44,7 @@ function Get-PsAiUpdateText { throw 'offline fixture' }
     $hookOutput = '{"cwd":' + ($fixtureRepo | ConvertTo-Json) + '}' | pwsh -NoProfile -File $script -Format context-json
     Assert-True ($hookOutput -match 'M1; task 2 of 4') 'Hook run from another folder uses the stdin cwd'
     $hostName = [System.Net.Dns]::GetHostName()
-    @{tool='codex'; account='codex-a'; pid=$PID; host=$hostName; startedAt='2026-11-18T10:00:00Z'} |
+    @{tool='codex'; account='codex-a'; pid=$PID; processStartedAt=(Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o'); host=$hostName; startedAt='2026-11-18T10:00:00Z'} |
         ConvertTo-Json | Set-Content -Path $lease
     $mode = Get-PsAiMode -Repo $fixtureRepo -Environment @{}
     Assert-Equal 'held' $mode.Lease 'Live local lease is held'

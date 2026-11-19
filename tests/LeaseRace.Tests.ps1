@@ -20,7 +20,7 @@ try {
     $runner = Join-Path $tempRoot 'runner.ps1'
     @'
 param($LeaseScript, $Repo, $Account)
-& $LeaseScript -Action take -Repo $Repo -Tool codex -Account $Account
+& $LeaseScript -Action take -Repo $Repo -Tool codex -Account $Account -ProcessId $PID
 $result = $LASTEXITCODE
 Start-Sleep -Seconds 3
 exit $result
