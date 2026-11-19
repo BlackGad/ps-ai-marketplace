@@ -6,4 +6,4 @@
 4. Read the report and inspect status, commit message, changed-file list, and the risky change against the task scope. Check tests, script results, open questions, encoding, and user rulings. Fixed before/after gates come from `project.json` and `scripts/index.md`. Never run a missing or unindexed gate.
 5. If a real defect remains, dispatch a scoped fix. A scope or API question goes to the owner. If an account ran out mid-task, save a patch and fresh-run on another routed account; resume only on the original account and folder. Do not amend or force-push. Record the result, clear the row, and write the next handoff state before the next task; commit it with the task's stage.
 
-The source playbook's implementer handoff edits are superseded by the spec: legion writes its report; overseer alone writes handoff. Delivery follows `project.json` and owner rulings. Do not merge to main for `merge-request` delivery.
+Legion writes its report; overseer alone writes handoff. Delivery follows `project.json` and owner rulings. Do not merge to main for `merge-request` delivery.

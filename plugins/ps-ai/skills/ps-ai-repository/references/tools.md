@@ -22,6 +22,8 @@ Checked 2026-11-18; these downloads target Windows x64. `msi` selects the vendor
 
 GitHub release metadata comes from `https://api.github.com/repos/<repo>/releases/latest`; the asset's `browser_download_url` supplies the download URL and its `digest` supplies `sha256:<hex>`. A missing hash stops the install. Node and glab use their vendor checksum files. A mismatch deletes the download before extraction or execution.
 
+PowerShell MSI deliberately stays on the newest stable 7.6 LTS release for MSI compatibility; ZIP follows the latest stable release because newer releases may ship without an MSI.
+
 | Tool | Latest release and URL pattern | SHA-256 source | Executable folder in ZIP / installer arguments |
 | --- | --- | --- | --- |
 | PowerShell | [PowerShell/PowerShell releases](https://github.com/PowerShell/PowerShell/releases): `.../download/v<v>/PowerShell-<v>-win-x64.zip`; MSI uses `PowerShell-<v>-win-x64.msi` from the newest stable 7.6.x in `/releases?per_page=100&page=<n>` | GitHub asset `digest` | ZIP root (`pwsh.exe`); MSI `/qn /norestart ADD_PATH=1`. Latest ZIP checked: 7.7.0; latest MSI: 7.6.10, because 7.7 has no MSI. [MSI options](https://learn.microsoft.com/powershell/scripting/install/install-powershell-on-windows) |

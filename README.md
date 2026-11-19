@@ -12,7 +12,7 @@ The `ps-ai` plugin lets Claude Code, Codex CLI and GitHub Copilot CLI share one 
 On Windows, run this in Windows PowerShell 5.1 or PowerShell 7 (`pwsh`):
 
 ```powershell
-irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1 | iex
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1)))
 ```
 
 The script checks for PowerShell 7, which the plugin needs at runtime. If it is missing on Windows, the script shows `winget install --id Microsoft.PowerShell -e` and asks before installing. If winget is missing or fails, it offers the official per-user ZIP, verifies its SHA-256 digest, extracts it to `~/.agents/tools/pwsh/`, and adds that folder to the user and current process PATH. Use `-Yes` to approve installation without prompts.
@@ -20,7 +20,7 @@ The script checks for PowerShell 7, which the plugin needs at runtime. If it is 
 On macOS or Linux, [install PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) first, then run:
 
 ```sh
-pwsh -c "irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1 | iex"
+pwsh -c '& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1)))'
 ```
 
 By default, the script installs ps-ai for every installed coding CLI. If none is installed, it prints the official CLI install commands and stops successfully. Install one and rerun the script. Repeated runs skip completed steps and preserve hook approval.
@@ -39,15 +39,15 @@ For options, use the script-block form in PowerShell. This example selects an ex
 
 Use `-Tools <tool-id>` (or an array of ids) to choose tools, `-Source <owner/repository>` to override the GitHub marketplace source, and `-DryRun` to print the steps without changing anything. The default source is `BlackGad/ps-ai-marketplace`. `-SourceRef` selects its catalog revision (default `main`). Remote dry runs read that metadata once. It does not change the marketplace source passed to the CLI.
 
-Overseer sessions check for a newer ps-ai version once a day and show a notice when one is available. Say "check ps-ai updates" for a fresh check, or "update ps-ai" to see the update command and approve running it. Checks never install updates. The shared checker is `pwsh -NoProfile -File <plugin>/bin/ps-ai-update.ps1 -Check [-Force]`; `-Force` refreshes `~/.agents/temp/ps-ai-update.json` and reports check failures.
+Overseer sessions check for a newer ps-ai version once a day and show a notice when one is available. Say "check ps-ai updates" for a fresh check, or "update ps-ai" to see the update command and approve running it. Checks never install updates. Checks and generated update commands follow `main` in the detected marketplace source, including after an installation using a tagged installer or catalog. The shared checker is `pwsh -NoProfile -File <plugin>/bin/ps-ai-update.ps1 -Check [-Force]`; `-Force` refreshes `~/.agents/temp/ps-ai-update.json` and reports check failures.
 
-To pin the installer, replace `<release-tag>` with a published release tag:
+To run a specific installer and matching catalog revision, replace `<release-tag>` with a published release tag. This does not pin the installed plugin or future updates:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/<release-tag>/install.ps1))) -SourceRef <release-tag> -Tools <tool-id>
 ```
 
-For optional prerequisite hints, use `pwsh -NoProfile -File ./plugins/ps-ai/bin/ps-ai-install-tool.ps1 -Tool <helper-id>`. Add `-Yes` only after choosing to install. See [repository helper sources and approval policy](plugins/ps-ai/skills/ps-ai-repository/references/tools.md).
+For optional prerequisite hints, use `pwsh -NoProfile -File <plugin>/bin/ps-ai-install-tool.ps1 -Tool <helper-id>`, replacing `<plugin>` with the installed ps-ai plugin directory. When working from a clone, that directory is `./plugins/ps-ai`. Add `-Yes` only after choosing to install. See [repository helper sources and approval policy](plugins/ps-ai/skills/ps-ai-repository/references/tools.md).
 
 Use the dedicated tool guides for CLI installation, account setup, plugin commands, and provider limitations:
 
@@ -88,10 +88,12 @@ A session you start yourself is never a legion member.
 | Personalisation and notes | `~/.agents/configuration/` | no |
 | Launcher and account wrappers | `~/.agents/bin/` | no |
 | Extra account config folders | `~/.agents/accounts/<id>/` | no |
+| Portable prerequisite tools | `~/.agents/tools/<tool>/` | no |
 | Cross-project knowledge wiki (optional, llm-wiki) | `~/.agents/knowledge/` | no |
 | Repo workflow configuration | `<repo>/.agents/configuration/` (`project.json`, `workflow.md`) | yes |
 | Repo scripts and their index | `<repo>/.agents/scripts/`, `index.md` | yes |
 | Overseer state | `<repo>/.agents/state/handoff.md`, `history/` | yes |
+| Local specs and plans | `<repo>/.agents/docs/specs/`, `plans/` | no |
 | Agent scratch files | `<repo>/.agents/temp/` | no |
 
 ## Skills
@@ -103,6 +105,7 @@ A session you start yourself is never a legion member.
 | `ps-ai-overseer` | Takeover, milestone flow, task loop, reviews, handoff |
 | `ps-ai-legion` | The working agent's contract and report |
 | `ps-ai-knowledge` | Consult and grow the cross-project wiki |
+| `ps-ai-update` | Check versions and update ps-ai after approval |
 | `ps-ai-claude`, `ps-ai-codex`, `ps-ai-copilot` | Run each CLI, check its limits, add or rename accounts |
 
 ## Works with method skills
