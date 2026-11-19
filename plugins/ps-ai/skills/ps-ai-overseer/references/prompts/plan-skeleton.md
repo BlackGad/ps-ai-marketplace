@@ -1,6 +1,6 @@
 # Milestone implementation plan — {PLAN}
 
-Use the installed writing-plans skill when present. Read {RULES_FILE}, {SPEC}, and the roadmap path in `workflow.md`. This plan starts from {BASE}. Put reusable repo facts in configuration, not copied commands.
+Use the installed writing-plans skill when present. Read {RULES_FILE} and the approved {SPEC}. If the handoff names a goal, read its `.agents/state/roadmap/<goal-id>.md` when present. This plan starts from {BASE}. Put reusable repo facts in configuration, not copied commands. Save at {PLAN}, using the plan path in `workflow.md`. For the method's execution choice, follow [milestone-flow.md](../milestone-flow.md#execution-choice).
 
 ## Goal and architecture
 

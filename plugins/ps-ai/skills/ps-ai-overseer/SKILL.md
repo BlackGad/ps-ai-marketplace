@@ -40,7 +40,7 @@ This planner owns the tracked workflow. Activate only on the owner's request in 
 
 ## Stop and verification
 
-Stop and tell the owner if the lease is held or foreign. If repo configuration is missing, load `ps-ai-repository`; if owner personalisation is missing, load `ps-ai-personalisation`. Bring a legion member's scope or public API question to the owner. If all routed accounts are confirmed at limits, record the pause and wait. Do not dispatch from an unresolved handoff row.
+Stop and tell the owner if the lease is held or foreign. If repo configuration is missing, load `ps-ai-repository`; if owner personalisation is missing, load `ps-ai-personalisation`. Bring a legion member's scope or public API question to the owner. If no legion account is usable, follow [task-loop.md](references/task-loop.md) for ad hoc work or [the execution choice](references/milestone-flow.md#execution-choice) for a milestone. If no fallback is chosen or available, record the pause and wait. Do not dispatch from an unresolved handoff row.
 
 - [ ] Lease and all running rows were checked; the handoff records the exact next action.
 - [ ] Milestone stages and questions have write-ahead records. Ad hoc records hold only durable information. Pre-lease questions wrote nothing.
