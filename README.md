@@ -21,7 +21,7 @@ Run this in PowerShell to install ps-ai for your installed AI tools; it asks bef
 Open your AI tool and work through these steps by saying:
 
 1. **Set your preferences.** “Set up my agent preferences.” Answer the questions about how you want to work and receive updates. In Codex, open `/hooks` once per account and approve the ps-ai hooks.
-2. **Add accounts and choose legion members.** “Add a Codex account called codex-a and make it a legion member.” For an account you already use: “Add my existing Claude Code account from `<account folder>` and make it a legion member.” If the tool for an account isn't installed yet, ps-ai can install it when you ask. You log in yourself for a new account; existing folders keep their settings and login. Approve installing ps-ai into each added account.
+2. **Add accounts and choose legion members.** “Add a Codex account called `<your name for it>` and make it a legion member.” You pick the name; it becomes the command that starts that account. For an account you already use: “Add my existing Claude Code account from `<account folder>` and make it a legion member.” If the tool for an account isn't installed yet, ps-ai can install it when you ask. You log in yourself for a new account; existing folders keep their settings and login. Approve installing ps-ai into each added account.
 3. **Approve legion access.** Setup explains that legion members run without a sandbox, with your full user rights, so they can use your installed tools. Read the note and say “Yes, enable legion” if you accept.
 4. **Set up your repository.** Open a session in the repository and say “Set up orchestration in this repository.”
 5. **Start work.** Describe what you want done, then say “Continue” or “Next milestone.” The overseer plans, assigns tasks, and brings questions and results back to you.
@@ -33,7 +33,7 @@ Open your AI tool and say:
 
 - “Continue.” / “Next milestone.”
 - “Add another legion member.”
-- “Check limits for codex-a.”
+- “Check limits for `<account name>`.”
 - “Change my notification preferences.”
 - “Add an Azure Foundry agent.”
 - “What was learned elsewhere?”
