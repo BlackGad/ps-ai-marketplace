@@ -1,6 +1,6 @@
 # Claude Code limits
 
-Read owner notes before account/model selection, dispatch or limit fallback. Use actual stated models and exclusions, account purposes, careful-use choices and paid-use approval. Re-read after edits. Channel operations route through `skills/ps-ai-<kind>/SKILL.md`; stop if missing.
+Follow [owner notes](../../ps-ai-personalisation/references/fields.md) before account, model or channel choices.
 Ping the selected account's command in print mode with a small model:
 
 ```sh

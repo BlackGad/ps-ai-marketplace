@@ -1,6 +1,6 @@
 # Run Copilot CLI
 
-Read owner notes before account/model selection, dispatch or limit fallback. Use actual stated models and exclusions, account purposes, careful-use choices and paid-use approval. Re-read after edits. Channel operations route through `skills/ps-ai-<kind>/SKILL.md`; stop if missing.
+Follow [owner notes](../../ps-ai-personalisation/references/fields.md) before account, model or channel choices.
 Derive `<command>` from account ID as `<home>/.agents/bin/<id>` on Unix or `<home>/.agents/bin/<id>.cmd` on Windows. Choose the actual `<model>` from owner notes, and read the task prompt from the overseer's file. For legion, the prompt, report, and logs must be inside the assigned repository or worktree, under `.agents/temp/` for scratch files. Start there and inherit the owner's environment, including user PATH and installed tools. Never invent a path directly under the system temp folder. When only showing commands and no report path was supplied, retain the `<report>` placeholder and ask the overseer to provide it. Use the worker profile below. In the task repo, legion prompt mode is:
 
 ```sh

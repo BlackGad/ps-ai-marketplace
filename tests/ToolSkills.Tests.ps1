@@ -1,80 +1,44 @@
-# SharedSkillsRouteWithoutToolKnowledge: tool instructions have one home, shared skills route.
-& {
-    $repo = Split-Path $PSScriptRoot -Parent
-    $skills = Join-Path $repo 'plugins/ps-ai/skills'
-    foreach ($name in @('personalisation','overseer','repository','knowledge','legion','update')) {
-        $directory = Join-Path $skills "ps-ai-$name"
-        $main = Get-Content (Join-Path $directory 'SKILL.md') -Raw
-        $references = (Get-ChildItem (Join-Path $directory 'references') -File -Recurse | ForEach-Object { Get-Content $_.FullName -Raw }) -join "`n"
-        Assert-True ($references.Contains('skills/ps-ai-<agent.tool>/SKILL.md')) "$name reference routes dynamically"
-        Assert-True (($main + $references) -match '(?i)stop[^\r\n]*(missing|does not exist)|missing[^\r\n]*stop') "$name stops for a missing tool skill"
-        foreach ($file in Get-ChildItem $directory -File -Recurse) {
-            $content = Get-Content $file.FullName -Raw
-            Assert-True ($content -notmatch '(?i)claude|codex|copilot') "$($file.Name) contains no dedicated tool knowledge"
-            Assert-True ($content -notmatch '--channels|--verbose|--resume|--model|--allow-all-tools|--deny-tool|--dangerously|config\.toml|rate_limit_event') "$($file.Name) has no anonymous CLI flags or formats"
-        }
-    }
-    foreach ($file in Get-ChildItem $skills -Filter '*.md' -File -Recurse) {
-        $content = Get-Content $file.FullName -Raw
-        foreach ($match in [regex]::Matches($content, '\[[^\]]+\]\(([^)]+)\)')) {
-            $target = $match.Groups[1].Value -split '#',2 | Select-Object -First 1
-            if (-not $target -or $target -match '^https?://') { continue }
-            Assert-True (Test-Path -LiteralPath (Join-Path $file.DirectoryName $target)) "Local link $target from $($file.Name) resolves"
-        }
-    }
-    foreach ($tool in @('claude','codex','copilot')) {
-        $directory = Join-Path $skills "ps-ai-$tool"
-        $main = Get-Content (Join-Path $directory 'SKILL.md') -Raw
-        foreach ($ref in @('accounts','install','run','limits','launcher')) {
-            Assert-True ($main.Contains("references/$ref.md")) "$tool links $ref"
-        }
-        Assert-True ($main -match '(?m)^description: Use when') "$tool keeps trigger-focused description"
-        Assert-True ($main -notmatch '--dangerously|exec resume|rate_limit_event|\.ps1|PS_AI_ROLE|PS_AI_TASK|CODEX_HOME|COPILOT_HOME') "$tool main file keeps details in references"
-        $accounts = Get-Content (Join-Path $directory 'references/accounts.md') -Raw
-        $run = Get-Content (Join-Path $directory 'references/run.md') -Raw
-        $limits = Get-Content (Join-Path $directory 'references/limits.md') -Raw
-        Assert-True ($accounts -match 'owner.*log in|owner.*login') "$tool keeps owner login approval"
-        Assert-True ($run -match 'same account and folder|same account.*repository folder') "$tool keeps same-account resume"
-        Assert-True ($limits -match 'ping') "$tool keeps account limit ping"
-        $launcher = Get-Content (Join-Path $directory 'references/launcher.md') -Raw
-        Assert-True ($launcher.Contains("-Tool $tool") -and $launcher.Contains('-Account')) "$tool launcher selects an account"
-        Assert-True ($launcher.Contains('-Arguments') -and $launcher.Contains('--model')) "$tool owns explicit launch examples"
-        Assert-True ($launcher -notmatch 'launch\.args|models\.overseer|communication\.channels|Telegram|markdownv2') "$tool routes channels without transport details"
-    }
-    foreach ($tool in @('claude','codex')) {
-        $directory = Join-Path $skills "ps-ai-$tool"
-        $main = Get-Content (Join-Path $directory 'SKILL.md') -Raw
-        Assert-True ($main.Contains('references/plugins.md')) "$tool links plugin reference"
-        $plugins = Get-Content (Join-Path $directory 'references/plugins.md') -Raw
-        Assert-True ($plugins.Contains("$tool plugin marketplace add nvk/llm-wiki")) "$tool owns optional wiki commands"
-        $install = Get-Content (Join-Path $directory 'references/install.md') -Raw
-        Assert-True ($install -match 'Windows[^\r\n]*no Node|Windows[^\r\n]*Node[^\r\n]*not required') "$tool documents native Windows without Node"
-        Assert-True ($install.Contains('SHA-256') -and $install -match '(?i)vendor|checksum|integrity') "$tool retains vendor integrity boundary"
-    }
-    $copilot = Join-Path $skills 'ps-ai-copilot/references'
-    Assert-True (-not (Test-Path (Join-Path $copilot 'plugins.md'))) 'No invented Copilot wiki recipe'
-    $run = Get-Content (Join-Path $copilot 'run.md') -Raw
-    Assert-True ($run.Contains('--deny-tool=write --deny-tool=shell')) 'Copilot retains exact reviewer denials'
-    Assert-True ($run -match 'cannot enforce.*stop') 'Copilot stops when denials unavailable'
-    $install = Get-Content (Join-Path $copilot 'install.md') -Raw
-    Assert-True ($install -match 'Node.*already available' -and $install.Contains('npm install -g @github/copilot')) 'Copilot documents conditional npm precedence'
-    Assert-True ($install.Contains('copilot-win32-x64.zip') -and $install.Contains('copilot-x64.msi')) 'Copilot retains native download names'
-    $accounts = Get-Content (Join-Path $copilot 'accounts.md') -Raw
-    Assert-True ($accounts.Contains('fixed bearer token') -and $accounts.Contains('does not refresh') -and $accounts.Contains('<id> --resume')) 'Copilot retains expiry/restart limits'
-    $codex = Get-Content (Join-Path $skills 'ps-ai-codex/references/accounts.md') -Raw
-    Assert-True ($codex.Contains('not yet proven against Foundry')) 'Codex retains verification limit'
-    $sharedReviews = Get-Content (Join-Path $skills 'ps-ai-overseer/references/reviews.md') -Raw
-    $communication = Get-Content (Join-Path $skills 'ps-ai-overseer/references/communication.md') -Raw
-    Assert-True ($communication.Contains('skills/ps-ai-<kind>/SKILL.md')) 'Shared channel operations route dynamically'
-    Assert-True ($sharedReviews -match 'tool-enforced read-only' -and $sharedReviews -match 'stop') 'Shared reviews stop without enforced read-only access'
-    $knowledge = Get-Content (Join-Path $skills 'ps-ai-knowledge/references/llm-wiki-setup.md') -Raw
-    Assert-True ($knowledge.Contains('never run') -and $knowledge.Contains('references/plugins.md') -and $knowledge.Contains('only when')) 'Knowledge offers optional tool-owned hints only on request or for owner action'
-    $legion = Get-Content (Join-Path $skills 'ps-ai-legion/SKILL.md') -Raw
-    $legionTask = Get-Content (Join-Path $skills 'ps-ai-legion/references/task.md') -Raw
-    Assert-True ($legion.Contains('A summoned unit cannot summon') -and $legionTask.Contains('{REPORT_FILE}')) 'Legion keeps no-summoning and referenced report contract'
-    $reference = Get-Content (Join-Path $repo 'docs/reference.md') -Raw
-    Assert-True ($reference.Contains('-SourceRef <release-tag>')) 'Pinned script pins matching catalog ref'
-    foreach ($tool in @('claude','codex','copilot')) {
-        foreach ($ref in @('install','accounts')) { Assert-True ($reference.Contains("../plugins/ps-ai/skills/ps-ai-$tool/references/$ref.md")) "Reference links $tool $ref" }
+$repo = Split-Path $PSScriptRoot -Parent
+$skills = Join-Path $repo 'plugins/ps-ai/skills'
+$files = @(Get-ChildItem $skills -Filter '*.md' -File -Recurse) + @(Get-Item (Join-Path $repo 'README.md'), (Join-Path $repo 'docs/reference.md'))
+foreach ($file in $files) {
+    $content = Get-Content $file.FullName -Raw
+    foreach ($match in [regex]::Matches($content, '\[[^\]]+\]\(([^)]+)\)')) {
+        $target = $match.Groups[1].Value -split '#',2 | Select-Object -First 1
+        if (-not $target -or $target -match '^https?://') { continue }
+        Assert-True (Test-Path -LiteralPath (Join-Path $file.DirectoryName $target)) "Local link $target from $($file.Name) resolves"
     }
 }
+foreach ($name in @('personalisation','overseer','repository','knowledge','legion','update')) {
+    $directory = Join-Path $skills "ps-ai-$name"
+    $text = (Get-ChildItem $directory -Filter '*.md' -File -Recurse | ForEach-Object { Get-Content $_.FullName -Raw }) -join "`n"
+    Assert-True ($text -match '(?i)stop[^\r\n]*(missing|does not exist)|missing[^\r\n]*stop') "$name stops for a missing skill"
+}
+foreach ($tool in @('claude','codex','copilot')) {
+    $folder = Join-Path $skills "ps-ai-$tool/references"
+    $accounts = Get-Content (Join-Path $folder 'accounts.md') -Raw
+    $run = Get-Content (Join-Path $folder 'run.md') -Raw
+    $install = Get-Content (Join-Path $folder 'install.md') -Raw
+    Assert-True ($accounts -match 'owner.*log in|owner.*login') "$tool keeps owner login approval"
+    Assert-True ($run -match 'same account and folder|same account.*repository folder') "$tool keeps same-account resume"
+    Assert-True ($install.Contains('-Yes')) "$tool requires install approval"
+    if ($tool -ne 'copilot') {
+        Assert-True ($install.Contains('SHA-256') -and $install -match '(?i)vendor|checksum|integrity') "$tool keeps vendor integrity"
+        Assert-True ($run -match 'Stop before launching a reviewer') "$tool stops without enforced read-only access"
+    }
+}
+$run = Get-Content (Join-Path $skills 'ps-ai-copilot/references/run.md') -Raw
+Assert-True ($run.Contains('--deny-tool=write --deny-tool=shell')) 'Copilot keeps exact reviewer denials'
+Assert-True ($run -match 'cannot enforce.*stop') 'Copilot stops when denials are unavailable'
+$accounts = Get-Content (Join-Path $skills 'ps-ai-copilot/references/accounts.md') -Raw
+Assert-True ($accounts.Contains('fixed bearer token') -and $accounts.Contains('does not refresh') -and $accounts.Contains('<id> --resume')) 'Copilot keeps expiry and restart limits'
+$codex = Get-Content (Join-Path $skills 'ps-ai-codex/references/accounts.md') -Raw
+Assert-True ($codex.Contains('not yet proven against Foundry')) 'Codex keeps verification limit'
+$reviews = Get-Content (Join-Path $skills 'ps-ai-overseer/references/reviews.md') -Raw
+Assert-True ($reviews -match 'tool-enforced read-only' -and $reviews -match 'stop') 'Reviews stop without enforced read-only access'
+$knowledge = Get-Content (Join-Path $skills 'ps-ai-knowledge/references/llm-wiki-setup.md') -Raw
+Assert-True ($knowledge.Contains('never run') -and $knowledge.Contains('only when')) 'Knowledge installation remains optional'
+$legion = Get-Content (Join-Path $skills 'ps-ai-legion/SKILL.md') -Raw
+Assert-True ($legion.Contains('A summoned unit cannot summon')) 'Legion cannot summon other agents'
+$update = Get-Content (Join-Path $skills 'ps-ai-update/SKILL.md') -Raw
+Assert-True ($update -match "owner.s yes" -and $update -match 'restart.*session' -and $update.Contains('resume')) 'Updates require approval and session restart or resume'

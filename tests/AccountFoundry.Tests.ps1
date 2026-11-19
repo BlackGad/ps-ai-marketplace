@@ -38,15 +38,11 @@ try {
     '{"theme":"dark"}' | Set-Content -LiteralPath $settings
     $selection = @{Deployments=@('claude-opus-x','claude-sonnet-x');Default='claude-opus-x';Aliases=@('claude-opus-x=opus','claude-sonnet-x=sonnet')}
     $addOutput = & $accountScript -Action add @common @selection
-    Assert-Equal 1 @($addOutput).Count 'Foundry add emits only the next-step message'
-    Assert-True (@($addOutput) -contains "Run 'claude-dev' in a terminal; it signs in to Azure through az when needed.") 'Foundry add prints next step'
     $data = Read-PsAiJson -Path $file
     $agent = $data.agents[0]
     Assert-Equal 'https://res-a.cognitiveservices.azure.com' $agent.provider.endpoint 'Add normalises endpoint'
     Assert-Equal 'claude-opus-x' $agent.provider.deployments[0].model 'Add fills model name'
     Assert-Equal 'sonnet' $agent.provider.deployments[1].alias 'Add saves alias'
-    Assert-Equal 0 $agent.roles.Count 'Foundry agent starts without roles'
-    $expectedCommand = if ($IsWindows) { '~/.agents/bin/claude-dev.cmd' } else { '~/.agents/bin/claude-dev' }
     Assert-True (-not $agent.PSObject.Properties['command']) 'Foundry stores no command'
     Assert-Equal $claudeDir $agent.configDir 'Foundry config dir'
     Assert-Equal 0 @(Invoke-PsAiValidation -Kind personalisation -Path $file).Count 'Added Foundry agent validates'

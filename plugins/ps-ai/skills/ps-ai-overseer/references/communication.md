@@ -1,6 +1,6 @@
 # Owner communication and session handoff
 
-Read owner notes before communication and account/model choices. Read repository workflow for local notification preferences. Current instructions win. Re-read after edits. Report meaningful steps in two to five plain sentences: result, evidence and next action. For progress, inspect handoff, commits and reports. Put open decisions first when the owner is away.
+Follow [owner notes](../../ps-ai-personalisation/references/fields.md) and repository workflow before communication or account choices. Report meaningful steps in two to five plain sentences: result, evidence and next action. For progress, inspect handoff, commits and reports. Put open decisions first when the owner is away.
 
 Any owner-started repository session may take the lease on request, including one with no channel. Declining a relaunch permits current channel-free oversight. No preset overseer account exists.
 

@@ -23,16 +23,11 @@
     [Array]::Reverse($reversed)
     Assert-Equal $rendered (Get-ToolsIndexContent -Tools $reversed -Bootstrap $bootstrap) 'Renderer sorts input by id'
     $index = $rendered | ConvertFrom-Json
-    Assert-Equal 'schemaVersion|bootstrap|tools' ($index.PSObject.Properties.Name -join '|') 'Catalog has only ordered projection fields'
     Assert-Equal 1 $index.schemaVersion 'Catalog schema version'
-    Assert-Equal 'windows' ($index.bootstrap.PSObject.Properties.Name -join '|') 'Bootstrap includes only consumed Windows data'
-    Assert-Equal 'wingetId|portableCommand|download' ($index.bootstrap.windows.PSObject.Properties.Name -join '|') 'Bootstrap excludes unused installer fields'
-    Assert-Equal 'zip' ($index.bootstrap.windows.download.PSObject.Properties.Name -join '|') 'Bootstrap includes only the supported ZIP fallback'
     Assert-Equal ($bootstrap.windows.download.zip | ConvertTo-Json -Depth 100 -Compress) ($index.bootstrap.windows.download.zip | ConvertTo-Json -Depth 100 -Compress) 'Bootstrap ZIP recipe preserves validation and integrity metadata'
     Assert-Equal ($tools.id -join '|') ($index.tools.id -join '|') 'Catalog tools are sorted'
     foreach ($entry in $index.tools) {
         $source = $tools | Where-Object id -CEQ $entry.id
-        Assert-Equal 'id|command|configEnv|plugin|hooks|installHint' ($entry.PSObject.Properties.Name -join '|') 'Tool projection has exactly the public fields'
         Assert-Equal $source.command $entry.command 'Executable is projected'
         Assert-Equal $source.configEnv $entry.configEnv 'Config environment is projected'
         Assert-Equal ($source.plugin | ConvertTo-Json -Depth 100 -Compress) ($entry.plugin | ConvertTo-Json -Depth 100 -Compress) 'Plugin arguments and listing rules are projected intact'

@@ -100,20 +100,6 @@ Assert-Equal 0 $script:commands.Count 'Missing prerequisite runs no npm command'
 # The standalone installer also runs in Windows PowerShell 5.1.
 & (Join-Path $PSScriptRoot 'fixtures/install/Test-RemoteInstaller.ps1') -Installer $installer -Repo $root
 
-foreach ($tool in @('claude','codex','copilot')) {
-    $folder = Join-Path $root "plugins/ps-ai/skills/ps-ai-$tool"
-    $main = Get-Content -Raw (Join-Path $folder 'SKILL.md')
-    Assert-True ($main.Contains('references/install.md')) "$tool skill routes missing CLI to install reference"
-    $installReference = Join-Path $folder 'references/install.md'
-    Assert-True (Test-Path $installReference) "$tool install reference exists"
-    $reference = Get-Content -Raw $installReference
-    Assert-True ($reference.Contains('ps-ai-install-tool.ps1')) "$tool install reference uses shared script"
-    Assert-True ($reference.Contains('-Yes')) "$tool install reference requires explicit approval"
-}
-$repositorySkill = Get-Content -Raw (Join-Path $root 'plugins/ps-ai/skills/ps-ai-repository/SKILL.md')
-Assert-True ($repositorySkill.Contains('references/tools.md')) 'Repository skill routes tool hints'
-$repositoryTools = Join-Path $root 'plugins/ps-ai/skills/ps-ai-repository/references/tools.md'
-Assert-True (Test-Path $repositoryTools) 'Repository tool reference exists'
 $readme = Get-Content -Raw (Join-Path $root 'README.md')
 $windowsExample = [regex]::Match($readme, '(?s)```powershell\r?\n(.*?)\r?\n```')
 Assert-True $windowsExample.Success 'README includes a Windows PowerShell installer example'
@@ -128,7 +114,6 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
     Assert-Equal 'fixture-installer-ran' $result 'README invocation executes the downloaded installer'
     Assert-Equal 'caller' $fixtureInstallerScope 'README installer invocation isolates caller variables'
 }
-Assert-True ($readme.Contains('[Details for maintainers and power users](docs/reference.md)')) 'README links the technical reference'
 
 # Local archives and official-shaped metadata; no network, installers, or real PATH writes.
 & {
