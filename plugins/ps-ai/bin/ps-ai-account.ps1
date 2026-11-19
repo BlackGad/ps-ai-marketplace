@@ -77,10 +77,14 @@ function ConvertTo-PsAiShellLiteral {
 }
 
 function Write-PsAiGeneratedFile {
-    param([string]$Path, [string]$Content, [Collections.Generic.List[string]]$Changes)
+    param([string]$Path, [string]$Content, [Collections.Generic.List[string]]$Changes, [switch]$Executable)
     if ((Test-Path -LiteralPath $Path) -and [IO.File]::ReadAllText($Path) -ceq $Content) { return }
     New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
     [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
+    if ($Executable -and -not $IsWindows) {
+        & chmod +x $Path
+        if ($LASTEXITCODE -ne 0) { throw 'could not make the generated wrapper executable' }
+    }
     if ($null -ne $Changes) { $Changes.Add($Path) }
 }
 
@@ -155,9 +159,8 @@ function New-FoundryWrappers {
     $bin = Join-Path $HomeRoot '.agents/bin'
     $shPath = ConvertTo-PsAiShellLiteral $runner
     $sh = '#!/bin/sh' + "`n" + ('exec pwsh -NoProfile -File {0} -Agent {1} "$@"' -f $shPath, $Id) + "`n"
-    Write-PsAiGeneratedFile -Path (Join-Path $bin $Id) -Content $sh -Changes $Changes
-    if (-not $IsWindows) { & chmod +x (Join-Path $bin $Id) }
-    $cmd = "@pwsh -NoProfile -File `"$runner`" -Agent $Id %*`r`n"
+    Write-PsAiGeneratedFile -Path (Join-Path $bin $Id) -Content $sh -Changes $Changes -Executable
+    $cmd = "@pwsh -NoProfile -File `"$($runner.Replace('%', '%%'))`" -Agent $Id %*`r`n"
     Write-PsAiGeneratedFile -Path (Join-Path $bin "$Id.cmd") -Content $cmd -Changes $Changes
 }
 

@@ -21,7 +21,10 @@ try {
     'stale wrapper' | Set-Content (Join-Path $bin 'foundry-a')
     'custom wrapper' | Set-Content (Join-Path $bin 'external')
     $shim = Join-Path $bin 'ps-ai-overseer'
-    '#!/bin/sh' + "`n" + 'exec pwsh -NoProfile -File ''/old/cache/bin/ps-ai-overseer.ps1'' -Account chosen "$@"' | Set-Content $shim
+    @'
+#!/bin/sh
+exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/ps-ai-overseer.ps1' -Account chosen "$@"
+'@ | Set-Content $shim
     $cmdShim = Join-Path $bin 'ps-ai-overseer.cmd'
     '@pwsh -NoProfile -File "C:\old\cache\bin\ps-ai-overseer.ps1" -Account chosen %*' | Set-Content $cmdShim
     & $refresh -HomeRoot $tempRoot | Out-Null

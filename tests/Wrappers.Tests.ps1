@@ -1,7 +1,9 @@
+$ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $account = Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1'
 $tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
 $previousLog = $env:PS_AI_WRAPPER_LOG
+$previousExpand = $env:PS_AI_WRAPPER_EXPAND
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
     $homeRoot = Join-Path $tempRoot 'owner $(printf expanded) & quoted '' fixture'
@@ -37,6 +39,27 @@ exit /b %result%
         $seen = Get-Content $env:PS_AI_WRAPPER_LOG -Raw | ConvertFrom-Json
         Assert-Equal 'first|two words|semi;literal' ($seen.Args -join '|') 'Batch forwards literal arguments'
         Assert-Equal (Join-Path $homeRoot '.agents/accounts/wrapper-test') $seen.Home 'Batch selects account config'
+        $fakeBatch = Join-Path $tempRoot 'fake command.cmd'
+        '@pwsh -NoProfile -File "' + $fake + '" %*' | Set-Content $fakeBatch
+        & $account -Action add -Id wrapper-batch -Tool codex -HomeRoot $homeRoot -Command $fakeBatch | Out-Null
+        & (Join-Path $bin 'wrapper-batch.cmd') 'two words'
+        Assert-Equal 37 $LASTEXITCODE 'Batch shim returns to the wrapper with its exit code'
+        $seen = Get-Content $env:PS_AI_WRAPPER_LOG -Raw | ConvertFrom-Json
+        Assert-Equal 'two words' ($seen.Args -join '|') 'Batch shim receives forwarded arguments'
+
+        # Keep the wrapper outside the unusual path so this tests its literal runner argument.
+        & {
+        . $account -NoRun -HomeRoot $tempRoot
+        $fakeFolder = Join-Path $tempRoot 'runtime %PS_AI_WRAPPER_EXPAND%'
+        New-Item -ItemType Directory -Path $fakeFolder -Force | Out-Null
+        $fakeRunner = Join-Path $fakeFolder 'ps-ai-foundry.ps1'
+        Copy-Item $fake $fakeRunner
+        function Sync-PsAiFoundryRuntime { param($Tool,$HomeRoot,$Changes) return $fakeRunner }
+        $env:PS_AI_WRAPPER_EXPAND = 'expanded'
+        New-FoundryWrappers -Id percent-test -Tool claude -HomeRoot $tempRoot
+        & (Join-Path $tempRoot '.agents/bin/percent-test.cmd') 'literal'
+        Assert-Equal 37 $LASTEXITCODE 'Foundry wrapper preserves literal percent sequences in runner paths'
+        }
     }
     $shell = Get-Command sh -ErrorAction SilentlyContinue
     if ($shell) {
@@ -48,5 +71,6 @@ exit /b %result%
     }
 } finally {
     $env:PS_AI_WRAPPER_LOG = $previousLog
+    $env:PS_AI_WRAPPER_EXPAND = $previousExpand
     Remove-Item -LiteralPath $tempRoot -Recurse -Force
 }

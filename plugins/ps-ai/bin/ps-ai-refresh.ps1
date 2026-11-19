@@ -21,7 +21,7 @@ foreach ($name in @('ps-ai-overseer', 'ps-ai-overseer.cmd')) {
     if (-not (Test-Path -LiteralPath $path)) { continue }
     $text = [IO.File]::ReadAllText($path)
     # Retarget the generated quoted -File argument, preserving the owner's other shim flags.
-    $pattern = '(-File\s+)("[^"\r\n]*[/\\]bin[/\\]ps-ai-overseer\.ps1"|''[^''\r\n]*[/\\]bin[/\\]ps-ai-overseer\.ps1'')'
+    $pattern = '(-File\s+)(["''][^\r\n]*?[/\\]bin[/\\]ps-ai-overseer\.ps1["''])'
     $updated = [regex]::Replace($text, $pattern, [Text.RegularExpressions.MatchEvaluator]{
         param($match)
         $target = if ($name.EndsWith('.cmd')) { '"' + $runner.Replace('%', '%%') + '"' } else { ConvertTo-PsAiShellLiteral $runner }
