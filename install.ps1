@@ -195,6 +195,9 @@ function Invoke-ClosedInput {
     $info.RedirectStandardInput = $true
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
+    # CLI output is UTF-8 regardless of the launching terminal's code page.
+    $info.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $info.StandardErrorEncoding = [System.Text.Encoding]::UTF8
     if ($null -ne $Environment) {
         $names = if ($Environment -is [Collections.IDictionary]) { $Environment.Keys } else { $Environment.PSObject.Properties.Name }
         foreach ($name in $names) { $info.EnvironmentVariables[$name] = [string]$Environment.$name }
