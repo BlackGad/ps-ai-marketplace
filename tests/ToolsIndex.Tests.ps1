@@ -25,7 +25,10 @@
     $index = $rendered | ConvertFrom-Json
     Assert-Equal 'schemaVersion|bootstrap|tools' ($index.PSObject.Properties.Name -join '|') 'Catalog has only ordered projection fields'
     Assert-Equal 1 $index.schemaVersion 'Catalog schema version'
-    Assert-Equal ($recipes.pwsh | ConvertTo-Json -Depth 100 -Compress) ($index.bootstrap | ConvertTo-Json -Depth 100 -Compress) 'Bootstrap is the complete PowerShell helper recipe'
+    Assert-Equal 'windows' ($index.bootstrap.PSObject.Properties.Name -join '|') 'Bootstrap includes only consumed Windows data'
+    Assert-Equal 'wingetId|portableCommand|download' ($index.bootstrap.windows.PSObject.Properties.Name -join '|') 'Bootstrap excludes unused installer fields'
+    Assert-Equal 'zip' ($index.bootstrap.windows.download.PSObject.Properties.Name -join '|') 'Bootstrap includes only the supported ZIP fallback'
+    Assert-Equal ($recipes.pwsh.windows.download.zip | ConvertTo-Json -Depth 100 -Compress) ($index.bootstrap.windows.download.zip | ConvertTo-Json -Depth 100 -Compress) 'Bootstrap ZIP recipe preserves validation and integrity metadata'
     Assert-Equal ($tools.id -join '|') ($index.tools.id -join '|') 'Catalog tools are sorted'
     foreach ($entry in $index.tools) {
         $source = $tools | Where-Object id -CEQ $entry.id

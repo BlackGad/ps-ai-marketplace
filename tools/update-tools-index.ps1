@@ -20,7 +20,15 @@ function Get-ToolsIndexContent {
             }
         }
     )
-    $index = [ordered]@{ schemaVersion = 1; bootstrap = $Bootstrap; tools = $entries }
+    # The standalone installer only consumes this Windows bootstrap subset.
+    $bootstrapEntry = [ordered]@{
+        windows = [ordered]@{
+            wingetId = $Bootstrap.windows.wingetId
+            portableCommand = $Bootstrap.windows.portableCommand
+            download = [ordered]@{ zip = $Bootstrap.windows.download.zip }
+        }
+    }
+    $index = [ordered]@{ schemaVersion = 1; bootstrap = $bootstrapEntry; tools = $entries }
     return ($index | ConvertTo-Json -Depth 100).Replace("`r`n", "`n") + "`n"
 }
 
