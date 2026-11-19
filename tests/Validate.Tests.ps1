@@ -92,7 +92,7 @@ try {
         $owner = [pscustomobject]@{schemaVersion=1;agents=@();channels=@()}
         $owner | ConvertTo-Json -Depth 100 | Set-Content $ownerPath
         . (Join-Path $plugin 'bin/ps-ai-account.ps1') -HomeRoot $homeRoot
-        Assert-Equal 'FOURTH_HOME' (Get-ConfigEnvName -Tool fourth) 'Fourth config environment comes from descriptor'
+        Assert-Equal 'FOURTH_HOME' (Get-PsAiTool -Tool fourth).configEnv 'Fourth config environment comes from descriptor'
         $env:PATH = @($fourthSkill,$env:PATH) -join [IO.Path]::PathSeparator
         & (Join-Path $plugin 'bin/ps-ai-account.ps1') -Action add -Tool fourth -Id fourth-dev -HomeRoot $homeRoot | Out-Null
         Assert-True ((Get-Content (Join-Path $homeRoot '.agents/bin/fourth-dev') -Raw).Contains((Join-Path $fourthSkill 'fourth-cli.ps1'))) 'Account default command uses descriptor executable'
@@ -152,7 +152,7 @@ try {
         $output = & pwsh -NoProfile -File (Join-Path $plugin 'bin/ps-ai-lease.ps1') -Action status -Repo $fixture
         Assert-Equal 0 $LASTEXITCODE 'Lease script does not discover tools'
         Assert-Equal 'free' $output 'Lease output is unchanged'
-        Assert-Throws { Get-ConfigEnvName -Tool fourth } 'Tool operations discover malformed descriptor lazily'
+        Assert-Throws { Get-PsAiTool -Tool fourth } 'Tool operations discover malformed descriptor lazily'
     } finally {
         $env:PATH = $savedPath
         $cleanup = [IO.Path]::GetFullPath($fixture)

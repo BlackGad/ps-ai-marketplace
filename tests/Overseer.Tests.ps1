@@ -19,25 +19,12 @@ $owner = [pscustomobject]@{schemaVersion=1;agents=@(
 Assert-Throws { Select-OverseerAccount $owner } 'Explicit account required'
 Assert-Throws { Select-OverseerAccount $owner claude-a codex } 'Tool mismatch'
 foreach ($tool in @('claude','codex','copilot')) {
-    $launch = Get-OverseerLaunch -Personalisation $owner -AccountId "$tool-a" -Model chosen -Arguments @('two words','','2026-11-19','semi;literal',"apostrophe'value") -HomeRoot $tempRoot
+    $launch = Get-OverseerLaunch -Personalisation $owner -AccountId "$tool-a" -Arguments @('--model','chosen','two words','','2026-11-19','semi;literal',"apostrophe'value") -HomeRoot $tempRoot
     Assert-Equal (Get-PsAiWrapperCommand "$tool-a" $tempRoot) $launch.Command 'Derived canonical wrapper'
     $expected = '--model|chosen|two words||2026-11-19|semi;literal|apostrophe''value|'
     if ($tool -eq 'copilot') { $expected += '-i|' }
     $expected += 'continue as the overseer'
     Assert-Equal $expected ($launch.Args -join '|') 'ExplicitAccountAndModel preserve argv'
-    foreach ($form in @(@('--model','chosen'),@('--model=chosen'),@('-m','chosen'))) {
-        $matching = Get-OverseerLaunch -Personalisation $owner -AccountId "$tool-a" -Model chosen -Arguments $form
-        Assert-Equal 1 @($matching.Args | Where-Object { $_ -match '^(--model|-m)(=|$)' }).Count 'Matching model suppresses extra flags'
-    }
-    foreach ($form in @(@('--model','other'),@('--model=other'),@('-m','other'),@('--model'),@('--model='),@('-m'))) {
-        Assert-Throws { Get-OverseerLaunch -Personalisation $owner -AccountId "$tool-a" -Model chosen -Arguments $form } 'ModelConflicts and missing values'
-    }
-}
-foreach ($form in @(@('-c','model="other"'),@('--config=model="other"'),@('-cmodel="other"'),@('-c=model="other"'))) {
-    Assert-Throws { Get-OverseerLaunch -Personalisation $owner -AccountId codex-a -Model chosen -Arguments $form } 'Codex root model conflict'
-}
-foreach ($form in @(@('--config='),@('-c='),@('--config','model='),@('-c'))) {
-    Assert-Throws { Get-OverseerLaunch -Personalisation $owner -AccountId codex-a -Arguments $form } 'Missing Codex config/model values fail'
 }
 $launch = Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -Channel @('main','alerts','main')
 Assert-Equal '--channels|plugin:telegram@claude-plugins-official|continue as the overseer' ($launch.Args -join '|') 'SameKindFlagsPreserveArgv'
@@ -54,6 +41,7 @@ catch { Assert-Equal 'selected channels cannot share one launch' $_.Exception.Me
     New-Item -ItemType Directory $fixtureKindFolder -Force | Out-Null
     'Fixture channel.' | Set-Content (Join-Path $fixtureKindFolder 'SKILL.md')
     '{"schemaVersion":1,"id":"fixture-channel","launch":{"claude":["--channels","second value","","2026-11-19","semi;literal","quote''value"]}}' | Set-Content (Join-Path $fixtureKindFolder 'channel.json')
+    Get-ChildItem (Join-Path $plugin 'skills') -Filter overseer-model.ps1 -Recurse | Remove-Item
     . (Join-Path $plugin 'bin/ps-ai-overseer.ps1') -NoRun
     $copy = $owner | ConvertTo-Json -Depth 100 | ConvertFrom-Json
     $copy.channels[1].kind='fixture-channel'

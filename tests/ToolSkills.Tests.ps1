@@ -38,7 +38,7 @@
         Assert-True ($limits -match 'ping') "$tool keeps account limit ping"
         $launcher = Get-Content (Join-Path $directory 'references/launcher.md') -Raw
         Assert-True ($launcher.Contains("-Tool $tool") -and $launcher.Contains('-Account')) "$tool launcher selects an account"
-        Assert-True ($launcher.Contains('-Arguments') -and $launcher.Contains('-Model')) "$tool owns explicit launch examples"
+        Assert-True ($launcher.Contains('-Arguments') -and $launcher.Contains('--model')) "$tool owns explicit launch examples"
         Assert-True ($launcher -notmatch 'launch\.args|models\.overseer|communication\.channels|Telegram|markdownv2') "$tool routes channels without transport details"
     }
     foreach ($tool in @('claude','codex')) {

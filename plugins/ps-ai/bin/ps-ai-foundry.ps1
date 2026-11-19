@@ -18,7 +18,7 @@ function Get-FoundryLaunch {
 function Get-FoundryToolCommand {
     param([string]$Tool, [string]$HomeRoot)
     $descriptor = Get-PsAiTool -Tool $Tool
-    $null = Get-PsAiToolScript -Tool $descriptor -Name foundry-launch
+    if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
     $bin = [IO.Path]::GetFullPath((Join-Path $HomeRoot '.agents/bin'))
     $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     foreach ($command in @(Get-Command $descriptor.command -CommandType Application,ExternalScript -All -ErrorAction SilentlyContinue)) {
