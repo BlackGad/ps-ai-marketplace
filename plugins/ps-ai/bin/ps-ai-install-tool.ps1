@@ -349,10 +349,12 @@ function Invoke-ToolInstall {
             try {
                 $code = Invoke-ToolCommand -Command $recipe.Install[0]
                 if ($code -eq 0) { return }
+                "winget failed (exit $code)."
             } catch { # A blocked or broken winget executable needs the same method choice.
+                'winget failed to start.'
             }
-        }
-        'winget is not available; choose -Method msi (official installer, needs admin) or -Method zip (user folder, no admin)'
+        } else { 'winget is not available.' }
+        'choose -Method msi (official installer, needs admin) or -Method zip (user folder, no admin)'
         $global:LASTEXITCODE = 2
         return
     }

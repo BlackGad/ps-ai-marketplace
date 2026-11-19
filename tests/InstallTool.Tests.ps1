@@ -9,7 +9,7 @@ Assert-Equal 0 $LASTEXITCODE 'Real CLI allows omitted Method'
 Assert-True (($entryPreview -join "`n").Contains('pwsh: installed')) 'Real CLI preview checks installed tool'
 
 # Exercise the process exit contract without contacting a server or starting winget.
-$choiceMessage = 'winget is not available; choose -Method msi (official installer, needs admin) or -Method zip (user folder, no admin)'
+$choiceMessage = 'choose -Method msi (official installer, needs admin) or -Method zip (user folder, no admin)'
 foreach ($wingetState in @('missing','error','blocked','ok')) {
     $result = & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'fixtures/install/Invoke-Installer.ps1') -Installer $scriptPath -Winget $wingetState 2>&1
     $expectedExit = if ($wingetState -eq 'ok') { 0 } else { 2 }
