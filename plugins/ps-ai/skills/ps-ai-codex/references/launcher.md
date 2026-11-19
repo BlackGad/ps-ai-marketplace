@@ -11,3 +11,5 @@ Run without `-DryRun` only when the owner requests the launch. Direct shim invoc
 The shared launcher merges account `agents[].launch.args`, `communication.channels.<name>.launch.codex`, and `projects.<id>.launch.codex` in that order, followed by the tool's interactive arguments and initial prompt. Preserve each array item as one argument and use only flags supported by this CLI.
 
 Account and project argument arrays may contain owner-selected model flags such as `["--model","<model>"]`. There are no extra interactive arguments for this tool. Preserve the configured sandbox; see [run.md](run.md). Hook trust is described in [plugins.md](plugins.md).
+
+The account's `models.overseer` becomes `--model <model>` unless an account, channel, or project launch array selects a model explicitly (`--model`, `-m`, or a root `model` configuration override). Those explicit settings take precedence over the role preference.

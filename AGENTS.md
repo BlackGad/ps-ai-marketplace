@@ -26,6 +26,11 @@ A plugin marketplace with one plugin, `ps-ai`: orchestration as skills for Claud
 - **Readable and simple code is a must (KISS).** Write code the next person can read without explanation: plain control flow, clear names, no clever tricks, no abstraction without a real second use.
 - **DRY is desired.** Keep one home for each rule, format or list and reuse it, unless repeating it is simpler to read.
 - **Minimal diff.** Change only what the task needs.
+- Skills talk to the owner in plain words. `SKILL.md` holds the flow and the conversation; commands, script paths and flags go in `references/`.
+
+## Release
+
+CLIs cache plugin copies by version. For each change meant to reach agents, bump `version` in all three `plugins/ps-ai/plugin.json`, `plugins/ps-ai/.claude-plugin/plugin.json` and `plugins/ps-ai/.codex-plugin/plugin.json` files together.
 
 ## Tests
 

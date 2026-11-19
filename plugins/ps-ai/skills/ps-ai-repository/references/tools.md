@@ -1,6 +1,6 @@
 # Repository tool hints
 
-At setup, check `git` with `pwsh -NoProfile -File <plugin>/bin/ps-ai-install-tool.ps1 -Tool git`. If it is missing, show the script's status and exact command, ask once whether to install, and pass `-Yes` only after an explicit yes. If the owner declines, respect that for the rest of this setup session. Stop Git-dependent setup until Git is available.
+At setup, check `git` with `pwsh -NoProfile -File <plugin>/bin/ps-ai-install-tool.ps1 -Tool git`. If it is missing, tell the owner and ask once whether to install, then pass `-Yes` only after an explicit yes. Show commands only when requested or when the owner must run them themselves. If the owner declines, respect that for the rest of this setup session. Stop Git-dependent setup until Git is available.
 
 When Git is available, read `git remote -v` without changing remotes. Offer one relevant missing host CLI:
 
@@ -21,6 +21,8 @@ For an agent CLI, use the selected tool skill's `references/install.md` for meth
 Checked 2026-11-18; these downloads target Windows x64. `msi` selects the vendor's MSI or EXE; MSIs and the glab EXE require an administrator session. Git's EXE uses `/CURRENTUSER`. No unverified MSI per-user properties are supplied. `zip` extracts into `~/.agents/tools/<tool>/` and adds the executable folder to the user PATH once; open a new terminal afterwards.
 
 GitHub release metadata comes from `https://api.github.com/repos/<repo>/releases/latest`; the asset's `browser_download_url` supplies the download URL and its `digest` supplies `sha256:<hex>`. A missing hash stops the install. Node and glab use their vendor checksum files. A mismatch deletes the download before extraction or execution.
+
+PowerShell MSI deliberately stays on the newest stable 7.6 LTS release for MSI compatibility; ZIP follows the latest stable release because newer releases may ship without an MSI.
 
 | Tool | Latest release and URL pattern | SHA-256 source | Executable folder in ZIP / installer arguments |
 | --- | --- | --- | --- |

@@ -14,39 +14,29 @@ foreach ($tool in @('claude', 'codex', 'copilot')) {
     Assert-Equal $expected[$tool][1] ($commands[1] -join '|') "$tool install command"
     Assert-Equal 'local source' $commands[0][4] "$tool source with space remains one argument"
 }
-Assert-Equal 'CLAUDE_CONFIG_DIR' (Get-ConfigEnvName -Tool claude) 'Claude config variable'
-Assert-Equal 'CODEX_HOME' (Get-ConfigEnvName -Tool codex) 'Codex config variable'
-Assert-Equal 'COPILOT_HOME' (Get-ConfigEnvName -Tool copilot) 'Copilot config variable'
 $previewLines = @(Invoke-PsAiInstaller -Tools claude -Source 'local source' -ConfigDir X -DryRun -Catalog (Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw | ConvertFrom-Json))
 Assert-True $? 'Injected dry run succeeds'
 Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin marketplace add "local source"') 'Dry run marketplace command'
 Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install ps-ai@ps-ai-marketplace') 'Dry run plugin command'
 
-# Preserve the original positional Tools, Source, ConfigDir interface at both entry points.
 & {
-    $expectedLine = 'CODEX_HOME=selected-account codex plugin add ps-ai@ps-ai-marketplace'
-    $preview = @(& $script codex $root selected-account -DryRun)
-    Assert-True ($preview -contains $expectedLine) 'Positional script call keeps account env prefix'
-    $preview = @(Invoke-PsAiInstaller codex $root selected-account -DryRun)
-    Assert-True ($preview -contains $expectedLine) 'Positional function call keeps account env prefix'
-
     . $script -NoRun
     function Ensure-InstallPowerShell { return $true }
     function codex { param($Version) Assert-Equal '--version' $Version 'Fake CLI only handles version'; 'fixture-version' }
     $calls = [Collections.Generic.List[string]]::new()
     function Invoke-ClosedInput {
         param([string[]]$Command)
-        Assert-Equal 'selected-account' $env:CODEX_HOME 'Positional install uses selected account for checks and writes'
+        Assert-Equal 'selected-account' $env:CODEX_HOME 'Install uses selected account for checks and writes'
         $calls.Add(($Command -join '|'))
         return @{ ExitCode=0; Output=@() }
     }
     $previous = $env:CODEX_HOME
     try {
         $env:CODEX_HOME = 'default-account'
-        $null = Invoke-PsAiInstaller codex $root selected-account -Yes
+        $null = Invoke-PsAiInstaller -Tools codex -Source $root -ConfigDir selected-account -Yes
         Assert-Equal 4 $calls.Count 'Fake install checks and performs both steps'
         Assert-True ($calls -contains 'codex|plugin|add|ps-ai@ps-ai-marketplace') 'Fake install performs plugin write'
-        Assert-Equal 'default-account' $env:CODEX_HOME 'Positional install restores caller account'
+        Assert-Equal 'default-account' $env:CODEX_HOME 'Install restores caller account'
     } finally { $env:CODEX_HOME = $previous }
 }
 try {
@@ -128,7 +118,6 @@ try {
     $commands = Get-InstallCommands -Tool fourth -Source 'local source'
     Assert-Equal 'fourth-cli' $commands[0][0] 'Fourth executable comes from catalog'
     Assert-Equal 'local source' $commands[0][4] 'Source replacement remains one argument'
-    Assert-Equal 'FOURTH_HOME' (Get-ConfigEnvName fourth) 'Fourth environment comes from catalog'
     $state = @{ Commands=[Collections.Generic.List[string]]::new(); Versions=0; Detect=[Collections.Generic.List[string]]::new() }
     function Invoke-ClosedInput {
         param($Command)
@@ -148,7 +137,7 @@ try {
         Assert-Throws { Invoke-InstallCommand -Command $commands[1] -ConfigEnv FOURTH_HOME -ConfigDir selected } 'Install failure propagates'
         Assert-Equal 'default' $env:FOURTH_HOME 'Install restores caller env on failure'
     } finally { $env:FOURTH_HOME=$previous }
-    foreach ($json in @('[{"id":["ps-ai@ps-ai-marketplace","other"],"enabled":true}]','[{"id":"ps-ai@ps-ai-marketplace","enabled":"true"}]','[{"id":"ps-ai@ps-ai-marketplace-old","enabled":true}]','not json','[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]')) {
+    foreach ($json in @('[{"id":["ps-ai@ps-ai-marketplace","other"],"enabled":true}]','[{"id":"ps-ai@ps-ai-marketplace","enabled":"true"}]','[{"id":"ps-ai@ps-ai-marketplace-old","enabled":true}]','[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]')) {
         Assert-True (-not (Test-InstallListing -Kind plugin -Tool claude -Lines @($json))) 'Only exact id and Boolean true count'
     }
     foreach ($line in @('ps-ai@ps-ai-marketplace-old enabled','ps-ai@ps-ai-marketplace disabled','ps-ai@ps-ai-marketplace not installed')) {

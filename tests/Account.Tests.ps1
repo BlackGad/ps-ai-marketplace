@@ -4,13 +4,20 @@ $validator = Join-Path $root 'plugins/ps-ai/bin/ps-ai-validate.ps1'
 $ownerFile = Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json'
 $tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+function Get-Command {
+    param($Name, $ErrorAction)
+    if ($Name -eq 'codex') { throw 'fixture: Codex is not installed' }
+    Microsoft.PowerShell.Core\Get-Command -Name $Name -ErrorAction $ErrorAction
+}
 try {
     $homeRoot = Join-Path $tempRoot 'owner'
     $config = Join-Path $homeRoot '.agents/configuration'
     New-Item -ItemType Directory -Path $config -Force | Out-Null
     $file = Join-Path $config 'ps-ai-personalisation.json'
     Copy-Item $ownerFile $file
-    $output = & $script -Action add -Id codex3 -Tool codex -HomeRoot $homeRoot
+    $fakeCommand = Join-Path $tempRoot 'fake-codex.ps1'
+    'exit 0' | Set-Content -LiteralPath $fakeCommand
+    $output = & $script -Action add -Id codex3 -Tool codex -HomeRoot $homeRoot -Command $fakeCommand
     Assert-True ($output -contains "Run 'codex3' in a terminal and log in once.") 'Add prints login instruction'
     $repeat = & pwsh -NoProfile -File $script -Action add -Id codex3 -Tool codex -HomeRoot $homeRoot
     Assert-Equal 0 $LASTEXITCODE 'Second add succeeds'
@@ -20,7 +27,8 @@ try {
     if ($IsWindows) { Assert-True (Test-Path (Join-Path $homeRoot '.agents/bin/codex3.cmd')) 'Add creates cmd wrapper' }
     $owner = Get-Content -Raw $file | ConvertFrom-Json
     $added = @($owner.agents | Where-Object id -eq codex3)[0]
-    Assert-Equal '~/.agents/bin/codex3' $added.command 'Add wrapper command'
+    $expectedCommand = if ($IsWindows) { '~/.agents/bin/codex3.cmd' } else { '~/.agents/bin/codex3' }
+    Assert-Equal $expectedCommand $added.command 'Add wrapper command'
     Assert-Equal '~/.agents/accounts/codex3' $added.configDir 'Add config folder'
     & pwsh -NoProfile -File $validator -Kind personalisation -Path $file | Out-Null
     Assert-Equal 0 $LASTEXITCODE 'Added account validates'

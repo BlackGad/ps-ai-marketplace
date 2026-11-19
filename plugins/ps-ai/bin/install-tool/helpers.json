@@ -4,7 +4,6 @@
       "pwsh",
       "--version"
     ],
-    "hint": "",
     "windows": {
       "wingetId": "Microsoft.PowerShell",
       "portableCommand": "pwsh.exe",
@@ -21,8 +20,7 @@
           ],
           "releasesUrl": "https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=100&page={page}",
           "tagPattern": "^v7\\.6\\.\\d+$",
-          "stableOnly": true,
-          "order": "version-desc"
+          "stableOnly": true
         },
         "zip": {
           "kind": "zip",
@@ -58,7 +56,6 @@
       "git",
       "--version"
     ],
-    "hint": "",
     "windows": {
       "wingetId": "Git.Git",
       "portableCommand": "cmd/git.exe",
@@ -109,7 +106,6 @@
       "gh",
       "--version"
     ],
-    "hint": "",
     "windows": {
       "wingetId": "GitHub.cli",
       "portableCommand": "bin/gh.exe",
@@ -158,7 +154,6 @@
       "az",
       "--version"
     ],
-    "hint": "",
     "windows": {
       "wingetId": "Microsoft.AzureCLI",
       "portableCommand": "bin/az.cmd",
@@ -207,7 +202,6 @@
       "node",
       "--version"
     ],
-    "hint": "",
     "windows": {
       "wingetId": "OpenJS.NodeJS.LTS",
       "portableCommand": "node-v*-win-x64/node.exe",
@@ -260,7 +254,6 @@
       "glab",
       "--version"
     ],
-    "hint": "",
     "windows": {
       "wingetId": "GLab.GLab",
       "portableCommand": "bin/glab.exe",

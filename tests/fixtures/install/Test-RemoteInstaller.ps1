@@ -2,21 +2,21 @@ param([string]$Installer, [string]$Repo)
 $fixtureInstaller = $Installer
 . $fixtureInstaller -NoRun
 $script:installCatalog = Get-Content (Join-Path $Repo 'tests/fixtures/install/catalog.json') -Raw | ConvertFrom-Json
-# The standalone contract also runs in the legacy fixture process.
+# The standalone contract also runs in the Windows PowerShell 5.1 fixture process.
 & {
     $catalog = Get-InstallCatalog -Catalog $script:installCatalog
     $fourth = Get-Content (Join-Path $Repo 'tests/fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
     $catalog.tools += [pscustomobject]@{id='fourth';command='fourth-cli';configEnv='FOURTH_HOME';plugin=$fourth.plugin;hooks=$fourth.hooks;installHint='fixture only'}
     $script:installCatalog = Get-InstallCatalog -Catalog $catalog
     Assert-Equal 'fourth-cli|plugin|marketplace|add|local source' ((Get-InstallCommands fourth 'local source')[0] -join '|') 'Standalone fourth command uses catalog'
-    Assert-True (-not (Test-InstallListing -Kind plugin -Tool claude -Lines @('[{"id":"ps-ai@ps-ai-marketplace","enabled":"true"}]'))) 'Legacy JSON rejects string true'
+    Assert-True (-not (Test-InstallListing -Kind plugin -Tool claude -Lines @('[{"id":"ps-ai@ps-ai-marketplace","enabled":"true"}]'))) 'Windows PowerShell JSON rejects string true'
     function Ensure-InstallPowerShell { throw 'Invalid metadata reached bootstrap' }
     foreach ($field in @('wingetId','portableCommand')) {
         $bad = $catalog | ConvertTo-Json -Depth 100 | ConvertFrom-Json
         $bad.bootstrap.windows.$field = $null
         $message = ''
         try { Invoke-PsAiInstaller -Catalog $bad -DryRun } catch { $message=$_.Exception.Message }
-        Assert-True ($message -match 'invalid catalog field') 'Legacy invalid bootstrap stops before action'
+        Assert-True ($message -match 'invalid catalog field') 'Windows PowerShell invalid bootstrap stops before action'
     }
 }
 $script:installCatalog = Get-Content (Join-Path $Repo 'tests/fixtures/install/catalog.json') -Raw | ConvertFrom-Json
@@ -36,7 +36,7 @@ $sandbox = Join-Path $Repo ('.agents/temp/restructure/remote-install-' + [guid]:
 New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
 $savedPath = $env:PATH
 $fixturePwshExe = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
-$legacy = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+$windowsPowerShell = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 $state = @{ Present=$false; Winget=$false; WingetExit=5; Calls=0; Downloads=0; Digest=('0' * 64); UserPath='C:\existing'; Writes=0; Prompts=0; Answer='n' }
 $downloaded = [Collections.Generic.List[string]]::new()
 function Get-InstallHome { $sandbox }
@@ -137,8 +137,8 @@ try {
     $output = $result.Output
     Assert-Equal 0 $result.ExitCode 'Script text runs standalone without repository context'
     Assert-Equal 1 @($output | Where-Object { "$_" -eq 'Codex: approve the ps-ai hooks once with /hooks in a Codex session.' }).Count 'Codex prints hook approval reminder once'
-    if ($legacy) {
-        $result = Invoke-ClosedInput -Command @($legacy.Source, '-NoProfile', '-File', $fixtureInstaller, '-DryRun', '-Source', $Repo, '-Tools', 'claude')
+    if ($windowsPowerShell) {
+        $result = Invoke-ClosedInput -Command @($windowsPowerShell.Source, '-NoProfile', '-File', $fixtureInstaller, '-DryRun', '-Source', $Repo, '-Tools', 'claude')
         $output = $result.Output
         Assert-Equal 0 $result.ExitCode 'Root installer runs under Windows PowerShell 5.1'
         Assert-True (($output -join "`n").Contains('claude plugin marketplace add')) 'Windows PowerShell 5.1 previews CLI command'
@@ -160,11 +160,57 @@ Invoke-InstallCommand -Command @('codex', 'space value') -ConfigEnv CODEX_HOME -
 if ($env:CODEX_HOME -ne 'default account') { throw 'account environment was not restored' }
 '@ | Set-Content -LiteralPath $runner
     $runtimes = @($fixturePwshExe)
-    if ($legacy) { $runtimes += $legacy.Source }
+    if ($windowsPowerShell) { $runtimes += $windowsPowerShell.Source }
     foreach ($runtime in $runtimes) {
         $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', $standalone)
         Assert-Equal 0 $result.ExitCode 'Closed-input CLI process succeeds and restores account environment'
         Assert-Equal 'space value|selected account|0' ($result.Output -join '') 'CLI receives spaced argument, selected account, and EOF on stdin'
+    }
+
+    # Downloaded script text must update accounts under both PowerShell runtimes.
+    @'
+param($Installer)
+$ErrorActionPreference = 'Stop'
+. ([scriptblock]::Create((Get-Content -Raw $Installer))) -NoRun
+$fixtureHome = Split-Path $Installer
+$configFolder = Join-Path $fixtureHome '.agents/configuration'
+New-Item -ItemType Directory -Path $configFolder -Force | Out-Null
+'{"agents":[{"tool":"codex","configDir":"~/.agents/accounts/codex-a"}]}' |
+    Set-Content -LiteralPath (Join-Path $configFolder 'ps-ai-personalisation.json')
+function Get-InstallHome { $fixtureHome }
+function Invoke-InstallRefresh { } # Dedicated refresh tests exercise the installed script process.
+function Ensure-InstallPowerShell { throw 'Update attempted prerequisite installation' }
+function Test-InstallCommandAvailable { param($Name) $Name -eq 'codex' }
+$state = @{ Calls=0; Default=0; Account=0 }
+function Invoke-ClosedInput {
+    param($Command)
+    $state.Calls++
+    if (-not $env:CODEX_HOME) { $state.Default++ }
+    elseif ($env:CODEX_HOME -eq (Join-Path $fixtureHome '.agents/accounts/codex-a')) { $state.Account++ }
+    else { throw 'Incorrect config target' }
+    if ($Command[2] -eq 'remove') { throw 'Update removed plugin approval' }
+    return @{ ExitCode=0; Output=@('ps-ai@ps-ai-marketplace installed, enabled') }
+}
+$env:CODEX_HOME = 'inherited-account'
+$null = Invoke-PsAiInstaller -Source $fixtureHome -Tools codex -Update
+if ($state.Calls -ne 6 -or $state.Default -ne 3 -or $state.Account -ne 3) { throw 'Incorrect update target count' }
+if ($env:CODEX_HOME -ne 'inherited-account') { throw 'Caller config environment changed' }
+'standalone update passed'
+'@ | Set-Content -LiteralPath $runner
+    foreach ($runtime in $runtimes) {
+        $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', $standalone)
+        Assert-Equal 0 $result.ExitCode 'Standalone account update works in each PowerShell runtime'
+        Assert-True ($result.Output -contains 'standalone update passed') 'Standalone update uses fakes and preserves account environment'
+    }
+
+    # The script-block entry point forwards -Update and -DryRun without executing a CLI.
+    'param($Installer); & ([scriptblock]::Create((Get-Content -Raw $Installer))) -Update -DryRun -Tools codex -ConfigDir selected -Source (Split-Path $Installer)' |
+        Set-Content -LiteralPath $runner
+    foreach ($runtime in $runtimes) {
+        $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', $standalone)
+        Assert-Equal 0 $result.ExitCode 'Script-block entry accepts update preview'
+        Assert-True ($result.Output -contains 'CODEX_HOME=selected codex plugin add ps-ai@ps-ai-marketplace') 'Script-block forwards update mode'
+        Assert-True (-not (($result.Output -join "`n").Contains('marketplace add'))) 'Update preview does not add marketplaces'
     }
 
     # No CLI discovery must show hints and return normally, without touching any real CLI.

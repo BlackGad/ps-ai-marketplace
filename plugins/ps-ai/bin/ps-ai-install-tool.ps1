@@ -6,7 +6,7 @@ param(
     [switch]$NoRun
 )
 
-. (Join-Path $PSScriptRoot 'PsAi.Tools.ps1')
+. (Join-Path $PSScriptRoot 'lib/tools.ps1')
 
 function Get-ToolInstallData {
     param([string]$Tool)
@@ -31,7 +31,7 @@ function Get-ToolRecipe {
         $docs = $data.$Platform.docs
         $install = [object[]]@($data.$Platform.commands)
     }
-    return [pscustomobject]@{ Check=[string[]]$data.check; Install=$install; Needs=$needs; Docs=$docs }
+    return [pscustomobject]@{ Install=$install; Needs=$needs; Docs=$docs }
 }
 
 function Test-ToolCommandAvailable {
@@ -77,6 +77,7 @@ function Invoke-ToolCommand {
 
 function Invoke-ToolDownload {
     param([string]$Url, [string]$OutFile)
+    $ProgressPreference = 'SilentlyContinue'
     Invoke-WebRequest -Uri $Url -OutFile $OutFile -ErrorAction Stop
 }
 
@@ -233,7 +234,11 @@ function Get-ToolPortableCommand {
     $path = Resolve-ToolRelativePath -Root $root -RelativePath $relative
     if ([Management.Automation.WildcardPattern]::ContainsWildcardCharacters($relative)) {
         $pattern = Join-Path ([Management.Automation.WildcardPattern]::Escape($root)) $relative
-        $entry = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
+        # Compare digit groups numerically so 22.10 sorts after 22.9.
+        $entry = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Sort-Object {
+            $relativeName = [IO.Path]::GetRelativePath($root, $_.FullName)
+            [regex]::Replace($relativeName, '\d+', { param($number) $number.Value.PadLeft(20, '0') })
+        } -Descending | Select-Object -First 1
         if ($entry) {
             return Resolve-ToolRelativePath -Root $root -RelativePath ([IO.Path]::GetRelativePath($root, $entry.FullName))
         }
@@ -345,10 +350,12 @@ function Invoke-ToolInstall {
             try {
                 $code = Invoke-ToolCommand -Command $recipe.Install[0]
                 if ($code -eq 0) { return }
+                "winget failed (exit $code)."
             } catch { # A blocked or broken winget executable needs the same method choice.
+                'winget failed to start.'
             }
-        }
-        'winget is not available; choose -Method msi (official installer, needs admin) or -Method zip (user folder, no admin)'
+        } else { 'winget is not available.' }
+        'choose -Method msi (official installer, needs admin) or -Method zip (user folder, no admin)'
         $global:LASTEXITCODE = 2
         return
     }

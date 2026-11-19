@@ -1,6 +1,6 @@
 $root = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $root 'plugins/ps-ai/bin/ps-ai-lease.ps1'
-. (Join-Path $root 'plugins/ps-ai/bin/PsAi.Common.ps1')
+. (Join-Path $root 'plugins/ps-ai/bin/lib/common.ps1')
 $tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
 $repo = Join-Path $tempRoot 'repo'
 $leasePath = Join-Path $repo '.agents/temp/overseer.lock'
@@ -15,12 +15,12 @@ try {
     Assert-Equal 'stale' (Get-PsAiLease -Repo $repo).State 'An old unreadable lease is stale'
 
     # Several sessions find the same stale lease at once: exactly one takes it.
-    $stale = @{ tool = 'codex'; account = 'dead'; pid = 99999999; host = [System.Net.Dns]::GetHostName(); startedAt = '2026-11-18T09:00:00Z' }
+    $stale = @{ tool = 'codex'; account = 'dead'; pid = 99999999; processStartedAt = '2026-11-18T08:00:00Z'; host = [System.Net.Dns]::GetHostName(); startedAt = '2026-11-18T09:00:00Z' }
     [System.IO.File]::WriteAllText($leasePath, ($stale | ConvertTo-Json -Compress))
     $runner = Join-Path $tempRoot 'runner.ps1'
     @'
 param($LeaseScript, $Repo, $Account)
-& $LeaseScript -Action take -Repo $Repo -Tool codex -Account $Account
+& $LeaseScript -Action take -Repo $Repo -Tool codex -Account $Account -ProcessId $PID
 $result = $LASTEXITCODE
 Start-Sleep -Seconds 3
 exit $result

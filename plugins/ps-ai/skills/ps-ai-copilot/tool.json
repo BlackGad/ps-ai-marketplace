@@ -3,9 +3,14 @@
   "id": "copilot", "command": "copilot", "configEnv": "COPILOT_HOME",
   "foundry": {"deploymentPrefix": "claude", "aliases": []},
   "overseerArgs": ["-i"],
+  "legionArgs": ["-p", "--allow-all-tools", "--deny-tool=shell(git push)"],
   "plugin": {
+    "defaultConfigDir": "~/.copilot",
+    "installedRoot": "installed-plugins",
     "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
     "install": ["plugin", "install", "ps-ai@ps-ai-marketplace"],
+    "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
+    "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
     "marketplaceList": ["plugin", "marketplace", "list"],
     "list": ["plugin", "list"],
     "listing": {"format": "lines", "rejectPattern": "not installed|disabled"}

@@ -54,9 +54,9 @@ function Assert-PsAiInstallPatterns {
 }
 
 function Get-PsAiTools {
-    param([string]$SkillsRoot = (Join-Path $PSScriptRoot '../skills'))
+    param([string]$SkillsRoot = (Join-Path $PSScriptRoot '../../skills'))
 
-    $schemaPath = Join-Path $PSScriptRoot '../schemas/tool.schema.json'
+    $schemaPath = Join-Path $PSScriptRoot '../../schemas/tool.schema.json'
     $tools = [System.Collections.Generic.List[object]]::new()
     $folders = [string[]]@(Get-ChildItem -LiteralPath $SkillsRoot -Directory -Filter 'ps-ai-*' -ErrorAction Stop | ForEach-Object FullName)
     [Array]::Sort($folders, [StringComparer]::Ordinal)
@@ -99,7 +99,7 @@ function Get-PsAiTools {
 }
 
 function Get-PsAiTool {
-    param([string]$Tool, [string]$SkillsRoot = (Join-Path $PSScriptRoot '../skills'))
+    param([string]$Tool, [string]$SkillsRoot = (Join-Path $PSScriptRoot '../../skills'))
 
     if ($Tool -cnotmatch '^[a-z][a-z0-9-]*$') { throw "unknown tool '$Tool'" }
     $tools = @(Get-PsAiTools -SkillsRoot $SkillsRoot)
@@ -130,15 +130,15 @@ function Assert-PsAiInstallNeeds {
 
 function Get-PsAiInstallRecipes {
     param(
-        [string]$SkillsRoot = (Join-Path $PSScriptRoot '../skills'),
-        [string]$HelpersPath = (Join-Path $PSScriptRoot 'install-tool/helpers.json')
+        [string]$SkillsRoot = (Join-Path $PSScriptRoot '../../skills'),
+        [string]$HelpersPath = (Join-Path $PSScriptRoot '../install-tool/helpers.json')
     )
 
     $tools = @(Get-PsAiTools -SkillsRoot $SkillsRoot)
     # Helpers are read only for installation; the private launch runtime omits them.
     $resolvedHelpersPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($HelpersPath)
     $json = [IO.File]::ReadAllText($resolvedHelpersPath)
-    $schema = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../schemas/tool.schema.json') -Raw | ConvertFrom-Json -AsHashtable
+    $schema = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../schemas/tool.schema.json') -Raw | ConvertFrom-Json -AsHashtable
     $helpersSchema = @{
         '$schema' = $schema.'$schema'
         '$defs' = $schema.'$defs'

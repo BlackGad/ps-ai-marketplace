@@ -46,7 +46,8 @@ try {
     Assert-Equal 'claude-opus-x' $agent.provider.deployments[0].model 'Add fills model name'
     Assert-Equal 'sonnet' $agent.provider.deployments[1].alias 'Add saves alias'
     Assert-Equal 0 $agent.roles.Count 'Foundry agent starts without roles'
-    Assert-Equal '~/.agents/bin/claude-dev' $agent.command 'Foundry command'
+    $expectedCommand = if ($IsWindows) { '~/.agents/bin/claude-dev.cmd' } else { '~/.agents/bin/claude-dev' }
+    Assert-Equal $expectedCommand $agent.command 'Foundry command'
     Assert-Equal '~/.agents/accounts/claude-dev' $agent.configDir 'Foundry config dir'
     Assert-Equal 0 @(Invoke-PsAiValidation -Kind personalisation -Path $file).Count 'Added Foundry agent validates'
     $picker = Get-Content -Raw $settings | ConvertFrom-Json
@@ -54,22 +55,14 @@ try {
     Assert-True $picker.modelPicker.replaceBuiltInOptions 'Claude picker replaces builtins'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.model -join '|') 'Picker uses deployment names'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.label -join '|') 'Picker labels'
-    foreach ($name in @('claude-dev','claude-dev.cmd','.ps-ai-runtime/bin/ps-ai-foundry.ps1','.ps-ai-runtime/bin/PsAi.Foundry.ps1','.ps-ai-runtime/bin/PsAi.Tools.ps1','.ps-ai-runtime/schemas/tool.schema.json')) {
+    foreach ($name in @('claude-dev','claude-dev.cmd','.ps-ai-runtime/bin/ps-ai-foundry.ps1','.ps-ai-runtime/bin/lib/foundry.ps1','.ps-ai-runtime/bin/lib/tools.ps1','.ps-ai-runtime/schemas/tool.schema.json')) {
         Assert-True (Test-Path (Join-Path $homeRoot ".agents/bin/$name")) "Foundry writes $name"
     }
-    # RuntimeSurvivesRelocationAndRetainsLegacy: only selected runtime files are bundled.
+    # RuntimeSurvivesRelocation: only selected runtime files are bundled.
     $runtime = Join-Path $homeRoot '.agents/bin/.ps-ai-runtime'
-    $expectedFiles = @('bin/ps-ai-foundry.ps1','bin/PsAi.Foundry.ps1','bin/PsAi.Tools.ps1','schemas/tool.schema.json','skills/ps-ai-claude/SKILL.md','skills/ps-ai-claude/tool.json','skills/ps-ai-claude/scripts/foundry-launch.ps1','skills/ps-ai-claude/scripts/foundry-config.ps1')
+    $expectedFiles = @('bin/ps-ai-foundry.ps1','bin/lib/foundry.ps1','bin/lib/tools.ps1','schemas/tool.schema.json','skills/ps-ai-claude/SKILL.md','skills/ps-ai-claude/tool.json','skills/ps-ai-claude/scripts/foundry-launch.ps1','skills/ps-ai-claude/scripts/foundry-config.ps1')
     Assert-Equal (($expectedFiles | Sort-Object) -join '|') ((Get-ChildItem $runtime -File -Recurse | ForEach-Object { [IO.Path]::GetRelativePath($runtime, $_.FullName).Replace('\','/') } | Sort-Object) -join '|') 'Bundle contains only runtime dependencies'
     Assert-True ((Get-Content (Join-Path $homeRoot '.agents/bin/claude-dev') -Raw).Contains((Join-Path $runtime 'bin/ps-ai-foundry.ps1'))) 'Wrapper targets bundled runner'
-    # Emulate an old installation: reads and idempotent operations must not upgrade it.
-    $legacy = Join-Path $root 'tests/fixtures/tools/legacy-foundry'
-    Copy-Item "$legacy/*" (Join-Path $homeRoot '.agents/bin')
-    $legacyRunner = Join-Path $homeRoot '.agents/bin/ps-ai-foundry.ps1'
-    $legacyBytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($legacyRunner))
-    $oldWrapper = 'legacy wrapper left untouched'
-    $wrapperPath = Join-Path $homeRoot '.agents/bin/claude-dev'
-    [IO.File]::WriteAllText($wrapperPath, $oldWrapper)
     $tracked = @($file, $settings, (Join-Path $homeRoot '.agents/bin/claude-dev'), (Join-Path $homeRoot '.agents/bin/.ps-ai-runtime/bin/ps-ai-foundry.ps1'))
     $timestamps = @($tracked | ForEach-Object { [IO.File]::GetLastWriteTimeUtc($_).Ticks })
     $repeat = & $accountScript -Action add @common @selection
@@ -84,8 +77,6 @@ try {
         throw 'Expected invalid default'
     } catch { Assert-Equal "default 'x' is not one of -Deployments" $_.Exception.Message 'Default must be selected' }
     Assert-Equal $before (Get-Content -Raw $file) 'Invalid update leaves personalisation unchanged'
-    Assert-Equal $oldWrapper (Get-Content $wrapperPath -Raw) 'Repeated add and unchanged models leave legacy wrapper alone'
-    Assert-Equal $legacyBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($legacyRunner))) 'Legacy runner stays byte-identical'
     $answers['cognitiveservices account deployment list --name res-a --resource-group rg-a'].stdout = '[{"name":"claude-opus-x","properties":{"model":{"name":"claude-opus-x"}}},{"name":"claude-haiku-x","properties":{"model":{"name":"claude-haiku-x"}}}]'
     Use-FakeAz -Answers $answers
     $listed = & $accountScript -Action models -Id claude-dev -HomeRoot $homeRoot -List | ConvertFrom-Json
@@ -105,7 +96,6 @@ try {
     Use-FakeAz -Answers $answers
     $modelsOutput = @(& $accountScript -Action models -Id claude-dev -HomeRoot $homeRoot -Deployments claude-opus-x,claude-haiku-x -Default claude-haiku-x -Aliases claude-opus-x=opus,claude-haiku-x=haiku)
     Assert-Equal 0 $modelsOutput.Count 'Changed models does not leak the config adapter return value'
-    Assert-True ((Get-Content $wrapperPath -Raw).Contains('ps-ai-runtime')) 'Changed models upgrades wrapper'
     $updated = (Read-PsAiJson $file).agents[0]
     Assert-Equal 'claude-haiku-x' $updated.provider.default 'Models updates default'
     Assert-Equal 'haiku' $updated.provider.deployments[1].alias 'Models updates aliases'
@@ -247,7 +237,9 @@ approval_policy = "never"
         & $accountScript -Action add -Id ps-ai-runtime -Tool claude -Command preserved-cli -HomeRoot $collisionHome | Out-Null
         $collisionWrapper = Join-Path $collisionHome '.agents/bin/ps-ai-runtime'
         $collisionBytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))
-        $collisionRunner = Sync-PsAiFoundryRuntime -Tool claude -HomeRoot $collisionHome
+        $runtimeChanges = [Collections.Generic.List[string]]::new()
+        $collisionRunner = Sync-PsAiFoundryRuntime -Tool claude -HomeRoot $collisionHome -Changes $runtimeChanges
+        Assert-Equal $collisionRunner $runtimeChanges[-1] 'Runtime publishes the runner after its dependencies'
         Assert-True (Test-Path $collisionRunner -PathType Leaf) 'A valid account named ps-ai-runtime cannot block runtime sync'
         Assert-Equal $collisionBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))) 'Runtime sync preserves same-named account wrapper'
         & $accountScript -Action rename -Id ps-ai-runtime -NewId runtime-renamed -HomeRoot $collisionHome | Out-Null
@@ -270,11 +262,8 @@ approval_policy = "never"
         $env:PATH = @((Join-Path $root 'tests/fixtures/fake-tools'),$env:PATH) -join [IO.Path]::PathSeparator
         & $pwshPath -NoProfile -File $syncOutput[0] -Agent codex-dev -HomeRoot $homeRoot -p 'space value' | Out-Null
         Assert-Equal 0 $LASTEXITCODE 'Bundle launches after source plugin removal from a home with spaces'
-        & $pwshPath -NoProfile -File $legacyRunner -Agent codex-dev -HomeRoot $homeRoot | Out-Null
-        Assert-Equal 0 $LASTEXITCODE 'Legacy two-file runner still launches with fakes'
     }
     & $accountScript -Action rename -Id claude-dev -NewId claude-renamed -HomeRoot $homeRoot | Out-Null
-    Assert-Equal $legacyBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($legacyRunner))) 'Wrapper upgrade never overwrites legacy runner'
     Assert-True ((Get-Content -Raw (Join-Path $homeRoot '.agents/bin/claude-renamed')).Contains('-Agent claude-renamed')) 'Foundry rename retargets wrapper'
     & $accountScript -Action remove -Id claude-renamed -HomeRoot $homeRoot | Out-Null
     Assert-True (-not (Test-Path (Join-Path $homeRoot '.agents/bin/claude-renamed'))) 'Remove deletes Foundry wrapper'

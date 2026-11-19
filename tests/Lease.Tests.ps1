@@ -5,10 +5,32 @@ $tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
 $repo = Join-Path $tempRoot 'repo'
 New-Item -ItemType Directory -Path $repo -Force | Out-Null
 try {
+    # Each helper exits before the next starts; their non-shell ancestor stays alive.
+    & pwsh -NoProfile -File $script -Action take -Repo $repo -Tool codex -Account session | Out-Null
+    . (Join-Path $root 'plugins/ps-ai/bin/lib/common.ps1')
+    Assert-Equal 'held' (Get-PsAiLease -Repo $repo).State 'A short-lived helper leases for its long-lived parent'
+    $path = Join-Path $repo '.agents/temp/overseer.lock'
+    $saved = Get-Content $path -Raw | ConvertFrom-Json
+    Assert-True ([bool]$saved.processStartedAt) 'Lease records owner process lifetime'
+    & pwsh -NoProfile -File $script -Action release -Repo $repo | Out-Null
+    Assert-True (-not (Test-Path $path)) 'A fresh helper releases the session lock'
+    $invalid = $saved | Select-Object * -ExcludeProperty processStartedAt
+    foreach ($leaseHost in @($saved.host, 'fixture-foreign-host')) {
+        $invalid.host = $leaseHost
+        $invalid | ConvertTo-Json | Set-Content $path
+        Assert-Equal 'stale' (Get-PsAiLease -Repo $repo).State 'A lease without process identity is invalid on any host'
+    }
+    $saved.pid = $PID
+    $saved.processStartedAt = (Get-Process -Id $PID).StartTime.ToUniversalTime().AddSeconds(-1).ToString('o')
+    $saved | ConvertTo-Json | Set-Content $path
+    Assert-Equal 'stale' (Get-PsAiLease -Repo $repo).State 'Reused PID with a different start time is stale'
+    & $script -Action release -Repo $repo -ProcessId $PID 2>$null | Out-Null
+    Assert-True (Test-Path $path) 'Reused PID cannot release the old process lock'
+    Remove-Item -LiteralPath $path
     $runner = Join-Path $tempRoot 'runner.ps1'
     @'
 param($LeaseScript, $Repo, $Account)
-& $LeaseScript -Action take -Repo $Repo -Tool codex -Account $Account
+& $LeaseScript -Action take -Repo $Repo -Tool codex -Account $Account -ProcessId $PID
 $result = $LASTEXITCODE
 Start-Sleep -Seconds 2
 exit $result

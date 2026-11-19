@@ -3,10 +3,10 @@ param(
     [string]$Repo = (Get-Location).Path,
     [string]$Tool,
     [string]$Account,
-    [int]$ProcessId = $PID
+    [int]$ProcessId
 )
 
-. (Join-Path $PSScriptRoot 'PsAi.Common.ps1')
+. (Join-Path $PSScriptRoot 'lib/common.ps1')
 $path = Join-Path $Repo '.agents/temp/overseer.lock'
 $hostName = [System.Net.Dns]::GetHostName()
 
@@ -16,31 +16,56 @@ if ($Action -eq 'status') {
     exit 0
 }
 
-if ($Action -eq 'release') {
-    $lease = Get-PsAiLease -Repo $Repo
-    if ($lease.State -eq 'free') { 'skip: lease release (already done)'; exit 0 }
-    if ($lease.Data -and $lease.Data.host -ieq $hostName -and [int]$lease.Data.pid -eq $ProcessId) {
-        Remove-Item -LiteralPath $path -Force
-        'lease released'
-        exit 0
-    }
-    'skip: lease release (already done)'
-    exit 0
-}
+$ownerProcess = if ($PSBoundParameters.ContainsKey('ProcessId')) {
+    Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+} else { Get-PsAiLeaseOwnerProcess }
+$ProcessId = if ($ownerProcess) { $ownerProcess.Id } else { $ProcessId }
+$processStartedAt = if ($ownerProcess) { $ownerProcess.StartTime.ToUniversalTime().ToString('o') } else { $null }
 
-function Remove-PsAiStaleLease {
-    # Only one session at a time may replace a stale lease, and only the exact stale lease it saw.
-    param([string]$Path, $Seen)
+function Open-PsAiLeaseGuard {
+    param([string]$Path)
     $guardPath = "$Path.takeover"
     if ((Test-Path -LiteralPath $guardPath) -and
         ([DateTime]::UtcNow - [System.IO.File]::GetLastWriteTimeUtc($guardPath)).TotalSeconds -gt 30) {
         Remove-Item -LiteralPath $guardPath -Force -ErrorAction SilentlyContinue
     }
     try {
-        $guard = [System.IO.File]::Open($guardPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        return [System.IO.File]::Open($guardPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
     } catch [System.IO.IOException] {
-        return $false
+        return $null
     }
+}
+
+if ($Action -eq 'release') {
+    if (-not (Test-Path -LiteralPath $path)) { 'skip: lease release (already done)'; exit 0 }
+    $guard = Open-PsAiLeaseGuard -Path $path
+    if (-not $guard) {
+        [Console]::Error.WriteLine('lease change in progress in another session; retry')
+        exit 1
+    }
+    try {
+        $lease = Get-PsAiLease -Repo $Repo
+        if ($lease.State -eq 'free') { 'skip: lease release (already done)'; exit 0 }
+        if ($lease.Data -and $processStartedAt -and $lease.Data.host -ieq $hostName -and
+            [int]$lease.Data.pid -eq $ProcessId -and $lease.Data.processStartedAt -and
+            ([datetime]$lease.Data.processStartedAt).ToUniversalTime() -eq $ownerProcess.StartTime.ToUniversalTime()) {
+            Remove-Item -LiteralPath $path -Force
+            'lease released'
+            exit 0
+        }
+        [Console]::Error.WriteLine('lease belongs to another session; cannot release it')
+        exit 1
+    } finally {
+        $guard.Dispose()
+        Remove-Item -LiteralPath "$path.takeover" -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Remove-PsAiStaleLease {
+    # Only one session at a time may replace a stale lease, and only the exact stale lease it saw.
+    param([string]$Path, $Seen)
+    $guard = Open-PsAiLeaseGuard -Path $Path
+    if (-not $guard) { return $false }
     try {
         $current = Get-PsAiLease -Repo $Repo
         if ($current.State -ne 'stale') { return $true }
@@ -50,13 +75,14 @@ function Remove-PsAiStaleLease {
         return $true
     } finally {
         $guard.Dispose()
-        Remove-Item -LiteralPath $guardPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath "$Path.takeover" -Force -ErrorAction SilentlyContinue
     }
 }
 
 if (-not $Tool -or -not $Account) { throw 'take requires -Tool and -Account' }
+if (-not $ownerProcess) { throw 'lease owner process is not running' }
 New-Item -ItemType Directory -Path (Split-Path $path -Parent) -Force | Out-Null
-$data = @{ tool = $Tool; account = $Account; pid = $ProcessId; host = $hostName; startedAt = [DateTimeOffset]::UtcNow.ToString('o') }
+$data = @{ tool = $Tool; account = $Account; pid = $ProcessId; processStartedAt = $processStartedAt; host = $hostName; startedAt = [DateTimeOffset]::UtcNow.ToString('o') }
 for ($attempt = 0; $attempt -lt 2; $attempt++) {
     try {
         $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)

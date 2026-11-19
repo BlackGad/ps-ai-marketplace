@@ -3,9 +3,14 @@
   "id": "claude", "command": "claude", "configEnv": "CLAUDE_CONFIG_DIR",
   "foundry": {"deploymentPrefix": "claude", "aliases": ["opus", "sonnet", "haiku", "fable"]},
   "overseerArgs": [],
+  "legionArgs": ["-p", "--permission-mode", "bypassPermissions"],
   "plugin": {
+    "defaultConfigDir": "~/.claude",
+    "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
     "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
     "install": ["plugin", "install", "ps-ai@ps-ai-marketplace"],
+    "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
+    "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
     "marketplaceList": ["plugin", "marketplace", "list"],
     "list": ["plugin", "list", "--json"],
     "listing": {"format": "json", "idField": "id", "enabledField": "enabled"}

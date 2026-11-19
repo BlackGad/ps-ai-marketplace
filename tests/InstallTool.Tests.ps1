@@ -1,6 +1,7 @@
+$ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $scriptPath = Join-Path $root 'plugins/ps-ai/bin/ps-ai-install-tool.ps1'
-$bootstrap = Join-Path $root 'install.ps1'
+$installer = Join-Path $root 'install.ps1'
 . $scriptPath -NoRun
 
 # Exercise the real entry point using the already running PowerShell, without installing.
@@ -9,7 +10,7 @@ Assert-Equal 0 $LASTEXITCODE 'Real CLI allows omitted Method'
 Assert-True (($entryPreview -join "`n").Contains('pwsh: installed')) 'Real CLI preview checks installed tool'
 
 # Exercise the process exit contract without contacting a server or starting winget.
-$choiceMessage = 'winget is not available; choose -Method msi (official installer, needs admin) or -Method zip (user folder, no admin)'
+$choiceMessage = 'choose -Method msi (official installer, needs admin) or -Method zip (user folder, no admin)'
 foreach ($wingetState in @('missing','error','blocked','ok')) {
     $result = & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'fixtures/install/Invoke-Installer.ps1') -Installer $scriptPath -Winget $wingetState 2>&1
     $expectedExit = if ($wingetState -eq 'ok') { 0 } else { 2 }
@@ -33,7 +34,6 @@ foreach ($platform in @('windows','macos')) {
     foreach ($tool in $expected[$platform].Keys) {
         $recipe = Get-ToolRecipe -Tool $tool -Platform $platform
         Assert-Equal $expected[$platform][$tool] ($recipe.Install[0] -join ' ') "$platform $tool recipe"
-        Assert-True ($recipe.Check.Count -gt 0) "$platform $tool check"
     }
 }
 $linuxDocs = @{ pwsh='https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-linux'; git='https://git-scm.com/download/linux'; node='https://nodejs.org/en/download'; gh='https://github.com/cli/cli/blob/trunk/docs/install_linux.md'; glab='https://gitlab.com/gitlab-org/cli#installation'; az='https://learn.microsoft.com/cli/azure/install-azure-cli-linux' }
@@ -63,7 +63,7 @@ Assert-Equal 0 $script:commands.Count 'Preview executes nothing'
 Assert-True (($preview -join "`n") -match 'node') 'Preview names prerequisite'
 Assert-True (($preview -join "`n") -match 'npm install -g @openai/codex') 'Preview names exact command'
 $script:installed['node'] = $true
-$first = @(Invoke-ToolInstall -Tool codex -Platform macos -Yes)
+Invoke-ToolInstall -Tool codex -Platform macos -Yes | Out-Null
 Assert-Equal 1 $script:commands.Count 'CLI command runs with Node available'
 Assert-True ($script:commands[0] -match '@openai/codex') 'macOS Codex uses npm'
 $second = @(Invoke-ToolInstall -Tool codex -Platform windows -Yes)
@@ -78,8 +78,8 @@ $script:installed.Remove('codex') | Out-Null
 Assert-Throws { Invoke-ToolInstall -Tool codex -Platform linux -Yes | Out-Null } 'Missing docs-only Node blocks Codex install'
 Assert-Equal 0 $script:commands.Count 'Missing prerequisite runs no npm command'
 
-# Root installer bootstrap cases replace the old bootstrap and shell entry points.
-& (Join-Path $PSScriptRoot 'fixtures/install/Test-RemoteInstaller.ps1') -Installer $bootstrap -Repo $root
+# The standalone installer also runs in Windows PowerShell 5.1.
+& (Join-Path $PSScriptRoot 'fixtures/install/Test-RemoteInstaller.ps1') -Installer $installer -Repo $root
 
 foreach ($tool in @('claude','codex','copilot')) {
     $folder = Join-Path $root "plugins/ps-ai/skills/ps-ai-$tool"
@@ -96,7 +96,19 @@ Assert-True ($repositorySkill.Contains('references/tools.md')) 'Repository skill
 $repositoryTools = Join-Path $root 'plugins/ps-ai/skills/ps-ai-repository/references/tools.md'
 Assert-True (Test-Path $repositoryTools) 'Repository tool reference exists'
 $readme = Get-Content -Raw (Join-Path $root 'README.md')
-Assert-True ($readme.Contains('irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1 | iex')) 'README gives remote Windows installer'
+$windowsExample = [regex]::Match($readme, '(?s)```powershell\r?\n(.*?)\r?\n```')
+Assert-True $windowsExample.Success 'README includes a Windows PowerShell installer example'
+& {
+    $fixtureInstallerScope = 'caller'
+    function Invoke-RestMethod {
+        param([string]$Uri)
+        Assert-Equal 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1' $Uri 'README downloads the remote installer'
+        '$fixtureInstallerScope = "installer"; "fixture-installer-ran"'
+    }
+    $result = . ([scriptblock]::Create($windowsExample.Groups[1].Value))
+    Assert-Equal 'fixture-installer-ran' $result 'README invocation executes the downloaded installer'
+    Assert-Equal 'caller' $fixtureInstallerScope 'README installer invocation isolates caller variables'
+}
 Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains optional CLI install hints'
 
 # Local archives and official-shaped metadata; no network, installers, or real PATH writes.
@@ -316,7 +328,6 @@ Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains option
         . (Join-Path $plugin 'bin/ps-ai-install-tool.ps1') -NoRun
         function Get-ToolInstallRoot { param($Tool) Join-Path $sandbox "home[1]/tools/$Tool" }
         $recipe = Get-ToolRecipe -Tool fourth -Platform macos
-        Assert-Equal 'fourth-cli|--probe|space value' ($recipe.Check -join '|') 'Recipe check keeps declared executable and arguments'
         Assert-Equal 'node' ($recipe.Needs -join '|') 'Recipe needs come from platform data'
         Assert-Equal 'fixture-manager|setup|space value' ($recipe.Install[0] -join '|') 'Recipe commands retain array boundaries'
         Assert-Equal 'https://fixture.test/install' (Get-ToolRecipe -Tool fourth -Platform linux).Docs 'Recipe docs come from data'
@@ -346,8 +357,8 @@ Assert-True ($readme.Contains('ps-ai-install-tool.ps1')) 'README explains option
         $sibling = Join-Path $sandbox 'home1/tools/fourth/fourth-v9'
         New-Item -ItemType Directory $sibling -Force | Out-Null
         [IO.File]::WriteAllText((Join-Path $sibling 'fourth-cli.exe'), '')
-        $expectedCommand = Join-Path (Get-ToolInstallRoot fourth) 'fourth-v2/fourth-cli.exe'
-        Assert-Equal $expectedCommand (Get-ToolPortableCommand fourth) 'Portable glob uses descending directory-name order'
+        $expectedCommand = Join-Path (Get-ToolInstallRoot fourth) 'fourth-v10/fourth-cli.exe'
+        Assert-Equal $expectedCommand (Get-ToolPortableCommand fourth) 'Portable glob compares numeric version components'
         $pathState = @{Value='existing'}
         $writes = [Collections.Generic.List[string]]::new()
         function Get-UserPath { $pathState.Value }

@@ -63,21 +63,40 @@
     "overseerArgs": {
       "$ref": "#/$defs/arguments"
     },
+    "legionArgs": {
+      "$ref": "#/$defs/arguments"
+    },
     "plugin": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "marketplaceAdd",
         "install",
+        "marketplaceUpdate",
+        "update",
         "marketplaceList",
         "list",
         "listing"
       ],
       "properties": {
+        "defaultConfigDir": {
+          "type": "string",
+          "pattern": "^(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))~/[^:]+$"
+        },
+        "installedRoot": {
+          "type": "string",
+          "pattern": "^(?![/\\\\]|[A-Za-z]:|~[/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
+        },
         "marketplaceAdd": {
           "$ref": "#/$defs/arguments"
         },
         "install": {
+          "$ref": "#/$defs/arguments"
+        },
+        "marketplaceUpdate": {
+          "$ref": "#/$defs/arguments"
+        },
+        "update": {
           "$ref": "#/$defs/arguments"
         },
         "marketplaceList": {
@@ -108,7 +127,8 @@
       }
     },
     "install": {
-      "$ref": "#/$defs/install"
+      "$ref": "#/$defs/install",
+      "required": ["hint"]
     }
   },
   "$defs": {
@@ -221,9 +241,6 @@
         "stableOnly": {
           "const": true
         },
-        "order": {
-          "const": "version-desc"
-        },
         "assetPattern": {
           "type": "string",
           "minLength": 1,
@@ -308,16 +325,14 @@
                 "properties": {
                   "releasesUrl": false,
                   "tagPattern": false,
-                  "stableOnly": false,
-                  "order": false
+                  "stableOnly": false
                 }
               },
               {
                 "required": [
                   "releasesUrl",
                   "tagPattern",
-                  "stableOnly",
-                  "order"
+                  "stableOnly"
                 ],
                 "properties": {
                   "metadataUrl": false
@@ -350,7 +365,6 @@
               "releasesUrl": false,
               "tagPattern": false,
               "stableOnly": false,
-              "order": false,
               "assetName": false,
               "url": false,
               "checksumUrl": false
@@ -380,8 +394,7 @@
               "checksumAsset": false,
               "releasesUrl": false,
               "tagPattern": false,
-              "stableOnly": false,
-              "order": false
+              "stableOnly": false
             }
           }
         }
@@ -402,7 +415,6 @@
       "additionalProperties": false,
       "required": [
         "check",
-        "hint",
         "windows",
         "macos",
         "linux"

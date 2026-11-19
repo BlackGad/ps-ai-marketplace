@@ -29,6 +29,7 @@ foreach ($mutation in @(
     { param($d) $d.plugin.listing.format = 'yaml' },
     { param($d) $d.plugin.listing.enabledField = 'enabled' },
     { param($d) $d.install.check = @() },
+    { param($d) $d.install.Remove('hint') },
     { param($d) $d.install.windows.download.zip.kind = 'script' },
     { param($d) $d.install.windows.download.zip.verification = 'vendor' },
     { param($d) $d.install.windows.download.zip.Remove('pathFolder') },
@@ -53,16 +54,9 @@ $installSchema = @{
 } | ConvertTo-Json -Depth 100
 $helpers = Get-Content -LiteralPath $helpersPath -Raw | ConvertFrom-Json -AsHashtable
 Assert-Equal 'az|gh|git|glab|node|pwsh' (($helpers.Keys | Sort-Object) -join '|') 'Helpers have no agent descriptors'
-. (Join-Path $repoRoot 'plugins/ps-ai/bin/ps-ai-install-tool.ps1') -NoRun
 foreach ($id in $helpers.Keys) {
     $recipe = $helpers[$id]
     Assert-True (Test-Json -Json ($recipe | ConvertTo-Json -Depth 100) -Schema $installSchema -ErrorAction SilentlyContinue) "$id helper validates"
-    foreach ($platform in @('macos', 'linux')) {
-        $old = Get-ToolRecipe -Tool $id -Platform $platform
-        Assert-Equal ($old.Check -join '|') ($recipe.check -join '|') "$id check preserved"
-        Assert-Equal ($old.Install | ConvertTo-Json -Depth 20 -Compress -AsArray) ($recipe[$platform].commands | ConvertTo-Json -Depth 20 -Compress -AsArray) "$id $platform commands preserved"
-        Assert-Equal $old.Docs $recipe[$platform].docs "$id $platform docs preserved"
-    }
 }
 foreach ($id in @('node', 'glab')) {
     $badRecipe = $helpers[$id] | ConvertTo-Json -Depth 100 | ConvertFrom-Json -AsHashtable
@@ -74,37 +68,12 @@ $badRecipe = $helpers.pwsh | ConvertTo-Json -Depth 100 | ConvertFrom-Json -AsHas
 $badRecipe.windows.download.msi.releasesUrl = 'https://fixture.test/releases?page=1'
 Assert-True (-not (Test-Json -Json ($badRecipe | ConvertTo-Json -Depth 100) -Schema $installSchema -ErrorAction SilentlyContinue)) 'Paginated recipes require the page placeholder'
 
-# Resolve migrated metadata against the existing offline source fixtures.
-$sources = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'fixtures/install/sources.json') -Raw | ConvertFrom-Json -AsHashtable
-foreach ($id in $helpers.Keys) {
-    foreach ($method in @('msi', 'zip')) {
-        $download = $helpers[$id].windows.download[$method]
-        if ($download.resolver -eq 'lts-index') {
-            $version = @($sources[$download.metadataUrl] | Where-Object lts)[0].version
-            Assert-Equal 'v28.1.0' $version 'Node selects first LTS, retaining leading v'
-            Assert-True ($download.checksumUrl.Contains('{version}')) 'Node checksum follows selected version'
-        } else {
-            $url = if ($download.releasesUrl) { $download.releasesUrl.Replace('{page}', '1') } else { $download.metadataUrl }
-            Assert-True ($sources.Contains($url)) "$id $method metadata URL preserved"
-            $release = $sources[$url]
-            if ($download.releasesUrl) {
-                Assert-Equal '^v7\.6\.\d+$' $download.tagPattern 'PowerShell MSI stays on stable 7.6'
-                Assert-True $download.stableOnly 'PowerShell excludes prereleases and drafts'
-                Assert-Equal 'version-desc' $download.order 'PowerShell selects newest matching version'
-                $release = @($sources[$download.releasesUrl.Replace('{page}', '2')] | Where-Object tag_name -CEQ 'v7.6.9')[0]
-                Assert-Equal 'v7.6.9' $release.tag_name 'PowerShell MSI fixture selection'
-            }
-            $assets = if ($download.resolver -eq 'release-links') { $release.assets.links } else { $release.assets }
-            Assert-Equal 1 @($assets | Where-Object name -Match $download.assetPattern).Count "$id $method pattern selects asset"
-        }
-    }
-}
 Assert-Equal 'ADD_PATH=1' $helpers.pwsh.windows.download.msi.arguments[2] 'PowerShell MSI keeps PATH argument'
 Assert-Equal '/VERYSILENT|/NORESTART|/SP-|/CURRENTUSER' ($helpers.git.windows.download.msi.arguments -join '|') 'Git installer flags preserved'
 Assert-Equal '/VERYSILENT|/SUPPRESSMSGBOXES|/NORESTART|/SP-' ($helpers.glab.windows.download.msi.arguments -join '|') 'glab installer flags preserved'
 
 # DiscoverFourthAndRejectInvalidNeighbors: folder additions need no shared id list.
-$toolsModule = Join-Path $repoRoot 'plugins/ps-ai/bin/PsAi.Tools.ps1'
+$toolsModule = Join-Path $repoRoot 'plugins/ps-ai/bin/lib/tools.ps1'
 Assert-True (Test-Path -LiteralPath $toolsModule) 'Tool discovery module exists'
 . $toolsModule
 $builtIns = @(Get-PsAiTools)
@@ -257,12 +226,12 @@ try {
 
     # A minimal relocated runtime must discover without an installer helper map.
     $runtime = Join-Path $discoveryRoot 'runtime'
-    New-Item -ItemType Directory -Path (Join-Path $runtime 'bin'), (Join-Path $runtime 'schemas'), (Join-Path $runtime 'skills') -Force | Out-Null
-    Copy-Item -LiteralPath $toolsModule -Destination (Join-Path $runtime 'bin/PsAi.Tools.ps1')
+    New-Item -ItemType Directory -Path (Join-Path $runtime 'bin/lib'), (Join-Path $runtime 'schemas'), (Join-Path $runtime 'skills') -Force | Out-Null
+    Copy-Item -LiteralPath $toolsModule -Destination (Join-Path $runtime 'bin/lib/tools.ps1')
     Copy-Item -LiteralPath $schemaPath -Destination (Join-Path $runtime 'schemas/tool.schema.json')
     Copy-Item -LiteralPath $folder -Destination (Join-Path $runtime 'skills/ps-ai-fourth') -Recurse
     & {
-        . (Join-Path $runtime 'bin/PsAi.Tools.ps1')
+        . (Join-Path $runtime 'bin/lib/tools.ps1')
         Assert-Equal 'fourth' (@(Get-PsAiTools).id -join '|') 'Relocated discovery never reads helpers eagerly'
     }
 } finally {

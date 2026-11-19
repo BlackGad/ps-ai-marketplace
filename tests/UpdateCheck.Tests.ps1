@@ -1,0 +1,97 @@
+$repo = Split-Path $PSScriptRoot -Parent
+$checker = Join-Path $repo 'plugins/ps-ai/bin/ps-ai-update.ps1'
+Assert-True (Test-Path -LiteralPath $checker) 'Shared update checker exists'
+
+& {
+    . $checker -NoRun
+    $sandbox = Join-Path $repo ('.agents/temp/restructure/check-' + [guid]::NewGuid().ToString('N'))
+    $plugin = Join-Path $sandbox 'marketplace/plugins/ps-ai'
+    $cache = Join-Path $sandbox '.agents/temp/ps-ai-update.json'
+    New-Item -ItemType Directory -Path $plugin, (Join-Path $sandbox 'marketplace/.git') -Force | Out-Null
+    '{"name":"ps-ai","version":"0.2.0"}' | Set-Content (Join-Path $plugin 'plugin.json')
+    function Get-PsAiUpdateHome { $sandbox }
+    $downloads = [Collections.Generic.List[string]]::new()
+    $remote = @{ Text='{"name":"ps-ai","version":"0.3.0"}'; Fail=$false }
+    function Get-PsAiUpdateText {
+        param([string]$Url)
+        $downloads.Add($Url)
+        if ($remote.Fail) { throw 'fixture download failed with private detail' }
+        $remote.Text
+    }
+    try {
+        $result = Get-PsAiUpdate -PluginRoot $plugin
+        Assert-Equal '0.2.0' $result.Installed 'Installed version comes from running copy'
+        Assert-Equal '0.3.0' $result.Available 'Latest version is downloaded'
+        Assert-True $result.Newer 'Newer release detected'
+        Assert-Equal 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/plugin.json' $downloads[0] 'Default GitHub manifest'
+        Assert-Equal "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Source 'BlackGad/ps-ai-marketplace' -Update" $result.Command 'Script-block update command'
+        $before = Get-Content $cache -Raw
+        $null = Get-PsAiUpdate -PluginRoot $plugin
+        Assert-Equal 1 $downloads.Count 'Same day uses cache'
+        Assert-Equal $before (Get-Content $cache -Raw) 'Cache hit changes nothing'
+        '{"name":"ps-ai","version":"0.3.0"}' | Set-Content (Join-Path $plugin 'plugin.json')
+        Assert-True (-not (Get-PsAiUpdate -PluginRoot $plugin).Newer) 'Cache re-compares running version after upgrade'
+        $remote.Text = '{"name":"ps-ai","version":"0.10.0"}'
+        $result = Get-PsAiUpdate -PluginRoot $plugin -Force
+        Assert-Equal 2 $downloads.Count 'Force downloads despite fresh cache'
+        Assert-True $result.Newer 'Version ordering is numeric'
+        $remote.Text = '{"name":"ps-ai","version":"0.3.0-beta.1"}'
+        Assert-True (-not (Get-PsAiUpdate -PluginRoot $plugin -Force).Newer) 'Prerelease is older than stable'
+        $old = Get-Content $cache -Raw | ConvertFrom-Json
+        $old.CheckedAt = [DateTimeOffset]::UtcNow.AddDays(-2).ToString('o')
+        $old | ConvertTo-Json | Set-Content $cache
+        $null = Get-PsAiUpdate -PluginRoot $plugin
+        Assert-Equal 4 $downloads.Count 'Expired cache refreshes'
+        '{invalid' | Set-Content $cache
+        $null = Get-PsAiUpdate -PluginRoot $plugin
+        Assert-Equal 5 $downloads.Count 'Corrupt cache refreshes'
+
+        # A marketplace clone supplies its origin without invoking git or a coding CLI.
+        New-Item -ItemType Directory -Path (Join-Path $sandbox 'marketplace/.claude-plugin') | Out-Null
+        '{"name":"ps-ai-marketplace","plugins":[{"name":"ps-ai","source":"./plugins/ps-ai"}]}' | Set-Content (Join-Path $sandbox 'marketplace/.claude-plugin/marketplace.json')
+        "[remote `"origin`"]`n url = https://github.com/example/marketplace.git`n" | Set-Content (Join-Path $sandbox 'marketplace/.git/config')
+        Assert-Equal 'example/marketplace' (Get-PsAiUpdateSource -PluginRoot $plugin) 'Marketplace origin supplies owner/repo'
+        $result = Get-PsAiUpdate -PluginRoot $plugin
+        Assert-Equal 6 $downloads.Count 'Different source invalidates shared cache'
+        Assert-True ($result.Command.Contains('example/marketplace/main/install.ps1')) 'Update command uses detected source'
+        Remove-Item (Join-Path $sandbox 'marketplace/.git/config')
+        $cachedPlugin = Join-Path $sandbox 'plugins/cache/ps-ai-marketplace/ps-ai/0.2.0'
+        New-Item -ItemType Directory -Path $cachedPlugin -Force | Out-Null
+        '{"ps-ai-marketplace":{"source":{"source":"github","repo":"example/registry"}}}' | Set-Content (Join-Path $sandbox 'plugins/known_marketplaces.json')
+        Assert-Equal 'example/registry' (Get-PsAiUpdateSource -PluginRoot $cachedPlugin) 'Installed marketplace registry supplies cached copy source'
+        Remove-Item (Join-Path $sandbox 'plugins/known_marketplaces.json')
+        "[marketplaces.ps-ai-marketplace]`nsource_type = `"git`"`nsource = `"https://github.com/example/codex.git`"`n" | Set-Content (Join-Path $sandbox 'config.toml')
+        Assert-Equal 'example/codex' (Get-PsAiUpdateSource -PluginRoot $cachedPlugin) 'Installed marketplace config supplies source'
+        "[marketplaces.ps-ai-marketplace]`nsource_type = 'git'`nsource = 'https://github.com/example/literal.git'`n" | Set-Content (Join-Path $sandbox 'config.toml')
+        Assert-Equal 'example/literal' (Get-PsAiUpdateSource -PluginRoot $cachedPlugin) 'TOML literal source supplies owner/repo'
+        "[marketplaces.`"ps-ai-marketplace`"]`nsource_type = 'git'`nsource = 'git@github.com:example/ssh.git'`n" | Set-Content (Join-Path $sandbox 'config.toml')
+        Assert-Equal 'example/ssh' (Get-PsAiUpdateSource -PluginRoot $cachedPlugin) 'Quoted marketplace name and SSH source'
+        Remove-Item (Join-Path $sandbox 'config.toml')
+
+        $remote.Fail = $true
+        Assert-Equal 0 @(Get-PsAiUpdate -PluginRoot $plugin).Count 'Failed hook check emits nothing'
+        $count = $downloads.Count
+        Assert-Equal 0 @(Get-PsAiUpdate -PluginRoot $plugin).Count 'Cached failure emits nothing'
+        Assert-Equal $count $downloads.Count 'Failure is cached for the day'
+        $errorLine = @(Invoke-PsAiUpdateCheck -PluginRoot $plugin -Force)
+        Assert-Equal 1 $errorLine.Count 'Forced failure prints one line'
+        Assert-Equal 'ps-ai: update check failed; could not read the installed or GitHub plugin manifest.' $errorLine[0] 'Forced error is clear and excludes private exception details'
+        $remote.Fail = $false
+        foreach ($bad in @('{', '{"name":"other","version":"0.4.0"}', '{"name":"ps-ai","version":"invalid"}', '{"name":"ps-ai"}', '{"name":"ps-ai","version":null}')) {
+            $remote.Text = $bad
+            Assert-Equal 1 @(Invoke-PsAiUpdateCheck -PluginRoot $plugin -Force).Count 'Invalid remote manifests fail clearly'
+        }
+        $remote.Text = '{"name":"ps-ai","version":"0.4.0"}'
+        $lines = @(Invoke-PsAiUpdateCheck -PluginRoot $plugin -Force)
+        Assert-Equal 'ps-ai installed: 0.3.0' $lines[0] 'Explicit check prints installed'
+        Assert-Equal 'ps-ai available: 0.4.0' $lines[1] 'Explicit check prints available'
+        Assert-True ($lines[2].EndsWith(' -Update')) 'Explicit check prints update command'
+        Remove-Item $cache
+        New-Item -ItemType Directory -Path $cache | Out-Null
+        Assert-Equal '0.4.0' (Get-PsAiUpdate -PluginRoot $plugin -Force).Available 'Unwritable cache does not discard successful check'
+    } finally {
+        $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/restructure')) + [IO.Path]::DirectorySeparatorChar
+        if (-not ([IO.Path]::GetFullPath($sandbox)).StartsWith($allowed)) { throw 'unsafe check fixture cleanup' }
+        Remove-Item -LiteralPath $sandbox -Recurse -Force
+    }
+}
