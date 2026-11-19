@@ -6,7 +6,7 @@ $launch = @{ Set = @{}; Clear = [string[]]@(); ProvidersFile = $null; ProvidersJ
 if (-not $Token) { $Token = Get-FoundryToken }
 $tempFolder = Join-Path $HomeRoot '.agents/temp'
 $now = [DateTimeOffset]::UtcNow
-$legacyCutoff = $now - ($Token.ExpiresOn - $now)
+$staleCutoff = $now - ($Token.ExpiresOn - $now)
 $guidPattern = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 if (Test-Path -LiteralPath $tempFolder) {
     foreach ($file in Get-ChildItem -LiteralPath $tempFolder -File -Filter 'copilot-providers-*.json') {
@@ -15,8 +15,8 @@ if (Test-Path -LiteralPath $tempFolder) {
             $expirySeconds = 0L
             $expired = [long]::TryParse($Matches[1], [ref]$expirySeconds) -and $expirySeconds -le $now.ToUnixTimeSeconds()
         } elseif ($file.Name -match "^copilot-providers-$guidPattern\.json$") {
-            # Older runners did not record expiry. Bound migration cleanup by this token's remaining lifetime.
-            $expired = $file.LastWriteTimeUtc -lt $legacyCutoff.UtcDateTime
+            # GUID-only files have no expiry. Bound cleanup by this token's remaining lifetime.
+            $expired = $file.LastWriteTimeUtc -lt $staleCutoff.UtcDateTime
         }
         if ($expired) { Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop }
     }

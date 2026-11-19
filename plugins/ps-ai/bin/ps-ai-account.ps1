@@ -142,7 +142,7 @@ function Sync-PsAiFoundryRuntime {
     foreach ($script in Get-ChildItem -LiteralPath (Join-Path $descriptor.SkillRoot 'scripts') -File -Filter 'foundry-*.ps1') {
         $files["skills/ps-ai-$Tool/scripts/$($script.Name)"] = $script.FullName
     }
-    # Publish the runner only after its dependencies exist, including on older runtimes.
+    # Publish the runner only after its dependencies exist.
     $files['bin/ps-ai-foundry.ps1'] = Join-Path $PSScriptRoot 'ps-ai-foundry.ps1'
     foreach ($relativePath in $files.Keys) {
         $target = Join-Path $runtime $relativePath

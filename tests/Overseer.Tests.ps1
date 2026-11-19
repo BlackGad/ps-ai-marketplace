@@ -16,7 +16,7 @@ try {
         $localOwner = Get-Content -Raw $ownerFile | ConvertFrom-Json
         $localOwner.agents[0].command = $wrapper
         $resolved = Get-OverseerLaunch -Personalisation $localOwner -Project $project -AccountId claude -Tool claude
-        Assert-Equal "$wrapper.cmd" $resolved.Command 'Legacy extensionless wrapper selects batch sibling'
+        Assert-Equal "$wrapper.cmd" $resolved.Command 'Extensionless Windows command selects batch sibling'
     }
     & {
         $owner = Get-Content -Raw $ownerFile | ConvertFrom-Json
