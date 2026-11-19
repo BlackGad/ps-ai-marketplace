@@ -72,7 +72,9 @@ function Invoke-PsAiUpdateCheck {
     param([string]$PluginRoot = (Split-Path $PSScriptRoot -Parent), [switch]$Force)
     try {
         $result = Get-PsAiUpdate -PluginRoot $PluginRoot -Force:$Force
-        if ($result) {
+        if ($result -and -not $result.Newer) {
+            "ps-ai $($result.Installed) is up to date."
+        } elseif ($result) {
             "ps-ai installed: $($result.Installed)"
             "ps-ai available: $($result.Available)"
             $result.Command

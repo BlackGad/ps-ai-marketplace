@@ -39,7 +39,7 @@ $repo = Split-Path $PSScriptRoot -Parent
             return @{ExitCode=0;Output=@(Get-FixtureMarketplaceListing -Tool $entry.id -Source $source)}
         }
         $allowed = @('claude|plugin|uninstall|ps-ai@ps-ai-marketplace', 'codex|plugin|remove|ps-ai@ps-ai-marketplace',
-            'copilot|plugin|uninstall|ps-ai@ps-ai-marketplace', 'claude|plugin|marketplace|remove|ps-ai-marketplace|--scope|user',
+            'copilot|plugin|uninstall|ps-ai@ps-ai-marketplace', 'claude|plugin|marketplace|remove|ps-ai-marketplace',
             'codex|plugin|marketplace|remove|ps-ai-marketplace', 'copilot|plugin|marketplace|remove|ps-ai-marketplace|--force',
             'fourth-cli|plugin|erase|ps-ai@ps-ai-marketplace', 'fourth-cli|plugin|marketplace|unregister|ps-ai-marketplace')
         if ($line -notin $allowed) { throw "Unexpected command: $line" }

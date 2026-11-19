@@ -71,6 +71,10 @@ Assert-True (Test-Path -LiteralPath $checker) 'Shared update checker exists'
         Assert-Equal 'ps-ai installed: 0.3.0' $lines[0] 'Explicit check prints installed'
         Assert-Equal 'ps-ai available: 0.4.0' $lines[1] 'Explicit check prints available'
         Assert-True ($lines[2].EndsWith(' -Update')) 'Explicit check prints update command'
+        $remote.Text = '{"name":"ps-ai","version":"0.3.0"}'
+        $lines = @(Invoke-PsAiUpdateCheck -PluginRoot $plugin -Force)
+        Assert-Equal 'ps-ai 0.3.0 is up to date.' ($lines -join '|') 'Up-to-date check prints no update command'
+        $remote.Text = '{"name":"ps-ai","version":"0.4.0"}'
         Remove-Item $cache
         New-Item -ItemType Directory -Path $cache | Out-Null
         Assert-Equal '0.4.0' (Get-PsAiUpdate -PluginRoot $plugin -Force).Available 'Unwritable cache does not discard successful check'
