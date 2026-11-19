@@ -5,8 +5,8 @@ param(
 )
 
 $toolArguments = @($args)
-. (Join-Path $PSScriptRoot 'PsAi.Foundry.ps1')
-. (Join-Path $PSScriptRoot 'PsAi.Tools.ps1')
+. (Join-Path $PSScriptRoot 'lib/foundry.ps1')
+. (Join-Path $PSScriptRoot 'lib/tools.ps1')
 
 function Get-FoundryLaunch {
     param($Agent, [string]$HomeRoot, $Token)

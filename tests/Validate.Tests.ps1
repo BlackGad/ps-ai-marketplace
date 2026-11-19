@@ -154,7 +154,7 @@ try {
         Assert-True (@(Invoke-PsAiValidation -Kind personalisation -Path $ownerPath).Count -gt 0) 'Absent matching skill rejects persisted tool'
         # Loading definitions and lease/hook operations must not discover malformed data.
         '{broken' | Set-Content $descriptorPath
-        . (Join-Path $plugin 'bin/PsAi.Common.ps1')
+        . (Join-Path $plugin 'bin/lib/common.ps1')
         Assert-Equal 'free' (Get-PsAiLease -Repo $fixture).State 'Lease remains usable with a malformed descriptor'
         . (Join-Path $plugin 'hooks/detect-mode.ps1') -NoRun
         $output = & pwsh -NoProfile -File (Join-Path $plugin 'bin/ps-ai-lease.ps1') -Action status -Repo $fixture

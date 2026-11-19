@@ -71,7 +71,7 @@
 & {
     $repoRoot = Split-Path $PSScriptRoot -Parent
     $skillRoot = Join-Path $repoRoot 'plugins/ps-ai/skills'
-    . (Join-Path $repoRoot 'plugins/ps-ai/bin/PsAi.Tools.ps1')
+    . (Join-Path $repoRoot 'plugins/ps-ai/bin/lib/tools.ps1')
     foreach ($adapterId in @('claude', 'codex')) {
         Assert-True (Test-Path -LiteralPath (Join-Path $skillRoot "ps-ai-$adapterId/scripts/foundry-config.ps1")) "$adapterId config adapter exists"
     }

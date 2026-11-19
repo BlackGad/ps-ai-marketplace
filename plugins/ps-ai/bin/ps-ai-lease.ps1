@@ -6,7 +6,7 @@ param(
     [int]$ProcessId
 )
 
-. (Join-Path $PSScriptRoot 'PsAi.Common.ps1')
+. (Join-Path $PSScriptRoot 'lib/common.ps1')
 $path = Join-Path $Repo '.agents/temp/overseer.lock'
 $hostName = [System.Net.Dns]::GetHostName()
 

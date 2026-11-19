@@ -9,13 +9,14 @@ $fixtureScript = Join-Path $tempRoot 'ps-ai-lease.ps1'
 New-Item -ItemType Directory -Path (Split-Path $leasePath -Parent) -Force | Out-Null
 try {
     Copy-Item (Join-Path $root 'plugins/ps-ai/bin/ps-ai-lease.ps1') $fixtureScript
+    New-Item -ItemType Directory -Path (Join-Path $tempRoot 'lib') -Force | Out-Null
     # A contender tries to replace the lease at both release boundaries. Only common I/O is replaced.
     @'
 function Invoke-FixtureTakeover {
     param([string]$Boundary)
     $leasePath = Join-Path $Repo '.agents/temp/overseer.lock'
     $guardPath = "$leasePath.takeover"
-    $eventsPath = Join-Path $PSScriptRoot 'events.txt'
+    $eventsPath = Join-Path $PSScriptRoot '../events.txt'
     try {
         $contender = [IO.File]::Open($guardPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
     } catch [IO.IOException] {
@@ -46,7 +47,7 @@ function Remove-Item {
     }
     Microsoft.PowerShell.Management\Remove-Item @PSBoundParameters
 }
-'@ | Set-Content -LiteralPath (Join-Path $tempRoot 'PsAi.Common.ps1')
+'@ | Set-Content -LiteralPath (Join-Path $tempRoot 'lib/common.ps1')
     $owner = @{
         tool = 'codex'; account = 'owner'; pid = $PID
         host = [Net.Dns]::GetHostName()

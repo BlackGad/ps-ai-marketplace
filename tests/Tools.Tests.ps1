@@ -104,7 +104,7 @@ Assert-Equal '/VERYSILENT|/NORESTART|/SP-|/CURRENTUSER' ($helpers.git.windows.do
 Assert-Equal '/VERYSILENT|/SUPPRESSMSGBOXES|/NORESTART|/SP-' ($helpers.glab.windows.download.msi.arguments -join '|') 'glab installer flags preserved'
 
 # DiscoverFourthAndRejectInvalidNeighbors: folder additions need no shared id list.
-$toolsModule = Join-Path $repoRoot 'plugins/ps-ai/bin/PsAi.Tools.ps1'
+$toolsModule = Join-Path $repoRoot 'plugins/ps-ai/bin/lib/tools.ps1'
 Assert-True (Test-Path -LiteralPath $toolsModule) 'Tool discovery module exists'
 . $toolsModule
 $builtIns = @(Get-PsAiTools)
@@ -257,12 +257,12 @@ try {
 
     # A minimal relocated runtime must discover without an installer helper map.
     $runtime = Join-Path $discoveryRoot 'runtime'
-    New-Item -ItemType Directory -Path (Join-Path $runtime 'bin'), (Join-Path $runtime 'schemas'), (Join-Path $runtime 'skills') -Force | Out-Null
-    Copy-Item -LiteralPath $toolsModule -Destination (Join-Path $runtime 'bin/PsAi.Tools.ps1')
+    New-Item -ItemType Directory -Path (Join-Path $runtime 'bin/lib'), (Join-Path $runtime 'schemas'), (Join-Path $runtime 'skills') -Force | Out-Null
+    Copy-Item -LiteralPath $toolsModule -Destination (Join-Path $runtime 'bin/lib/tools.ps1')
     Copy-Item -LiteralPath $schemaPath -Destination (Join-Path $runtime 'schemas/tool.schema.json')
     Copy-Item -LiteralPath $folder -Destination (Join-Path $runtime 'skills/ps-ai-fourth') -Recurse
     & {
-        . (Join-Path $runtime 'bin/PsAi.Tools.ps1')
+        . (Join-Path $runtime 'bin/lib/tools.ps1')
         Assert-Equal 'fourth' (@(Get-PsAiTools).id -join '|') 'Relocated discovery never reads helpers eagerly'
     }
 } finally {

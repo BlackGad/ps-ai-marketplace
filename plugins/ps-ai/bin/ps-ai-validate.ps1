@@ -4,7 +4,7 @@ param(
     [switch]$NoRun
 )
 
-. (Join-Path $PSScriptRoot 'PsAi.Tools.ps1')
+. (Join-Path $PSScriptRoot 'lib/tools.ps1')
 
 function Read-PsAiJson {
     param([string]$Path)

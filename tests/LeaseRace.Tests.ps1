@@ -1,6 +1,6 @@
 $root = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $root 'plugins/ps-ai/bin/ps-ai-lease.ps1'
-. (Join-Path $root 'plugins/ps-ai/bin/PsAi.Common.ps1')
+. (Join-Path $root 'plugins/ps-ai/bin/lib/common.ps1')
 $tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
 $repo = Join-Path $tempRoot 'repo'
 $leasePath = Join-Path $repo '.agents/temp/overseer.lock'

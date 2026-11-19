@@ -55,17 +55,17 @@ try {
     Assert-True $picker.modelPicker.replaceBuiltInOptions 'Claude picker replaces builtins'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.model -join '|') 'Picker uses deployment names'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.label -join '|') 'Picker labels'
-    foreach ($name in @('claude-dev','claude-dev.cmd','.ps-ai-runtime/bin/ps-ai-foundry.ps1','.ps-ai-runtime/bin/PsAi.Foundry.ps1','.ps-ai-runtime/bin/PsAi.Tools.ps1','.ps-ai-runtime/schemas/tool.schema.json')) {
+    foreach ($name in @('claude-dev','claude-dev.cmd','.ps-ai-runtime/bin/ps-ai-foundry.ps1','.ps-ai-runtime/bin/lib/foundry.ps1','.ps-ai-runtime/bin/lib/tools.ps1','.ps-ai-runtime/schemas/tool.schema.json')) {
         Assert-True (Test-Path (Join-Path $homeRoot ".agents/bin/$name")) "Foundry writes $name"
     }
     # RuntimeSurvivesRelocationAndRetainsLegacy: only selected runtime files are bundled.
     $runtime = Join-Path $homeRoot '.agents/bin/.ps-ai-runtime'
-    $expectedFiles = @('bin/ps-ai-foundry.ps1','bin/PsAi.Foundry.ps1','bin/PsAi.Tools.ps1','schemas/tool.schema.json','skills/ps-ai-claude/SKILL.md','skills/ps-ai-claude/tool.json','skills/ps-ai-claude/scripts/foundry-launch.ps1','skills/ps-ai-claude/scripts/foundry-config.ps1')
+    $expectedFiles = @('bin/ps-ai-foundry.ps1','bin/lib/foundry.ps1','bin/lib/tools.ps1','schemas/tool.schema.json','skills/ps-ai-claude/SKILL.md','skills/ps-ai-claude/tool.json','skills/ps-ai-claude/scripts/foundry-launch.ps1','skills/ps-ai-claude/scripts/foundry-config.ps1')
     Assert-Equal (($expectedFiles | Sort-Object) -join '|') ((Get-ChildItem $runtime -File -Recurse | ForEach-Object { [IO.Path]::GetRelativePath($runtime, $_.FullName).Replace('\','/') } | Sort-Object) -join '|') 'Bundle contains only runtime dependencies'
     Assert-True ((Get-Content (Join-Path $homeRoot '.agents/bin/claude-dev') -Raw).Contains((Join-Path $runtime 'bin/ps-ai-foundry.ps1'))) 'Wrapper targets bundled runner'
     # Emulate an old installation: reads and idempotent operations must not upgrade it.
     $legacy = Join-Path $root 'tests/fixtures/tools/legacy-foundry'
-    Copy-Item "$legacy/*" (Join-Path $homeRoot '.agents/bin')
+    Copy-Item "$legacy/*" (Join-Path $homeRoot '.agents/bin') -Recurse
     $legacyRunner = Join-Path $homeRoot '.agents/bin/ps-ai-foundry.ps1'
     $legacyBytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($legacyRunner))
     $oldWrapper = 'legacy wrapper left untouched'
@@ -248,7 +248,9 @@ approval_policy = "never"
         & $accountScript -Action add -Id ps-ai-runtime -Tool claude -Command preserved-cli -HomeRoot $collisionHome | Out-Null
         $collisionWrapper = Join-Path $collisionHome '.agents/bin/ps-ai-runtime'
         $collisionBytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))
-        $collisionRunner = Sync-PsAiFoundryRuntime -Tool claude -HomeRoot $collisionHome
+        $runtimeChanges = [Collections.Generic.List[string]]::new()
+        $collisionRunner = Sync-PsAiFoundryRuntime -Tool claude -HomeRoot $collisionHome -Changes $runtimeChanges
+        Assert-Equal $collisionRunner $runtimeChanges[-1] 'Runtime publishes the runner after its dependencies'
         Assert-True (Test-Path $collisionRunner -PathType Leaf) 'A valid account named ps-ai-runtime cannot block runtime sync'
         Assert-Equal $collisionBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))) 'Runtime sync preserves same-named account wrapper'
         & $accountScript -Action rename -Id ps-ai-runtime -NewId runtime-renamed -HomeRoot $collisionHome | Out-Null

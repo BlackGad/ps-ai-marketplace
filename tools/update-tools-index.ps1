@@ -1,6 +1,6 @@
 param([switch]$Check, [switch]$NoRun)
 
-. (Join-Path $PSScriptRoot '../plugins/ps-ai/bin/PsAi.Tools.ps1')
+. (Join-Path $PSScriptRoot '../plugins/ps-ai/bin/lib/tools.ps1')
 
 function Get-ToolsIndexContent {
     param([object[]]$Tools, $Bootstrap)

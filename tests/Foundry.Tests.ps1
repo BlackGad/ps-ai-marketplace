@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-$helper = Join-Path $root 'plugins/ps-ai/bin/PsAi.Foundry.ps1'
+$helper = Join-Path $root 'plugins/ps-ai/bin/lib/foundry.ps1'
 Assert-True (Test-Path $helper) 'Foundry helper exists'
 . $helper
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')

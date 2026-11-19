@@ -3,11 +3,12 @@ $repo = Split-Path $PSScriptRoot -Parent
 $sandbox = Join-Path $repo ('.agents/temp/restructure/update-hook-' + [guid]::NewGuid().ToString('N'))
 $plugin = Join-Path $sandbox 'plugin'
 $fixtureRepo = Join-Path $sandbox 'repo'
-New-Item -ItemType Directory -Path (Join-Path $plugin 'hooks'), (Join-Path $plugin 'bin'), (Join-Path $fixtureRepo '.agents/state') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $plugin 'hooks'), (Join-Path $plugin 'bin/lib'), (Join-Path $fixtureRepo '.agents/state') -Force | Out-Null
 try {
-    foreach ($file in @('hooks/detect-mode.ps1','bin/PsAi.Common.ps1','bin/PsAi.Tools.ps1','bin/ps-ai-update.ps1','plugin.json')) {
+    foreach ($file in @('hooks/detect-mode.ps1','bin/lib/common.ps1','bin/lib/tools.ps1','bin/ps-ai-update.ps1')) {
         Copy-Item (Join-Path $repo "plugins/ps-ai/$file") (Join-Path $plugin $file)
     }
+    '{"name":"ps-ai","version":"0.3.0"}' | Set-Content (Join-Path $plugin 'plugin.json')
     # Replace only the download and home boundaries in the child-process copy.
     @'
 function Get-PsAiUpdateHome { Join-Path $PSScriptRoot '../../home' }

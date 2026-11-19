@@ -6,8 +6,8 @@ New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
     # Child hooks use a private cache and a replaced downloader, never the network.
     $hookPlugin = Join-Path $tempRoot 'hook-plugin'
-    New-Item -ItemType Directory -Path (Join-Path $hookPlugin 'hooks'), (Join-Path $hookPlugin 'bin') -Force | Out-Null
-    foreach ($file in @('hooks/detect-mode.ps1','bin/PsAi.Common.ps1','bin/PsAi.Tools.ps1','bin/ps-ai-update.ps1','plugin.json')) {
+    New-Item -ItemType Directory -Path (Join-Path $hookPlugin 'hooks'), (Join-Path $hookPlugin 'bin/lib') -Force | Out-Null
+    foreach ($file in @('hooks/detect-mode.ps1','bin/lib/common.ps1','bin/lib/tools.ps1','bin/ps-ai-update.ps1','plugin.json')) {
         Copy-Item (Join-Path $root "plugins/ps-ai/$file") (Join-Path $hookPlugin $file)
     }
     @'
@@ -99,10 +99,10 @@ function Get-PsAiUpdateText { throw 'offline fixture' }
     Assert-Equal 0 $LASTEXITCODE 'Corrupt lease never fails hook'
     Assert-Equal $mode.Text $json.additionalContext 'Neutral context equals text'
     $copy = Join-Path $tempRoot 'plugin'
-    New-Item -ItemType Directory (Join-Path $copy 'hooks'), (Join-Path $copy 'bin') -Force | Out-Null
+    New-Item -ItemType Directory (Join-Path $copy 'hooks'), (Join-Path $copy 'bin/lib') -Force | Out-Null
     Copy-Item -LiteralPath $script -Destination (Join-Path $copy 'hooks/detect-mode.ps1')
     Copy-Item -LiteralPath (Join-Path $hookPlugin 'bin/ps-ai-update.ps1') -Destination (Join-Path $copy 'bin/ps-ai-update.ps1')
-    'function Get-PsAiLease { throw "fixture lease read failure" }' | Set-Content (Join-Path $copy 'bin/PsAi.Common.ps1')
+    'function Get-PsAiLease { throw "fixture lease read failure" }' | Set-Content (Join-Path $copy 'bin/lib/common.ps1')
     $failedHook = Join-Path $copy 'hooks/detect-mode.ps1'
     $warning = 'ps-ai: mode detection failed; continuing without mode context.'
     Assert-Equal $warning (& pwsh -NoProfile -File $failedHook -Repo $fixtureRepo -Format text) 'Text hook fails open'

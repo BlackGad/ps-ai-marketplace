@@ -1,4 +1,4 @@
-. (Join-Path $PSScriptRoot 'PsAi.Tools.ps1')
+. (Join-Path $PSScriptRoot 'tools.ps1')
 
 function ConvertTo-FoundryEndpoint {
     param([string]$Url)

@@ -17,9 +17,9 @@ param(
 
 $accountNoRun = $NoRun
 . (Join-Path $PSScriptRoot 'ps-ai-validate.ps1') -NoRun
-. (Join-Path $PSScriptRoot 'PsAi.Common.ps1')
-. (Join-Path $PSScriptRoot 'PsAi.Foundry.ps1')
-. (Join-Path $PSScriptRoot 'PsAi.Tools.ps1')
+. (Join-Path $PSScriptRoot 'lib/common.ps1')
+. (Join-Path $PSScriptRoot 'lib/foundry.ps1')
+. (Join-Path $PSScriptRoot 'lib/tools.ps1')
 
 function Assert-PsAiId {
     param([string]$Id)
@@ -131,8 +131,8 @@ function Sync-PsAiFoundryRuntime {
     $null = Get-PsAiToolScript -Tool $descriptor -Name foundry-launch
     $runtime = [IO.Path]::GetFullPath((Join-Path $HomeRoot '.agents/bin/.ps-ai-runtime'))
     $pluginRoot = Split-Path $PSScriptRoot -Parent
-    $files = @{}
-    foreach ($name in @('ps-ai-foundry.ps1', 'PsAi.Foundry.ps1', 'PsAi.Tools.ps1')) {
+    $files = [ordered]@{}
+    foreach ($name in @('lib/tools.ps1', 'lib/foundry.ps1')) {
         $files["bin/$name"] = Join-Path $PSScriptRoot $name
     }
     $files['schemas/tool.schema.json'] = Join-Path $pluginRoot 'schemas/tool.schema.json'
@@ -142,6 +142,8 @@ function Sync-PsAiFoundryRuntime {
     foreach ($script in Get-ChildItem -LiteralPath (Join-Path $descriptor.SkillRoot 'scripts') -File -Filter 'foundry-*.ps1') {
         $files["skills/ps-ai-$Tool/scripts/$($script.Name)"] = $script.FullName
     }
+    # Publish the runner only after its dependencies exist, including on older runtimes.
+    $files['bin/ps-ai-foundry.ps1'] = Join-Path $PSScriptRoot 'ps-ai-foundry.ps1'
     foreach ($relativePath in $files.Keys) {
         $target = Join-Path $runtime $relativePath
         $bytes = [IO.File]::ReadAllBytes($files[$relativePath])

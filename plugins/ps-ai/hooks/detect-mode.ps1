@@ -5,7 +5,7 @@ param(
     [switch]$NoRun
 )
 
-. (Join-Path $PSScriptRoot '../bin/PsAi.Common.ps1')
+. (Join-Path $PSScriptRoot '../bin/lib/common.ps1')
 
 function Find-PsAiRepoRoot {
     param([string]$Path)

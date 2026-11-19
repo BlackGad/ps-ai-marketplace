@@ -7,7 +7,7 @@ New-Item -ItemType Directory -Path $repo -Force | Out-Null
 try {
     # Each helper exits before the next starts; their non-shell ancestor stays alive.
     & pwsh -NoProfile -File $script -Action take -Repo $repo -Tool codex -Account session | Out-Null
-    . (Join-Path $root 'plugins/ps-ai/bin/PsAi.Common.ps1')
+    . (Join-Path $root 'plugins/ps-ai/bin/lib/common.ps1')
     Assert-Equal 'held' (Get-PsAiLease -Repo $repo).State 'A short-lived helper leases for its long-lived parent'
     $path = Join-Path $repo '.agents/temp/overseer.lock'
     $saved = Get-Content $path -Raw | ConvertFrom-Json

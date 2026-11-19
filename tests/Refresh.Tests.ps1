@@ -29,6 +29,13 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/ps-ai-overseer.ps1' -Acco
     '@pwsh -NoProfile -File "C:\old\cache\bin\ps-ai-overseer.ps1" -Account chosen %*' | Set-Content $cmdShim
     & $refresh -HomeRoot $tempRoot | Out-Null
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/ps-ai/bin/ps-ai-foundry.ps1'))) ([IO.File]::ReadAllText((Join-Path $runtime 'ps-ai-foundry.ps1'))) 'Approved refresh updates copied runtime bytes'
+    foreach ($name in @('foundry', 'tools')) {
+        Assert-Equal ([IO.File]::ReadAllText((Join-Path $root "plugins/ps-ai/bin/lib/$name.ps1"))) ([IO.File]::ReadAllText((Join-Path $runtime "lib/$name.ps1"))) "Refresh installs the $name library in an existing runtime"
+    }
+    & {
+        . (Join-Path $runtime 'ps-ai-foundry.ps1') -NoRun
+        Assert-Equal 'claude' (@(Get-PsAiTools).id -join '|') 'Refreshed runner loads libraries and discovers its copied skill with the copied schema'
+    }
     Assert-True ((Get-Content (Join-Path $bin 'foundry-a') -Raw).Contains('.ps-ai-runtime')) 'Refresh regenerates owned Foundry wrapper'
     foreach ($path in @($shim,$cmdShim)) {
         $text = Get-Content $path -Raw

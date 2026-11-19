@@ -1,6 +1,6 @@
 # A missing permission profile must not silently launch a worker with CLI defaults.
 $repo = Split-Path $PSScriptRoot -Parent
-. (Join-Path $repo 'plugins/ps-ai/bin/PsAi.Tools.ps1')
+. (Join-Path $repo 'plugins/ps-ai/bin/lib/tools.ps1')
 $expected = @{
     codex = @('exec', '--dangerously-bypass-approvals-and-sandbox')
     claude = @('-p', '--permission-mode', 'bypassPermissions')
