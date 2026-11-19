@@ -84,7 +84,7 @@ function Invoke-InstallCommand {
     'installed'
 }
 $firstInstall = @(Invoke-PsAiInstallSteps -Tool codex -Source 'local source' -ConfigEnv CODEX_HOME -ConfigDir 'fixture-account')
-Assert-Equal 2 @($firstInstall | Where-Object { $_ -eq 'installed' }).Count 'First install performs both steps'
+Assert-Equal 3 @($firstInstall | Where-Object { $_ -eq 'installed' }).Count 'First install adds and refreshes marketplace, then installs plugin'
 $secondInstall = @(Invoke-PsAiInstallSteps -Tool codex -Source 'local source' -ConfigEnv CODEX_HOME -ConfigDir 'fixture-account')
 Assert-Equal 2 @($secondInstall | Where-Object { $_ -match '^skip: .*\(already done\)$' }).Count 'Second install skips both steps'
 
@@ -158,7 +158,7 @@ try {
     Assert-Equal 1 @($preview | Where-Object { $_ -eq 'fourth hook hint' }).Count 'Catalog hint printed once in dry run'
     $entry.hooks.hint=''
     $preview = @(Invoke-PsAiInstaller -Tools fourth -Source 'example/market' -Catalog $catalog -DryRun)
-    Assert-Equal 2 $preview.Count 'Empty hint adds no output'
+    Assert-Equal 3 $preview.Count 'Empty hint adds no output beyond add, refresh and install'
     $entry.plugin.marketplaceAdd = @('register','{source}','prefix-{source}')
     Assert-Equal 'fourth-cli|register|local source|prefix-{source}' ((Get-InstallCommands -Tool fourth -Source 'local source')[0] -join '|') 'Only entire source argument is substituted'
 }

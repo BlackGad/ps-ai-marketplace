@@ -187,7 +187,7 @@ function Invoke-ClosedInput {
 }
 
 function Test-InstallStepDone {
-    param([string[]]$Command, [string]$ConfigEnv, [string]$ConfigDir)
+    param([string[]]$Command, [string]$ConfigEnv, [string]$ConfigDir, [switch]$IncludeDisabled)
     $entry = $script:installCatalog.tools | Where-Object command -CEQ $Command[0] | Select-Object -First 1
     if (-not $entry) { throw "unknown tool command '$($Command[0])'" }
     $marketplace = @($entry.command) + @($entry.plugin.marketplaceAdd | ForEach-Object { if ($_ -ceq '{source}') { '' } else { $_ } })
@@ -208,7 +208,7 @@ function Test-InstallStepDone {
         if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $ConfigDir, 'Process') }
         $result = Invoke-ClosedInput -Command $list
         if ($result.ExitCode -ne 0) { throw "$($entry.command) listing exited $($result.ExitCode)" }
-        return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output -Source $requestedSource
+        return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output -Source $requestedSource -IncludeDisabled:$IncludeDisabled
     } finally {
         if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $previous, 'Process') }
     }
@@ -282,10 +282,24 @@ function Invoke-InstallCommand {
 function Invoke-PsAiInstallSteps {
     param([string]$Tool, [string]$Source, [string]$ConfigEnv, [string]$ConfigDir, [switch]$DryRun)
     $commands = Get-InstallCommands -Tool $Tool -Source $Source
-    foreach ($command in $commands) {
+    $entry = Get-InstallTool -Tool $Tool
+    $marketplaceAdded = $false
+    for ($index = 0; $index -lt $commands.Count; $index++) {
+        $command = $commands[$index]
+        if (-not $DryRun -and -not $marketplaceAdded -and (Test-InstallStepDone -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir)) {
+            "skip: $($command -join ' ') (already done)"
+            continue
+        }
         if ($DryRun) { Format-InstallCommand -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
-        elseif (Test-InstallStepDone -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir) { "skip: $($command -join ' ') (already done)" }
         else { Invoke-InstallCommand -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
+        if ($index -eq 0) {
+            $marketplaceAdded = $true
+            if ($entry.plugin.marketplaceUpdate.Count) {
+                $refresh = @($entry.command) + $entry.plugin.marketplaceUpdate
+                if ($DryRun) { Format-InstallCommand -Command $refresh -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
+                else { Invoke-InstallCommand -Command $refresh -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
+            }
+        }
     }
 }
 
@@ -323,9 +337,8 @@ function Invoke-PsAiUpdateSteps {
         $list = @($Entry.command) + $Entry.plugin.list
         Format-InstallCommand -Command $list -ConfigEnv $configEnv -ConfigDir $ConfigDir
         if (-not $DryRun) {
-            $result = Invoke-ClosedInput -Command $list
-            if ($result.ExitCode -ne 0) { throw "$($Entry.command) listing exited $($result.ExitCode)" }
-            if (-not (Test-InstallListing -Kind plugin -Tool $Entry.id -Lines $result.Output -IncludeDisabled)) {
+            $install = @($Entry.command) + $Entry.plugin.install
+            if (-not (Test-InstallStepDone -Command $install -ConfigEnv $configEnv -ConfigDir $ConfigDir -IncludeDisabled)) {
                 $target = if ($ConfigDir) { $ConfigDir } else { 'default config' }
                 "skip: $($Entry.id) ps-ai in $target (not installed)"
                 return
