@@ -59,6 +59,32 @@ function Invoke-FoundryTool {
     } finally { $process.Dispose() }
 }
 
+function Write-FoundryProviderFile {
+    param([string]$Path, [string]$Json)
+    New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
+    if ($IsWindows) {
+        $security = [Security.AccessControl.FileSecurity]::new()
+        $security.SetAccessRuleProtection($true, $false)
+        $owner = [Security.Principal.WindowsIdentity]::GetCurrent().User
+        $security.SetOwner($owner)
+        $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($owner, 'FullControl', 'Allow'))
+        $stream = [IO.FileSystemAclExtensions]::Create([IO.FileInfo]::new($Path), [IO.FileMode]::CreateNew,
+            [Security.AccessControl.FileSystemRights]::FullControl, [IO.FileShare]::None, 4096, [IO.FileOptions]::None, $security)
+    } else {
+        $options = [IO.FileStreamOptions]::new()
+        $options.Mode = [IO.FileMode]::CreateNew
+        $options.Access = [IO.FileAccess]::Write
+        $options.Share = [IO.FileShare]::None
+        $options.UnixCreateMode = [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite
+        $stream = [IO.FileStream]::new($Path, $options)
+    }
+    try {
+        # The file is private from creation, before any credential bytes are written.
+        $bytes = [Text.UTF8Encoding]::new($false).GetBytes($Json)
+        $stream.Write($bytes, 0, $bytes.Length)
+    } finally { $stream.Dispose() }
+}
+
 if (-not $NoRun) {
     $launch = $null
     try {
@@ -72,8 +98,7 @@ if (-not $NoRun) {
         if (-not $check.Ok) { throw $check.Error }
         $launch = Get-FoundryLaunch -Agent $selected -HomeRoot $HomeRoot
         if ($launch.ProvidersFile) {
-            New-Item -ItemType Directory -Path (Split-Path $launch.ProvidersFile -Parent) -Force | Out-Null
-            [IO.File]::WriteAllText($launch.ProvidersFile, $launch.ProvidersJson, [Text.UTF8Encoding]::new($false))
+            Write-FoundryProviderFile -Path $launch.ProvidersFile -Json $launch.ProvidersJson
         }
         if ($launch.Notice) { Write-Output $launch.Notice }
         $exitCode = Invoke-FoundryTool -Command $command -Arguments $toolArguments -Launch $launch
