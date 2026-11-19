@@ -1,4 +1,4 @@
-param([string]$Installer, [string]$Catalog, [ValidateSet('fresh','cached','update','conflict')][string]$Mode)
+param([string]$Installer, [string]$Catalog, [ValidateSet('fresh','cached','update','registered')][string]$Mode)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'MarketplaceListing.ps1')
 . ([scriptblock]::Create((Get-Content -LiteralPath $Installer -Raw))) -NoRun
@@ -26,7 +26,7 @@ function Invoke-ClosedInput {
     $state = $states[$entry.command]
     $line = $Command -join '|'
     if ($line -eq ((@($entry.command) + $entry.plugin.marketplaceList) -join '|')) {
-        $source = if ($Mode -eq 'conflict' -and $entry.id -eq 'claude') { 'https://github.com/example/old-source' } else { '' }
+        $source = if ($Mode -eq 'registered') { 'https://github.com/example/old-source' } else { '' }
         $output = @(Get-FixtureMarketplaceListing -Tool $entry.id -Source $source)
         return @{ExitCode=0; Output=$output}
     }
@@ -53,7 +53,7 @@ function Invoke-ClosedInput {
         return @{ExitCode=0; Output=@()}
     }
     if ($line -eq ((@($entry.command) + $entry.plugin.marketplaceUpdate) -join '|')) {
-        if ($Mode -ne 'update' -and -not $state.Added) { throw 'Refresh ran before add' }
+        if ($Mode -notin @('update','registered') -and -not $state.Added) { throw 'Refresh ran before add' }
         $state.Refreshed=$true
         return @{ExitCode=0; Output=@()}
     }
@@ -65,7 +65,7 @@ function Invoke-ClosedInput {
     }
     throw "Unexpected fake command: $line"
 }
-# An uncaught conflict must make the process fail after the other tools finish.
+# Reused registrations still refresh before plugin installation.
 Invoke-PsAiInstaller -Yes -Update:($Mode -eq 'update')
 foreach ($entry in $entries) {
     if (-not $states[$entry.command].Installed) { throw "Fixture plugin was skipped: $($entry.id)" }

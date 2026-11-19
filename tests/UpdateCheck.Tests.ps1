@@ -46,28 +46,13 @@ Assert-True (Test-Path -LiteralPath $checker) 'Shared update checker exists'
         $null = Get-PsAiUpdate -PluginRoot $plugin
         Assert-Equal 5 $downloads.Count 'Corrupt cache refreshes'
 
-        # A marketplace clone supplies its origin without invoking git or a coding CLI.
+        # Update checks use the upstream marketplace even when an ancestor is a fork.
         New-Item -ItemType Directory -Path (Join-Path $sandbox 'marketplace/.claude-plugin') | Out-Null
         '{"name":"ps-ai-marketplace","plugins":[{"name":"ps-ai","source":"./plugins/ps-ai"}]}' | Set-Content (Join-Path $sandbox 'marketplace/.claude-plugin/marketplace.json')
         "[remote `"origin`"]`n url = https://github.com/example/marketplace.git`n" | Set-Content (Join-Path $sandbox 'marketplace/.git/config')
-        Assert-Equal 'example/marketplace' (Get-PsAiUpdateSource -PluginRoot $plugin) 'Marketplace origin supplies owner/repo'
-        $result = Get-PsAiUpdate -PluginRoot $plugin
-        Assert-Equal 6 $downloads.Count 'Different source invalidates shared cache'
-        Assert-True ($result.Command.Contains('example/marketplace/main/install.ps1')) 'Update command uses detected source'
-        Remove-Item (Join-Path $sandbox 'marketplace/.git/config')
-        $cachedPlugin = Join-Path $sandbox 'plugins/cache/ps-ai-marketplace/ps-ai/0.2.0'
-        New-Item -ItemType Directory -Path $cachedPlugin -Force | Out-Null
-        '{"ps-ai-marketplace":{"source":{"source":"github","repo":"example/registry"}}}' | Set-Content (Join-Path $sandbox 'plugins/known_marketplaces.json')
-        Assert-Equal 'example/registry' (Get-PsAiUpdateSource -PluginRoot $cachedPlugin) 'Installed marketplace registry supplies cached copy source'
-        Remove-Item (Join-Path $sandbox 'plugins/known_marketplaces.json')
-        "[marketplaces.ps-ai-marketplace]`nsource_type = `"git`"`nsource = `"https://github.com/example/codex.git`"`n" | Set-Content (Join-Path $sandbox 'config.toml')
-        Assert-Equal 'example/codex' (Get-PsAiUpdateSource -PluginRoot $cachedPlugin) 'Installed marketplace config supplies source'
-        "[marketplaces.ps-ai-marketplace]`nsource_type = 'git'`nsource = 'https://github.com/example/literal.git'`n" | Set-Content (Join-Path $sandbox 'config.toml')
-        Assert-Equal 'example/literal' (Get-PsAiUpdateSource -PluginRoot $cachedPlugin) 'TOML literal source supplies owner/repo'
-        "[marketplaces.`"ps-ai-marketplace`"]`nsource_type = 'git'`nsource = 'git@github.com:example/ssh.git'`n" | Set-Content (Join-Path $sandbox 'config.toml')
-        Assert-Equal 'example/ssh' (Get-PsAiUpdateSource -PluginRoot $cachedPlugin) 'Quoted marketplace name and SSH source'
-        Remove-Item (Join-Path $sandbox 'config.toml')
+        Assert-True ((Get-PsAiUpdate -PluginRoot $plugin -Force).Command.Contains('BlackGad/ps-ai-marketplace/main/install.ps1')) 'Checks keep the upstream update source'
 
+        Remove-Item -LiteralPath $cache
         $remote.Fail = $true
         Assert-Equal 0 @(Get-PsAiUpdate -PluginRoot $plugin).Count 'Failed hook check emits nothing'
         $count = $downloads.Count

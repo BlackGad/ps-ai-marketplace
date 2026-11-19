@@ -153,13 +153,6 @@
             Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'tools.json')
             Assert-Throws { Get-InstallCatalog -Source $scratch } 'Loader rejects non-string hooks.status'
         }
-        foreach ($value in @($null, 42, @('hint'))) {
-            $descriptor = $descriptorJson | ConvertFrom-Json
-            $descriptor.plugin.marketplaceRemoveHint = $value
-            Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile $schema -ErrorAction SilentlyContinue)) 'Schema rejects non-string removal hint'
-            Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'tools.json')
-            Assert-Throws { Get-InstallCatalog -Source $scratch } 'Loader rejects non-string removal hint'
-        }
     } finally {
         $cleanupPath = [IO.Path]::GetFullPath($scratch)
         if (-not $cleanupPath.StartsWith($scratchRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe test cleanup path' }

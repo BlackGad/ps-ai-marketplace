@@ -19,69 +19,13 @@ function Get-PsAiUpdateText {
     } finally { $Client.Dispose() }
 }
 
-function ConvertTo-PsAiUpdateSource {
-    param([string]$Source)
-    if ($Source -match '^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)?(?<repo>[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*?)(?:\.git)?/?$') {
-        return $Matches.repo
-    }
-}
-
-function Get-PsAiUpdateSource {
-    param([string]$PluginRoot)
-    # Installed copies may live in a marketplace checkout or in its separate plugin cache.
-    $folder = $PluginRoot
-    while ($folder) {
-        $registry = Join-Path $folder 'known_marketplaces.json'
-        if (Test-Path -LiteralPath $registry -PathType Leaf) {
-            try {
-                $info = Get-Content -LiteralPath $registry -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-                $source = ConvertTo-PsAiUpdateSource $info.'ps-ai-marketplace'.source.repo
-                if ($source) { return $source }
-            } catch { }
-        }
-        $config = Join-Path $folder 'config.toml'
-        if (Test-Path -LiteralPath $config -PathType Leaf) {
-            try {
-                $text = Get-Content -LiteralPath $config -Raw -ErrorAction Stop
-                $section = [regex]::Match($text, '(?ms)^\[marketplaces\.(?:ps-ai-marketplace|"ps-ai-marketplace"|''ps-ai-marketplace'')\]\s*\r?\n(.*?)(?=^\[|\z)').Groups[1].Value
-                $url = [regex]::Match($section, '(?m)^source\s*=\s*(?<quote>["''])(?<url>.*?)\k<quote>').Groups['url'].Value
-                $source = ConvertTo-PsAiUpdateSource $url
-                if ($source) { return $source }
-            } catch { }
-        }
-        foreach ($relative in @('.git/config', 'marketplaces/ps-ai-marketplace/.git/config')) {
-            $config = Join-Path $folder $relative
-            if (-not (Test-Path -LiteralPath $config -PathType Leaf)) { continue }
-            try {
-                $checkout = Split-Path (Split-Path $config -Parent) -Parent
-                $catalog = Get-Content -LiteralPath (Join-Path $checkout '.claude-plugin/marketplace.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-                if ($catalog.name -cne 'ps-ai-marketplace') { continue }
-                $owned = $false
-                foreach ($plugin in $catalog.plugins) {
-                    if ($plugin.name -cne 'ps-ai' -or $plugin.source -isnot [string]) { continue }
-                    $candidate = [IO.Path]::GetFullPath((Join-Path $checkout $plugin.source))
-                    if ($candidate -eq [IO.Path]::GetFullPath($PluginRoot)) { $owned = $true }
-                }
-                if (-not $owned) { continue }
-                $text = Get-Content -LiteralPath $config -Raw -ErrorAction Stop
-                $origin = [regex]::Match($text, '(?ms)^\[remote "origin"\]\s*\r?\n(.*?)(?=^\[|\z)').Groups[1].Value
-                $url = [regex]::Match($origin, '(?m)^\s*url\s*=\s*(\S+)').Groups[1].Value
-                $source = ConvertTo-PsAiUpdateSource $url
-                if ($source) { return $source }
-            } catch { }
-        }
-        $folder = Split-Path $folder -Parent
-    }
-    return 'BlackGad/ps-ai-marketplace'
-}
-
 function Get-PsAiUpdate {
     param([string]$PluginRoot = (Split-Path $PSScriptRoot -Parent), [switch]$Force)
     try {
         $manifest = Get-Content -LiteralPath (Join-Path $PluginRoot 'plugin.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         if ($manifest.name -ne 'ps-ai') { throw 'Invalid installed manifest' }
         $installed = [semver]::Parse([string]$manifest.version)
-        $source = Get-PsAiUpdateSource -PluginRoot $PluginRoot
+        $source = 'BlackGad/ps-ai-marketplace'
         $cachePath = Join-Path (Get-PsAiUpdateHome) '.agents/temp/ps-ai-update.json'
         $cached = $null
         if (-not $Force -and (Test-Path -LiteralPath $cachePath -PathType Leaf)) {

@@ -45,7 +45,6 @@
           "--scope",
           "user"
         ],
-        "marketplaceRemoveHint": "",
         "install": [
           "plugin",
           "install",
@@ -73,12 +72,7 @@
         },
         "marketplaceListing": {
           "format": "json",
-          "nameField": "name",
-          "sourceFields": [
-            "repo",
-            "url",
-            "path"
-          ]
+          "nameField": "name"
         },
         "list": [
           "plugin",
@@ -122,7 +116,6 @@
           "remove",
           "ps-ai-marketplace"
         ],
-        "marketplaceRemoveHint": "Removing this marketplace removes hook approval; approve the ps-ai hooks again with /hooks after reinstalling.",
         "install": [
           "plugin",
           "add",
@@ -148,10 +141,6 @@
           "format": "json",
           "collectionField": "marketplaces",
           "nameField": "name",
-          "sourceFields": [
-            "marketplaceSource.source",
-            "root"
-          ],
           "rootField": "root"
         },
         "list": [
@@ -195,7 +184,6 @@
           "ps-ai-marketplace",
           "--force"
         ],
-        "marketplaceRemoveHint": "--force is required when a plugin from this marketplace is installed.",
         "install": [
           "plugin",
           "install",
@@ -220,11 +208,7 @@
         ],
         "marketplaceListing": {
           "format": "json",
-          "nameField": "name",
-          "sourceFields": [
-            "source"
-          ],
-          "sourcePattern": "^GitHub: (?<source>.+)$"
+          "nameField": "name"
         },
         "list": [
           "plugin",

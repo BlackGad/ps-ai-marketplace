@@ -1,2 +1,0 @@
-MARKETPLACE             ROOT
-ps-ai-marketplace       C:\Users\example\.codex\.tmp\marketplaces\ps-ai-marketplace

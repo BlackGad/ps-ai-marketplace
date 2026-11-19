@@ -78,7 +78,7 @@ function Get-InstallCatalog {
         foreach ($field in @('marketplaceAdd','marketplaceRemove','install','uninstall','marketplaceList','list','marketplaceUpdate','update')) {
             Assert-InstallArguments $tool.plugin.$field "plugin.$field"
         }
-        Assert-InstallString $tool.plugin.marketplaceRemoveHint 'plugin.marketplaceRemoveHint' -AllowEmpty
+
         if ($null -ne $tool.plugin.listingEnv) {
             $environment = $tool.plugin.listingEnv
             Assert-InstallObject $environment 'plugin.listingEnv'
@@ -115,16 +115,16 @@ function Get-InstallCatalog {
             $null = [regex]::new($listing.rejectPattern)
         } else { throw 'invalid catalog listing format' }
         $marketplaceListing = $tool.plugin.marketplaceListing
+        if ($null -eq $marketplaceListing) { throw 'marketplaceListing is required' }
         if ($null -ne $marketplaceListing) {
             Assert-InstallObject $marketplaceListing 'marketplaceListing'
             if ($marketplaceListing.format -cne 'json') { throw 'invalid catalog marketplace listing format' }
             Assert-InstallString $marketplaceListing.nameField 'marketplaceListing.nameField'
-            Assert-InstallArguments $marketplaceListing.sourceFields 'marketplaceListing.sourceFields'
-            if (-not $marketplaceListing.sourceFields.Count) { throw 'marketplaceListing.sourceFields cannot be empty' }
-            foreach ($field in @('collectionField', 'sourcePattern', 'rootField')) {
+
+            foreach ($field in @('collectionField', 'rootField')) {
                 if ($null -ne $marketplaceListing.$field) { Assert-InstallString $marketplaceListing.$field "marketplaceListing.$field" }
             }
-            if ($marketplaceListing.sourcePattern) { $null = [regex]::new($marketplaceListing.sourcePattern) }
+
         }
         Assert-InstallObject $tool.hooks 'hooks'
         Assert-InstallString $tool.hooks.status 'hooks.status' -AllowEmpty
@@ -232,11 +232,10 @@ function Test-InstallStepDone {
     if (-not $entry) { throw "unknown tool command '$($Command[0])'" }
     $marketplace = @($entry.command) + @($entry.plugin.marketplaceAdd | ForEach-Object { if ($_ -ceq '{source}') { '' } else { $_ } })
     $kind = 'plugin'
-    $requestedSource = ''
     if ($Command.Count -eq $marketplace.Count) {
         $same = $true
         for ($index = 0; $index -lt $Command.Count; $index++) {
-            if ($index -gt 0 -and $entry.plugin.marketplaceAdd[($index - 1)] -ceq '{source}') { $requestedSource = $Command[$index]; continue }
+            if ($index -gt 0 -and $entry.plugin.marketplaceAdd[($index - 1)] -ceq '{source}') { continue }
             if ($Command[$index] -cne $marketplace[$index]) { $same = $false; break }
         }
         if ($same) { $kind = 'marketplace' }
@@ -251,7 +250,7 @@ function Test-InstallStepDone {
         }
         $result = Invoke-ClosedInput -Command $list -Environment $entry.plugin.listingEnv
         if ($result.ExitCode -ne 0) { throw "$($entry.command) listing exited $($result.ExitCode)" }
-        return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output -Source $requestedSource -IncludeDisabled:$IncludeDisabled -RequireRoot:$RequireRoot
+        return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output -IncludeDisabled:$IncludeDisabled -RequireRoot:$RequireRoot
     } finally {
         if ($ConfigEnv) { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $previous }
     }
@@ -268,61 +267,27 @@ function Get-InstallListingField {
 
 function Test-InstallListing {
     # Installation requires enabled plugins; updates also refresh disabled installed copies.
-    param([ValidateSet('marketplace', 'plugin')][string]$Kind, [string]$Tool, [string[]]$Lines, [switch]$IncludeDisabled, [string]$Source, [switch]$RequireRoot)
+    param([ValidateSet('marketplace', 'plugin')][string]$Kind, [string]$Tool, [string[]]$Lines, [switch]$IncludeDisabled, [switch]$RequireRoot)
+    $entry = Get-InstallTool -Tool $Tool
     if ($Kind -eq 'marketplace') {
-        $entry = if ($Tool) { Get-InstallTool -Tool $Tool } else { $null }
-        $listing = if ($entry) { $entry.plugin.marketplaceListing } else { $null }
-        $sources = @()
-        $missingRoot = $false
-        if ($listing -and $listing.format -eq 'json') {
-            try { $items = ($Lines -join "`n") | ConvertFrom-Json -ErrorAction Stop }
-            catch { throw "$Tool marketplace listing returned invalid JSON" }
-            if ($listing.collectionField -and $null -ne $items) {
-                $items = Get-InstallListingField -Item $items -Field $listing.collectionField
-                if ($null -eq $items) { throw "$Tool marketplace listing is missing its collection" }
-            }
-            foreach ($item in @($items)) {
-                if ((Get-InstallListingField -Item $item -Field $listing.nameField) -cne 'ps-ai-marketplace') { continue }
-                if ($RequireRoot -and $listing.rootField) {
-                    $root = Get-InstallListingField -Item $item -Field $listing.rootField
-                    if (-not ($root -is [string]) -or -not $root -or -not (Test-Path -LiteralPath $root -PathType Container)) { $missingRoot = $true }
-                }
-                $registered = ''
-                foreach ($field in $listing.sourceFields) {
-                    $value = Get-InstallListingField -Item $item -Field $field
-                    if ($value -is [string] -and $value) { $registered = $value; break }
-                }
-                if ($listing.sourcePattern -and $registered -match $listing.sourcePattern) { $registered = $Matches.source }
-                $sources += $registered
-            }
-        } else {
-            for ($index = 0; $index -lt $Lines.Count; $index++) {
-                if ($Lines[$index] -notmatch '(^|[\s`])ps-ai-marketplace(\s|`|"|$)') { continue }
-                $registered = ($Lines[$index] -replace '^.*?ps-ai-marketplace[\s`"]*', '').Trim()
-                if (-not $registered -and $index + 1 -lt $Lines.Count -and $Lines[$index + 1] -match '^\s*Source:\s*(.+)$') { $registered = $Matches[1] }
-                $sources += $registered
-            }
+        $listing = $entry.plugin.marketplaceListing
+        try { $items = ($Lines -join "`n") | ConvertFrom-Json -ErrorAction Stop }
+        catch { throw "$Tool marketplace listing returned invalid JSON" }
+        if ($listing.collectionField -and $null -ne $items) {
+            $items = Get-InstallListingField -Item $items -Field $listing.collectionField
+            if ($null -eq $items) { throw "$Tool marketplace listing is missing its collection" }
         }
-        foreach ($registered in $sources) {
-            if (-not $Source) { return (-not $missingRoot) }
-            if ((ConvertTo-InstallMarketplaceSource $registered) -ceq (ConvertTo-InstallMarketplaceSource $Source)) { return (-not $missingRoot) }
-            $folder = if ($entry) { [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process') } else { '' }
-            $target = if ($folder) { $folder } else { 'default config' }
-            $currentSource = if ($registered) { $registered } else { 'unknown' }
-            $message = "$Tool in ${target}: ps-ai-marketplace source conflict; current source: $currentSource; requested source: $Source."
-            if ($entry) {
-                $remove = Format-InstallCommand -Command (@($entry.command) + $entry.plugin.marketplaceRemove)
-                if ($folder) { $remove = '$env:' + $entry.configEnv + " = '" + $folder.Replace("'", "''") + "'; " + $remove }
-                $message += "`nRemove command (run only if you want to replace this registration): $remove"
-                if ($entry.plugin.marketplaceRemoveHint) { $message += "`n" + $entry.plugin.marketplaceRemoveHint }
+        foreach ($item in @($items)) {
+            if ((Get-InstallListingField -Item $item -Field $listing.nameField) -cne 'ps-ai-marketplace') { continue }
+            if ($RequireRoot -and $listing.rootField) {
+                $root = Get-InstallListingField -Item $item -Field $listing.rootField
+                if (-not ($root -is [string]) -or -not $root -or -not (Test-Path -LiteralPath $root -PathType Container)) { return $false }
             }
-            $conflict = New-Object System.InvalidOperationException -ArgumentList $message
-            $conflict.Data['InstallMarketplaceConflict'] = $true
-            throw $conflict
+            return $true
         }
         return $false
     }
-    $listing = if ($Tool) { (Get-InstallTool -Tool $Tool).plugin.listing } else { $null }
+    $listing = $entry.plugin.listing
     if ($listing -and $listing.format -eq 'json') {
         try {
             $plugins = @((($Lines -join "`n") | ConvertFrom-Json -ErrorAction Stop))
@@ -336,16 +301,6 @@ function Test-InstallListing {
     $pattern = if ($Tool) { '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' } else { 'ps-ai@ps-ai-marketplace' }
     $matching = @($Lines) | Where-Object { $_ -match $pattern }
     return [bool](@($matching) | Where-Object { -not $reject -or $_ -notmatch $reject })
-}
-
-function ConvertTo-InstallMarketplaceSource {
-    param([string]$Source)
-    $value = $Source.Trim().Trim('"', "'", '`').Replace('\', '/').TrimEnd('/')
-    if ($value -match '^(?:GitHub\s*\(|https://github\.com/|git@github\.com:|ssh://git@github\.com/)?(?<repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?\)?$') {
-        return $Matches.repo.ToLowerInvariant()
-    }
-    if ($env:OS -eq 'Windows_NT') { return $value.ToLowerInvariant() }
-    return $value
 }
 
 function Format-InstallCommand {
@@ -902,7 +857,6 @@ function Invoke-PsAiInstaller {
         return
     }
     $results = @()
-    $conflicts = 0
     $Source = Resolve-InstallSource -Source $Source
     foreach ($tool in $Tools) {
         $entry = Get-InstallTool -Tool $tool
@@ -913,19 +867,12 @@ function Invoke-PsAiInstaller {
             }
         }
         $configEnv = $entry.configEnv
-        try {
-            foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
-                if ($Update) {
-                    Invoke-PsAiUpdateSteps -Entry $entry -ConfigDir $folder -DryRun:$DryRun -Source $Source
-                } else {
-                    Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $folder -DryRun:$DryRun
-                }
+        foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
+            if ($Update) {
+                Invoke-PsAiUpdateSteps -Entry $entry -ConfigDir $folder -DryRun:$DryRun -Source $Source
+            } else {
+                Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $folder -DryRun:$DryRun
             }
-        } catch {
-            if (-not $_.Exception.Data['InstallMarketplaceConflict']) { throw }
-            $_.Exception.Message
-            $conflicts++
-            continue
         }
         if ($Update) { continue }
         if (-not $DryRun) {
@@ -936,7 +883,6 @@ function Invoke-PsAiInstaller {
         if ($entry.hooks.hint) { $entry.hooks.hint }
     }
     if (-not $DryRun -and -not $Update) { $results | Format-Table Tool, Version, Plugin, Hooks -AutoSize }
-    if ($conflicts) { throw "$conflicts marketplace conflict(s); resolve the registrations above and retry." }
 }
 
 if (-not $NoRun) {
