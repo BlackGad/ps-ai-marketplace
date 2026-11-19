@@ -1,0 +1,23 @@
+# Installation
+
+Only Claude is verified as a supported tool. Read its tool skill. Check Bun with `bun --version`. In each selected account's config context, check the CLI plugin listing for `telegram@claude-plugins-official`. Use the selected account's canonical wrapper; never inspect its credential files.
+
+Deduplicate setup by kind/account, and installation by normalized config folder. Preview only missing work. One owner yes covers the shown helper and plugin actions. Decline makes no changes. Repeat completed work prints `skip: <what> (already done)`.
+
+Approved missing Bun uses the existing helper:
+
+```powershell
+pwsh -NoProfile -File <plugin>/bin/ps-ai-install-tool.ps1 -Tool bun -Yes
+```
+
+Windows offers winget or the official vendor-verified installer. Linux requires unzip; show the helper's official instructions if missing, and stop until the check succeeds. Never install a package manager or unzip implicitly.
+
+Inside the chosen Claude account, after approval:
+
+```text
+/plugin install telegram@claude-plugins-official
+```
+
+The CLI owns plugin updates. Root ps-ai install/update/refresh never sets up channels. Uninstall retains channel plugins and state.
+
+Sources: [official plugin](https://github.com/anthropics/claude-plugins-official/blob/main/external_plugins/telegram/README.md), [Bun installation](https://bun.com/docs/installation). Inspect the connected session's actual tool definitions before using them. Source review does not prove a live connection.

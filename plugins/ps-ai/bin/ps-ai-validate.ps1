@@ -5,6 +5,7 @@ param(
 )
 
 . (Join-Path $PSScriptRoot 'lib/tools.ps1')
+. (Join-Path $PSScriptRoot 'lib/channels.ps1')
 
 function Read-PsAiJson {
     param([string]$Path)
@@ -12,44 +13,34 @@ function Read-PsAiJson {
     return ($raw.TrimStart([char]0xFEFF) | ConvertFrom-Json -Depth 100 -ErrorAction Stop)
 }
 
-function Get-PsAiRoutingIssues {
-    param($Routing, [string]$Prefix, [string[]]$Ids)
-    if ($null -eq $Routing) { return }
-    foreach ($name in @('implement', 'review', 'mechanical')) {
-        $values = $Routing.$name
-        if ($null -eq $values) { continue }
-        for ($i = 0; $i -lt @($values).Count; $i++) {
-            if ($values[$i] -cnotin $Ids) {
-                "$Prefix.$name`[$i`]: unknown agent '$($values[$i])'"
-            }
-        }
-    }
-}
-
 function Get-PsAiReferenceIssues {
     param($Data)
     $tools = @(Get-PsAiTools)
     $ids = @()
-    for ($i = 0; $i -lt @($Data.agents).Count; $i++) {
-        $id = [string]$Data.agents[$i].id
-        if ($id -cnotmatch '^[a-z][a-z0-9-]*$') { "agents[$i].id: must match ^[a-z][a-z0-9-]*$" }
-        if ($id -cin $ids) { "agents[$i].id: duplicate id '$id'" }
-        $toolId = [string]$Data.agents[$i].tool
-        if ($toolId -cnotin $tools.id) { "agents[$i].tool: unknown tool '$toolId'" }
-        $ids += $id
+    foreach ($agent in $Data.agents) {
+        if ($agent.id -cin $ids) { "agents: duplicate id '$($agent.id)'" }
+        if ($agent.tool -cnotin $tools.id) { "agents: unknown tool '$($agent.tool)'" }
+        $ids += $agent.id
     }
-    Get-PsAiRoutingIssues -Routing $Data.routing -Prefix 'routing' -Ids $ids
-    $channels = @($Data.communication.channels.PSObject.Properties.Name)
-    foreach ($project in $Data.projects.PSObject.Properties) {
-        Get-PsAiRoutingIssues -Routing $project.Value.routing -Prefix "projects.$($project.Name).routing" -Ids $ids
-        for ($i = 0; $i -lt @($project.Value.notify).Count; $i++) {
-            $channel = $project.Value.notify[$i]
-            if ($channel -cnotin $channels) { "projects.$($project.Name).notify[$i]: unknown channel '$channel'" }
+    $channelIds = @()
+    foreach ($channel in $Data.channels) {
+        if ($channel.id -cin $channelIds) { "channels: duplicate id '$($channel.id)'" }
+        $channelIds += $channel.id
+        foreach ($id in $channel.accounts) {
+            if ($id -cnotin $ids) { "channel '$($channel.id)': unknown account '$id'" }
         }
-    }
-    for ($i = 0; $i -lt @($Data.default.notify).Count; $i++) {
-        $channel = $Data.default.notify[$i]
-        if ($channel -cnotin $channels) { "default.notify[$i]: unknown channel '$channel'" }
+        if ($Data.channels.Count) {
+            try {
+                $descriptor = @(Get-PsAiChannels | Where-Object id -CEQ $channel.kind)[0]
+                if (-not $descriptor) { throw "unknown channel kind '$($channel.kind)'" }
+                foreach ($id in $channel.accounts) {
+                    $agent = @($Data.agents | Where-Object id -CEQ $id)[0]
+                    if ($agent -and $agent.tool -cnotin $descriptor.launch.PSObject.Properties.Name) {
+                        "channel '$($channel.id)': unsupported tool '$($agent.tool)'"
+                    }
+                }
+            } catch { $_.Exception.Message }
+        }
     }
 }
 
@@ -61,6 +52,7 @@ function Get-PsAiProviderIssues {
         $provider = $agent.provider
         if ($null -eq $provider) { continue }
         $prefix = "agents[$i].provider:"
+        if ($provider.kind -cne 'foundry') { "$prefix unsupported provider '$($provider.kind)'"; continue }
         $tool = $tools | Where-Object { $_.id -ceq $agent.tool }
         if (-not $tool) { "$prefix unknown tool '$($agent.tool)'"; continue }
         if ($null -eq $tool.foundry) { "$prefix tool '$($agent.tool)' does not support Foundry"; continue }
@@ -93,7 +85,7 @@ function Invoke-PsAiValidation {
             if ($schemaErrors.Count -eq 0) { '$: schema validation failed' }
             foreach ($issue in $schemaErrors) {
                 $message = ($issue.ToString() -replace '\s+', ' ').Trim()
-                "`$: $message"
+                "`$: $message; run ps-ai setup to update your settings"
             }
             return
         }
@@ -103,7 +95,7 @@ function Invoke-PsAiValidation {
         }
     } catch {
         $message = ($_.Exception.Message -replace '\s+', ' ').Trim()
-        "`$: $message"
+        "`$: $message; run ps-ai setup to update your settings"
     }
 }
 

@@ -8,9 +8,8 @@ if (Test-Path -LiteralPath $file) {
     $owner = Read-PsAiJson -Path $file
     foreach ($agent in $owner.agents) {
         if ($agent.provider.kind -cne 'foundry') { continue }
-        $wrapper = Get-PsAiWrapperCommand $agent.id
-        $owned = @($wrapper, (Join-Path $HomeRoot $wrapper.Substring(2)))
-        if ($agent.command -notin $owned) { continue }
+        $wrapper = Get-PsAiWrapperCommand $agent.id $HomeRoot
+        if (-not (Test-PsAiOwnedWrapper $wrapper $agent.id)) { continue }
         New-FoundryWrappers -Id $agent.id -Tool $agent.tool -HomeRoot $HomeRoot -Changes $changes
     }
 }

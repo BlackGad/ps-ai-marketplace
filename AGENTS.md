@@ -20,6 +20,8 @@ A plugin marketplace with one plugin, `ps-ai`: orchestration as skills for Claud
 
 ## Rules
 
+A settings field exists only if a script reads it. Everything else is a plain-words preference in the owner's `ps-ai-notes.md`, which agents read. Do not add a property for each decision.
+
 - **PowerShell 7 only.** Scripts run on Windows, macOS and Linux unless a script says otherwise.
 - **Safe to run again.** Every script checks before it acts; a repeat prints `skip: <what> (already done)` and changes nothing.
 - **Ask before installing.** Install commands are shown as hints and run only after the owner's yes (`-Yes`).

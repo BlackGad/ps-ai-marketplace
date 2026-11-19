@@ -1,6 +1,9 @@
 param(
     [string]$Tool,
     [string]$Account,
+    [string[]]$Channel,
+    [string]$Model,
+    [string[]]$Arguments,
     [string]$Repo = (Get-Location).Path,
     [string]$HomeRoot = $HOME,
     [switch]$DryRun,
@@ -10,59 +13,54 @@ param(
 $launcherNoRun = $NoRun
 . (Join-Path $PSScriptRoot 'ps-ai-validate.ps1') -NoRun
 
-function Get-OverseerLaunch {
-    param($Personalisation, $Project, [string]$AccountId, [string]$Tool, [string]$HomeRoot = $HOME)
-    $agent = @($Personalisation.agents | Where-Object { $_.id -ceq $AccountId })[0]
-    if ($null -eq $agent) { throw "unknown account '$AccountId'" }
-    if (-not $Tool) { $Tool = $agent.tool }
-    $descriptor = Get-PsAiTool -Tool $Tool
-    $command = [string]$agent.command
-    if ($command.StartsWith('~/')) { $command = Join-Path $HomeRoot $command.Substring(2) }
-    $arguments = [System.Collections.Generic.List[string]]::new()
-    $warnings = [System.Collections.Generic.List[string]]::new()
-    foreach ($arg in @($agent.launch.args)) { if ($null -ne $arg) { $arguments.Add([string]$arg) } }
-    $settings = $Personalisation.projects.PSObject.Properties[$Project.id].Value
-    $channels = if ($null -eq $settings) { @($Personalisation.default.notify) } else { @($settings.notify) }
-    foreach ($channelName in $channels) {
-        if ($null -eq $channelName) { continue }
-        $channel = $Personalisation.communication.channels.PSObject.Properties[$channelName].Value
-        $flags = $channel.launch.PSObject.Properties[$Tool].Value
-        if ($null -eq $flags) {
-            $warnings.Add("channel '$channelName' has no launch flags for $Tool; updates go to the terminal only.")
-        } else {
-            foreach ($arg in $flags) { $arguments.Add([string]$arg) }
-        }
-    }
-    if ($null -ne $settings) {
-        $flags = $settings.launch.PSObject.Properties[$Tool].Value
-        foreach ($arg in @($flags)) { if ($null -ne $arg) { $arguments.Add([string]$arg) } }
-    }
-    if ($agent.models.overseer) {
-        $modelAdapter = Join-Path $descriptor.SkillRoot 'scripts/overseer-model.ps1'
-        if (-not (Test-Path -LiteralPath $modelAdapter)) { throw "tool '$Tool' does not support overseer model selection" }
-        $modelArgs = [string[]]@(& $modelAdapter -Model $agent.models.overseer -Arguments $arguments.ToArray())
-        $arguments.InsertRange(0, $modelArgs)
-    }
-    foreach ($arg in $descriptor.overseerArgs) { $arguments.Add($arg) }
-    $arguments.Add('continue as the overseer')
-    return @{ Command = $command; Args = $arguments.ToArray(); Warnings = $warnings.ToArray() }
-}
+. (Join-Path $PSScriptRoot 'lib/common.ps1')
+. (Join-Path $PSScriptRoot 'lib/channels.ps1')
 
 function Select-OverseerAccount {
     param($Personalisation, [string]$Account, [string]$Tool)
-    if ($Account) {
-        $match = @($Personalisation.agents | Where-Object { $_.id -ceq $Account })[0]
-        if ($null -eq $match) { throw "unknown account '$Account'" }
-        if ($Tool -and $match.tool -ne $Tool) { throw "account '$Account' is a $($match.tool) account, not $Tool" }
-        return $match
+    if (-not $Account) { throw 'an explicit account is required' }
+    $matches = @($Personalisation.agents | Where-Object id -CEQ $Account)
+    if ($matches.Count -ne 1) { throw "unknown account '$Account'" }
+    $selected = $matches[0]
+    if ($Tool -and $selected.tool -cne $Tool) { throw "account '$Account' is a $($selected.tool) account, not $Tool" }
+    return $selected
+}
+
+function Get-OverseerLaunch {
+    param($Personalisation, [string]$AccountId, [string]$Tool, [string[]]$Channel, [string]$Model, [string[]]$Arguments, [string]$HomeRoot = $HOME)
+    $selected = Select-OverseerAccount $Personalisation $AccountId $Tool
+    $Tool = $selected.tool
+    $descriptor = Get-PsAiTool $Tool
+    $resolved = @()
+    $common = $null
+    foreach ($id in $Channel) {
+        $channelData = @($Personalisation.channels | Where-Object id -CEQ $id)
+        if ($channelData.Count -ne 1) { throw "unknown or duplicate channel '$id'" }
+        if ($null -eq $common) { $common = @($channelData[0].accounts) }
+        else { $common = @($common | Where-Object { $_ -cin $channelData[0].accounts }) }
     }
-    $candidates = @($Personalisation.agents | Where-Object { $_.roles -contains 'overseer' })
-    if ($Tool) {
-        $candidates = @($candidates | Where-Object { $_.tool -eq $Tool })
-        if ($candidates.Count -eq 0) { throw "no $Tool account has the overseer role; add it to one or pass -Account" }
+    if ($Channel.Count -and -not $common.Count) { throw 'selected channels cannot share one launch' }
+    foreach ($id in $Channel) {
+        $destination = Resolve-PsAiChannel $Personalisation $id $Tool
+        if ($AccountId -cnotin $destination.Accounts) { throw "account '$AccountId' is not bound to channel '$id'" }
+        $resolved += $destination
     }
-    if ($candidates.Count -eq 0) { throw 'no overseer account configured' }
-    return $candidates[0]
+    $channelArgs = [Collections.Generic.List[string]]::new()
+    $kinds = @()
+    foreach ($destination in $resolved) {
+        if ($destination.Kind -cin $kinds) { continue }
+        $kinds += $destination.Kind
+        foreach ($arg in $destination.LaunchArguments) { $channelArgs.Add($arg) }
+    }
+    $adapter = Join-Path $descriptor.SkillRoot 'scripts/overseer-model.ps1'
+    if (-not (Test-Path -LiteralPath $adapter)) { throw "missing overseer model adapter for '$Tool'" }
+    $modelArgs = @(& $adapter -Model $Model -Arguments ([string[]](@($Arguments) + $channelArgs.ToArray())))
+    $launchArgs = [Collections.Generic.List[string]]::new()
+    foreach ($arg in @($modelArgs) + @($Arguments) + $channelArgs.ToArray() + @($descriptor.overseerArgs)) {
+        if ($null -ne $arg) { $launchArgs.Add([string]$arg) }
+    }
+    $launchArgs.Add('continue as the overseer')
+    return @{Command=(Get-PsAiWrapperCommand $AccountId $HomeRoot);Args=$launchArgs.ToArray();Warnings=@()}
 }
 
 function Invoke-OverseerInRepo {
@@ -94,16 +92,20 @@ function Start-OverseerLaunch {
 }
 
 if (-not $launcherNoRun) {
+    if (-not $Account) { 'Usage: ps-ai-overseer -Account <id> [-Tool <tool>] [-Channel <id[]>] [-Model <model>] [-Arguments <string[]>] [-Repo <path>]'; return }
     $projectFile = Join-Path $Repo '.agents/configuration/project.json'
     if (-not (Test-Path -LiteralPath $projectFile)) {
         throw "no .agents/configuration/project.json in $Repo; run setup first"
     }
     $ownerFile = Join-Path $HomeRoot '.agents/configuration/ps-ai-personalisation.json'
+    foreach ($inputFile in @(@{Kind='personalisation';Path=$ownerFile},@{Kind='project';Path=$projectFile})) {
+        $issues = @(Invoke-PsAiValidation $inputFile.Kind $inputFile.Path)
+        if ($issues.Count) { throw ($issues -join '; ') }
+    }
     $personalisation = Read-PsAiJson -Path $ownerFile
-    $project = Read-PsAiJson -Path $projectFile
     $selected = Select-OverseerAccount -Personalisation $personalisation -Account $Account -Tool $Tool
     if (-not $Tool) { $Tool = $selected.tool }
-    $launch = Get-OverseerLaunch -Personalisation $personalisation -Project $project -AccountId $selected.id -Tool $Tool -HomeRoot $HomeRoot
+    $launch = Get-OverseerLaunch -Personalisation $personalisation -AccountId $selected.id -Tool $Tool -Channel $Channel -Model $Model -Arguments $Arguments -HomeRoot $HomeRoot
     foreach ($warning in $launch.Warnings) { Write-Warning $warning }
     Start-OverseerLaunch -Repo $Repo -Launch $launch -DryRun:$DryRun
 }

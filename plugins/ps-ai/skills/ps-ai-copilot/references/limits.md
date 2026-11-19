@@ -1,5 +1,6 @@
 # Copilot CLI limits
 
+Read owner notes before account/model selection, dispatch or limit fallback. Use actual stated models and exclusions, account purposes, careful-use choices and paid-use approval. Re-read after edits. Channel operations route through `skills/ps-ai-<kind>/SKILL.md`; stop if missing.
 Copilot CLI 1.0.109 has no limit percentage readout in this workflow. Run a short prompt on the selected account:
 
 ```sh

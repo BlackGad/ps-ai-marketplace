@@ -1,6 +1,6 @@
 # File a reusable lesson
 
-Write the general problem, the cause or decision with its reason, the solution, and when to use it again. Tag it with `projects.<repo-id>.label` from personalisation, never a client name. File after a hard problem and during milestone close-out.
+Write the general problem, the cause or decision with its reason, the solution, and when to use it again. Tag it with the neutral knowledge label in repository workflow, never a client name. File after a hard problem and during milestone close-out.
 
 Before and after writing, check:
 

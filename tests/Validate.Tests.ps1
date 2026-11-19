@@ -12,11 +12,10 @@ try {
     Assert-Equal 0 $LASTEXITCODE 'Valid project exits zero'
     Assert-Equal 0 @($output).Count 'Valid project has no output'
     $cases = @{
-        'invalid-tool' = 'personalisation'; 'invalid-role' = 'personalisation'
-        'invalid-version' = 'personalisation'; 'invalid-backend' = 'personalisation'
-        'invalid-duplicate' = 'personalisation'; 'invalid-routing' = 'personalisation'
-        'invalid-notify' = 'personalisation'; 'invalid-id' = 'personalisation'
-        'invalid-delivery' = 'project'; 'invalid-steps' = 'project'
+        'invalid-tool' = 'personalisation'
+        'invalid-version' = 'personalisation'
+        'invalid-duplicate' = 'personalisation'
+        'invalid-id' = 'personalisation'
     }
     foreach ($name in $cases.Keys) {
         $kind = $cases[$name]
@@ -27,10 +26,7 @@ try {
         Assert-True (@($output)[0] -match '^[^:]+: ') "$name issue format"
     }
     $expected = @{
-        'invalid-duplicate' = "agents[3].id: duplicate id 'codex-a'"
-        'invalid-routing' = "routing.implement[1]: unknown agent 'codex9'"
-        'invalid-notify' = "projects.x.notify[0]: unknown channel 'slack'"
-        'invalid-id' = 'agents[0].id: must match ^[a-z][a-z0-9-]*$'
+        'invalid-duplicate' = "agents: duplicate id 'codex-a'"
     }
     foreach ($name in $expected.Keys) {
         $fixture = Join-Path $PSScriptRoot "fixtures/personalisation/$name.json"
@@ -93,7 +89,7 @@ try {
         Copy-Item (Join-Path $repoRoot 'plugins/ps-ai') $plugin -Recurse
         $fourthSkill = Join-Path $plugin 'skills/ps-ai-fourth'
         Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth') $fourthSkill -Recurse
-        $owner = [pscustomobject]@{schemaVersion=1;communication=@{channels=@{}};agents=@();routing=@{};knowledge=@{backend='none'};projects=@{};default=@{notify=@()}}
+        $owner = [pscustomobject]@{schemaVersion=1;agents=@();channels=@()}
         $owner | ConvertTo-Json -Depth 100 | Set-Content $ownerPath
         . (Join-Path $plugin 'bin/ps-ai-account.ps1') -HomeRoot $homeRoot
         Assert-Equal 'FOURTH_HOME' (Get-ConfigEnvName -Tool fourth) 'Fourth config environment comes from descriptor'
@@ -102,7 +98,7 @@ try {
         Assert-True ((Get-Content (Join-Path $homeRoot '.agents/bin/fourth-dev') -Raw).Contains((Join-Path $fourthSkill 'fourth-cli.ps1'))) 'Account default command uses descriptor executable'
         & (Join-Path $plugin 'bin/ps-ai-account.ps1') -Action add -Tool fourth -Id fourth-custom -Command custom-executable -HomeRoot $homeRoot | Out-Null
         Assert-True ((Get-Content (Join-Path $homeRoot '.agents/bin/fourth-custom') -Raw).Contains('custom-executable')) 'Explicit account command takes precedence'
-        & (Join-Path $plugin 'bin/ps-ai-account.ps1') -Action register -Tool fourth -Id fourth-registered -Command persisted-command -ConfigDir '~/config' -HomeRoot $homeRoot | Out-Null
+        & (Join-Path $plugin 'bin/ps-ai-account.ps1') -Action register -Tool fourth -Id fourth-registered -Command (Join-Path $fourthSkill 'fourth-cli.ps1') -ConfigDir $fourthSkill -HomeRoot $homeRoot | Out-Null
         Assert-Equal 0 @(Invoke-PsAiValidation -Kind personalisation -Path $ownerPath).Count 'Fourth account validates with matching skill'
         $discovery = @{Source='management';Deployments=@(@{name='model[1]-a';model='model[1]-a'})}
         $syntheticProvider = New-PsAiFoundryProvider -Endpoint 'https://resource.cognitiveservices.azure.com' -Tool fourth -Deployments 'model[1]-a' -Default 'model[1]-a' -Aliases 'model[1]-a=alpha' -Discovery $discovery
@@ -126,14 +122,10 @@ try {
         $found = Get-FoundryDeployments -Endpoint $syntheticProvider.endpoint -Tool fourth
         Assert-Equal 'literal' ($found.Deployments.name -join '|') 'Foundry prefix is literal rather than a wildcard'
         . (Join-Path $plugin 'bin/ps-ai-overseer.ps1') -NoRun -HomeRoot $homeRoot
-        $owner.communication.channels = [pscustomobject]@{updates=@{launch=@{fourth=@('--channel','channel value')}}}
-        $owner.agents[0] | Add-Member launch @{args=@('--account','account value')}
-        $owner.projects = [pscustomobject]@{sample=@{notify=@('updates');launch=@{fourth=@('--project','project value')}}}
-        $owner = $owner | ConvertTo-Json -Depth 100 | ConvertFrom-Json
-        $launch = Get-OverseerLaunch -Personalisation $owner -Project @{id='sample'} -AccountId fourth-dev -Tool fourth -HomeRoot $homeRoot
-        Assert-Equal '--account|account value|--channel|channel value|--project|project value|--interactive|space value|continue as the overseer' ($launch.Args -join '|') 'Descriptor tail follows account, channel and project arguments'
-        $launch = Get-OverseerLaunch -Personalisation $owner -Project @{id='sample'} -AccountId fourth-registered -Tool fourth -HomeRoot $homeRoot
-        Assert-Equal 'persisted-command' $launch.Command 'Persisted account command wins over descriptor'
+        $launch = Get-OverseerLaunch -Personalisation $owner -AccountId fourth-dev -Tool fourth -Arguments @('--account','account value','','2026-11-19') -HomeRoot $homeRoot
+        Assert-Equal '--account|account value||2026-11-19|--interactive|space value|continue as the overseer' ($launch.Args -join '|') 'Descriptor tail follows explicit literal arguments'
+        $launch = Get-OverseerLaunch -Personalisation $owner -AccountId fourth-registered -Tool fourth -HomeRoot $homeRoot
+        Assert-Equal (Get-PsAiWrapperCommand fourth-registered $homeRoot) $launch.Command 'Registered account derives canonical wrapper'
         $descriptorPath = Join-Path $fourthSkill 'tool.json'
         $descriptor = Get-Content $descriptorPath -Raw | ConvertFrom-Json
         $descriptor.foundry = $null
@@ -149,7 +141,7 @@ try {
         catch { Assert-Equal "tool 'fourth' does not support Foundry" $_.Exception.Message 'Null Foundry stops before token login' }
         Assert-Equal $beforeCalls $azureCalls.Count 'Null Foundry makes no Azure calls'
         Assert-Throws { Write-FoundryToolConfig -Agent $owner.agents[0] -HomeRoot $homeRoot } 'Null Foundry rejects config writes'
-        Assert-True (-not (Test-Path (Join-Path $homeRoot '.agents/accounts/fourth-registered'))) 'Registration and null capability do not create config'
+        Assert-True (-not (Test-Path (Join-Path $homeRoot '.agents/accounts/fourth-registered'))) 'Adoption creates no unused config'
         Remove-Item (Join-Path $fourthSkill 'SKILL.md')
         Assert-True (@(Invoke-PsAiValidation -Kind personalisation -Path $ownerPath).Count -gt 0) 'Absent matching skill rejects persisted tool'
         # Loading definitions and lease/hook operations must not discover malformed data.
@@ -168,4 +160,3 @@ try {
         Remove-Item -LiteralPath $cleanup -Recurse -Force
     }
 }
-

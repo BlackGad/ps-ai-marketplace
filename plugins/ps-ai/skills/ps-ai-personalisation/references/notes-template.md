@@ -1,15 +1,13 @@
 # ps-ai notes
 
-## Communication preferences
+## Communication
 
-- Follow the language and question cadence in JSON unless the owner gives a newer preference.
+## Accounts and models
 
-## Working preferences
+## Notifications and channel preferences
 
-- Add only stated habits that change future behavior.
+## Knowledge
 
-## Lessons
+## Working preferences and lessons
 
-- Record durable behavior changes learned across projects; keep project facts in the repo and general patterns in the knowledge wiki.
-
-Never include credentials, client names, hosts, or repo-specific paths.
+## Finish later

@@ -21,7 +21,7 @@ exit 37
     $owner = Get-Content (Join-Path $config 'ps-ai-personalisation.json') -Raw | ConvertFrom-Json
     $entry = $owner.agents | Where-Object id -eq wrapper-test
     $expected = if ($IsWindows) { '~/.agents/bin/wrapper-test.cmd' } else { '~/.agents/bin/wrapper-test' }
-    Assert-Equal $expected $entry.command 'Stored command names the platform wrapper file'
+    Assert-True (-not $entry.PSObject.Properties['command']) 'Canonical command is derived'
     if ($IsWindows) {
         $caller = Join-Path $tempRoot 'caller.cmd'
         $envLog = Join-Path $tempRoot 'env.txt'

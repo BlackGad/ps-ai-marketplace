@@ -5,6 +5,8 @@ description: Use when the overseer dispatches Codex CLI work or the owner asks a
 
 # Codex CLI tool
 
+Read the owner's notes before choosing accounts or models. Respect stated exclusions and spending choices. Re-read after edits. Use the selected channel kind's skill for channel work.
+
 ## Identity and hard rules
 
 Use this tool skill for Codex CLI operations only. Load `ps-ai-personalisation` and its notes first; choose the account, role, and model there. The overseer owns task selection and the handoff. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
@@ -28,5 +30,5 @@ Stop and report when the account or model is unconfigured, prompt/report path is
 
 ## Launcher and plugins
 
-Use [launcher.md](references/launcher.md) to open an overseer session with the chosen account, channel, and project.
+Use [launcher.md](references/launcher.md) to open an overseer session with the chosen account, channels and repository.
 Use [plugins.md](references/plugins.md) for plugin setup, resuming after an update, and optional wiki help.

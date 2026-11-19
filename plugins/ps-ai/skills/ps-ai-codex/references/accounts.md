@@ -1,5 +1,6 @@
 # Codex CLI accounts
 
+Read owner notes before account/model selection, dispatch or limit fallback. Use actual stated models and exclusions, account purposes, careful-use choices and paid-use approval. Re-read after edits. Channel operations route through `skills/ps-ai-<kind>/SKILL.md`; stop if missing.
 Use the plugin's `bin/ps-ai-account.ps1`. Read existing IDs, suggest `codex<n>` (next unused number), and accept a custom valid ID such as `codex-client`. Do not put a client name into a wiki label. The script rejects duplicate IDs and command names on PATH.
 
 If `codex` is missing, follow [install.md](install.md) first. Continue with account setup only after the CLI is available.
@@ -17,9 +18,9 @@ pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Pat
 
 To adopt an existing signed-in folder, pass `-ConfigDir <existing folder>` to `add`. The folder must exist. This creates a new shortcut for that folder, records it as `configDir`, preserves its settings, and does not run or request a new login. The account script never reads credentials or tests sign-in; only the owner needs to sign in if the CLI later asks.
 
-For every new, adopted, registered, or Foundry account, install ps-ai with the same `install.ps1` command above. Explain the installation and get the owner's yes first; use approval already given in the conversation. Only then pass `-Yes`. Use the recorded folder for `<account folder>`, expanding `~/` against the chosen home; for `default` omit `-ConfigDir`. Validate afterward. If installation fails or is declined, report account setup as incomplete. Do not implement marketplace or plugin installation in the account script or run separate tool install commands here.
+For every new, adopted, registered, or Foundry account, install ps-ai with the same `install.ps1` command above. Explain the installation and get the owner's yes first; use approval already given in the conversation. Only then pass `-Yes`. Use the recorded folder for `<account folder>`, expanding `~/` against the chosen home; resolve any previous default-folder answer through the selected descriptor to a concrete folder. Validate afterward. If installation fails or is declined, report account setup as incomplete. Do not implement marketplace or plugin installation in the account script or run separate tool install commands here.
 
-Register an existing wrapper with `-Action register -Id <id> -Tool codex -Command <wrapper> -ConfigDir <dir> -HomeRoot <home>`. Rename with `-Action rename -Id <old> -NewId <new>`, or remove with `-Action remove -Id <id>`, then validate. The script updates global and project routing, keeps the config folder, and prints its location. Ask before changing or deleting that folder.
+Register an existing wrapper with `-Action register -Id <id> -Tool codex -Command <wrapper> -ConfigDir <dir> -HomeRoot <home>`. Rename with `-Action rename -Id <old> -NewId <new>`, or remove with `-Action remove -Id <id>`, then validate. The script updates exact channel account bindings, keeps the config folder, and prints its location. Ask before changing or deleting that folder.
 
 ## Foundry agent
 
@@ -41,7 +42,7 @@ Ask which GPT deployments to keep and which is the default. Aliases are for Clau
 & "<plugin>/bin/ps-ai-account.ps1" -Action add -Tool codex -Id '<id>' -Provider foundry -Endpoint "https://<resource>.cognitiveservices.azure.com" -Deployments @('gpt-x') -Default gpt-x
 ```
 
-Add writes the provider entry with empty roles, wrappers, and the account's `config.toml`. It sets `model`, `model_provider = "ps-ai-foundry"`, `/openai/v1` as the endpoint path, and `wire_api = "responses"`. The auth command uses the full `az` path and the cognitive-services token resource, with `refresh_interval_ms = 1800000`. Other config keys remain. Repeating the same id, tool, provider, and endpoint prints `skip: account <id> (already done)`.
+Add writes the provider entry with wrappers, and the account's `config.toml`. It sets `model`, `model_provider = "ps-ai-foundry"`, `/openai/v1` as the endpoint path, and `wire_api = "responses"`. The auth command uses the full `az` path and the cognitive-services token resource, with `refresh_interval_ms = 1800000`. Other config keys remain. Repeating the same id, tool, provider, and endpoint prints `skip: account <id> (already done)`.
 
 For "update models for <id>", first list without writing:
 

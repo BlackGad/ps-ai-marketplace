@@ -25,8 +25,6 @@ $repo = Split-Path $PSScriptRoot -Parent
     New-Item -ItemType Directory -Path (Join-Path $sandbox '.agents/configuration') -Force | Out-Null
     $personalisation = Join-Path $sandbox '.agents/configuration/ps-ai-personalisation.json'
     $agents = @(
-        @{tool='claude';configDir='default'},
-        @{tool='copilot';configDir='default'},
         @{tool='claude';configDir='~/.agents/accounts/claude-a'},
         @{tool='claude';configDir='~/.agents/accounts/claude-a'},
         @{tool='claude';configDir=(Join-Path $sandbox 'custom account')},

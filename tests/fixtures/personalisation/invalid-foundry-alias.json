@@ -1,85 +1,36 @@
 {
   "$schema": "<plugin>/schemas/personalisation.schema.json",
   "schemaVersion": 1,
-  "communication": {
-    "language": "simple-english",
-    "questions": "one-at-a-time",
-    "channels": {}
-  },
   "agents": [
     {
       "id": "claude",
       "tool": "claude",
-      "command": "claude",
-      "configDir": "default",
-      "roles": [
-        "overseer"
-      ],
-      "care": "high",
-      "launch": {
-        "args": []
-      }
+      "configDir": "~/.agents/accounts/claude"
     },
     {
       "id": "claude-b",
       "tool": "claude",
-      "command": "~/bin/claude-b",
-      "configDir": "~/.claude-b",
-      "roles": [
-        "legion",
-        "reviewer"
-      ],
-      "models": {
-        "legion": "opus",
-        "reviewer": "opus"
-      }
+      "configDir": "~/.claude-b"
     },
     {
       "id": "codex-a",
       "tool": "codex",
-      "command": "~/bin/codex-a",
-      "configDir": "~/.codex",
-      "roles": [
-        "legion",
-        "reviewer"
-      ],
-      "models": {
-        "legion": "gpt-6-sol",
-        "reviewer": "gpt-6-astra"
-      }
+      "configDir": "~/.codex"
     },
     {
       "id": "codex-b",
       "tool": "codex",
-      "command": "~/bin/codex-b",
-      "roles": [
-        "legion"
-      ],
-      "models": {
-        "legion": "gpt-6-sol"
-      }
+      "configDir": "~/.agents/accounts/codex-b"
     },
     {
       "id": "copilot",
       "tool": "copilot",
-      "command": "copilot",
-      "configDir": "default",
-      "roles": [
-        "reviewer"
-      ],
-      "models": {
-        "reviewer": "gemini-4-argon"
-      },
-      "cost": "paid"
+      "configDir": "~/.agents/accounts/copilot"
     },
     {
       "id": "claude-dev",
       "tool": "claude",
-      "command": "~/.agents/bin/claude-dev",
       "configDir": "~/.agents/accounts/claude-dev",
-      "roles": [
-        "legion"
-      ],
       "provider": {
         "kind": "foundry",
         "endpoint": "https://res-a.cognitiveservices.azure.com",
@@ -101,11 +52,7 @@
     {
       "id": "codex-dev",
       "tool": "codex",
-      "command": "~/.agents/bin/claude-dev",
       "configDir": "~/.agents/accounts/claude-dev",
-      "roles": [
-        "legion"
-      ],
       "provider": {
         "kind": "foundry",
         "endpoint": "https://res-a.cognitiveservices.azure.com",
@@ -125,34 +72,5 @@
       }
     }
   ],
-  "routing": {
-    "implement": [
-      "codex-a",
-      "codex-b",
-      "claude-b"
-    ],
-    "review": [
-      "codex-a",
-      "claude-b",
-      "copilot"
-    ],
-    "mechanical": [
-      "claude-b"
-    ],
-    "neverModels": [
-      "grok-4.7"
-    ],
-    "rules": [
-      "astra only for milestone review, never implementation",
-      "sol never as reviewer"
-    ]
-  },
-  "knowledge": {
-    "backend": "llm-wiki",
-    "hub": "~/.agents/knowledge"
-  },
-  "projects": {},
-  "default": {
-    "notify": []
-  }
+  "channels": []
 }

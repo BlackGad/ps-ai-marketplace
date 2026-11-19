@@ -9,7 +9,7 @@ description: Use when overseer research begins, two attempts fail, a failure loo
 
 For any agent tool operation, read the selected account's tool skill using [consult.md](references/consult.md). Stop if that tool skill is missing; do not guess commands or capabilities.
 
-Use this planner to decide when to consult or file durable, cross-project lessons. Load `ps-ai-personalisation` and its notes first. Check the owner's knowledge settings and neutral project label using [consult.md](references/consult.md); when knowledge is disabled, skip silently. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
+Use this planner to decide when to consult or file durable, cross-project lessons. Load `ps-ai-personalisation` and its notes first. Read owner notes for knowledge enablement and location, and repository workflow for the neutral label using [consult.md](references/consult.md); when knowledge is disabled, skip silently. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
 
 - Consult at research before planning, after two failed attempts at one problem, or when a failure looks familiar.
 - File at milestone close-out and immediately after a hard problem is solved.
