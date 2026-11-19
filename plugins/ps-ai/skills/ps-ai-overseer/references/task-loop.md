@@ -10,6 +10,8 @@ Use the terms and work sizes in [the overseer skill](../SKILL.md#terms-and-work-
 
 Legion writes its report; overseer alone writes handoff. Delivery follows `workflow.md` and owner rulings. Do not merge to main for `merge-request` delivery.
 
+In Private mode, all worktrees share `.git/info/exclude`. The `.legion/` entry keeps each worktree's prompts, reports, and logs out of code Git. Commit state through the owning Git repository in [takeover.md](takeover.md).
+
 ## Model tiers
 
 Runs pass no model by default. Use each account's own CLI default unless owner notes name a model or allow a tier for this work. These are examples, not fixed model assignments:

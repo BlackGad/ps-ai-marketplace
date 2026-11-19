@@ -30,6 +30,8 @@ Add preferences later in your own words. Say “use Telegram” when you want a 
 
 ps-ai keeps settings in `~/.legion/configuration/`, account folders in `~/.legion/agents/`, and launchers in `~/.legion/bin/` on your PATH. Repository orchestration files live in `.legion/`.
 
+Repository setup offers [Private (default) or Shared](plugins/ps-ai/skills/ps-ai-repository/SKILL.md#choose-where-notes-live) storage for notes and history.
+
 ## What you can do
 
 Open your AI tool and say:

@@ -116,7 +116,7 @@ Setup has three steps: install ps-ai, add accounts, and start work. After instal
 - `~/.legion/configuration/ps-ai-personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/ps-ai/schemas/personalisation.schema.json`. It never holds tokens.
 - `~/.legion/configuration/ps-ai-notes.md`: free-form preferences and lessons.
 
-Then open a repository and describe the work. Ask to set up orchestration if needed. `ps-ai-repository` creates the `.legion/` layout below. Setup asks no questions about models, account purposes, worker or reviewer roles, notification timing, channels, or knowledge. State preferences later; they are saved in notes. Channels are set up only on request, such as “use Telegram”.
+Then open a repository and describe the work. Ask to set up orchestration if needed. `ps-ai-repository` offers [Private (default) or Shared](../plugins/ps-ai/skills/ps-ai-repository/SKILL.md#choose-where-notes-live) storage and creates the `.legion/` layout below. Setup asks no questions about models, account purposes, worker or reviewer roles, notification timing, channels, or knowledge. State preferences later; they are saved in notes. Channels are set up only on request, such as “use Telegram”.
 
 Legion and review runs pass no model flag by default. Each CLI uses that account's own default model. A model flag is passed only when owner notes name one, such as “use astra for reviews”. Routing chooses agents without model discovery or model lists. Without owner preferences, the overseer spreads work across available agents and chooses a different tool/provider for independent reviews. It says which agent was chosen. Owner preferences always win.
 
@@ -151,18 +151,20 @@ To opt out, leave legion unused. To limit its use, route legion only to accounts
 
 ## Files and folders
 
-| What | Where | Tracked |
+| What | Where | Git history |
 | --- | --- | --- |
 | Personalisation and notes | `~/.legion/configuration/` | no |
 | Launcher and account wrappers | `~/.legion/bin/` | no |
 | New account config folders (adopted folders keep their names) | `~/.legion/agents/<id>/` | no |
 | Portable prerequisite tools | `~/.legion/tools/<tool>/` | no |
 | Cross-project knowledge wiki (optional, llm-wiki) | `~/.legion/knowledge/` | no |
-| Repo workflow configuration | `<repo>/.legion/configuration/` (`project.json`, `workflow.md`) | yes |
-| Repo scripts and their index | `<repo>/.legion/scripts/`, `index.md` | yes |
-| Overseer state | `<repo>/.legion/state/handoff.md`, `history/` | yes |
+| Repo workflow configuration | `<repo>/.legion/configuration/` (`project.json`, `workflow.md`) | inner for Private; code repo for Shared |
+| Repo scripts and their index | `<repo>/.legion/scripts/`, `index.md` | inner for Private; code repo for Shared |
+| Overseer state | `<repo>/.legion/state/handoff.md`, `history/` | inner for Private; code repo for Shared |
 | Local specs and plans | `<repo>/.legion/docs/specs/`, `plans/` | no |
 | Agent scratch files | `<repo>/.legion/temp/` | no |
+
+The [repository layout](../plugins/ps-ai/skills/ps-ai-repository/references/layout.md) defines ignores and Git ownership. Private is identified by a `.legion/.git` folder. Its outer ignore is local to Git and shared across worktrees. Shared uses the code repo's `.gitignore` and rules file. Setup uses `pwsh -NoProfile -File <plugin>/bin/ps-ai-repository.ps1 -Repo <repo> [-Mode Private|Shared]` after the setup files are authored and validated. Handoff, history, and roadmap commits use the Git repository that owns `.legion/state`.
 
 ## Skills
 

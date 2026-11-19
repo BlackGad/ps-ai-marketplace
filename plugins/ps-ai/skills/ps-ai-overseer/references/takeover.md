@@ -1,8 +1,10 @@
-# Takeover and tracked handoff
+# Takeover and handoff
 
 Activate only on the owner's request in a repo with `.legion/state`; `PS_AI_ROLE=legion` disables the overseer. Load personalisation and notes, then repo rules, `.legion/configuration/project.json`, `.legion/configuration/workflow.md`, `.legion/scripts/index.md`, and the handoff. Read the named plan and relevant spec when present.
 
-Read `.legion/state/handoff.md`, recent history, `git status`, and `git log`. The handoff headings are exactly: Branch; Goal and milestone; State; Current task; Legion running; Next action; Open decisions; Postponed; Recent evidence. Record the goal id or `none`, milestone or `none`, and base commit under `Goal and milestone`. Load `.legion/state/roadmap/<goal-id>.md` for the named goal. Follow [roadmap.md](roadmap.md) for switching and goal selection. No roadmap is needed for standalone milestones or ad hoc work.
+Read `.legion/state/handoff.md`, recent history, code status and code commits. If `.legion/.git` is a folder, also read the inner Git status and log. The handoff headings are exactly: Branch; Goal and milestone; State; Current task; Legion running; Next action; Open decisions; Postponed; Recent evidence. Record the goal id or `none`, milestone or `none`, and code base commit under `Goal and milestone`. Load `.legion/state/roadmap/<goal-id>.md` for the named goal. Follow [roadmap.md](roadmap.md) for switching and goal selection. No roadmap is needed for standalone milestones or ad hoc work.
+
+Commit handoff, history, and roadmaps in the Git repository that owns `.legion/state`. Private uses `git -C <repo>/.legion` with paths such as `state/handoff.md`; Shared uses `git -C <repo>` with `.legion/state/...` paths. Keep code commits in the outer repo. Stage only the intended files.
 
 Only the lease holder edits the handoff and roadmap files. Keep the handoff short; archive finished milestone details in `state/history/`. Ad hoc work records only what must survive the session, such as a running legion task, its review, or a blocked next action. Do not invent a milestone or write every ad hoc question to the handoff.
 
