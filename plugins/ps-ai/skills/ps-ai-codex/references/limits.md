@@ -1,6 +1,6 @@
 # Codex CLI limits
 
-Read owner notes before account/model selection, dispatch or limit fallback. Use actual stated models and exclusions, account purposes, careful-use choices and paid-use approval. Re-read after edits. Channel operations route through `skills/ps-ai-<kind>/SKILL.md`; stop if missing.
+Follow [owner notes](../../ps-ai-personalisation/references/fields.md) before account, model or channel choices.
 Run a short ping through the selected account's command, from a disposable git repository:
 
 ```sh

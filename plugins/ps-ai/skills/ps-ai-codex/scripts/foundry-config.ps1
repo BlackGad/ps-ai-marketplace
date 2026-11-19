@@ -18,12 +18,10 @@ function Get-FoundryTomlMultilineState {
                 $i += 3
                 continue
             }
-            $i++
-            while ($i -lt $Line.Length) {
-                if ($quote -ceq '"' -and $Line[$i] -ceq '\') { $i += 2; continue }
-                if ($Line[$i] -ceq $quote) { $i++; break }
-                $i++
-            }
+            $string = [regex]::Match($Line.Substring($i), '^(?:"(?:\\.|[^"\\])*"|''[^'']*'')')
+            # An unfinished single-line string cannot contain a real table header.
+            if (-not $string.Success) { break }
+            $i += $string.Length
         } else {
             if ($Line[$i] -ceq '[') { $ArrayDepth.Value++ }
             if ($Line[$i] -ceq ']') { $ArrayDepth.Value-- }

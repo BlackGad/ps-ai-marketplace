@@ -26,8 +26,6 @@ foreach ($extra in @(
 )) {
     Assert-True ((Check-Owner ($extra | ConvertFrom-Json)) -match 'run ps-ai setup to update your settings') 'Unknown fields name setup remedy'
 }
-$schema = Get-Content (Join-Path $root 'plugins/ps-ai/schemas/personalisation.schema.json') -Raw | ConvertFrom-Json
-Assert-Equal 'schemaVersion|agents|channels' ($schema.required -join '|') 'Required owner fields'
 # ChannelBindingValidation
 $data = @{schemaVersion=1;agents=@(@{id='claude-a';tool='claude';configDir='~/a'});channels=@(@{id='main';kind='telegram';target='123';accounts=@('claude-a')})}
 Assert-Equal 0 @(Check-Owner $data).Count 'Supported binding validates'

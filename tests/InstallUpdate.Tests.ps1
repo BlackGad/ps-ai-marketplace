@@ -32,7 +32,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         @{tool='copilot';configDir='~/.agents/accounts/copilot-a'}
     )
     @{agents=$agents} | ConvertTo-Json | Set-Content -LiteralPath $personalisation
-    function Get-InstallHome { $sandbox }
+    . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
     function Invoke-InstallRefresh { } # The installed-script boundary has dedicated coverage.
     function Ensure-InstallPowerShell { throw 'Update must not install prerequisites' }
     function Get-InstallSourceText { throw 'Tests must not use network' }
@@ -125,14 +125,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-Equal 0 $calls.Count 'Invalid records never run CLI commands'
         Remove-Item -LiteralPath $personalisation
 
-        # A future CLI gets the same update behavior entirely through descriptor data.
-        $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
-        $catalog.tools += [pscustomobject]@{id='fourth';command='fourth-cli';configEnv='FOURTH_HOME';plugin=$fourth.plugin;hooks=$fourth.hooks;installHint='fixture'}
-        function Test-InstallCommandAvailable { param($Name) $Name -eq 'fourth-cli' }
-        $null = Invoke-PsAiInstaller -Tools fourth -ConfigDir selected -Source $repo -Catalog $catalog -Update
-        Assert-Equal 'fourth:selected|fourth-cli|plugin|marketplace|refresh|ps-ai-marketplace' $calls[1] 'Fourth marketplace refresh uses catalog argv'
-        Assert-Equal 'fourth:selected|fourth-cli|plugin|refresh|ps-ai@ps-ai-marketplace' $calls[2] 'Fourth plugin refresh uses catalog argv'
-        Assert-Equal ([string]$saved.FOURTH_HOME) ([string]$env:FOURTH_HOME) 'Caller fourth config env is restored'
+        function Test-InstallCommandAvailable { $false }
         $calls.Clear()
         $skip = @(Invoke-PsAiInstaller -Tools claude -Source $repo -Catalog $catalog -Update)
         Assert-True ($skip -contains 'skip: claude (not installed)') 'Explicit missing CLI is skipped'

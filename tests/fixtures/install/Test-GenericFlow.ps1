@@ -1,4 +1,4 @@
-param([string]$Installer, [string]$Catalog, [ValidateSet('fresh','cached','update','conflict')][string]$Mode)
+param([string]$Installer, [string]$Catalog, [ValidateSet('fresh','cached','update','registered')][string]$Mode)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'MarketplaceListing.ps1')
 . ([scriptblock]::Create((Get-Content -LiteralPath $Installer -Raw))) -NoRun
@@ -7,8 +7,7 @@ $entries = ($catalogText | ConvertFrom-Json).tools
 $fixtureHome = Split-Path $Catalog
 $states = @{}
 foreach ($entry in $entries) { $states[$entry.command] = @{Added=$false; Refreshed=$false; Installed=$false} }
-function Get-InstallHome { $fixtureHome }
-function Ensure-InstallPowerShell { $true }
+. (Join-Path $PSScriptRoot 'InstallerSandbox.ps1') -InstallFixtureHome ($fixtureHome)
 function Get-InstallSourceText {
     param($Url)
     if ($Url -ne 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/tools.json') { throw 'Unexpected catalog URL' }
@@ -16,9 +15,6 @@ function Get-InstallSourceText {
 }
 function Test-InstallCommandAvailable { param($Name) $Name -in @('claude','codex','copilot') }
 function Invoke-InstallRefresh { 'fixture artifacts refreshed' }
-function claude { 'fixture-version' }
-function codex { 'fixture-version' }
-function copilot { 'fixture-version' }
 function Invoke-ClosedInput {
     param($Command)
     $entry = $entries | Where-Object command -EQ $Command[0]
@@ -26,7 +22,7 @@ function Invoke-ClosedInput {
     $state = $states[$entry.command]
     $line = $Command -join '|'
     if ($line -eq ((@($entry.command) + $entry.plugin.marketplaceList) -join '|')) {
-        $source = if ($Mode -eq 'conflict' -and $entry.id -eq 'claude') { 'https://github.com/example/old-source' } else { '' }
+        $source = if ($Mode -eq 'registered') { 'https://github.com/example/old-source' } else { '' }
         $output = @(Get-FixtureMarketplaceListing -Tool $entry.id -Source $source)
         return @{ExitCode=0; Output=$output}
     }
@@ -53,7 +49,7 @@ function Invoke-ClosedInput {
         return @{ExitCode=0; Output=@()}
     }
     if ($line -eq ((@($entry.command) + $entry.plugin.marketplaceUpdate) -join '|')) {
-        if ($Mode -ne 'update' -and -not $state.Added) { throw 'Refresh ran before add' }
+        if ($Mode -notin @('update','registered') -and -not $state.Added) { throw 'Refresh ran before add' }
         $state.Refreshed=$true
         return @{ExitCode=0; Output=@()}
     }
@@ -65,7 +61,7 @@ function Invoke-ClosedInput {
     }
     throw "Unexpected fake command: $line"
 }
-# An uncaught conflict must make the process fail after the other tools finish.
+# Reused registrations still refresh before plugin installation.
 Invoke-PsAiInstaller -Yes -Update:($Mode -eq 'update')
 foreach ($entry in $entries) {
     if (-not $states[$entry.command].Installed) { throw "Fixture plugin was skipped: $($entry.id)" }

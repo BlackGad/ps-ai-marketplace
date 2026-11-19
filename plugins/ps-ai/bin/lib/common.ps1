@@ -1,10 +1,5 @@
 . (Join-Path $PSScriptRoot 'tools.ps1')
 
-function Get-ConfigEnvName {
-    param([string]$Tool)
-    return (Get-PsAiTool -Tool $Tool).configEnv
-}
-
 function Get-PsAiLease {
     param([string]$Repo)
     $path = Join-Path $Repo '.agents/temp/overseer.lock'
@@ -55,36 +50,4 @@ function Get-PsAiWrapperCommand {
     if ($Id -cnotmatch '^[a-z][a-z0-9-]*$') { throw 'invalid account id' }
     $name = if ($IsWindows) { "$Id.cmd" } else { $Id }
     return [IO.Path]::GetFullPath((Join-Path $HomeRoot ".agents/bin/$name"))
-}
-
-function Get-PsAiExplicitModelArguments {
-    param([string]$Model, [string[]]$Arguments, [switch]$Codex)
-    $choices = [Collections.Generic.List[string]]::new()
-    if ($Model) { $choices.Add($Model) }
-    $explicit = $false
-    for ($i = 0; $i -lt $Arguments.Count; $i++) {
-        $arg = $Arguments[$i]
-        $value = $null
-        if ($arg -cin @('--model', '-m')) {
-            if ($i + 1 -ge $Arguments.Count -or -not $Arguments[$i + 1] -or $Arguments[$i + 1].StartsWith('-')) { throw "missing model value after '$arg'" }
-            $value = $Arguments[++$i]
-        } elseif ($arg -cmatch '^(--model|-m)=(.*)$') {
-            $value = $Matches[2]
-            if (-not $value) { throw "missing model value in '$arg'" }
-        } elseif ($Codex) {
-            $config = $null
-            if ($arg -cin @('--config=', '-c=')) { throw "missing config value in '$arg'" }
-            if ($arg -cin @('-c', '--config')) {
-                if ($i + 1 -ge $Arguments.Count -or -not $Arguments[$i + 1] -or $Arguments[$i + 1].StartsWith('-')) { throw "missing config value after '$arg'" }
-                $config = $Arguments[++$i]
-            } elseif ($arg -cmatch '^(--config=|-c=?)(.+)$') { $config = $Matches[2] }
-            if ($config -cmatch '^\s*model\s*=\s*(.*)$') {
-                $value = $Matches[1].Trim().Trim('"', "'")
-                if (-not $value) { throw 'missing model value in config override' }
-            }
-        }
-        if ($null -ne $value) { $explicit = $true; $choices.Add($value) }
-    }
-    if (@($choices | Select-Object -Unique -CaseInsensitive:$false).Count -gt 1) { throw 'conflicting explicit model choices' }
-    if ($Model -and -not $explicit) { '--model'; $Model }
 }

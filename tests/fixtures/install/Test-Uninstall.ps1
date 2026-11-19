@@ -4,10 +4,9 @@ $ErrorActionPreference = 'Stop'
 $catalogText = Get-Content -LiteralPath $Catalog -Raw
 $fixtureHome = Join-Path (Split-Path $Catalog) 'home'
 . ([scriptblock]::Create((Get-Content -LiteralPath $Installer -Raw))) -NoRun
-function Get-InstallHome { $fixtureHome }
+. (Join-Path $PSScriptRoot 'InstallerSandbox.ps1') -InstallFixtureHome ($fixtureHome)
 function Get-InstallSourceText { $catalogText }
 function Ensure-InstallPowerShell { throw 'Uninstall tried to install prerequisites' }
-function Test-InstallCommandAvailable { $true }
 function Read-Host { throw 'Yes or DryRun must never prompt' }
 $state = @{ Plugin=$true; Marketplace=$true; Writes=0; Calls=0 }
 function Invoke-ClosedInput {

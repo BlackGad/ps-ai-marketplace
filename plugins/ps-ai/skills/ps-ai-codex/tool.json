@@ -3,7 +3,6 @@
   "id": "codex", "command": "codex", "configEnv": "CODEX_HOME",
   "foundry": {"deploymentPrefix": "gpt", "aliases": []},
   "overseerArgs": [],
-  "legionArgs": ["exec", "--dangerously-bypass-approvals-and-sandbox"],
   "plugin": {
     "defaultConfigDir": "~/.codex",
     "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
@@ -11,12 +10,11 @@
     "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
     "uninstall": ["plugin", "remove", "ps-ai@ps-ai-marketplace"],
     "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-ai-marketplace"],
-    "marketplaceRemoveHint": "Removing this marketplace removes hook approval; approve the ps-ai hooks again with /hooks after reinstalling.",
     "install": ["plugin", "add", "ps-ai@ps-ai-marketplace"],
     "marketplaceUpdate": ["plugin", "marketplace", "upgrade"],
     "update": ["plugin", "add", "ps-ai@ps-ai-marketplace"],
     "marketplaceList": ["plugin", "marketplace", "list", "--json"],
-    "marketplaceListing": {"format": "json", "collectionField": "marketplaces", "nameField": "name", "sourceFields": ["marketplaceSource.source", "root"], "rootField": "root"},
+    "marketplaceListing": {"format": "json", "collectionField": "marketplaces", "nameField": "name", "rootField": "root"},
     "list": ["plugin", "list"],
     "listing": {"format": "lines", "rejectPattern": "not installed|disabled"}
   },

@@ -47,9 +47,7 @@ function Assert-PsAiInstallPatterns {
 
     foreach ($method in @('msi', 'zip')) {
         $download = $Install.windows.download.$method
-        foreach ($field in @('assetPattern', 'tagPattern')) {
-            if ($null -ne $download.$field) { Assert-PsAiRegex -Pattern $download.$field -Field "install.windows.download.$method.$field" }
-        }
+        if ($null -ne $download.assetPattern) { Assert-PsAiRegex -Pattern $download.assetPattern -Field "install.windows.download.$method.assetPattern" }
     }
 }
 

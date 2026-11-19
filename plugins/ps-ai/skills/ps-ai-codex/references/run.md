@@ -1,10 +1,16 @@
 # Run Codex CLI
 
-Read owner notes before account/model selection, dispatch or limit fallback. Use actual stated models and exclusions, account purposes, careful-use choices and paid-use approval. Re-read after edits. Channel operations route through `skills/ps-ai-<kind>/SKILL.md`; stop if missing.
-Derive `<command>` from the account ID as `<home>/.agents/bin/<id>` on Unix or `<home>/.agents/bin/<id>.cmd` on Windows. Choose the actual `<model>` from owner notes. The overseer supplies `<repo>`, `<prompt>`, and `<report>`, all within the assigned repository or worktree. Start there and inherit the owner's environment, including user PATH and installed tools. For a legion run, set `PS_AI_ROLE=legion` and `PS_AI_TASK=<prompt>` on that process only. `tool.json` records the required worker profile in `legionArgs`; supply model, paths, and prompt as shown:
+Follow [owner notes](../../ps-ai-personalisation/references/fields.md) before account, model or channel choices.
+Derive `<command>` from the account ID as `<home>/.agents/bin/<id>` on Unix or `<home>/.agents/bin/<id>.cmd` on Windows. Choose the actual `<model>` from owner notes. The overseer supplies `<repo>`, `<prompt>`, and `<report>`, all within the assigned repository or worktree. Start there and inherit the owner's environment, including user PATH and installed tools. For a legion run, set `PS_AI_ROLE=legion` and `PS_AI_TASK=<prompt>` on that process only. Use the worker profile below.
 
 ```sh
 PS_AI_ROLE=legion PS_AI_TASK="<prompt>" <command> exec --dangerously-bypass-approvals-and-sandbox -m <model> -C "<repo>" -o "<report>" - < "<prompt>"
+```
+
+PowerShell 7: set `$command`, `$model`, `$promptText`, `$repoPath` and `$report` from the assigned task. Keep the same process environment and capture stdout as the report where needed.
+
+```powershell
+$promptText | & $command exec --dangerously-bypass-approvals-and-sandbox -m $model -C $repoPath -o $report -
 ```
 
 Legion always uses this unsandboxed profile so it can edit, run checks, and commit using the real machine setup. Stop if it cannot be applied; do not fall back to a sandbox or provision tools. `-o` writes the last response to the report; the task prompt should require the legion report sections. In PowerShell 7, pipe `Get-Content -Raw -LiteralPath <prompt>` into `& <command> exec --dangerously-bypass-approvals-and-sandbox ... -`; this closes stdin after the prompt. For a background process, redirect stdin from the prompt file and close it after sending, keep stderr in a task log, and wait for process completion, not log polls.

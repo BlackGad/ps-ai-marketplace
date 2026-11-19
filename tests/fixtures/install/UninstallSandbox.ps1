@@ -6,10 +6,8 @@ New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
 $state = @{ Plugin=$true; Marketplace=$true; FailRemove=$false; KeepListed=$false; FailVerify=$false; Answer='n'; Prompts=0 }
 $writes = [Collections.Generic.List[string]]::new()
 $calls = [Collections.Generic.List[string]]::new()
-function Get-InstallHome { $sandbox }
-function Get-InstallSourceText { throw 'No network in tests' }
+. (Join-Path $PSScriptRoot 'InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
 function Ensure-InstallPowerShell { throw 'Uninstall must not install prerequisites' }
-function Test-InstallCommandAvailable { $true }
 function Read-Host { $state.Prompts++; $state.Answer }
 function Invoke-ClosedInput {
     param([string[]]$Command)

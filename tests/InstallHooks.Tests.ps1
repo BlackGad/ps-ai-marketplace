@@ -2,9 +2,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
 & {
     . (Join-Path $repo 'install.ps1') -NoRun
-    function Ensure-InstallPowerShell { $true }
-    function Get-InstallSourceText { throw 'No network in tests' }
-    function copilot { 'fixture-version' }
+    . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome (Join-Path $repo ('.agents/temp/unused-installer-' + [guid]::NewGuid().ToString('N')))
     function Invoke-ClosedInput {
         param($Command)
         Assert-Equal 'copilot' $Command[0] 'Only fake Copilot commands run'

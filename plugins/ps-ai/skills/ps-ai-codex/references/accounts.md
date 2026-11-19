@@ -1,6 +1,6 @@
 # Codex CLI accounts
 
-Read owner notes before account/model selection, dispatch or limit fallback. Use actual stated models and exclusions, account purposes, careful-use choices and paid-use approval. Re-read after edits. Channel operations route through `skills/ps-ai-<kind>/SKILL.md`; stop if missing.
+Follow [owner notes](../../ps-ai-personalisation/references/fields.md) before account, model or channel choices.
 Use the plugin's `bin/ps-ai-account.ps1`. Read existing IDs, suggest `codex<n>` (next unused number), and accept a custom valid ID such as `codex-client`. Do not put a client name into a wiki label. The script rejects duplicate IDs and command names on PATH.
 
 If `codex` is missing, follow [install.md](install.md) first. Continue with account setup only after the CLI is available.
@@ -16,9 +16,7 @@ This creates the `CODEX_HOME` wrapper, config folder, and personalisation entry.
 pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.agents/configuration/ps-ai-personalisation.json
 ```
 
-To adopt an existing signed-in folder, pass `-ConfigDir <existing folder>` to `add`. The folder must exist. This creates a new shortcut for that folder, records it as `configDir`, preserves its settings, and does not run or request a new login. The account script never reads credentials or tests sign-in; only the owner needs to sign in if the CLI later asks.
-
-For every new, adopted, registered, or Foundry account, install ps-ai with the same `install.ps1` command above. Explain the installation and get the owner's yes first; use approval already given in the conversation. Only then pass `-Yes`. Use the recorded folder for `<account folder>`, expanding `~/` against the chosen home; resolve any previous default-folder answer through the selected descriptor to a concrete folder. Validate afterward. If installation fails or is declined, report account setup as incomplete. Do not implement marketplace or plugin installation in the account script or run separate tool install commands here.
+To adopt a signed-in folder, pass `-ConfigDir <existing folder>` to `add`. Follow the [shared account rules](../../ps-ai-personalisation/references/fields.md#account-setup) for retained logins, installation approval and incomplete work.
 
 Register an existing wrapper with `-Action register -Id <id> -Tool codex -Command <wrapper> -ConfigDir <dir> -HomeRoot <home>`. Rename with `-Action rename -Id <old> -NewId <new>`, or remove with `-Action remove -Id <id>`, then validate. The script updates exact channel account bindings, keeps the config folder, and prints its location. Ask before changing or deleting that folder.
 

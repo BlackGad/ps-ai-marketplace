@@ -16,6 +16,7 @@ Assert-True ([bool]$codexMarket.plugins[0].category) 'Codex category'
 foreach ($manifest in @($claudePlugin, $codexPlugin, $copilotPlugin)) {
     Assert-Equal 'ps-ai' $manifest.name 'Plugin manifest name'
     Assert-Equal $copilotPlugin.version $manifest.version 'Plugin manifest versions match'
+    Assert-True ($manifest.version -match '^\d+\.\d+\.\d+$') 'Plugin version uses semantic version syntax'
 }
 Assert-Equal './skills/' $codexPlugin.skills 'Codex skills path'
 Assert-Equal './hooks/hooks.json' $codexPlugin.hooks 'Codex hooks path'

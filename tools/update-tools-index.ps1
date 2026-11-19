@@ -35,9 +35,21 @@ function Get-ToolsIndexContent {
 if ($NoRun) { return }
 
 $tools = @(Get-PsAiTools)
-$recipes = Get-PsAiInstallRecipes
-if (-not $recipes.ContainsKey('pwsh')) { throw 'PowerShell bootstrap recipe is missing from helper recipes' }
-$content = Get-ToolsIndexContent -Tools $tools -Bootstrap $recipes.pwsh
+# Only the standalone installer consumes this bootstrap recipe.
+$bootstrapJson = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'bootstrap.json') -Raw
+$schema = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../plugins/ps-ai/schemas/tool.schema.json') -Raw | ConvertFrom-Json -AsHashtable
+$windows = $schema.'$defs'.install.properties.windows
+$windows.type = 'object'
+$windows.properties.download.required = @('zip')
+$windows.properties.download.properties.Remove('msi')
+$bootstrapSchema = @{
+    '$defs' = $schema.'$defs'; type = 'object'; required = @('windows'); additionalProperties = $false
+    properties = @{windows = $windows}
+} | ConvertTo-Json -Depth 100
+if (-not (Test-Json -Json $bootstrapJson -Schema $bootstrapSchema -ErrorAction SilentlyContinue)) { throw 'invalid PowerShell bootstrap recipe' }
+$bootstrap = ConvertFrom-PsAiToolJson -Json $bootstrapJson
+Assert-PsAiInstallPatterns -Install $bootstrap
+$content = Get-ToolsIndexContent -Tools $tools -Bootstrap $bootstrap
 $bytes = [Text.UTF8Encoding]::new($false).GetBytes($content)
 $path = Join-Path $PSScriptRoot '../tools.json'
 if ((Test-Path -LiteralPath $path) -and

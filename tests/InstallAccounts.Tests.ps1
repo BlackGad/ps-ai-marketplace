@@ -11,12 +11,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         @{tool='claude';configDir='~/.claude-account2'},
         @{tool='codex';configDir='~/.codex-account2'}
     )} | ConvertTo-Json | Set-Content -LiteralPath $file
-    function Get-InstallHome { $sandbox }
-    function Get-InstallSourceText { throw 'No network in tests' }
-    function Ensure-InstallPowerShell { $true }
+    . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
     function Test-InstallCommandAvailable { param($Name) $Name -in @('claude', 'codex') }
-    function claude { 'fixture-version' }
-    function codex { 'fixture-version' }
     function Invoke-InstallRefresh { }
     $calls = [Collections.Generic.List[string]]::new()
     $installed = @{}

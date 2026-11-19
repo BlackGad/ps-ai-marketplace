@@ -5,7 +5,7 @@ description: Use when the overseer dispatches Codex CLI work or the owner asks a
 
 # Codex CLI tool
 
-Read the owner's notes before choosing accounts or models. Respect stated exclusions and spending choices. Re-read after edits. Use the selected channel kind's skill for channel work.
+Follow [owner notes](../ps-ai-personalisation/references/fields.md) before choosing accounts, models or channels.
 
 ## Identity and hard rules
 

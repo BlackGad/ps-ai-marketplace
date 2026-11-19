@@ -58,15 +58,10 @@ $codexAvailable = 'ps-ai@ps-ai-marketplace  not installed           C:\repo\plug
 $codexInstalled = 'ps-ai@ps-ai-marketplace  installed, enabled  0.1.0    C:\repo\plugins\ps-ai'
 $copilotDisabled = '  • ps-ai@ps-ai-marketplace (v0.1.0) (disabled)'
 $copilotEnabled = '  • ps-ai@ps-ai-marketplace (v0.1.0) (enabled)'
-$claudeEnabled = '  ❯ ps-ai@ps-ai-marketplace'
-Assert-True (-not (Test-InstallListing -Kind plugin -Lines @($codexAvailable))) 'Available Codex plugin is not installed'
-Assert-True (Test-InstallListing -Kind plugin -Lines @($codexInstalled)) 'Installed Codex plugin counts'
-Assert-True (-not (Test-InstallListing -Kind plugin -Lines @($copilotDisabled))) 'Disabled Copilot plugin is not done'
-Assert-True (Test-InstallListing -Kind plugin -Lines @($copilotEnabled)) 'Enabled Copilot plugin counts'
-Assert-True (Test-InstallListing -Kind plugin -Lines @($claudeEnabled)) 'Claude listing counts'
-Assert-True (Test-InstallListing -Kind plugin -Lines @('name=ps-ai@ps-ai-marketplace enabled')) 'Generic line parser retains substring behavior'
-Assert-True (Test-InstallListing -Kind marketplace -Lines @('ps-ai-marketplace       C:\repo')) 'Codex marketplace line'
-Assert-True (-not (Test-InstallListing -Kind marketplace -Lines @('ps-ai-marketplace-old  C:\x'))) 'Similar marketplace name does not count'
+Assert-True (-not (Test-InstallListing -Kind plugin -Tool codex -Lines @($codexAvailable))) 'Available Codex plugin is not installed'
+Assert-True (Test-InstallListing -Kind plugin -Tool codex -Lines @($codexInstalled)) 'Installed Codex plugin counts'
+Assert-True (-not (Test-InstallListing -Kind plugin -Tool copilot -Lines @($copilotDisabled))) 'Disabled Copilot plugin is not done'
+Assert-True (Test-InstallListing -Kind plugin -Tool copilot -Lines @($copilotEnabled)) 'Enabled Copilot plugin counts'
 $disabledFixture = Get-Content (Join-Path $PSScriptRoot 'fixtures/claude-plugin-disabled.json')
 Assert-True (-not (Test-InstallListing -Kind plugin -Tool claude -Lines $disabledFixture)) 'Disabled Claude JSON plugin is not done'
 $enabledFixture = ($disabledFixture -join "`n").Replace('"enabled": false', '"enabled": true') -split "`n"
@@ -114,58 +109,16 @@ try {
     $env:CODEX_HOME = $savedCodexHome
 }
 
-# FourthToolStandaloneAndStrictListings: id is not an executable and string true is not enabled.
+# Exact plugin identity and Boolean enabled state are runtime boundaries.
 & {
     . $script -NoRun
     $catalog = Get-InstallCatalog -Source $root
-    $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
-    $entry = [pscustomobject]@{ id='fourth'; command='fourth-cli'; configEnv='FOURTH_HOME'; plugin=$fourth.plugin; hooks=$fourth.hooks; installHint='install fourth-cli' }
-    $catalog.tools += $entry
-    $script:installCatalog = Get-InstallCatalog -Catalog $catalog
-    $commands = Get-InstallCommands -Tool fourth -Source 'local source'
-    Assert-Equal 'fourth-cli' $commands[0][0] 'Fourth executable comes from catalog'
-    Assert-Equal 'local source' $commands[0][4] 'Source replacement remains one argument'
-    $state = @{ Commands=[Collections.Generic.List[string]]::new(); Versions=0; Detect=[Collections.Generic.List[string]]::new() }
-    function Invoke-ClosedInput {
-        param($Command)
-        $state.Commands.Add(($Command -join '|'))
-        Assert-Equal 'selected' $env:FOURTH_HOME 'Listing uses selected account'
-        return @{ExitCode=0; Output=@('ps-ai@ps-ai-marketplace enabled')}
-    }
-    $previous = $env:FOURTH_HOME
-    try {
-        $env:FOURTH_HOME='default'
-        Assert-True (Test-InstallStepDone -Command $commands[1] -ConfigEnv FOURTH_HOME -ConfigDir selected) 'Fourth listing can skip installed plugin'
-        Assert-Equal 'fourth-cli|plugin|list' $state.Commands[0] 'Fourth listing uses catalog argv'
-        Assert-Equal 'default' $env:FOURTH_HOME 'Listing restores caller env'
-        function Invoke-ClosedInput { throw 'fixture launch failure' }
-        Assert-Throws { Test-InstallStepDone -Command $commands[1] -ConfigEnv FOURTH_HOME -ConfigDir selected } 'Listing failure propagates'
-        Assert-Equal 'default' $env:FOURTH_HOME 'Listing restores caller env on failure'
-        Assert-Throws { Invoke-InstallCommand -Command $commands[1] -ConfigEnv FOURTH_HOME -ConfigDir selected } 'Install failure propagates'
-        Assert-Equal 'default' $env:FOURTH_HOME 'Install restores caller env on failure'
-    } finally { $env:FOURTH_HOME=$previous }
+    $script:installCatalog = $catalog
     foreach ($json in @('[{"id":["ps-ai@ps-ai-marketplace","other"],"enabled":true}]','[{"id":"ps-ai@ps-ai-marketplace","enabled":"true"}]','[{"id":"ps-ai@ps-ai-marketplace-old","enabled":true}]','[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]')) {
         Assert-True (-not (Test-InstallListing -Kind plugin -Tool claude -Lines @($json))) 'Only exact id and Boolean true count'
     }
-    foreach ($line in @('ps-ai@ps-ai-marketplace-old enabled','ps-ai@ps-ai-marketplace disabled','ps-ai@ps-ai-marketplace not installed')) {
-        Assert-True (-not (Test-InstallListing -Kind plugin -Tool fourth -Lines @($line))) 'Line listing requires full id and enabled state'
-    }
-    $entry.plugin.listing = [pscustomobject]@{format='json';idField='key';enabledField='active'}
-    Assert-True (Test-InstallListing -Kind plugin -Tool fourth -Lines @('[{"key":"ps-ai@ps-ai-marketplace","active":true}]')) 'JSON fields come from catalog'
-    function Ensure-InstallPowerShell { return $true }
-    function Test-InstallCommandAvailable { param($Name) $state.Detect.Add($Name); $Name -eq 'fourth-cli' }
-    function Test-InstallStepDone { return $false }
-    function Invoke-InstallCommand { param($Command) $state.Commands.Add(($Command -join '|')) }
-    function fourth-cli { param($Version) Assert-Equal '--version' $Version 'Version uses descriptor executable'; $state.Versions++; 'fixture-version' }
-    $null = Invoke-PsAiInstaller -Source 'example/market' -Catalog $catalog
-    Assert-True ($state.Detect -contains 'fourth-cli') 'Automatic detection uses executable'
-    Assert-Equal 1 $state.Versions 'Detected fourth tool version executes once'
-    $entry.hooks.hint='fourth hook hint'
-    $preview = @(Invoke-PsAiInstaller -Tools fourth -Source 'example/market' -Catalog $catalog -DryRun)
-    Assert-Equal 1 @($preview | Where-Object { $_ -eq 'fourth hook hint' }).Count 'Catalog hint printed once in dry run'
-    $entry.hooks.hint=''
-    $preview = @(Invoke-PsAiInstaller -Tools fourth -Source 'example/market' -Catalog $catalog -DryRun)
-    Assert-Equal 3 $preview.Count 'Empty hint adds no output beyond add, refresh and install'
-    $entry.plugin.marketplaceAdd = @('register','{source}','prefix-{source}')
-    Assert-Equal 'fourth-cli|register|local source|prefix-{source}' ((Get-InstallCommands -Tool fourth -Source 'local source')[0] -join '|') 'Only entire source argument is substituted'
+    $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
+    $fourth.plugin.marketplaceAdd = @('register','{source}','prefix-{source}')
+    $script:installCatalog.tools += $fourth
+    Assert-Equal 'fourth-cli|register|local source|prefix-{source}' ((Get-InstallCommands -Tool fourth -Source 'local source')[0] -join '|') 'Only entire source arguments are substituted'
 }

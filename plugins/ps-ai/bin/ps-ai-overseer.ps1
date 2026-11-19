@@ -2,7 +2,6 @@ param(
     [string]$Tool,
     [string]$Account,
     [string[]]$Channel,
-    [string]$Model,
     [string[]]$Arguments,
     [string]$Repo = (Get-Location).Path,
     [string]$HomeRoot = $HOME,
@@ -27,7 +26,7 @@ function Select-OverseerAccount {
 }
 
 function Get-OverseerLaunch {
-    param($Personalisation, [string]$AccountId, [string]$Tool, [string[]]$Channel, [string]$Model, [string[]]$Arguments, [string]$HomeRoot = $HOME)
+    param($Personalisation, [string]$AccountId, [string]$Tool, [string[]]$Channel, [string[]]$Arguments, [string]$HomeRoot = $HOME)
     $selected = Select-OverseerAccount $Personalisation $AccountId $Tool
     $Tool = $selected.tool
     $descriptor = Get-PsAiTool $Tool
@@ -52,15 +51,12 @@ function Get-OverseerLaunch {
         $kinds += $destination.Kind
         foreach ($arg in $destination.LaunchArguments) { $channelArgs.Add($arg) }
     }
-    $adapter = Join-Path $descriptor.SkillRoot 'scripts/overseer-model.ps1'
-    if (-not (Test-Path -LiteralPath $adapter)) { throw "missing overseer model adapter for '$Tool'" }
-    $modelArgs = @(& $adapter -Model $Model -Arguments ([string[]](@($Arguments) + $channelArgs.ToArray())))
     $launchArgs = [Collections.Generic.List[string]]::new()
-    foreach ($arg in @($modelArgs) + @($Arguments) + $channelArgs.ToArray() + @($descriptor.overseerArgs)) {
+    foreach ($arg in @($Arguments) + $channelArgs.ToArray() + @($descriptor.overseerArgs)) {
         if ($null -ne $arg) { $launchArgs.Add([string]$arg) }
     }
     $launchArgs.Add('continue as the overseer')
-    return @{Command=(Get-PsAiWrapperCommand $AccountId $HomeRoot);Args=$launchArgs.ToArray();Warnings=@()}
+    return @{Command=(Get-PsAiWrapperCommand $AccountId $HomeRoot);Args=$launchArgs.ToArray()}
 }
 
 function Invoke-OverseerInRepo {
@@ -92,7 +88,7 @@ function Start-OverseerLaunch {
 }
 
 if (-not $launcherNoRun) {
-    if (-not $Account) { 'Usage: ps-ai-overseer -Account <id> [-Tool <tool>] [-Channel <id[]>] [-Model <model>] [-Arguments <string[]>] [-Repo <path>]'; return }
+    if (-not $Account) { 'Usage: ps-ai-overseer -Account <id> [-Tool <tool>] [-Channel <id[]>] [-Arguments <string[]>] [-Repo <path>]'; return }
     $projectFile = Join-Path $Repo '.agents/configuration/project.json'
     if (-not (Test-Path -LiteralPath $projectFile)) {
         throw "no .agents/configuration/project.json in $Repo; run setup first"
@@ -105,7 +101,6 @@ if (-not $launcherNoRun) {
     $personalisation = Read-PsAiJson -Path $ownerFile
     $selected = Select-OverseerAccount -Personalisation $personalisation -Account $Account -Tool $Tool
     if (-not $Tool) { $Tool = $selected.tool }
-    $launch = Get-OverseerLaunch -Personalisation $personalisation -AccountId $selected.id -Tool $Tool -Channel $Channel -Model $Model -Arguments $Arguments -HomeRoot $HomeRoot
-    foreach ($warning in $launch.Warnings) { Write-Warning $warning }
+    $launch = Get-OverseerLaunch -Personalisation $personalisation -AccountId $selected.id -Tool $Tool -Channel $Channel -Arguments $Arguments -HomeRoot $HomeRoot
     Start-OverseerLaunch -Repo $Repo -Launch $launch -DryRun:$DryRun
 }
