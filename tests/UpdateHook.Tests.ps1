@@ -29,7 +29,7 @@ function Get-PsAiUpdateText {
         $env:PS_AI_TASK = ''
         Assert-Equal '{}' (& pwsh -NoProfile -File $hook -Repo $fixtureRepo -Format context-json) 'Ad hoc mode has no notice'
         Assert-True (-not (Test-Path (Join-Path $plugin 'downloads.txt'))) 'Ad hoc never checks'
-        "## Milestone`nM1`n## Current task`ntask 1`n" | Set-Content (Join-Path $fixtureRepo '.agents/state/handoff.md')
+        "## Goal and milestone`nM1`n## Current task`ntask 1`n" | Set-Content (Join-Path $fixtureRepo '.agents/state/handoff.md')
         $env:PS_AI_ROLE = 'legion'
         $env:PS_AI_TASK = 'task.md'
         $null = & pwsh -NoProfile -File $hook -Repo $fixtureRepo

@@ -1,12 +1,10 @@
 # Repository workflow
 
-## Roadmap
-
-Where the roadmap lives and how a milestone is selected.
-
 ## Milestone
 
-How research, design rulings, a plan, gates, reviews, and close-out are recorded for this repo.
+How a milestone is selected and how research, design rulings, a spec, a plan, gates, reviews, and close-out are recorded for this repo.
+
+Goal roadmaps use the fixed folder `.agents/state/roadmap/`. Follow `ps-ai-overseer/references/roadmap.md`; do not record a roadmap path choice here.
 
 ## Task
 
@@ -22,4 +20,4 @@ Name indexed scripts here and describe when each runs. Fixed steps are scripts, 
 
 ## Repository choices
 
-Record the rules file, roadmap/spec/plan paths, indexed task/milestone gates, account routing, notification destinations and neutral knowledge label here. Keep scripts/index and handoff conventions. Record only agreed choices.
+Record the rules file, spec and plan paths, indexed task/milestone gates, account routing, notification destinations and neutral knowledge label here. Keep scripts/index and handoff conventions. Record only agreed choices.
