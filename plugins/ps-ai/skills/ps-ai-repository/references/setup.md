@@ -2,6 +2,8 @@
 
 For tool operations, read `skills/ps-ai-<agent.tool>/SKILL.md` using the selected account's `agent.tool`; stop if it is missing. Read the existing rules file, `.gitignore`, scripts, docs layout, and `.legion/` files. Preserve unrelated contents, including `.agents/skills/` and `.agents/plugins/`.
 
+Check the mode using [layout.md](layout.md) before changing setup files. A `.legion/.git` folder or file means Private; otherwise `git ls-files .legion` must list tracked files for Shared. If neither check matches, setup is not finished: ask the owner the setup choice again, with Private as the default, and complete it.
+
 Keep repository facts in `.legion/configuration/`. For a fresh repository:
 
 - Create `project.json` from [project-template.json](project-template.json) with schemaVersion and optional editor schema metadata only. Record the rules file, actual plan and spec paths, delivery mode, indexed gates, routing, notification destinations and neutral knowledge label in workflow.

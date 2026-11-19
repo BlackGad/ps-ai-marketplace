@@ -16,7 +16,7 @@
 
 ## Storage and ignores
 
-Use the [setup choice](../SKILL.md#choose-where-notes-live). A `.legion/.git` folder means Private. Otherwise the layout is Shared. Save no mode setting.
+Use the [setup choice](../SKILL.md#choose-where-notes-live). In the main tree, a `.legion/.git` folder or file means Private. Otherwise, files under `.legion/` tracked by the code repo (`git ls-files .legion`) mean Shared. If neither is true, setup is not finished: ask the owner the setup choice again, with Private as the default, and complete it. Save no mode setting.
 
 These are the authoritative ignore rules for setup and verification:
 

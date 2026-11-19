@@ -25,7 +25,7 @@ Offer these once for a fresh setup. Put Private first and recommend it:
 - **Private (default):** Orchestration notes, the handoff and history stay on this PC in `.legion/`, with their own Git history. Nothing appears in the repo or on GitHub. To keep them on other machines, you can later push `.legion/` to a private repo.
 - **Shared:** Orchestration notes are committed with the code. Teammates and other machines see them. Use this for private or team repos.
 
-For an existing setup, retain its mode. See [layout.md](references/layout.md) for detection and ignore rules. Do not add a settings field.
+For an existing setup, retain its mode only when the Git checks in [layout.md](references/layout.md) confirm it. If neither check matches, setup is not finished: ask the owner the setup choice again, with Private as the default, and complete it. Do not add a settings field.
 
 ## Create or update
 
