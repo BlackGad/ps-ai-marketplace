@@ -121,7 +121,7 @@ function Get-InstallCatalog {
             Assert-InstallString $marketplaceListing.nameField 'marketplaceListing.nameField'
             Assert-InstallArguments $marketplaceListing.sourceFields 'marketplaceListing.sourceFields'
             if (-not $marketplaceListing.sourceFields.Count) { throw 'marketplaceListing.sourceFields cannot be empty' }
-            foreach ($field in @('collectionField', 'sourcePattern')) {
+            foreach ($field in @('collectionField', 'sourcePattern', 'rootField')) {
                 if ($null -ne $marketplaceListing.$field) { Assert-InstallString $marketplaceListing.$field "marketplaceListing.$field" }
             }
             if ($marketplaceListing.sourcePattern) { $null = [regex]::new($marketplaceListing.sourcePattern) }
@@ -227,7 +227,7 @@ function Set-InstallConfigEnvironment {
 }
 
 function Test-InstallStepDone {
-    param([string[]]$Command, [string]$ConfigEnv, [string]$ConfigDir, [switch]$IncludeDisabled)
+    param([string[]]$Command, [string]$ConfigEnv, [string]$ConfigDir, [switch]$IncludeDisabled, [switch]$RequireRoot)
     $entry = $script:installCatalog.tools | Where-Object command -CEQ $Command[0] | Select-Object -First 1
     if (-not $entry) { throw "unknown tool command '$($Command[0])'" }
     $marketplace = @($entry.command) + @($entry.plugin.marketplaceAdd | ForEach-Object { if ($_ -ceq '{source}') { '' } else { $_ } })
@@ -251,7 +251,7 @@ function Test-InstallStepDone {
         }
         $result = Invoke-ClosedInput -Command $list -Environment $entry.plugin.listingEnv
         if ($result.ExitCode -ne 0) { throw "$($entry.command) listing exited $($result.ExitCode)" }
-        return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output -Source $requestedSource -IncludeDisabled:$IncludeDisabled
+        return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output -Source $requestedSource -IncludeDisabled:$IncludeDisabled -RequireRoot:$RequireRoot
     } finally {
         if ($ConfigEnv) { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $previous }
     }
@@ -268,11 +268,12 @@ function Get-InstallListingField {
 
 function Test-InstallListing {
     # Installation requires enabled plugins; updates also refresh disabled installed copies.
-    param([ValidateSet('marketplace', 'plugin')][string]$Kind, [string]$Tool, [string[]]$Lines, [switch]$IncludeDisabled, [string]$Source)
+    param([ValidateSet('marketplace', 'plugin')][string]$Kind, [string]$Tool, [string[]]$Lines, [switch]$IncludeDisabled, [string]$Source, [switch]$RequireRoot)
     if ($Kind -eq 'marketplace') {
         $entry = if ($Tool) { Get-InstallTool -Tool $Tool } else { $null }
         $listing = if ($entry) { $entry.plugin.marketplaceListing } else { $null }
         $sources = @()
+        $missingRoot = $false
         if ($listing -and $listing.format -eq 'json') {
             try { $items = ($Lines -join "`n") | ConvertFrom-Json -ErrorAction Stop }
             catch { throw "$Tool marketplace listing returned invalid JSON" }
@@ -282,6 +283,10 @@ function Test-InstallListing {
             }
             foreach ($item in @($items)) {
                 if ((Get-InstallListingField -Item $item -Field $listing.nameField) -cne 'ps-ai-marketplace') { continue }
+                if ($RequireRoot -and $listing.rootField) {
+                    $root = Get-InstallListingField -Item $item -Field $listing.rootField
+                    if (-not ($root -is [string]) -or -not $root -or -not (Test-Path -LiteralPath $root -PathType Container)) { $missingRoot = $true }
+                }
                 $registered = ''
                 foreach ($field in $listing.sourceFields) {
                     $value = Get-InstallListingField -Item $item -Field $field
@@ -299,8 +304,8 @@ function Test-InstallListing {
             }
         }
         foreach ($registered in $sources) {
-            if (-not $Source) { return $true }
-            if ((ConvertTo-InstallMarketplaceSource $registered) -ceq (ConvertTo-InstallMarketplaceSource $Source)) { return $true }
+            if (-not $Source) { return (-not $missingRoot) }
+            if ((ConvertTo-InstallMarketplaceSource $registered) -ceq (ConvertTo-InstallMarketplaceSource $Source)) { return (-not $missingRoot) }
             $folder = if ($entry) { [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process') } else { '' }
             $target = if ($folder) { $folder } else { 'default config' }
             $currentSource = if ($registered) { $registered } else { 'unknown' }
@@ -377,6 +382,24 @@ function Invoke-PsAiInstallSteps {
     for ($index = 0; $index -lt $commands.Count; $index++) {
         $command = $commands[$index]
         if (-not $marketplaceAdded -and (Test-InstallStepDone -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir)) {
+            if ($index -eq 0) {
+                $rootReady = $true
+                if ($entry.plugin.marketplaceListing.rootField) {
+                    $rootReady = Test-InstallStepDone -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir -RequireRoot
+                }
+                $pluginReady = Test-InstallStepDone -Command $commands[1] -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir
+                if (-not $rootReady -or -not $pluginReady) {
+                    if (-not $entry.plugin.marketplaceUpdate.Count) { throw "$Tool has no marketplace refresh command" }
+                    $refresh = @($entry.command) + $entry.plugin.marketplaceUpdate
+                    if ($DryRun) { Format-InstallCommand -Command $refresh -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
+                    else { Invoke-InstallCommand -Command $refresh -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
+                    $marketplaceAdded = $true
+                    continue
+                }
+                "skip: $($command -join ' ') (already done)"
+                "skip: $($commands[1] -join ' ') (already done)"
+                return
+            }
             "skip: $($command -join ' ') (already done)"
             continue
         }

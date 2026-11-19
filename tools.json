@@ -151,7 +151,8 @@
           "sourceFields": [
             "marketplaceSource.source",
             "root"
-          ]
+          ],
+          "rootField": "root"
         },
         "list": [
           "plugin",
