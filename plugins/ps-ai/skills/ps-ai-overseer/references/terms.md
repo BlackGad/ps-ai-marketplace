@@ -2,6 +2,8 @@
 
 Skill text keeps the plain words: agent/account, legion member, and overseer. Recognize Overlord words when the owner uses them; never require them. Replies stay plain unless owner notes ask for that style. An agent is an account: a CLI with its own config folder and login. A model is chosen per run, not stored on the agent.
 
+See [model tiers](task-loop.md#model-tiers) for examples and the one-time cost question.
+
 | Meaning | Technical words | Overlord words |
 | --- | --- | --- |
 | Add an agent | add an agent, add an account, new worker, onboard | summon a minion, summon a guardian, extend the legion, recruit |
