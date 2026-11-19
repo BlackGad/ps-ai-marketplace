@@ -10,11 +10,11 @@ pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Pat
 
 Use [create.md](create.md) for fixture or alternate-home handling. Keep commands internal unless the owner asks for them or must run them themselves.
 
-`<plugin>/schemas/personalisation.schema.json` is authoritative. Set `$schema` to that local path for editor help. Examples are illustrative; use owner answers.
+The running plugin's `<plugin>/schemas/personalisation.schema.json` is authoritative for validation; never use the file's `$schema` value to validate. For editor help, use `https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/schemas/personalisation.schema.json` as `$schema`, or omit the field. Whenever rewriting existing JSON, replace a plugin cache path in `$schema` with this stable URL. Examples are illustrative; use owner answers.
 
 | Field | Meaning and example |
 | --- | --- |
-| `$schema` | Editor schema location, e.g. `<plugin>/schemas/personalisation.schema.json`. |
+| `$schema` | Optional editor schema URL from the paragraph above. |
 | `schemaVersion` | Format version: `1`. |
 | `communication` | Language, questions, channels: `{"language":"simple-english","questions":"one-at-a-time","channels":{}}`. |
 | `communication.language` | Preferred language/style: `simple-english`. |
