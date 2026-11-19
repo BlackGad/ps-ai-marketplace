@@ -23,11 +23,20 @@ On macOS or Linux, [install PowerShell 7](https://learn.microsoft.com/powershell
 pwsh -c '& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1)))'
 ```
 
-By default, the script installs ps-ai for every installed coding CLI. If none is installed, it prints the official CLI install commands and stops successfully. Install one and rerun the script. Repeated runs skip completed steps and preserve hook approval.
+By default, the script installs ps-ai for every installed coding CLI, using the targets below. If none is installed, it prints the official CLI install commands and stops successfully. Install one and rerun the script. Repeated runs skip completed steps and preserve hook approval.
 
-### Update targets
+### Install and update targets
 
-To refresh installed ps-ai copies in every CLI's default config and every recorded account folder, run the command below; `-Tools` and `-ConfigDir` narrow the targets, and `-DryRun` previews commands. Restart the session afterward to load the new skills (Codex: resume).
+Plain install and `-Update` select the same targets:
+
+- Without `-Tools`, select the CLIs found on PATH from `tools.json`. `-Tools` selects the named descriptors instead; update skips a selected CLI if its executable is missing.
+- For each selected CLI, target its default config with the inherited account environment override cleared, then each matching `agents[].configDir` in `~/.agents/configuration/ps-ai-personalisation.json`. Ignore missing or blank `configDir` values and the value `default`; expand a leading `~/` or `~\` against the owner home and resolve recorded paths to full paths. Repeated recorded paths run once (case insensitive on Windows, case sensitive elsewhere).
+- `-ConfigDir` replaces that folder list with only the supplied folder for each selected CLI. `-Tools` and `-ConfigDir` can be combined.
+- Plain install skips completed steps. Update refreshes installed copies, including disabled ones; if ps-ai is missing, it uses the same marketplace registration and plugin installation steps as plain install. Missing recorded folders can be created by installation. `-DryRun` reads listings and previews mutations.
+
+Uninstall keeps its existing selection: selected installed CLIs' defaults and recorded account folders, or only `-ConfigDir` when supplied, plus matching ps-ai generated files. It skips absent plugins and marketplace registrations and preserves account settings and logins.
+
+Run the command below to update all selected targets. Restart the session afterward to load the new skills (Codex: resume).
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Update
@@ -42,6 +51,8 @@ For options, use the script-block form in PowerShell. This example selects an ex
 ```
 
 Use `-Tools <tool-id>` (or an array of ids) to choose tools, `-Source <owner/repository>` to override the GitHub marketplace source, and `-DryRun` to print the steps without changing anything. The default source is `BlackGad/ps-ai-marketplace`. `-SourceRef` selects its catalog revision (default `main`). A working-tree script uses its sibling `tools.json` unless `-Source` or `-SourceRef` is supplied. Remote dry runs read that metadata once. It does not change the marketplace source passed to the CLI. Install and update dry runs execute read-only listings to detect existing registrations and plugins; displayed add and update commands are previews.
+
+To adopt a signed-in account folder, say “Add my existing Claude account in ~/.claude-account2.” Account setup uses `ps-ai-account.ps1 -Action add -Tool <tool-id> -Id <id> -ConfigDir <existing folder>` to record the folder and create a shortcut for it. The folder must exist; setup preserves its settings and does not run or request a new login. An existing shortcut can instead be recorded with `-Action register -Command <wrapper> -ConfigDir <folder>`. Both flows install ps-ai through this installer after the owner's yes; see the tool account guides below.
 
 ### Version checks and catalog revisions
 

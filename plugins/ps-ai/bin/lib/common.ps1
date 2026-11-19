@@ -38,11 +38,15 @@ function Get-PsAiLease {
 }
 
 function Get-PsAiLeaseOwnerProcess {
-    # Shell helpers are transient; the nearest non-shell ancestor owns the CLI session.
+    # Prefer the agent CLI over its shell helpers. A terminal session can have
+    # only shell ancestors after its launcher exits; keep the oldest live one.
     $process = (Get-Process -Id $PID).Parent
+    $sessionShell = $null
     while ($process -and $process.ProcessName -in @('pwsh', 'powershell', 'cmd', 'sh', 'bash', 'zsh')) {
+        $sessionShell = $process
         $process = $process.Parent
     }
+    if (-not $process) { $process = $sessionShell }
     if (-not $process) { throw 'cannot find the agent session process; pass -ProcessId explicitly' }
     return $process
 }

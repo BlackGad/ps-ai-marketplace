@@ -14,6 +14,63 @@ try {
     Assert-True ([bool]$saved.processStartedAt) 'Lease records owner process lifetime'
     & pwsh -NoProfile -File $script -Action release -Repo $repo | Out-Null
     Assert-True (-not (Test-Path $path)) 'A fresh helper releases the session lock'
+
+    # A terminal's native parent may have exited. Keep a session alive beyond a
+    # short launcher, then run separate helpers through bash, as Claude does.
+    # Windows also ships a WSL bash launcher; this case needs Git's MSYS shell.
+    $bash = Get-Command bash -All -CommandType Application -ErrorAction SilentlyContinue | Where-Object {
+        $directory = Split-Path $_.Source -Parent
+        (Test-Path (Join-Path $directory 'msys-2.0.dll')) -or
+        (Test-Path (Join-Path $directory '../usr/bin/msys-2.0.dll'))
+    } | Select-Object -First 1
+    if ($IsWindows -and $bash) {
+        $sessionScript = Join-Path $tempRoot 'session.ps1'
+        @'
+param($Root, $LeaseScript, $Repo, $Bash, $Ready)
+$ErrorActionPreference = 'Stop'
+while (-not (Test-Path -LiteralPath $Ready)) { Start-Sleep -Milliseconds 25 }
+. (Join-Path $Root 'tests/Assert.ps1')
+. (Join-Path $Root 'plugins/ps-ai/bin/lib/common.ps1')
+$env:PS_AI_TEST_LEASE_SCRIPT = $LeaseScript
+$env:PS_AI_TEST_LEASE_REPO = $Repo
+& $Bash -c 'pwsh -NoProfile -File "$PS_AI_TEST_LEASE_SCRIPT" -Action take -Repo "$PS_AI_TEST_LEASE_REPO" -Tool codex -Account session'
+Assert-Equal 0 $LASTEXITCODE 'Bash helper takes the session lease'
+Assert-Equal 'held' (Get-PsAiLease -Repo $Repo).State 'A short-lived bash helper leases for its long-lived parent'
+$lease = Get-Content (Join-Path $Repo '.agents/temp/overseer.lock') -Raw | ConvertFrom-Json
+Assert-Equal $PID $lease.pid 'Shell-only ancestry uses the surviving session, not bash or the helper'
+Assert-Equal (Get-Process -Id $PID).StartTime.ToUniversalTime() ([datetime]$lease.processStartedAt).ToUniversalTime() 'Lease start time belongs to the selected session'
+& $Bash -c 'pwsh -NoProfile -File "$PS_AI_TEST_LEASE_SCRIPT" -Action release -Repo "$PS_AI_TEST_LEASE_REPO"'
+Assert-Equal 0 $LASTEXITCODE 'Another bash helper releases the session lease'
+Assert-Equal 'free' (Get-PsAiLease -Repo $Repo).State 'Bash release removes the session lease'
+'bash session passed'
+'@ | Set-Content -LiteralPath $sessionScript
+        $launcher = Join-Path $tempRoot 'launch.ps1'
+        @'
+param($SessionScript, $Root, $LeaseScript, $Repo, $Bash, $Ready, $Output, $Errors, $PidFile)
+$arguments = @('-NoProfile', '-File', "`"$SessionScript`"", "`"$Root`"", "`"$LeaseScript`"", "`"$Repo`"", "`"$Bash`"", "`"$Ready`"")
+$session = Start-Process pwsh -ArgumentList $arguments -PassThru -WindowStyle Hidden -RedirectStandardOutput $Output -RedirectStandardError $Errors
+$session.Id | Set-Content -LiteralPath $PidFile
+'@ | Set-Content -LiteralPath $launcher
+        $ready = Join-Path $tempRoot 'ready'
+        $output = Join-Path $tempRoot 'session.out'
+        $errors = Join-Path $tempRoot 'session.err'
+        $pidFile = Join-Path $tempRoot 'session.pid'
+        $launchArguments = @('-NoProfile', '-File', "`"$launcher`"", "`"$sessionScript`"", "`"$root`"", "`"$script`"", "`"$repo`"", "`"$($bash.Source)`"", "`"$ready`"", "`"$output`"", "`"$errors`"", "`"$pidFile`"")
+        $launchProcess = Start-Process pwsh -ArgumentList $launchArguments -PassThru -WindowStyle Hidden
+        Assert-True ($launchProcess.WaitForExit(10000)) 'Transient session launcher exits'
+        $sessionId = Get-Content -LiteralPath $pidFile
+        $session = Get-Process -Id ([int]$sessionId)
+        try {
+            # The launcher has exited before its child walks the ancestor chain.
+            Set-Content -LiteralPath $ready -Value 'go'
+            Assert-True ($session.WaitForExit(30000)) 'Bash session finishes within its deadline'
+            $sessionErrors = Get-Content -LiteralPath $errors -Raw
+            Assert-True ([string]::IsNullOrWhiteSpace($sessionErrors)) "Bash session has no errors: $sessionErrors"
+            Assert-True ((Get-Content -LiteralPath $output -Raw).Contains('bash session passed')) 'Bash chain checks completed'
+        } finally {
+            if (-not $session.HasExited) { $session.Kill() }
+        }
+    }
     $invalid = $saved | Select-Object * -ExcludeProperty processStartedAt
     foreach ($leaseHost in @($saved.host, 'fixture-foreign-host')) {
         $invalid.host = $leaseHost

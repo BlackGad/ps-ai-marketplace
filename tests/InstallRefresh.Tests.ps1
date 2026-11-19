@@ -14,6 +14,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         param($Command)
         if ($Command[0] -ne 'claude') { return & $realClosedInput -Command $Command }
         Assert-Equal 'selected-account' $env:CLAUDE_CONFIG_DIR 'Listing and update use selected account'
+        if ($Command -contains 'marketplace' -and $Command -contains 'list') { return @{ExitCode=0;Output=@('[]')} }
         if ($Command[2] -eq 'list') {
             if ($state.Missing -or ($state.Updated -and $state.Disappeared)) { return @{ExitCode=0;Output=@('[]')} }
             $path = if ($state.Updated) { $newPlugin } else { $oldPlugin }
@@ -22,6 +23,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         }
         if ($state.Fail) { return @{ExitCode=8;Output=@()} }
         if ($Command[1] -eq 'plugin' -and $Command[2] -eq 'update') { $state.Updated=$true }
+        if ($Command[1] -eq 'plugin' -and $Command[2] -eq 'install') { $state.Missing=$false; $state.Updated=$true }
         return @{ExitCode=0;Output=@()}
     }
     try {
@@ -41,7 +43,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         $state.Fail=$false
         $state.Missing=$true
         $null = Invoke-PsAiUpdateSteps -Entry $entry -ConfigDir selected-account
-        Assert-True (-not (Test-Path $marker)) 'Absent plugin never invokes refresh'
+        Assert-True (Test-Path $marker) 'Missing plugin is installed then its fresh artifacts are refreshed'
+        Remove-Item $marker
         $state.Missing=$false
         $null = Invoke-PsAiUpdateSteps -Entry $entry -ConfigDir selected-account -DryRun
         Assert-True (-not (Test-Path $marker)) 'Preview never invokes refresh'

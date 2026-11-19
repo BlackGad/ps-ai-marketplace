@@ -89,9 +89,11 @@ function Write-PsAiGeneratedFile {
 }
 
 function New-PsAiWrappers {
-    param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$RealCommand)
+    param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$RealCommand, [string]$ConfigDir)
     $bin = Join-Path $HomeRoot '.agents/bin'
-    $folder = Join-Path $HomeRoot ".agents/accounts/$Id"
+    $folder = if ($ConfigDir) { $ConfigDir } else { Join-Path $HomeRoot ".agents/accounts/$Id" }
+    if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }
+    $folder = [IO.Path]::GetFullPath($folder)
     New-Item -ItemType Directory -Path $bin, $folder -Force | Out-Null
     $envName = Get-ConfigEnvName -Tool $Tool
     $target = ConvertTo-PsAiShellLiteral $RealCommand
@@ -249,6 +251,7 @@ switch ($Action) {
         $descriptor = Get-PsAiTool -Tool $Tool
         $existing = @($data.agents | Where-Object { $_.id -ceq $Id })[0]
         if ($Provider -eq 'foundry') {
+            if ($ConfigDir) { throw '-ConfigDir is for existing subscription accounts; omit it for Foundry.' }
             $null = Get-PsAiToolScript -Tool $descriptor -Name foundry-launch
             Assert-PsAiId -Id $Id
             $null = Get-ConfigEnvName -Tool $Tool
@@ -271,7 +274,15 @@ switch ($Action) {
             "Run '$Id' in a terminal; it signs in to Azure through az when needed."
             break
         }
-        if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and $existing.command -ceq (Get-PsAiWrapperCommand $Id) -and $existing.configDir -ceq "~/.agents/accounts/$Id") {
+        $accountDir = if ($ConfigDir) { $ConfigDir } else { "~/.agents/accounts/$Id" }
+        if ($ConfigDir) {
+            $folder = $ConfigDir
+            if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }
+            if (-not (Test-Path -LiteralPath $folder -PathType Container)) { throw 'Existing account config folder does not exist.' }
+            $folder = (Resolve-Path -LiteralPath $folder -ErrorAction Stop).ProviderPath
+            if ($ConfigDir -notmatch '^~[/\\]') { $accountDir = $folder }
+        }
+        if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and $existing.command -ceq (Get-PsAiWrapperCommand $Id) -and $existing.configDir -ceq $accountDir) {
             "skip: account $Id (already done)"
             break
         }
@@ -279,12 +290,13 @@ switch ($Action) {
         $null = Get-ConfigEnvName -Tool $Tool
         $realCommand = if ($Command) { $Command } else { (Get-Command (Get-PsAiTool -Tool $Tool).command -ErrorAction Stop).Source }
         $entry = [pscustomobject]@{
-            id = $Id; tool = $Tool; command = (Get-PsAiWrapperCommand $Id); configDir = "~/.agents/accounts/$Id"; roles = @()
+            id = $Id; tool = $Tool; command = (Get-PsAiWrapperCommand $Id); configDir = $accountDir; roles = @()
         }
         $data.agents = @($data.agents) + @($entry)
         Write-PsAiPersonalisation -Data $data -Path $file
-        New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $realCommand
-        "Run '$Id' in a terminal and log in once."
+        New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $realCommand -ConfigDir $accountDir
+        if ($ConfigDir) { "Existing account folder kept at $ConfigDir; use '$Id' to open it." }
+        else { "Run '$Id' in a terminal and log in once." }
     }
     models {
         $agent = @($data.agents | Where-Object { $_.id -ceq $Id })[0]

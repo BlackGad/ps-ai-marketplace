@@ -242,12 +242,15 @@ function Test-InstallStepDone {
     $list = @($entry.command) + $arguments
     $previous = if ($ConfigEnv) { [Environment]::GetEnvironmentVariable($ConfigEnv, 'Process') } else { $null }
     try {
-        if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $ConfigDir, 'Process') }
+        if ($ConfigEnv) {
+            if ($ConfigDir) { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $ConfigDir }
+            else { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $null }
+        }
         $result = Invoke-ClosedInput -Command $list -Environment $entry.plugin.listingEnv
         if ($result.ExitCode -ne 0) { throw "$($entry.command) listing exited $($result.ExitCode)" }
         return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output -Source $requestedSource -IncludeDisabled:$IncludeDisabled
     } finally {
-        if ($ConfigDir) { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $previous }
+        if ($ConfigEnv) { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $previous }
     }
 }
 
@@ -352,7 +355,8 @@ function Invoke-InstallCommand {
     param([string[]]$Command, [string]$ConfigEnv, [string]$ConfigDir)
     $previous = [Environment]::GetEnvironmentVariable($ConfigEnv, 'Process')
     try {
-        if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $ConfigDir, 'Process') }
+        if ($ConfigDir) { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $ConfigDir }
+        else { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $null }
         $result = Invoke-ClosedInput -Command $Command
         $result.Output
         $result.ErrorOutput
@@ -539,7 +543,7 @@ function Invoke-PsAiUninstall {
 }
 
 function Invoke-PsAiUpdateSteps {
-    param($Entry, [string]$ConfigDir, [switch]$DryRun)
+    param($Entry, [string]$ConfigDir, [switch]$DryRun, [string]$Source = 'BlackGad/ps-ai-marketplace')
     $configEnv = $Entry.configEnv
     $previous = [Environment]::GetEnvironmentVariable($configEnv, 'Process')
     try {
@@ -549,8 +553,8 @@ function Invoke-PsAiUpdateSteps {
         Format-InstallCommand -Command $list -ConfigEnv $configEnv -ConfigDir $ConfigDir
         $install = @($Entry.command) + $Entry.plugin.install
         if (-not (Test-InstallStepDone -Command $install -ConfigEnv $configEnv -ConfigDir $ConfigDir -IncludeDisabled)) {
-            $target = if ($ConfigDir) { $ConfigDir } else { 'default config' }
-            "skip: $($Entry.id) ps-ai in $target (not installed)"
+            Invoke-PsAiInstallSteps -Tool $Entry.id -Source $Source -ConfigEnv $configEnv -ConfigDir $ConfigDir -DryRun:$DryRun
+            if (-not $DryRun) { Invoke-InstallRefresh -Entry $Entry -ConfigDir $ConfigDir }
             return
         }
         foreach ($arguments in @($Entry.plugin.marketplaceUpdate, $Entry.plugin.update)) {
@@ -808,20 +812,23 @@ function Invoke-PsAiInstaller {
                 "skip: $tool (not installed)"
                 continue
             }
-            foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
-                Invoke-PsAiUpdateSteps -Entry $entry -ConfigDir $folder -DryRun:$DryRun
-            }
-            continue
         }
         $configEnv = $entry.configEnv
         try {
-            Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $ConfigDir -DryRun:$DryRun
+            foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
+                if ($Update) {
+                    Invoke-PsAiUpdateSteps -Entry $entry -ConfigDir $folder -DryRun:$DryRun -Source $Source
+                } else {
+                    Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $folder -DryRun:$DryRun
+                }
+            }
         } catch {
             if (-not $_.Exception.Data['InstallMarketplaceConflict']) { throw }
             $_.Exception.Message
             $conflicts++
             continue
         }
+        if ($Update) { continue }
         if (-not $DryRun) {
             $version = (& $entry.command --version 2>$null | Select-Object -First 1)
             $hooks = $entry.hooks.status

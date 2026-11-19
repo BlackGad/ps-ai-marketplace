@@ -15,7 +15,8 @@ This context provider grounds every ps-ai mode. Read both the owner's settings a
 - Change personalisation only when the owner requested it. Keep project facts in the repo and personal habits in notes.
 - Before saving the first legion routing, explain its full user rights and why it runs without a sandbox, then ask for the owner's yes using [create.md](references/create.md). This is a conversation step, not a new setting.
 - Validate settings after every change using [fields.md](references/fields.md).
-- Use unique account names that do not conflict with installed commands. Register existing account shortcuts and manage accounts through the matching tool skill; see [fields.md](references/fields.md) for naming rules.
+- Use unique account names that do not conflict with installed commands. Add new accounts, adopt existing account folders, and register existing shortcuts through the matching tool skill; see [fields.md](references/fields.md) for naming rules. When the owner gives an existing folder, keep its settings and login and create a shortcut for that folder. Do not ask them to log in again.
+- Every account ps-ai knows needs ps-ai installed. Explain that account setup includes installing ps-ai into that account and get the owner's yes before installation; use the matching tool's account guide. Use approval already given in the conversation. One update then covers all known accounts.
 - Never install a tool, launch an agent, or open an overseer window without authorization. The session launcher offer asks first; direct launcher invocation is itself a request to launch.
 
 ## Use the owner's settings
@@ -32,4 +33,4 @@ Stop after two failed validation fixes and report the exact issues. If the owner
 
 - [ ] Settings and notes were both read, or missing files were handled through the create flow.
 - [ ] Every settings edit was validated and the resulting file re-read.
-- [ ] Existing account shortcuts were registered through the selected tool skill; no secret was handled.
+- [ ] New or existing accounts were handled through the selected tool skill, ps-ai was installed with the owner's yes, and no secret was handled.

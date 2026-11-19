@@ -29,7 +29,7 @@ Use [create.md](create.md) for fixture or alternate-home handling. Keep commands
 | `agents[].id` | Unique lowercase hyphenated id: `agent-a`. |
 | `agents[].tool` | Tool descriptor id: `<tool-id>`; use its tool skill. |
 | `agents[].command` | Executable or wrapper: `~/.agents/bin/agent-a`. |
-| `agents[].configDir` | Account folder or `default`: `~/.agents/accounts/agent-a`. |
+| `agents[].configDir` | New or adopted account folder, or `default`: `~/.agents/accounts/agent-a`. Install and update include recorded folders; adopting one keeps its existing settings and login. |
 | `agents[].roles` | `overseer`, `legion`, `reviewer`, `mechanical`: `["legion","reviewer"]`. |
 | `agents[].care` | Optional `high`: spend carefully, on overseer work. |
 | `agents[].cost` | Optional `paid`: ask before use. |
