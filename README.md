@@ -4,9 +4,9 @@ Long work stalls when one AI session loses context or hits its usage limit. It h
 
 ps-ai connects **Claude Code, Codex CLI and Copilot CLI** into a team. An **overseer** session plans and tracks work in your repository, dispatches tasks to **legion members** on other accounts and CLIs, reviews their reports, and records progress in a handoff file. The next session continues from that handoff. You drive the work by talking to your AI tool: answer its questions and approve its proposals.
 
-![One session stalls; ps-ai shares the work and keeps a handoff for the next session.](docs/images/problem-solution.svg)
+![A stalled session and idle accounts beside connected accounts that share work, review results, and pass a handoff to the next session.](docs/images/problem-solution.png)
 
-![The owner directs the overseer, which sends tasks to legion members on different accounts and CLIs, reviews their reports, and saves a handoff.](docs/images/overseer-legion.svg)
+![The owner directs the overseer, which assigns tasks across legion accounts, reviews their reports, and saves a handoff for the next session.](docs/images/overseer-legion.png)
 
 ## Install
 
