@@ -159,7 +159,7 @@ To opt out, leave legion unused. To limit its use, route legion only to accounts
 | --- | --- | --- |
 | Personalisation and notes | `~/.agents/configuration/` | no |
 | Launcher and account wrappers | `~/.agents/bin/` | no |
-| New account config folders (adopted folders keep their names) | `~/.legion-<id>/` | no |
+| New account config folders (adopted folders keep their names) | `~/.agents/legion/<id>/` | no |
 | Portable prerequisite tools | `~/.agents/tools/<tool>/` | no |
 | Cross-project knowledge wiki (optional, llm-wiki) | `~/.agents/knowledge/` | no |
 | Repo workflow configuration | `<repo>/.agents/configuration/` (`project.json`, `workflow.md`) | yes |

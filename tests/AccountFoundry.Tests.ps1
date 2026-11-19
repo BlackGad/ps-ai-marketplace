@@ -32,7 +32,7 @@ try {
     Assert-Equal 'new|new' ($listed.deployments.state -join '|') 'Add states are new'
     Assert-Equal $before ([Convert]::ToBase64String([IO.File]::ReadAllBytes($file))) 'List leaves personalisation bytes unchanged'
     Assert-True (-not (Test-Path (Join-Path $homeRoot '.agents/bin'))) 'List creates no wrappers'
-    $claudeDir = Join-Path $homeRoot '.legion-claude-dev'
+    $claudeDir = Join-Path $homeRoot '.agents/legion/claude-dev'
     New-Item -ItemType Directory -Path $claudeDir -Force | Out-Null
     $settings = Join-Path $claudeDir 'settings.json'
     '{"theme":"dark"}' | Set-Content -LiteralPath $settings
@@ -96,7 +96,7 @@ try {
     Assert-Equal 'claude-haiku-x' $updated.provider.default 'Models updates default'
     Assert-Equal 'haiku' $updated.provider.deployments[1].alias 'Models updates aliases'
     Assert-Equal 'claude-opus-x|claude-haiku-x' ((Get-Content -Raw $settings | ConvertFrom-Json).modelPicker.options.model -join '|') 'Models refreshes picker'
-    $badDir = Join-Path $homeRoot '.legion-claude-bad'
+    $badDir = Join-Path $homeRoot '.agents/legion/claude-bad'
     New-Item -ItemType Directory -Path $badDir -Force | Out-Null
     $badSettings = Join-Path $badDir 'settings.json'
     [IO.File]::WriteAllText($badSettings, '{bad')
@@ -106,7 +106,7 @@ try {
     } catch { Assert-Equal 'settings.json is not valid JSON; fix or remove it' $_.Exception.Message 'Unreadable settings stops add' }
     Assert-Equal '{bad' (Get-Content -Raw $badSettings) 'Unreadable settings unchanged'
     Assert-Equal 1 (Read-PsAiJson $file).agents.Count 'Invalid settings does not add partial account'
-    $codexDir = Join-Path $homeRoot '.legion-codex-dev'
+    $codexDir = Join-Path $homeRoot '.agents/legion/codex-dev'
     New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
     $toml = Join-Path $codexDir 'config.toml'
     @'
@@ -212,7 +212,7 @@ approval_policy = "never"
         }
     )
     foreach ($tomlCase in $tomlCases) {
-        $caseDir = Join-Path $homeRoot ".legion-$($tomlCase.id)"
+        $caseDir = Join-Path $homeRoot ".agents/legion/$($tomlCase.id)"
         New-Item -ItemType Directory -Path $caseDir -Force | Out-Null
         $caseFile = Join-Path $caseDir 'config.toml'
         [IO.File]::WriteAllText($caseFile, $tomlCase.text.Replace("`r`n", "`n"))

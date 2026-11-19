@@ -105,7 +105,7 @@ function Write-PsAiGeneratedFile {
 
 function Get-PsAiNewAccountDir {
     param([string]$Id, [string]$HomeRoot)
-    return Join-Path $HomeRoot ".legion-$Id"
+    return Join-Path $HomeRoot ".agents/legion/$Id"
 }
 
 function New-PsAiWrappers {

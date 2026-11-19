@@ -186,7 +186,7 @@ $ErrorActionPreference = 'Stop'
 $fixtureHome = Split-Path $Installer
 $configFolder = Join-Path $fixtureHome '.agents/configuration'
 New-Item -ItemType Directory -Path $configFolder -Force | Out-Null
-'{"agents":[{"tool":"codex","configDir":"~/.legion-codex-a"}]}' |
+'{"agents":[{"tool":"codex","configDir":"~/.agents/legion/codex-a"}]}' |
     Set-Content -LiteralPath (Join-Path $configFolder 'ps-ai-personalisation.json')
 function Get-InstallHome { $fixtureHome }
 function Invoke-InstallRefresh { } # Dedicated refresh tests exercise the installed script process.
@@ -197,7 +197,7 @@ function Invoke-ClosedInput {
     param($Command)
     $state.Calls++
     if ($env:CODEX_HOME -eq [IO.Path]::GetFullPath('inherited-account')) { $state.Default++ }
-    elseif ($env:CODEX_HOME -eq (Join-Path $fixtureHome '.legion-codex-a')) { $state.Account++ }
+    elseif ($env:CODEX_HOME -eq (Join-Path $fixtureHome '.agents/legion/codex-a')) { $state.Account++ }
     else { throw 'Incorrect config target' }
     if ($Command[2] -eq 'remove') { throw 'Update removed plugin approval' }
     return @{ ExitCode=0; Output=@('ps-ai@ps-ai-marketplace installed, enabled') }

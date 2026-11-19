@@ -6,7 +6,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $sandbox = Join-Path $repo ('.agents/temp/uninstall-' + [guid]::NewGuid().ToString('N'))
     $bin = Join-Path $sandbox '.agents/bin'
     $personalisation = Join-Path $sandbox '.agents/configuration/ps-ai-personalisation.json'
-    $account = Join-Path $sandbox '.legion-codex-a'
+    $account = Join-Path $sandbox '.agents/legion/codex-a'
     $legacyAccount = Join-Path $sandbox '.agents/accounts/codex-b'
     $calls = [Collections.Generic.List[string]]::new()
     $writes = [Collections.Generic.List[string]]::new()
@@ -56,10 +56,10 @@ $repo = Split-Path $PSScriptRoot -Parent
     try {
         New-Item -ItemType Directory -Path $bin, (Split-Path $personalisation), $account, $legacyAccount -Force | Out-Null
         $agents = @(
-            @{id='codex-a';tool='codex';configDir='~/.legion-codex-a'},
+            @{id='codex-a';tool='codex';configDir='~/.agents/legion/codex-a'},
             @{id='codex-b';tool='codex';configDir='~/.agents/accounts/codex-b'},
             @{id='external';tool='claude';configDir=(Join-Path $sandbox 'custom account')},
-            @{id='codex-duplicate';tool='codex';configDir='~/.legion-codex-a'}
+            @{id='codex-duplicate';tool='codex';configDir='~/.agents/legion/codex-a'}
         )
         @{agents=$agents} | ConvertTo-Json | Set-Content $personalisation
         $original = Get-Content $personalisation -Raw
