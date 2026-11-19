@@ -352,6 +352,12 @@ if ($Standard -and $Action -ne 'models' -and -not ($Action -eq 'add' -and $Provi
 }
 
 $file = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
+if (-not (Test-Path -LiteralPath $file)) {
+    # A fresh machine has no settings; the first agent added creates them.
+    if ($Action -ne 'add') { throw 'No ps-ai settings yet; add an agent first.' }
+    New-Item -ItemType Directory -Path (Split-Path $file -Parent) -Force | Out-Null
+    [IO.File]::WriteAllText($file, '{"schemaVersion":1,"agents":[],"channels":[]}')
+}
 $data = Read-PsAiJson -Path $file
 switch ($Action) {
     add {

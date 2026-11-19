@@ -9,7 +9,7 @@ If `claude` is missing, follow [install.md](install.md) first. Continue with acc
 pwsh -NoProfile -File <plugin>/bin/ps-ai-account.ps1 -Action add -Tool claude -Id <id> [-ConfigDir <existing folder>] [-HomeRoot <home>]
 ```
 
-This creates a wrapper that sets `CLAUDE_CONFIG_DIR`, a config folder, and the personalisation entry. For a new folder only, tell the owner to run `<id>` in a terminal and log in once; never handle tokens or open credential files. Then install ps-ai for that account:
+This creates a wrapper that sets `CLAUDE_CONFIG_DIR`, a config folder, and the personalisation entry. Make sure `<home>/.legion/bin` is on the user PATH (add it once if missing; never in tests). For a new folder only, tell the owner to run `<id>` in a terminal and log in once; never handle tokens or open credential files. Then install ps-ai for that account:
 
 ```text
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools claude -ConfigDir <account folder> -Yes

@@ -9,7 +9,7 @@ If `codex` is missing, follow [install.md](install.md) first. Continue with acco
 pwsh -NoProfile -File <plugin>/bin/ps-ai-account.ps1 -Action add -Tool codex -Id <id> [-ConfigDir <existing folder>] [-HomeRoot <home>]
 ```
 
-This creates the `CODEX_HOME` wrapper, config folder, and personalisation entry. For a new folder only, tell the owner to run `<id>` in a terminal and log in once; never read tokens. Then install ps-ai into that account's config folder and validate:
+This creates the `CODEX_HOME` wrapper, config folder, and personalisation entry. Make sure `<home>/.legion/bin` is on the user PATH (add it once if missing; never in tests). For a new folder only, tell the owner to run `<id>` in a terminal and log in once; never read tokens. Then install ps-ai into that account's config folder and validate:
 
 ```text
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools codex -ConfigDir <account folder> -Yes
