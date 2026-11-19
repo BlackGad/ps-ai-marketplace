@@ -12,6 +12,7 @@ param(
 # Standalone: this file also runs as downloaded script text in Windows PowerShell 5.1.
 function Get-InstallSourceText {
     param([string]$Url)
+    $ProgressPreference = 'SilentlyContinue'
     return (Invoke-WebRequest -Uri $Url -UseBasicParsing -ErrorAction Stop).Content
 }
 
@@ -406,6 +407,7 @@ function Add-InstallPowerShellPath {
 
 function Invoke-InstallDownload {
     param([string]$Url, [string]$OutFile)
+    $ProgressPreference = 'SilentlyContinue'
     Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
 }
 

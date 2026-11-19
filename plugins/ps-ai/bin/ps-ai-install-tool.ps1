@@ -77,6 +77,7 @@ function Invoke-ToolCommand {
 
 function Invoke-ToolDownload {
     param([string]$Url, [string]$OutFile)
+    $ProgressPreference = 'SilentlyContinue'
     Invoke-WebRequest -Uri $Url -OutFile $OutFile -ErrorAction Stop
 }
 
