@@ -38,7 +38,8 @@
         Assert-True ($limits -match 'ping') "$tool keeps account limit ping"
         $launcher = Get-Content (Join-Path $directory 'references/launcher.md') -Raw
         Assert-True ($launcher.Contains("-Tool $tool") -and $launcher.Contains('-Account')) "$tool launcher selects an account"
-        Assert-True ($launcher.Contains('launch.args') -and $launcher.Contains('launch')) "$tool owns launch examples"
+        Assert-True ($launcher.Contains('-Arguments') -and $launcher.Contains('-Model')) "$tool owns explicit launch examples"
+        Assert-True ($launcher -notmatch 'launch\.args|models\.overseer|communication\.channels|Telegram|markdownv2') "$tool routes channels without transport details"
     }
     foreach ($tool in @('claude','codex')) {
         $directory = Join-Path $skills "ps-ai-$tool"
@@ -63,6 +64,8 @@
     $codex = Get-Content (Join-Path $skills 'ps-ai-codex/references/accounts.md') -Raw
     Assert-True ($codex.Contains('not yet proven against Foundry')) 'Codex retains verification limit'
     $sharedReviews = Get-Content (Join-Path $skills 'ps-ai-overseer/references/reviews.md') -Raw
+    $communication = Get-Content (Join-Path $skills 'ps-ai-overseer/references/communication.md') -Raw
+    Assert-True ($communication.Contains('skills/ps-ai-<kind>/SKILL.md')) 'Shared channel operations route dynamically'
     Assert-True ($sharedReviews -match 'tool-enforced read-only' -and $sharedReviews -match 'stop') 'Shared reviews stop without enforced read-only access'
     $knowledge = Get-Content (Join-Path $skills 'ps-ai-knowledge/references/llm-wiki-setup.md') -Raw
     Assert-True ($knowledge.Contains('never run') -and $knowledge.Contains('references/plugins.md') -and $knowledge.Contains('only when')) 'Knowledge offers optional tool-owned hints only on request or for owner action'

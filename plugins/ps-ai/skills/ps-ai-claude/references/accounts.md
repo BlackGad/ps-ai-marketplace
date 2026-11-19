@@ -1,5 +1,6 @@
 # Claude Code accounts
 
+Read owner notes before account/model selection, dispatch or limit fallback. Use actual stated models and exclusions, account purposes, careful-use choices and paid-use approval. Re-read after edits. Channel operations route through `skills/ps-ai-<kind>/SKILL.md`; stop if missing.
 Use the plugin's existing `bin/ps-ai-account.ps1` and the marketplace's remote `install.ps1` with PowerShell 7. Read account IDs from personalisation, suggest `claude<n>` (the next unused number), and accept a valid custom lowercase hyphenated ID. The account script rejects duplicate IDs and command names on PATH.
 
 If `claude` is missing, follow [install.md](install.md) first. Continue with account setup only after the CLI is available.
@@ -17,9 +18,9 @@ pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Pat
 
 To adopt an existing signed-in folder, pass `-ConfigDir <existing folder>` to `add`. The folder must exist. This creates a new shortcut for that folder, records it as `configDir`, preserves its settings, and does not run or request a new login. The account script never reads credentials or tests sign-in; only the owner needs to sign in if the CLI later asks.
 
-For every new, adopted, registered, or Foundry account, install ps-ai with the same `install.ps1` command above. Explain the installation and get the owner's yes first; use approval already given in the conversation. Only then pass `-Yes`. Use the recorded folder for `<account folder>`, expanding `~/` against the chosen home; for `default` omit `-ConfigDir`. Validate afterward. If installation fails or is declined, report account setup as incomplete. Do not implement marketplace or plugin installation in the account script or run separate tool install commands here.
+For every new, adopted, registered, or Foundry account, install ps-ai with the same `install.ps1` command above. Explain the installation and get the owner's yes first; use approval already given in the conversation. Only then pass `-Yes`. Use the recorded folder for `<account folder>`, expanding `~/` against the chosen home; resolve any previous default-folder answer through the selected descriptor to a concrete folder. Validate afterward. If installation fails or is declined, report account setup as incomplete. Do not implement marketplace or plugin installation in the account script or run separate tool install commands here.
 
-For an existing wrapper, use `-Action register -Id <id> -Tool claude -Command <wrapper> -ConfigDir <dir> -HomeRoot <home>`; do not recreate its login. Rename with `-Action rename -Id <old> -NewId <new>`, or remove with `-Action remove -Id <id>`, then validate. The script updates global and project routing references, keeps the config folder, and prints its location. Do not rename or delete that folder without the owner's explicit choice.
+For an existing wrapper, use `-Action register -Id <id> -Tool claude -Command <wrapper> -ConfigDir <dir> -HomeRoot <home>`; do not recreate its login. Rename with `-Action rename -Id <old> -NewId <new>`, or remove with `-Action remove -Id <id>`, then validate. The script updates exact channel account bindings, keeps the config folder, and prints its location. Do not rename or delete that folder without the owner's explicit choice.
 
 ## Foundry agent
 
@@ -41,7 +42,7 @@ Ask which deployments to keep, which Claude aliases to assign, and which deploym
 & "<plugin>/bin/ps-ai-account.ps1" -Action add -Tool claude -Id '<id>' -Provider foundry -Endpoint "https://<resource>.cognitiveservices.azure.com" -Deployments @('claude-opus-x','claude-sonnet-x') -Default claude-opus-x -Aliases @('claude-opus-x=opus','claude-sonnet-x=sonnet')
 ```
 
-Aliases are optional: `opus`, `sonnet`, `haiku`, or `fable`, each used once. The default must be a selected deployment name. Add writes the provider entry with empty roles, the wrappers, and `modelPicker` in the account's `settings.json`. Other settings remain. Invalid JSON stops with `settings.json is not valid JSON; fix or remove it`. Repeating the same id, tool, provider, and endpoint prints `skip: account <id> (already done)`.
+Aliases are optional: `opus`, `sonnet`, `haiku`, or `fable`, each used once. The default must be a selected deployment name. Add writes the provider entry with the wrappers, and `modelPicker` in the account's `settings.json`. Other settings remain. Invalid JSON stops with `settings.json is not valid JSON; fix or remove it`. Repeating the same id, tool, provider, and endpoint prints `skip: account <id> (already done)`.
 
 For "update models for <id>", first list without writing:
 

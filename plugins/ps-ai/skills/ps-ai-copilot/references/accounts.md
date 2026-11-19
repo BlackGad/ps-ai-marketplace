@@ -1,5 +1,6 @@
 # Copilot CLI accounts
 
+Read owner notes before account/model selection, dispatch or limit fallback. Use actual stated models and exclusions, account purposes, careful-use choices and paid-use approval. Re-read after edits. Channel operations route through `skills/ps-ai-<kind>/SKILL.md`; stop if missing.
 Use `bin/ps-ai-account.ps1` from the plugin. Read existing IDs, suggest `copilot<n>` (next unused number), and accept a valid custom lowercase hyphenated ID. The script rejects collisions.
 
 If `copilot` is missing, follow [install.md](install.md) first. Continue with account setup only after the CLI is available.
@@ -17,9 +18,9 @@ pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Pat
 
 To adopt an existing signed-in folder, pass `-ConfigDir <existing folder>` to `add`. The folder must exist. This creates a new shortcut for that folder, records it as `configDir`, preserves its settings, and does not run or request a new login. The account script never reads credentials or tests sign-in; only the owner needs to sign in if the CLI later asks.
 
-For every new, adopted, registered, or Foundry account, install ps-ai with the same `install.ps1` command above. Explain the installation and get the owner's yes first; use approval already given in the conversation. Only then pass `-Yes`. Use the recorded folder for `<account folder>`, expanding `~/` against the chosen home; for `default` omit `-ConfigDir`. Validate afterward. If installation fails or is declined, report account setup as incomplete. Do not implement marketplace or plugin installation in the account script or run separate tool install commands here.
+For every new, adopted, registered, or Foundry account, install ps-ai with the same `install.ps1` command above. Explain the installation and get the owner's yes first; use approval already given in the conversation. Only then pass `-Yes`. Use the recorded folder for `<account folder>`, expanding `~/` against the chosen home; resolve any previous default-folder answer through the selected descriptor to a concrete folder. Validate afterward. If installation fails or is declined, report account setup as incomplete. Do not implement marketplace or plugin installation in the account script or run separate tool install commands here.
 
-Register an existing wrapper with `-Action register -Id <id> -Tool copilot -Command <wrapper> -ConfigDir <dir> -HomeRoot <home>`. Rename with `-Action rename -Id <old> -NewId <new>`, or remove with `-Action remove -Id <id>`, then validate. Global and project routing references are updated; the script keeps and reports the config folder. Ask before changing or deleting that folder.
+Register an existing wrapper with `-Action register -Id <id> -Tool copilot -Command <wrapper> -ConfigDir <dir> -HomeRoot <home>`. Rename with `-Action rename -Id <old> -NewId <new>`, or remove with `-Action remove -Id <id>`, then validate. Exact channel account bindings are updated; the script keeps and reports the config folder. Ask before changing or deleting that folder.
 
 ## Foundry agent
 
@@ -41,7 +42,7 @@ Ask which Claude deployments to keep and which is the default. Copilot has no Cl
 & "<plugin>/bin/ps-ai-account.ps1" -Action add -Tool copilot -Id '<id>' -Provider foundry -Endpoint "https://<resource>.cognitiveservices.azure.com" -Deployments @('claude-opus-x','claude-sonnet-x') -Default claude-opus-x
 ```
 
-Add writes the provider entry with empty roles and the wrappers. It writes no persistent Copilot provider config. The default must be selected, but the runner does not select it at launch; select the desired model in Copilot. Repeating the same id, tool, provider, and endpoint prints `skip: account <id> (already done)`.
+Add writes the provider entry and the wrappers. It writes no persistent Copilot provider config. The default must be selected, but the runner does not select it at launch; select the desired model in Copilot. Repeating the same id, tool, provider, and endpoint prints `skip: account <id> (already done)`.
 
 For "update models for <id>", first list without writing:
 

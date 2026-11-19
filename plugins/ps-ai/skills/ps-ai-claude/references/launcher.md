@@ -1,15 +1,11 @@
-# Claude overseer launcher
+# Interactive overseer launch
 
-Use the shared [launcher shim](../../ps-ai-personalisation/references/launcher.md) after selecting an account from personalisation:
+Read owner notes before choosing an account and actual model. Follow exclusions, careful use and paid-use approval. Re-read after edits. Any chosen session may oversee without channels.
 
-```text
-ps-ai-overseer -Tool claude -Account agent-a -Repo <repo> -DryRun
+```powershell
+pwsh -NoProfile -File <plugin>/bin/ps-ai-overseer.ps1 -Account <id> -Tool claude -Repo <repo> -Model <chosen-model> -Arguments @('<argument>', 'two words', '')
 ```
 
-Run without `-DryRun` only when the owner requests the launch. Direct shim invocation is authorization; an offer from another session needs the owner's yes. The account's `command` selects its executable or wrapper. An account wrapper sets `CLAUDE_CONFIG_DIR` to its configured folder; the launcher invokes that wrapper rather than setting the variable itself. `configDir` records the folder; `default` keeps the CLI's default account folder (`~/.claude`). Extra accounts use `~/.agents/accounts/<id>/`. Register the chosen command and folder through [accounts.md](accounts.md).
+`-Account` is required; bare invocation prints usage. Commands are derived from the canonical wrapper. `-Arguments` preserves each literal array element. Explicit `-Model` and model flags must agree; matching choices suppress added flags and missing values fail. Additional model arguments precede explicit arguments, channel vectors, interactive arguments and the initial prompt. No saved account or project launch preferences are read.
 
-The shared launcher merges account `agents[].launch.args`, `communication.channels.<name>.launch.claude`, and `projects.<id>.launch.claude` in that order, followed by the tool's interactive arguments and initial prompt. Preserve each array item as one argument and use only flags supported by this CLI.
-
-For example, account `launch.args: ["--verbose"]`, channel `launch: {"claude":["--channels","plugin:telegram@claude-plugins-official"]}`, and project `launch: {"claude":["--verbose"]}` are merged without splitting values. Configure only an installed, owner-selected channel plugin. There are no extra interactive arguments for this tool.
-
-The account's `models.overseer` becomes `--model <model>` unless an account, channel, or project launch array already selects a model explicitly. Explicit model flags take precedence over the role preference.
+For destinations, follow the selected `skills/ps-ai-<kind>/SKILL.md`. Pass explicit `-Channel <id[]>` only after setup. Missing support, tools or bindings fail before launch. Same-kind destinations resolve independently while their kind/account launch vector is emitted once. Never silently switch accounts; name an eligible alternate before relaunch.

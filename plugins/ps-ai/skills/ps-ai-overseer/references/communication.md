@@ -1,7 +1,19 @@
-# Owner communication and launcher offer
+# Owner communication and session handoff
 
-Read `projects.<id>.notify` (or `default.notify`) in personalisation. Use each channel's `format` and `tone`; keep the owner's language and one-question-at-a-time preference. Report meaningful steps in two to five plain sentences: what finished, evidence, what runs now. For “progress?”, read the handoff, recent commits, and current report rather than memory. Put open decisions at the top when the owner is away.
+Read owner notes before communication and account/model choices. Read repository workflow for local notification preferences. Current instructions win. Re-read after edits. Report meaningful steps in two to five plain sentences: result, evidence and next action. For progress, inspect handoff, commits and reports. Put open decisions first when the owner is away.
 
-If the owner says continue inside an interactive session that lacks the project's channel tool, ask first: **“This session has no Telegram. Open an overseer window with it?”** Substitute the actual channel name if it is not Telegram. The launcher offer and any other pre-lease question must not write the handoff. Run `pwsh -NoProfile -File <plugin>/bin/ps-ai-overseer.ps1 -Repo <repo> [-Tool <tool>] [-Account <id>]` only after the owner says yes. The current session stays ad hoc. If the owner says no, do not take the lease. A direct `ps-ai-overseer` command typed by the owner is already a launch request; it does not need this offer. In a guided simulation, describe the proposed launch without running it; show commands only when requested or when the owner must run them themselves.
+Any owner-started repository session may take the lease on request, including one with no channel. Declining a relaunch permits current channel-free oversight. No preset overseer account exists.
 
-After taking the lease, write the handoff to disk with the exact decision needed before an owner question. Before the lease is taken, ask without writing it. Ask only a real design, scope, API, budget, or tool choice. Offer the recommended option first and give one sentence of tradeoff for each option. Decide routine bookkeeping yourself.
+For requested destinations, resolve each ID and its bindings. Clarify ambiguous targets. Route setup and sending through `skills/ps-ai-<kind>/SKILL.md`; stop if missing. Finish missing setup before channel handoff. Notes override kind defaults.
+
+Prefer the current account when it is bound to every selected destination and required session tools are available. Otherwise name a supported bound alternate before an authorized relaunch. If the current tool is unsupported, explain and name the alternate; never silently change accounts. Disjoint bindings cannot share one launch. The launcher validates explicit choices; it never selects from prose.
+
+After approval, handoff order is strict: write accurate handoff to disk; release the lease; launch the chosen account with explicit channels in the same repo; tell the owner where to continue; stop old-session overseer work. Launch through:
+
+```text
+pwsh -NoProfile -File <plugin>/bin/ps-ai-overseer.ps1 -Account <id> -Tool <tool> -Channel <id[]> -Repo <repo>
+```
+
+The new session takes the lease, reads handoff and confirms takeover through the channel skill. A failed launch leaves accurate handoff evidence; the old session must reacquire the lease before resuming oversight. No overlapping overseers.
+
+Before every owner question after taking the lease, write the exact decision needed to handoff. Pre-lease questions write nothing. Ask real design, scope, API, budget or tool choices. Recommend first and explain tradeoffs briefly. Direct launcher invocation is authorization to launch. Simulations describe proposed actions without running them.

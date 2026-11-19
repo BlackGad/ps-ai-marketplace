@@ -5,6 +5,8 @@ description: Use when the overseer dispatches Copilot CLI work or the owner asks
 
 # Copilot CLI tool
 
+Read the owner's notes before choosing accounts or models. Respect stated exclusions and spending choices. Re-read after edits. Use the selected channel kind's skill for channel work.
+
 ## Identity and hard rules
 
 Use this tool skill for Copilot CLI operations only. Load `ps-ai-personalisation` and its notes first; choose the account, role, model, and any paid-account approval there. The overseer owns task selection and the handoff. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
@@ -29,5 +31,5 @@ Stop when account/model or report path is missing, a resume would switch account
 
 ## Launcher and plugins
 
-Use [launcher.md](references/launcher.md) to open an overseer session with the chosen account, channel, and project.
+Use [launcher.md](references/launcher.md) to open an overseer session with the chosen account, channels and repository.
 Use [install.md](references/install.md) for ps-ai setup in the selected account and restarting after an update.

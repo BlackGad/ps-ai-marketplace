@@ -1,15 +1,13 @@
-# Codex overseer launcher
+# Interactive overseer launch
 
-Use the shared [launcher shim](../../ps-ai-personalisation/references/launcher.md) after selecting an account from personalisation:
+Read owner notes before choosing an account and actual model. Follow exclusions, careful use and paid-use approval. Re-read after edits. Any chosen session may oversee without channels.
 
-```text
-ps-ai-overseer -Tool codex -Account agent-a -Repo <repo> -DryRun
+```powershell
+pwsh -NoProfile -File <plugin>/bin/ps-ai-overseer.ps1 -Account <id> -Tool codex -Repo <repo> -Model <chosen-model> -Arguments @('<argument>', 'two words', '')
 ```
 
-Run without `-DryRun` only when the owner requests the launch. Direct shim invocation is authorization; an offer from another session needs the owner's yes. The account's `command` selects its executable or wrapper. An account wrapper sets `CODEX_HOME` to its configured folder; the launcher invokes that wrapper rather than setting the variable itself. `configDir` records the folder; `default` keeps the CLI's default account folder (`~/.codex`). Extra accounts use `~/.agents/accounts/<id>/`. Register the chosen command and folder through [accounts.md](accounts.md).
+`-Account` is required; bare invocation prints usage. Commands are derived from the canonical wrapper. `-Arguments` preserves each literal array element. Explicit `-Model` and model flags must agree; matching choices suppress added flags and missing values fail. Additional model arguments precede explicit arguments, channel vectors, interactive arguments and the initial prompt. No saved account or project launch preferences are read.
 
-The shared launcher merges account `agents[].launch.args`, `communication.channels.<name>.launch.codex`, and `projects.<id>.launch.codex` in that order, followed by the tool's interactive arguments and initial prompt. Preserve each array item as one argument and use only flags supported by this CLI.
+For destinations, follow the selected `skills/ps-ai-<kind>/SKILL.md`. Pass explicit `-Channel <id[]>` only after setup. Missing support, tools or bindings fail before launch. Same-kind destinations resolve independently while their kind/account launch vector is emitted once. Never silently switch accounts; name an eligible alternate before relaunch.
 
-Account and project argument arrays may contain owner-selected model flags such as `["--model","<model>"]`. There are no extra interactive arguments for this tool. Preserve the configured sandbox; see [run.md](run.md). Hook trust is described in [plugins.md](plugins.md).
-
-The account's `models.overseer` becomes `--model <model>` unless an account, channel, or project launch array selects a model explicitly (`--model`, `-m`, or a root `model` configuration override). Those explicit settings take precedence over the role preference.
+Codex also checks root model overrides in `-c` and `--config` joined or separate forms. Other configuration overrides remain literal.
