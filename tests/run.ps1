@@ -3,6 +3,7 @@ $passed = 0
 foreach ($test in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Sort-Object Name) {
     try {
         & {
+            $ErrorActionPreference = 'Stop'
             . (Join-Path $PSScriptRoot 'Assert.ps1')
             & $test.FullName
         }

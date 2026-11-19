@@ -12,6 +12,10 @@ Assert-True ($null -eq (Get-Command fixture-leak -ErrorAction SilentlyContinue))
     Assert-Equal 0 $LASTEXITCODE 'Isolated runner succeeds'
     Assert-Equal '2 passed, 0 failed' $output[-1] 'Runner counts files without test scope leakage'
     Assert-True ($output -contains 'Test files:') 'Counts are explicitly labeled'
+    "Write-Error 'fixture nonterminating failure'" | Set-Content (Join-Path $tempRoot 'C.Tests.ps1')
+    $failedOutput = & pwsh -NoProfile -File (Join-Path $tempRoot 'run.ps1') 2>$null
+    Assert-Equal 1 $LASTEXITCODE 'Runner fails on unexpected PowerShell errors'
+    Assert-Equal '2 passed, 1 failed' $failedOutput[-1] 'Nonterminating errors count as failed files'
 } finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force
 }
