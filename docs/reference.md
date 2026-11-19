@@ -122,6 +122,14 @@ To open an overseer session with all your launch flags (for example a Telegram c
 
 Foundry agents use one Azure endpoint per agent, such as `https://<resource>.cognitiveservices.azure.com`, and the owner's `az` login. Use the matching account guide linked above to add an agent or ask "update models for <id>". Discovery presents deployments before the owner chooses what to save.
 
+Manage legion accounts through the account's tool skill:
+
+| Say | Action |
+| --- | --- |
+| “extend the legion”, “add a minion”, “add a legion member”, “recruit”, “new worker” | Add a legion account |
+| Change a minion's model, rename, rebind a channel | Update a legion account |
+| “dismiss”, “retire a minion”, “remove from the legion” | Remove a legion account |
+
 ## Modes
 
 The `ps-ai` plugin lets Claude Code, Codex CLI and GitHub Copilot CLI share one way of running multi-agent work in a repository. One session acts as the **overseer**: it plans, hands tasks to working agents on your other accounts, reviews their results and keeps a tracked handoff, so any of the three tools can pick the work up later. Working agents (the **legion**) do one task each and report back.
