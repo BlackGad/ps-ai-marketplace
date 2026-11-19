@@ -420,23 +420,40 @@ function Get-InstallHome {
     return [Environment]::GetFolderPath('UserProfile')
 }
 
+function Resolve-InstallConfigDir {
+    param([string]$Path)
+    $Path = $Path.Replace('\', '/')
+    if ($Path -eq '~') { $Path = Get-InstallHome }
+    elseif ($Path.StartsWith('~/')) { $Path = Join-Path (Get-InstallHome) $Path.Substring(2) }
+    $Path = [IO.Path]::GetFullPath($Path)
+    if ($Path.Length -gt [IO.Path]::GetPathRoot($Path).Length) { $Path = $Path.TrimEnd('\', '/') }
+    return $Path
+}
+
 function Get-UpdateConfigDirs {
     param([string]$Tool, [string]$ConfigDir)
     if ($ConfigDir) { return ,@($ConfigDir) }
-    # An empty directory selects the CLI default, with its environment override cleared.
-    $folders = @('')
+    $entry = Get-InstallTool -Tool $Tool
+    $override = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
+    $defaultFolder = if ($override) { $override } else { $entry.plugin.defaultConfigDir }
+    if ($defaultFolder) { $defaultFolder = Resolve-InstallConfigDir $defaultFolder }
+    $folders = @()
     $homeRoot = Get-InstallHome
     $file = Join-Path $homeRoot '.agents/configuration/ps-ai-personalisation.json'
     if (Test-Path -LiteralPath $file -PathType Leaf) {
         $data = Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         foreach ($agent in $data.agents) {
             if ($agent.tool -cne $Tool -or [string]::IsNullOrWhiteSpace($agent.configDir) -or $agent.configDir -eq 'default') { continue }
-            $folder = $agent.configDir
-            if ($folder -match '^~[/\\]') { $folder = Join-Path $homeRoot $folder.Substring(2) }
-            $folder = [IO.Path]::GetFullPath($folder)
+            $folder = Resolve-InstallConfigDir $agent.configDir
             $alreadyListed = if ($env:OS -eq 'Windows_NT') { $folders -contains $folder } else { $folders -ccontains $folder }
             if (-not $alreadyListed) { $folders += $folder }
         }
+    }
+    $defaultListed = if ($env:OS -eq 'Windows_NT') { $folders -contains $defaultFolder } else { $folders -ccontains $defaultFolder }
+    if (-not $defaultListed) {
+        # Keep the CLI's implicit default only when no recorded account selects it.
+        $target = if ($override) { $defaultFolder } else { '' }
+        $folders = @($target) + $folders
     }
     return ,$folders
 }
@@ -546,14 +563,7 @@ function Invoke-PsAiUninstall {
     foreach ($tool in ($selectedTools | Select-Object -Unique)) {
         $entry = Get-InstallTool -Tool $tool
         if (-not (Test-InstallCommandAvailable -Name $entry.command)) { "skip: $tool (not installed)"; continue }
-        $seenFolders = @()
         foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
-            $resolved = if ($folder) { $folder } else { $entry.plugin.defaultConfigDir }
-            if ($resolved -match '^~[/\\]') { $resolved = Join-Path $homeRoot $resolved.Substring(2) }
-            if ($resolved) { $resolved = [IO.Path]::GetFullPath($resolved).TrimEnd('\', '/') }
-            $seen = if ($env:OS -eq 'Windows_NT') { $seenFolders -contains $resolved } else { $seenFolders -ccontains $resolved }
-            if ($seen) { continue }
-            $seenFolders += $resolved
             $label = if ($folder) { $folder } else { 'default config' }
             $steps = @()
             foreach ($kind in @('plugin', 'marketplace')) {

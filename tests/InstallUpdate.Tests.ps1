@@ -70,7 +70,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         $output = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Update)
         Assert-Equal 21 $calls.Count 'Seven distinct targets each list and run two refresh steps'
         foreach ($entry in $catalog.tools) {
-            Assert-True ($calls -contains "$($entry.id):|$($entry.command)|plugin|list$(if ($entry.id -eq 'claude') { '|--json' })") 'Default config ignores inherited account override'
+            $inherited = [IO.Path]::GetFullPath('inherited-account')
+            Assert-True ($calls -contains "$($entry.id):$inherited|$($entry.command)|plugin|list$(if ($entry.id -eq 'claude') { '|--json' })") 'Default config honors inherited account override'
             Assert-Equal 'inherited-account' ([Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')) 'Update restores caller config env'
         }
         $custom = Join-Path $sandbox 'custom account'
