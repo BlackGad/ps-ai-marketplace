@@ -300,5 +300,68 @@
       "commands": [],
       "docs": "https://gitlab.com/gitlab-org/cli#installation"
     }
+  },
+  "bun": {
+    "check": [
+      "bun",
+      "--version"
+    ],
+    "windows": {
+      "wingetId": "Oven-sh.Bun",
+      "portableCommand": "bun.exe",
+      "download": {
+        "msi": {
+          "kind": "script",
+          "url": "https://bun.sh/install.ps1",
+          "verification": "vendor"
+        },
+        "zip": {
+          "kind": "script",
+          "url": "https://bun.sh/install.ps1",
+          "verification": "vendor"
+        }
+      }
+    },
+    "macos": {
+      "needs": [],
+      "commands": [
+        [
+          "bash",
+          "-c",
+          "curl -fsSL https://bun.com/install | bash"
+        ]
+      ],
+      "docs": ""
+    },
+    "linux": {
+      "needs": [
+        "unzip"
+      ],
+      "commands": [
+        [
+          "bash",
+          "-c",
+          "curl -fsSL https://bun.com/install | bash"
+        ]
+      ],
+      "docs": ""
+    }
+  },
+  "unzip": {
+    "check": [
+      "unzip",
+      "-v"
+    ],
+    "windows": null,
+    "macos": {
+      "needs": [],
+      "commands": [],
+      "docs": "https://infozip.sourceforge.net/"
+    },
+    "linux": {
+      "needs": [],
+      "commands": [],
+      "docs": "https://bun.com/docs/installation"
+    }
   }
 }

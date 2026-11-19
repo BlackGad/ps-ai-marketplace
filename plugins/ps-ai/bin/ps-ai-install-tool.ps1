@@ -24,7 +24,7 @@ function Get-ToolRecipe {
     $needs = [string[]]@()
     $docs = ''
     $install = [object[]]@()
-    if ($Platform -eq 'windows') {
+    if ($Platform -eq 'windows' -and $null -ne $data.windows) {
         $install = @(,([string[]]@('winget','install','--id',$data.windows.wingetId,'-e')))
     } else {
         $needs = [string[]]@($data.$Platform.needs)
@@ -63,7 +63,10 @@ function Test-ToolInstalled {
     if (-not $command) { return @{ Installed=$false; Version='' } }
     try {
         $arguments = [string[]]@($check | Select-Object -Skip 1)
-        $version = (& $command @arguments 2>$null | Select-Object -First 1)
+        $global:LASTEXITCODE = 0
+        $versionLines = @(& $command @arguments 2>$null)
+        if ($LASTEXITCODE -ne 0) { return @{ Installed=$false; Version='' } }
+        $version = $versionLines | Select-Object -First 1
         return @{ Installed=$true; Version=([string]$version).Trim() }
     } catch { return @{ Installed=$false; Version='' } }
 }

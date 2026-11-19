@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "telegram",
+  "launch": {
+    "claude": ["--channels", "plugin:telegram@claude-plugins-official"]
+  }
+}

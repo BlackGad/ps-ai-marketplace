@@ -53,7 +53,7 @@ $installSchema = @{
     '$ref' = '#/$defs/install'
 } | ConvertTo-Json -Depth 100
 $helpers = Get-Content -LiteralPath $helpersPath -Raw | ConvertFrom-Json -AsHashtable
-Assert-Equal 'az|gh|git|glab|node|pwsh' (($helpers.Keys | Sort-Object) -join '|') 'Helpers have no agent descriptors'
+Assert-Equal 'az|bun|gh|git|glab|node|pwsh|unzip' (($helpers.Keys | Sort-Object) -join '|') 'Helpers have no agent descriptors'
 foreach ($id in $helpers.Keys) {
     $recipe = $helpers[$id]
     Assert-True (Test-Json -Json ($recipe | ConvertTo-Json -Depth 100) -Schema $installSchema -ErrorAction SilentlyContinue) "$id helper validates"
@@ -179,7 +179,7 @@ try {
     Move-Item -LiteralPath (Join-Path $folder 'scripts/foundry-launch.held') -Destination (Join-Path $folder 'scripts/foundry-launch.ps1')
     $recipes = Get-PsAiInstallRecipes -SkillsRoot $discoveryRoot
     Assert-True ($recipes -is [hashtable]) 'Install recipes return one hashtable'
-    Assert-Equal 'az|fourth|gh|git|glab|node|pwsh' (($recipes.Keys | Sort-Object) -join '|') 'Recipes combine helper and agent installs'
+    Assert-Equal 'az|bun|fourth|gh|git|glab|node|pwsh|unzip' (($recipes.Keys | Sort-Object) -join '|') 'Recipes combine helper and agent installs'
     Assert-Equal 'fourth-cli|--version' ($recipes.fourth.check -join '|') 'Fourth install recipe is exposed'
     Copy-Item -LiteralPath $helpersPath -Destination (Join-Path $discoveryRoot 'relative-helpers.json')
     Push-Location -LiteralPath $discoveryRoot
@@ -188,7 +188,7 @@ try {
         try { $relativeRecipes = Get-PsAiInstallRecipes -SkillsRoot $discoveryRoot -HelpersPath './relative-helpers.json' }
         catch { $relativeError = $_.Exception.Message }
         Assert-Equal '' $relativeError 'Relative HelpersPath resolves without a read error'
-        Assert-Equal 'az|fourth|gh|git|glab|node|pwsh' (($relativeRecipes.Keys | Sort-Object) -join '|') 'Relative HelpersPath uses the PowerShell current location'
+        Assert-Equal 'az|bun|fourth|gh|git|glab|node|pwsh|unzip' (($relativeRecipes.Keys | Sort-Object) -join '|') 'Relative HelpersPath uses the PowerShell current location'
     } finally { Pop-Location }
     $dateArgument = '2026-11-18T18:30:00+00:00'
     $dateData = $original | ConvertFrom-Json -AsHashtable
