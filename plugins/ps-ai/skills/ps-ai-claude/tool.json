@@ -4,6 +4,8 @@
   "foundry": {"deploymentPrefix": "claude", "aliases": ["opus", "sonnet", "haiku", "fable"]},
   "overseerArgs": [],
   "plugin": {
+    "defaultConfigDir": "~/.claude",
+    "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
     "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
     "install": ["plugin", "install", "ps-ai@ps-ai-marketplace"],
     "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],

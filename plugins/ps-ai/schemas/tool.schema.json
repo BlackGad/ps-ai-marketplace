@@ -76,6 +76,14 @@
         "listing"
       ],
       "properties": {
+        "defaultConfigDir": {
+          "type": "string",
+          "pattern": "^(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))~/[^:]+$"
+        },
+        "installedRoot": {
+          "type": "string",
+          "pattern": "^(?![/\\\\]|[A-Za-z]:|~[/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
+        },
         "marketplaceAdd": {
           "$ref": "#/$defs/arguments"
         },

@@ -4,6 +4,8 @@
   "foundry": {"deploymentPrefix": "gpt", "aliases": []},
   "overseerArgs": [],
   "plugin": {
+    "defaultConfigDir": "~/.codex",
+    "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
     "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
     "install": ["plugin", "add", "ps-ai@ps-ai-marketplace"],
     "marketplaceUpdate": ["plugin", "marketplace", "upgrade"],

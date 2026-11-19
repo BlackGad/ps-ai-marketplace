@@ -60,6 +60,8 @@
       "command": "claude",
       "configEnv": "CLAUDE_CONFIG_DIR",
       "plugin": {
+        "defaultConfigDir": "~/.claude",
+        "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
         "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
         "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
         "marketplaceAdd": [
@@ -100,6 +102,8 @@
       "command": "codex",
       "configEnv": "CODEX_HOME",
       "plugin": {
+        "defaultConfigDir": "~/.codex",
+        "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
         "marketplaceUpdate": ["plugin", "marketplace", "upgrade"],
         "update": ["plugin", "add", "ps-ai@ps-ai-marketplace"],
         "marketplaceAdd": [
@@ -138,6 +142,8 @@
       "command": "copilot",
       "configEnv": "COPILOT_HOME",
       "plugin": {
+        "defaultConfigDir": "~/.copilot",
+        "installedRoot": "installed-plugins",
         "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
         "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
         "marketplaceAdd": [

@@ -4,6 +4,8 @@
   "foundry": {"deploymentPrefix": "claude", "aliases": []},
   "overseerArgs": ["-i"],
   "plugin": {
+    "defaultConfigDir": "~/.copilot",
+    "installedRoot": "installed-plugins",
     "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
     "install": ["plugin", "install", "ps-ai@ps-ai-marketplace"],
     "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],

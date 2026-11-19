@@ -77,6 +77,19 @@ function Get-InstallCatalog {
         foreach ($field in @('marketplaceAdd','install','marketplaceList','list','marketplaceUpdate','update')) {
             Assert-InstallArguments $tool.plugin.$field "plugin.$field"
         }
+        foreach ($field in @('defaultConfigDir','installedRoot')) {
+            $present = if ($tool.plugin -is [Collections.IDictionary]) { $tool.plugin.Contains($field) } else { $null -ne $tool.plugin.PSObject.Properties[$field] }
+            if (-not $present) { continue }
+            $value = $tool.plugin.$field
+            Assert-InstallString $value "plugin.$field"
+            if ($field -eq 'defaultConfigDir') {
+                if (-not $value.StartsWith('~/')) { throw 'invalid catalog plugin.defaultConfigDir: expected ~/ relative path' }
+                Assert-InstallRelativePath $value.Substring(2) 'plugin.defaultConfigDir'
+            } else {
+                Assert-InstallRelativePath $value 'plugin.installedRoot'
+                if ($value -match '^~[/\\]') { throw 'invalid catalog plugin.installedRoot: expected relative path' }
+            }
+        }
         $listing = $tool.plugin.listing
         Assert-InstallObject $listing 'listing'
         Assert-InstallString $listing.format 'listing.format'
@@ -362,12 +375,11 @@ function Invoke-InstallRefresh {
     }
     if (-not $paths.Count) {
         $homeRoot = Get-InstallHome
-        $configRoot = if ($ConfigDir) { $ConfigDir } else { Join-Path $homeRoot ('.' + $Entry.id) }
+        if (-not $Entry.plugin.installedRoot) { throw "$($Entry.id) plugin descriptor needs installedRoot to locate its installed refresh script." }
+        if (-not $ConfigDir -and -not $Entry.plugin.defaultConfigDir) { throw "$($Entry.id) plugin descriptor needs defaultConfigDir to locate its installed refresh script." }
+        $configRoot = if ($ConfigDir) { $ConfigDir } else { $Entry.plugin.defaultConfigDir }
         if ($configRoot -match '^~[/\\]') { $configRoot = Join-Path $homeRoot $configRoot.Substring(2) }
-        $cacheRoot = Join-Path $configRoot 'plugins/cache/ps-ai-marketplace/ps-ai'
-        # Copilot documents this installed-files root without a fixed version hierarchy.
-        # https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference
-        if ($Entry.id -eq 'copilot') { $cacheRoot = Join-Path $configRoot 'installed-plugins' }
+        $cacheRoot = Join-Path $configRoot $Entry.plugin.installedRoot
         if (Test-Path -LiteralPath $cacheRoot -PathType Container) {
             $paths = @(Get-ChildItem -LiteralPath $cacheRoot -Filter plugin.json -File -Recurse -ErrorAction Stop | ForEach-Object { $_.DirectoryName })
         }
