@@ -31,7 +31,7 @@ function Get-ToolRecipe {
         $docs = $data.$Platform.docs
         $install = [object[]]@($data.$Platform.commands)
     }
-    return [pscustomobject]@{ Check=[string[]]$data.check; Install=$install; Needs=$needs; Docs=$docs }
+    return [pscustomobject]@{ Install=$install; Needs=$needs; Docs=$docs }
 }
 
 function Test-ToolCommandAvailable {

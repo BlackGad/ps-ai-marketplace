@@ -14,9 +14,6 @@ foreach ($tool in @('claude', 'codex', 'copilot')) {
     Assert-Equal $expected[$tool][1] ($commands[1] -join '|') "$tool install command"
     Assert-Equal 'local source' $commands[0][4] "$tool source with space remains one argument"
 }
-Assert-Equal 'CLAUDE_CONFIG_DIR' (Get-ConfigEnvName -Tool claude) 'Claude config variable'
-Assert-Equal 'CODEX_HOME' (Get-ConfigEnvName -Tool codex) 'Codex config variable'
-Assert-Equal 'COPILOT_HOME' (Get-ConfigEnvName -Tool copilot) 'Copilot config variable'
 $previewLines = @(Invoke-PsAiInstaller -Tools claude -Source 'local source' -ConfigDir X -DryRun -Catalog (Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw | ConvertFrom-Json))
 Assert-True $? 'Injected dry run succeeds'
 Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin marketplace add "local source"') 'Dry run marketplace command'
@@ -128,7 +125,6 @@ try {
     $commands = Get-InstallCommands -Tool fourth -Source 'local source'
     Assert-Equal 'fourth-cli' $commands[0][0] 'Fourth executable comes from catalog'
     Assert-Equal 'local source' $commands[0][4] 'Source replacement remains one argument'
-    Assert-Equal 'FOURTH_HOME' (Get-ConfigEnvName fourth) 'Fourth environment comes from catalog'
     $state = @{ Commands=[Collections.Generic.List[string]]::new(); Versions=0; Detect=[Collections.Generic.List[string]]::new() }
     function Invoke-ClosedInput {
         param($Command)

@@ -130,11 +130,6 @@ function Get-InstallTool {
     throw "unknown tool '$Tool'"
 }
 
-function Get-ConfigEnvName {
-    param([string]$Tool)
-    return (Get-InstallTool -Tool $Tool).configEnv
-}
-
 function ConvertTo-InstallArgument {
     # Windows command-line quoting, including embedded quotes and trailing backslashes.
     param([string]$Value)
