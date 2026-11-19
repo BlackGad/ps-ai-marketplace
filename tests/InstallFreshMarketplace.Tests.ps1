@@ -10,7 +10,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $line = $Command -join '|'
         $calls.Add($line)
         switch ($line) {
-            'claude|plugin|marketplace|list' { return @{ExitCode=0; Output=@()} }
+            'claude|plugin|marketplace|list|--json' { return @{ExitCode=0; Output=@('[]')} }
             'claude|plugin|list|--json' { return @{ExitCode=0; Output=@('[]')} }
             'claude|plugin|marketplace|add|BlackGad/ps-ai-marketplace' { $state.Added=$true }
             'claude|plugin|marketplace|update|ps-ai-marketplace' {

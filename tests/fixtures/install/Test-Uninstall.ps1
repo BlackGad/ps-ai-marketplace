@@ -1,5 +1,6 @@
 param([string]$Installer, [string]$Catalog)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'MarketplaceListing.ps1')
 $catalogText = Get-Content -LiteralPath $Catalog -Raw
 $fixtureHome = Join-Path (Split-Path $Catalog) 'home'
 . ([scriptblock]::Create((Get-Content -LiteralPath $Installer -Raw))) -NoRun
@@ -21,7 +22,8 @@ function Invoke-ClosedInput {
         return @{ExitCode=0;Output=@($output)}
     }
     if ($Command[3] -eq 'list') {
-        return @{ExitCode=0;Output=@($(if ($state.Marketplace) { 'ps-ai-marketplace example/marketplace' }))}
+        $source = if ($state.Marketplace) { 'example/marketplace' } else { '' }
+        return @{ExitCode=0;Output=@(Get-FixtureMarketplaceListing -Tool $Command[0] -Source $source)}
     }
     if ($line -ne 'codex|plugin|remove|ps-ai@ps-ai-marketplace' -and
         $line -ne 'codex|plugin|marketplace|remove|ps-ai-marketplace') { throw "Unexpected fake mutation: $line" }

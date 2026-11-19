@@ -1,0 +1,8 @@
+[
+  {
+    "name": "ps-ai-marketplace",
+    "source": "github",
+    "repo": "BlackGad/ps-ai-marketplace",
+    "installLocation": "C:\\Users\\example\\.claude\\plugins\\marketplaces\\ps-ai-marketplace"
+  }
+]

@@ -1,4 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
 $script = Join-Path $root 'install.ps1'
 . $script -NoRun
 $script:installCatalog = Get-InstallCatalog -Source $root
@@ -14,7 +15,10 @@ foreach ($tool in @('claude', 'codex', 'copilot')) {
     Assert-Equal $expected[$tool][1] ($commands[1] -join '|') "$tool install command"
     Assert-Equal 'local source' $commands[0][4] "$tool source with space remains one argument"
 }
-$previewLines = @(Invoke-PsAiInstaller -Tools claude -Source 'local source' -ConfigDir X -DryRun -Catalog (Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw | ConvertFrom-Json))
+$previewLines = @(& {
+    function Test-InstallStepDone { $false }
+    Invoke-PsAiInstaller -Tools claude -Source 'local source' -ConfigDir X -DryRun -Catalog (Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw | ConvertFrom-Json)
+})
 Assert-True $? 'Injected dry run succeeds'
 Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin marketplace add "local source"') 'Dry run marketplace command'
 Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install ps-ai@ps-ai-marketplace') 'Dry run plugin command'
@@ -28,6 +32,9 @@ Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install 
         param([string[]]$Command)
         Assert-Equal 'selected-account' $env:CODEX_HOME 'Install uses selected account for checks and writes'
         $calls.Add(($Command -join '|'))
+        if ($Command -contains 'marketplace' -and $Command -contains 'list') {
+            return @{ ExitCode=0; Output=@(Get-FixtureMarketplaceListing -Tool codex) }
+        }
         return @{ ExitCode=0; Output=@() }
     }
     $previous = $env:CODEX_HOME

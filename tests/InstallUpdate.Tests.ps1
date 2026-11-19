@@ -78,7 +78,8 @@ $repo = Split-Path $PSScriptRoot -Parent
 
         $calls.Clear()
         $preview = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Update -DryRun)
-        Assert-Equal 0 $calls.Count 'Dry run does not invoke any CLI, including lists and versions'
+        Assert-Equal 7 $calls.Count 'Dry run reads installed state for seven targets'
+        Assert-Equal 0 @($calls | Where-Object { $_ -notmatch '\|list(?:\|--json)?$' }).Count 'Dry run only invokes read-only listings'
         Assert-True (($preview -join "`n").Contains('codex plugin add ps-ai@ps-ai-marketplace')) 'Dry run prints refresh commands'
         Assert-True (($preview -join "`n").Contains('custom account')) 'Dry run includes recorded accounts'
 

@@ -1,0 +1,2 @@
+Registered marketplaces:
+  • ps-ai-marketplace (GitHub: BlackGad/ps-ai-marketplace)

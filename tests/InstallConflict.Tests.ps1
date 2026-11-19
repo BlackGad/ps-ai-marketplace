@@ -1,4 +1,5 @@
 $repo = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
 & {
     . (Join-Path $repo 'install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
@@ -23,9 +24,12 @@ $repo = Split-Path $PSScriptRoot -Parent
             if ($state.FailList) { return @{ExitCode=4; Output=@()} }
             if ($Command[0] -in @($state.ConflictTool)) {
                 $source = if ($state.Unknown) { '' } else { 'https://github.com/example/old-source' }
-                return @{ExitCode=0; Output=@("ps-ai-marketplace $source")}
+                if ($state.Unknown) {
+                    $output = if ($Command[0] -eq 'copilot') { '[{"name":"ps-ai-marketplace","source":""}]' } else { 'ps-ai-marketplace' }
+                } else { $output = Get-FixtureMarketplaceListing -Tool $Command[0] -Source $source }
+                return @{ExitCode=0; Output=@($output)}
             }
-            return @{ExitCode=0; Output=@()}
+            return @{ExitCode=0; Output=@(Get-FixtureMarketplaceListing -Tool $Command[0])}
         }
         if ($Command[2] -eq 'list') {
             $output = if ($Command[0] -eq 'claude') { @('[]') } else { @() }
@@ -54,7 +58,7 @@ $repo = Split-Path $PSScriptRoot -Parent
             Assert-True ($calls -contains ((@($other.command) + $other.plugin.install) -join '|')) 'Other tools finish installing despite conflict'
         }
         Assert-True ($failure -match '1.*conflict') 'Run fails only after other tools finish'
-        Assert-Equal 0 @($calls | Where-Object { $_ -match "^$tool\|" -and $_ -notmatch '\|list$' }).Count 'Conflicting tool is not mutated'
+        Assert-Equal 0 @($calls | Where-Object { $_ -match "^$tool\|" -and $_ -notmatch '\|list(?:\|--json)?$' }).Count 'Conflicting tool is not mutated'
         Assert-Equal 0 @($calls | Where-Object { $_ -match '\|remove\|' }).Count 'Removal command is advice only'
     }
     $state.Unknown=$true

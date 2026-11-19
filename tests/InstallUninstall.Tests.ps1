@@ -1,4 +1,5 @@
 $repo = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
 & {
     . (Join-Path $repo 'install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
@@ -34,8 +35,9 @@ $repo = Split-Path $PSScriptRoot -Parent
                 else { 'ps-ai@ps-ai-marketplace installed (disabled)' }
             return @{ExitCode=0;Output=@($output)}
         }
-        if ($line -eq "$($entry.command)|plugin|marketplace|list") {
-            return @{ExitCode=0;Output=@($(if (-not $state.Missing) { 'ps-ai-marketplace example/other-source' }))}
+        if ($line -eq ((@($entry.command) + $entry.plugin.marketplaceList) -join '|')) {
+            $source = if ($state.Missing) { '' } else { 'example/other-source' }
+            return @{ExitCode=0;Output=@(Get-FixtureMarketplaceListing -Tool $entry.id -Source $source)}
         }
         $allowed = @('claude|plugin|uninstall|ps-ai@ps-ai-marketplace', 'codex|plugin|remove|ps-ai@ps-ai-marketplace',
             'copilot|plugin|uninstall|ps-ai@ps-ai-marketplace', 'claude|plugin|marketplace|remove|ps-ai-marketplace|--scope|user',
