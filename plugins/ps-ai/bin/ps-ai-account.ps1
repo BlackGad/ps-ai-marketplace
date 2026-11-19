@@ -74,15 +74,17 @@ function Assert-PsAiWrapperPath {
 
 function Write-PsAiPersonalisation {
     param($Data, [string]$Path)
-    $original = [System.IO.File]::ReadAllText($Path)
+    $original = if (Test-Path -LiteralPath $Path) { [System.IO.File]::ReadAllText($Path) } else { $null }
     if ($Data.PSObject.Properties['$schema']) {
         $Data.'$schema' = 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/schemas/personalisation.schema.json'
     }
     $json = $Data | ConvertTo-Json -Depth 100
+    New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
     [System.IO.File]::WriteAllText($Path, $json + "`n", [System.Text.UTF8Encoding]::new($false))
     $issues = @(Invoke-PsAiValidation -Kind personalisation -Path $Path)
     if ($issues.Count) {
-        [System.IO.File]::WriteAllText($Path, $original, [System.Text.UTF8Encoding]::new($false))
+        if ($null -eq $original) { Remove-Item -LiteralPath $Path }
+        else { [System.IO.File]::WriteAllText($Path, $original, [System.Text.UTF8Encoding]::new($false)) }
         throw ($issues -join '; ')
     }
 }
@@ -354,11 +356,9 @@ if ($Standard -and $Action -ne 'models' -and -not ($Action -eq 'add' -and $Provi
 $file = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
 if (-not (Test-Path -LiteralPath $file)) {
     # A fresh machine has no settings; the first agent added creates them.
-    if ($Action -ne 'add') { throw 'No ps-ai settings yet; add an agent first.' }
-    New-Item -ItemType Directory -Path (Split-Path $file -Parent) -Force | Out-Null
-    [IO.File]::WriteAllText($file, '{"schemaVersion":1,"agents":[],"channels":[]}')
-}
-$data = Read-PsAiJson -Path $file
+    if ($Action -notin @('add', 'register')) { throw 'No ps-ai settings yet; add an agent first.' }
+    $data = '{"schemaVersion":1,"agents":[],"channels":[]}' | ConvertFrom-Json
+} else { $data = Read-PsAiJson -Path $file }
 switch ($Action) {
     add {
         $descriptor = Get-PsAiTool -Tool $Tool
