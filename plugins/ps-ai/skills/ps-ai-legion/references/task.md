@@ -13,4 +13,6 @@ Legion runs without the CLI sandbox and inherits the owner's installed SDKs, too
 - Keep task file access, edits, reports, logs, and check output inside the assigned repository or worktree and within the assigned scope. Read installed skills and owner settings/notes as required, and use installed tools in place; never modify those locations or other folders. If task inputs are outside the worktree or a check needs to write elsewhere, stop and report it. The overseer must prepare local inputs or resolve the check before another run.
 - Commit only locally. Never push through any command or service, and never amend, rebase, or rewrite commits.
 
+In a Private worktree, the overseer supplies read-only copies of `.legion/configuration/` and `.legion/scripts/`. Run indexed checks from those copies. If a script or rule needs changing, stop and report it; the overseer makes that change through the main tree. Shared mode needs no copy.
+
 Never edit `.legion/state/handoff.md`. Fixed repository gates run through their indexed `.legion/scripts/` scripts. Before committing, inspect `git diff --check` and the changed-file list against task scope. Record exact commands and results in `{REPORT_FILE}` using [report-format.md](report-format.md).
