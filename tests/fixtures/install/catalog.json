@@ -141,7 +141,7 @@
         }
       },
       "hooks": {
-        "status": "unknown",
+        "status": "loaded with plugin",
         "hint": ""
       },
       "installHint": "npm install -g @github/copilot"
