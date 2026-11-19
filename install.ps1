@@ -183,10 +183,11 @@ function Test-InstallStepDone {
     if (-not $entry) { throw "unknown tool command '$($Command[0])'" }
     $marketplace = @($entry.command) + @($entry.plugin.marketplaceAdd | ForEach-Object { if ($_ -ceq '{source}') { '' } else { $_ } })
     $kind = 'plugin'
+    $requestedSource = ''
     if ($Command.Count -eq $marketplace.Count) {
         $same = $true
         for ($index = 0; $index -lt $Command.Count; $index++) {
-            if ($index -gt 0 -and $entry.plugin.marketplaceAdd[($index - 1)] -ceq '{source}') { continue }
+            if ($index -gt 0 -and $entry.plugin.marketplaceAdd[($index - 1)] -ceq '{source}') { $requestedSource = $Command[$index]; continue }
             if ($Command[$index] -cne $marketplace[$index]) { $same = $false; break }
         }
         if ($same) { $kind = 'marketplace' }
@@ -198,7 +199,7 @@ function Test-InstallStepDone {
         if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $ConfigDir, 'Process') }
         $result = Invoke-ClosedInput -Command $list
         if ($result.ExitCode -ne 0) { throw "$($entry.command) listing exited $($result.ExitCode)" }
-        return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output
+        return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output -Source $requestedSource
     } finally {
         if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $previous, 'Process') }
     }
@@ -206,9 +207,17 @@ function Test-InstallStepDone {
 
 function Test-InstallListing {
     # Installation requires enabled plugins; updates also refresh disabled installed copies.
-    param([ValidateSet('marketplace', 'plugin')][string]$Kind, [string]$Tool, [string[]]$Lines, [switch]$IncludeDisabled)
+    param([ValidateSet('marketplace', 'plugin')][string]$Kind, [string]$Tool, [string[]]$Lines, [switch]$IncludeDisabled, [string]$Source)
     if ($Kind -eq 'marketplace') {
-        return [bool](@($Lines) | Where-Object { $_ -match '(^|[\s`])ps-ai-marketplace(\s|`|"|$)' })
+        for ($index = 0; $index -lt $Lines.Count; $index++) {
+            if ($Lines[$index] -notmatch '(^|[\s`])ps-ai-marketplace(\s|`|"|$)') { continue }
+            if (-not $Source) { return $true }
+            $registered = ($Lines[$index] -replace '^.*?ps-ai-marketplace[\s`"]*', '').Trim()
+            if (-not $registered -and $index + 1 -lt $Lines.Count -and $Lines[$index + 1] -match '^\s*Source:\s*(.+)$') { $registered = $Matches[1] }
+            if ((ConvertTo-InstallMarketplaceSource $registered) -ceq (ConvertTo-InstallMarketplaceSource $Source)) { return $true }
+            throw 'ps-ai-marketplace is already registered with a different or unknown source; inspect the CLI marketplace list and remove the conflicting registration before retrying.'
+        }
+        return $false
     }
     $listing = if ($Tool) { (Get-InstallTool -Tool $Tool).plugin.listing } else { $null }
     if ($listing -and $listing.format -eq 'json') {
@@ -224,6 +233,16 @@ function Test-InstallListing {
     $pattern = if ($Tool) { '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' } else { 'ps-ai@ps-ai-marketplace' }
     $matching = @($Lines) | Where-Object { $_ -match $pattern }
     return [bool](@($matching) | Where-Object { -not $reject -or $_ -notmatch $reject })
+}
+
+function ConvertTo-InstallMarketplaceSource {
+    param([string]$Source)
+    $value = $Source.Trim().Trim('"', "'", '`').Replace('\', '/').TrimEnd('/')
+    if ($value -match '^(?:GitHub\s*\(|https://github\.com/|git@github\.com:|ssh://git@github\.com/)?(?<repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?\)?$') {
+        return $Matches.repo.ToLowerInvariant()
+    }
+    if ($env:OS -eq 'Windows_NT') { return $value.ToLowerInvariant() }
+    return $value
 }
 
 function Format-InstallCommand {
