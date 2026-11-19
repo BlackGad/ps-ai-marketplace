@@ -4,24 +4,15 @@ $scriptPath = Join-Path $root 'plugins/ps-ai/bin/ps-ai-install-tool.ps1'
 $installer = Join-Path $root 'install.ps1'
 . $scriptPath -NoRun
 Assert-Equal 'bun|--version' ((Get-ToolInstallData -Tool bun).check -join '|') 'Bun installed check'
-Assert-Equal 'unzip' ((Get-ToolRecipe -Tool bun -Platform linux).Needs -join '|') 'Bun Linux prerequisite'
 & {
-    function Test-ToolCommandAvailable { param($Name) $true }
-    function unzip { $global:LASTEXITCODE=2; 'fixture failed check' }
-    Assert-Equal $false (Test-ToolInstalled -Tool unzip).Installed 'Failed unzip check is not installed'
-}
-& {
-    $bunState = @{Bun=$false;Unzip=$false;Calls=0}
-    function Test-ToolInstalled { param($Tool) @{Installed=$(if ($Tool -eq 'bun') { $bunState.Bun } elseif ($Tool -eq 'unzip') { $bunState.Unzip } else { throw 'Unexpected prerequisite' });Version='fixture'} }
+    $bunState = @{Bun=$false;Calls=0}
+    function Test-ToolInstalled { param($Tool) @{Installed=$(if ($Tool -eq 'bun') { $bunState.Bun } else { throw 'Unexpected prerequisite' });Version='fixture'} }
     function Invoke-ToolCommand { param($Command) $bunState.Calls++; $bunState.Bun=$true; 0 }
     function Test-ToolCommandAvailable { param($Name) $true }
     function Get-ToolInstallRoot { throw 'No installer filesystem writes' }
     function Save-ToolDownload { throw 'No downloads in Unix helper test' }
     Invoke-ToolInstall -Tool bun -Platform linux | Out-Null
     Assert-Equal 0 $bunState.Calls 'Preview and decline execute nothing'
-    Assert-Throws { Invoke-ToolInstall -Tool bun -Platform linux -Yes | Out-Null } 'Missing unzip blocks approved Bun'
-    Assert-Equal 0 $bunState.Calls 'Failed prerequisite blocks execution'
-    $bunState.Unzip=$true
     Invoke-ToolInstall -Tool bun -Platform linux -Yes | Out-Null
     Assert-Equal 1 $bunState.Calls 'Approved Bun executes once'
     Invoke-ToolInstall -Tool bun -Platform linux -Yes | Out-Null

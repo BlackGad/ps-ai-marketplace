@@ -182,9 +182,7 @@
       "docs": ""
     },
     "linux": {
-      "needs": [
-        "unzip"
-      ],
+      "needs": [],
       "commands": [
         [
           "bash",
@@ -193,23 +191,6 @@
         ]
       ],
       "docs": ""
-    }
-  },
-  "unzip": {
-    "check": [
-      "unzip",
-      "-v"
-    ],
-    "windows": null,
-    "macos": {
-      "needs": [],
-      "commands": [],
-      "docs": "https://infozip.sourceforge.net/"
-    },
-    "linux": {
-      "needs": [],
-      "commands": [],
-      "docs": "https://bun.com/docs/installation"
     }
   }
 }

@@ -10,7 +10,7 @@ Approved missing Bun uses the existing helper:
 pwsh -NoProfile -File <plugin>/bin/ps-ai-install-tool.ps1 -Tool bun -Yes
 ```
 
-Windows offers winget or the official vendor-verified installer. Linux requires unzip; show the helper's official instructions if missing, and stop until the check succeeds. Never install a package manager or unzip implicitly.
+Windows offers winget or the official vendor-verified installer. Never install a package manager implicitly.
 
 Inside the chosen Claude account, after approval:
 
