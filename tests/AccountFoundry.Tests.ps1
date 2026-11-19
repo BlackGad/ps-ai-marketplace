@@ -13,7 +13,7 @@ try {
     $homeRoot = Join-Path $tempRoot 'owner with spaces'
     $file = Join-Path $homeRoot '.agents/configuration/ps-ai-personalisation.json'
     New-Item -ItemType Directory -Path (Split-Path $file -Parent) -Force | Out-Null
-    @{schemaVersion=1;communication=@{channels=@{}};agents=@();routing=@{};knowledge=@{backend='none'};projects=@{};default=@{notify=@()}} |
+    @{schemaVersion=1;agents=@();channels=@()} |
         ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $file
     $answers = @{
         'account get-access-token --resource https://cognitiveservices.azure.com' = @{exit=0;stdout='{"accessToken":"fake-token","expiresOn":"2026-11-18T18:30:00+00:00"}'}
@@ -47,8 +47,8 @@ try {
     Assert-Equal 'sonnet' $agent.provider.deployments[1].alias 'Add saves alias'
     Assert-Equal 0 $agent.roles.Count 'Foundry agent starts without roles'
     $expectedCommand = if ($IsWindows) { '~/.agents/bin/claude-dev.cmd' } else { '~/.agents/bin/claude-dev' }
-    Assert-Equal $expectedCommand $agent.command 'Foundry command'
-    Assert-Equal '~/.agents/accounts/claude-dev' $agent.configDir 'Foundry config dir'
+    Assert-True (-not $agent.PSObject.Properties['command']) 'Foundry stores no command'
+    Assert-Equal $claudeDir $agent.configDir 'Foundry config dir'
     Assert-Equal 0 @(Invoke-PsAiValidation -Kind personalisation -Path $file).Count 'Added Foundry agent validates'
     $picker = Get-Content -Raw $settings | ConvertFrom-Json
     Assert-Equal 'dark' $picker.theme 'Claude preserves other settings'

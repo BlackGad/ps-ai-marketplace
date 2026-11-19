@@ -4,7 +4,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $file = Join-Path $sandbox '.agents/configuration/ps-ai-personalisation.json'
     $folder = Join-Path $sandbox 'existing account'
     New-Item -ItemType Directory -Path (Split-Path $file -Parent), $folder -Force | Out-Null
-    @{schemaVersion=1;communication=@{channels=@{}};agents=@();routing=@{};knowledge=@{backend='none'};projects=@{};default=@{notify=@()}} |
+    @{schemaVersion=1;agents=@();channels=@()} |
         ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $file
     $settings = Join-Path $folder 'settings.json'
     '{"theme":"dark","custom":true}' | Set-Content -LiteralPath $settings
@@ -15,7 +15,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     try {
         $output = @(& $account -Action add -Tool claude -Id claude-existing -ConfigDir '~/existing account' -Command $fake -HomeRoot $sandbox)
         $data = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
-        Assert-Equal '~/existing account' $data.agents[0].configDir 'Adopt records the supplied folder'
+        Assert-Equal $folder $data.agents[0].configDir 'Adopt records the supplied folder'
         Assert-Equal $before ([IO.File]::ReadAllText($settings)) 'Adopt preserves existing settings bytes'
         Assert-True (-not (Test-Path (Join-Path $sandbox '.agents/accounts/claude-existing'))) 'Adopt does not create an unused account folder'
         $wrapper = Get-Content (Join-Path $sandbox '.agents/bin/claude-existing') -Raw
