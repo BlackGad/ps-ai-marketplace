@@ -14,6 +14,9 @@
     "space value"
   ],
   "plugin": {
+    "uninstall": ["plugin", "erase", "ps-ai@ps-ai-marketplace"],
+    "marketplaceRemove": ["plugin", "marketplace", "unregister", "ps-ai-marketplace"],
+    "marketplaceRemoveHint": "Fixture removal hint.",
     "marketplaceUpdate": ["plugin", "marketplace", "refresh", "ps-ai-marketplace"],
     "update": ["plugin", "refresh", "ps-ai@ps-ai-marketplace"],
     "marketplaceAdd": [

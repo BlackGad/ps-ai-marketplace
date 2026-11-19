@@ -6,7 +6,8 @@ param(
     [switch]$Yes,
     [switch]$NoRun,
     [string]$SourceRef = 'main',
-    [switch]$Update
+    [switch]$Update,
+    [switch]$Uninstall
 )
 
 # Standalone: this file also runs as downloaded script text in Windows PowerShell 5.1.
@@ -74,9 +75,10 @@ function Get-InstallCatalog {
         Assert-InstallString $tool.configEnv 'configEnv'
         if ($tool.configEnv -cnotmatch '^[A-Z_][A-Z0-9_]*$') { throw 'invalid catalog configEnv' }
         Assert-InstallObject $tool.plugin 'plugin'
-        foreach ($field in @('marketplaceAdd','install','marketplaceList','list','marketplaceUpdate','update')) {
+        foreach ($field in @('marketplaceAdd','marketplaceRemove','install','uninstall','marketplaceList','list','marketplaceUpdate','update')) {
             Assert-InstallArguments $tool.plugin.$field "plugin.$field"
         }
+        Assert-InstallString $tool.plugin.marketplaceRemoveHint 'plugin.marketplaceRemoveHint' -AllowEmpty
         foreach ($field in @('defaultConfigDir','installedRoot')) {
             $present = if ($tool.plugin -is [Collections.IDictionary]) { $tool.plugin.Contains($field) } else { $null -ne $tool.plugin.PSObject.Properties[$field] }
             if (-not $present) { continue }
@@ -187,7 +189,7 @@ function Invoke-ClosedInput {
 }
 
 function Test-InstallStepDone {
-    param([string[]]$Command, [string]$ConfigEnv, [string]$ConfigDir)
+    param([string[]]$Command, [string]$ConfigEnv, [string]$ConfigDir, [switch]$IncludeDisabled)
     $entry = $script:installCatalog.tools | Where-Object command -CEQ $Command[0] | Select-Object -First 1
     if (-not $entry) { throw "unknown tool command '$($Command[0])'" }
     $marketplace = @($entry.command) + @($entry.plugin.marketplaceAdd | ForEach-Object { if ($_ -ceq '{source}') { '' } else { $_ } })
@@ -208,7 +210,7 @@ function Test-InstallStepDone {
         if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $ConfigDir, 'Process') }
         $result = Invoke-ClosedInput -Command $list
         if ($result.ExitCode -ne 0) { throw "$($entry.command) listing exited $($result.ExitCode)" }
-        return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output -Source $requestedSource
+        return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output -Source $requestedSource -IncludeDisabled:$IncludeDisabled
     } finally {
         if ($ConfigDir) { [Environment]::SetEnvironmentVariable($ConfigEnv, $previous, 'Process') }
     }
@@ -224,7 +226,20 @@ function Test-InstallListing {
             $registered = ($Lines[$index] -replace '^.*?ps-ai-marketplace[\s`"]*', '').Trim()
             if (-not $registered -and $index + 1 -lt $Lines.Count -and $Lines[$index + 1] -match '^\s*Source:\s*(.+)$') { $registered = $Matches[1] }
             if ((ConvertTo-InstallMarketplaceSource $registered) -ceq (ConvertTo-InstallMarketplaceSource $Source)) { return $true }
-            throw 'ps-ai-marketplace is already registered with a different or unknown source; inspect the CLI marketplace list and remove the conflicting registration before retrying.'
+            $entry = if ($Tool) { Get-InstallTool -Tool $Tool } else { $null }
+            $folder = if ($entry) { [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process') } else { '' }
+            $target = if ($folder) { $folder } else { 'default config' }
+            $currentSource = if ($registered) { $registered } else { 'unknown' }
+            $message = "$Tool in ${target}: ps-ai-marketplace source conflict; current source: $currentSource; requested source: $Source."
+            if ($entry) {
+                $remove = Format-InstallCommand -Command (@($entry.command) + $entry.plugin.marketplaceRemove)
+                if ($folder) { $remove = '$env:' + $entry.configEnv + " = '" + $folder.Replace("'", "''") + "'; " + $remove }
+                $message += "`nRemove command (run only if you want to replace this registration): $remove"
+                if ($entry.plugin.marketplaceRemoveHint) { $message += "`n" + $entry.plugin.marketplaceRemoveHint }
+            }
+            $conflict = New-Object System.InvalidOperationException -ArgumentList $message
+            $conflict.Data['InstallMarketplaceConflict'] = $true
+            throw $conflict
         }
         return $false
     }
@@ -282,10 +297,24 @@ function Invoke-InstallCommand {
 function Invoke-PsAiInstallSteps {
     param([string]$Tool, [string]$Source, [string]$ConfigEnv, [string]$ConfigDir, [switch]$DryRun)
     $commands = Get-InstallCommands -Tool $Tool -Source $Source
-    foreach ($command in $commands) {
+    $entry = Get-InstallTool -Tool $Tool
+    $marketplaceAdded = $false
+    for ($index = 0; $index -lt $commands.Count; $index++) {
+        $command = $commands[$index]
+        if (-not $DryRun -and -not $marketplaceAdded -and (Test-InstallStepDone -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir)) {
+            "skip: $($command -join ' ') (already done)"
+            continue
+        }
         if ($DryRun) { Format-InstallCommand -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
-        elseif (Test-InstallStepDone -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir) { "skip: $($command -join ' ') (already done)" }
         else { Invoke-InstallCommand -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
+        if ($index -eq 0) {
+            $marketplaceAdded = $true
+            if ($entry.plugin.marketplaceUpdate.Count) {
+                $refresh = @($entry.command) + $entry.plugin.marketplaceUpdate
+                if ($DryRun) { Format-InstallCommand -Command $refresh -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
+                else { Invoke-InstallCommand -Command $refresh -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
+            }
+        }
     }
 }
 
@@ -314,6 +343,132 @@ function Get-UpdateConfigDirs {
     return ,$folders
 }
 
+function Get-UninstallFiles {
+    param([string[]]$Tools, [string]$ConfigDir, $Owner)
+    $homeRoot = Get-InstallHome
+    $bin = [IO.Path]::GetFullPath((Join-Path $homeRoot '.agents/bin'))
+    $paths = @()
+    $remaining = $false
+    foreach ($agent in $Owner.agents) {
+        if ($agent.id -cnotmatch '^[a-z][a-z0-9-]*$') { continue }
+        $wrapper = "~/.agents/bin/$($agent.id)"
+        $owned = @($wrapper, "$wrapper.cmd", (Join-Path $homeRoot $wrapper.Substring(2)), (Join-Path $homeRoot ($wrapper.Substring(2) + '.cmd')))
+        if ($agent.command -notin $owned) { continue }
+        $selected = -not $Tools -or $agent.tool -cin $Tools
+        if ($ConfigDir) {
+            $folder = $agent.configDir
+            if ($folder -match '^~[/\\]') { $folder = Join-Path $homeRoot $folder.Substring(2) }
+            $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+            $selected = $selected -and $folder -and [string]::Equals([IO.Path]::GetFullPath($folder).TrimEnd('\', '/'), [IO.Path]::GetFullPath($ConfigDir).TrimEnd('\', '/'), $comparison)
+        }
+        foreach ($suffix in @('', '.cmd')) {
+            $path = Join-Path $bin "$($agent.id)$suffix"
+            if ($selected) { $paths += $path }
+            elseif (Test-Path -LiteralPath $path -PathType Leaf) { $remaining = $true }
+        }
+    }
+    if (-not $remaining) {
+        foreach ($name in @('ps-ai-overseer', 'ps-ai-overseer.cmd')) {
+            $path = Join-Path $bin $name
+            if ((Test-Path -LiteralPath $path -PathType Leaf) -and
+                [IO.File]::ReadAllText($path) -match '(-File\s+)(["''][^\r\n]*?[/\\]bin[/\\]ps-ai-overseer\.ps1["''])') { $paths += $path }
+        }
+        # Exact files published by Sync-PsAiFoundryRuntime; never remove the directory tree.
+        $runtime = Join-Path $bin '.ps-ai-runtime'
+        foreach ($name in @('bin/lib/tools.ps1', 'bin/lib/foundry.ps1', 'bin/ps-ai-foundry.ps1', 'schemas/tool.schema.json')) {
+            $paths += Join-Path $runtime $name
+        }
+        foreach ($entry in $script:installCatalog.tools) {
+            foreach ($name in @('SKILL.md', 'tool.json', 'scripts/foundry-config.ps1', 'scripts/foundry-launch.ps1')) {
+                $paths += Join-Path $runtime "skills/ps-ai-$($entry.id)/$name"
+            }
+        }
+    }
+    foreach ($path in ($paths | Select-Object -Unique)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        # A linked file or directory belongs to its owner; do not follow it outside bin.
+        $safe = $true
+        $currentPath = [IO.Path]::GetFullPath($path)
+        if (-not $currentPath.StartsWith($bin + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe generated file path' }
+        while ($currentPath.Length -ge $bin.Length) {
+            $current = Get-Item -LiteralPath $currentPath -Force -ErrorAction Stop
+            if ($current.Attributes -band [IO.FileAttributes]::ReparsePoint) { $safe = $false; break }
+            if ($currentPath -eq $bin) { break }
+            $currentPath = Split-Path $currentPath -Parent
+        }
+        if ($safe) { $path }
+    }
+}
+
+function Invoke-PsAiUninstall {
+    param([string[]]$Tools, [string]$ConfigDir, [switch]$DryRun, [switch]$Yes)
+    $homeRoot = Get-InstallHome
+    $file = Join-Path $homeRoot '.agents/configuration/ps-ai-personalisation.json'
+    $owner = $null
+    if (Test-Path -LiteralPath $file -PathType Leaf) {
+        $owner = Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    }
+    $targets = @()
+    $selectedTools = if ($Tools) { $Tools } else { @($script:installCatalog.tools | ForEach-Object { $_.id }) }
+    foreach ($tool in ($selectedTools | Select-Object -Unique)) {
+        $entry = Get-InstallTool -Tool $tool
+        if (-not (Test-InstallCommandAvailable -Name $entry.command)) { "skip: $tool (not installed)"; continue }
+        foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
+            $targets += [pscustomobject]@{ Entry=$entry; Folder=$folder }
+            $label = if ($folder) { $folder } else { 'default config' }
+            "Target: $tool in $label"
+            foreach ($arguments in @($entry.plugin.uninstall, $entry.plugin.marketplaceRemove)) {
+                Format-InstallCommand -Command (@($entry.command) + $arguments) -ConfigEnv $entry.configEnv -ConfigDir $folder
+            }
+        }
+    }
+    $files = @(Get-UninstallFiles -Tools $Tools -ConfigDir $ConfigDir -Owner $owner)
+    foreach ($path in $files) { "Remove file: $path" }
+    if (-not $files.Count) { 'skip: ps-ai generated files (not installed)' }
+    if (-not $DryRun -and ($Yes -or (Read-Host 'Uninstall ps-ai from these targets? [y/N]') -match '^(?i:y|yes)$')) {
+        foreach ($target in $targets) {
+            $entry = $target.Entry
+            $previous = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
+            try {
+                [Environment]::SetEnvironmentVariable($entry.configEnv, $target.Folder, 'Process')
+                foreach ($kind in @('plugin', 'marketplace')) {
+                    $check = if ($kind -eq 'plugin') { @($entry.command) + $entry.plugin.install }
+                        else { @($entry.command) + @($entry.plugin.marketplaceAdd | ForEach-Object { if ($_ -ceq '{source}') { '' } else { $_ } }) }
+                    if (-not (Test-InstallStepDone -Command $check -ConfigEnv $entry.configEnv -ConfigDir $target.Folder -IncludeDisabled)) {
+                        "skip: $($entry.id) $kind in $(if ($target.Folder) { $target.Folder } else { 'default config' }) (not installed)"
+                        continue
+                    }
+                    $arguments = if ($kind -eq 'plugin') { $entry.plugin.uninstall } else { $entry.plugin.marketplaceRemove }
+                    Invoke-InstallCommand -Command (@($entry.command) + $arguments) -ConfigEnv $entry.configEnv -ConfigDir $target.Folder
+                }
+            } finally { [Environment]::SetEnvironmentVariable($entry.configEnv, $previous, 'Process') }
+        }
+        $bin = [IO.Path]::GetFullPath((Join-Path $homeRoot '.agents/bin'))
+        foreach ($path in $files) {
+            Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+            $parent = Split-Path $path -Parent
+            while ($parent.Length -gt $bin.Length -and -not @(Get-ChildItem -LiteralPath $parent -Force -ErrorAction Stop).Count) {
+                Remove-Item -LiteralPath $parent -ErrorAction Stop
+                $parent = Split-Path $parent -Parent
+            }
+        }
+    }
+    "Kept settings and notes: $(Join-Path $homeRoot '.agents/configuration')"
+    "Kept account folders and logins: $(Join-Path $homeRoot '.agents/accounts')"
+    foreach ($entry in $script:installCatalog.tools) {
+        foreach ($folder in (Get-UpdateConfigDirs -Tool $entry.id)) {
+            if (-not $folder) {
+                $folder = $entry.plugin.defaultConfigDir
+                if ($folder -match '^~[/\\]') { $folder = Join-Path $homeRoot $folder.Substring(2) }
+            }
+            if ($folder) { "Kept config folder and login: $folder" }
+        }
+    }
+    if ($ConfigDir) { "Kept config folder and login: $ConfigDir" }
+    'Kept repositories at their existing paths; CLIs and PowerShell at their existing install locations.'
+    'You can delete kept data by hand if you no longer need it.'
+}
+
 function Invoke-PsAiUpdateSteps {
     param($Entry, [string]$ConfigDir, [switch]$DryRun)
     $configEnv = $Entry.configEnv
@@ -323,9 +478,8 @@ function Invoke-PsAiUpdateSteps {
         $list = @($Entry.command) + $Entry.plugin.list
         Format-InstallCommand -Command $list -ConfigEnv $configEnv -ConfigDir $ConfigDir
         if (-not $DryRun) {
-            $result = Invoke-ClosedInput -Command $list
-            if ($result.ExitCode -ne 0) { throw "$($Entry.command) listing exited $($result.ExitCode)" }
-            if (-not (Test-InstallListing -Kind plugin -Tool $Entry.id -Lines $result.Output -IncludeDisabled)) {
+            $install = @($Entry.command) + $Entry.plugin.install
+            if (-not (Test-InstallStepDone -Command $install -ConfigEnv $configEnv -ConfigDir $ConfigDir -IncludeDisabled)) {
                 $target = if ($ConfigDir) { $ConfigDir } else { 'default config' }
                 "skip: $($Entry.id) ps-ai in $target (not installed)"
                 return
@@ -557,8 +711,13 @@ function Ensure-InstallPowerShell {
 }
 
 function Invoke-PsAiInstaller {
-    param([string[]]$Tools, [string]$Source = 'BlackGad/ps-ai-marketplace', [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, $Catalog, [string]$SourceRef = 'main', [switch]$Update)
+    param([string[]]$Tools, [string]$Source = 'BlackGad/ps-ai-marketplace', [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, $Catalog, [string]$SourceRef = 'main', [switch]$Update, [switch]$Uninstall)
+    if ($Update -and $Uninstall) { throw 'Choose either -Update or -Uninstall.' }
     $script:installCatalog = Get-InstallCatalog -Source $Source -SourceRef $SourceRef -Catalog $Catalog
+    if ($Uninstall) {
+        Invoke-PsAiUninstall -Tools $Tools -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes
+        return
+    }
     if (-not $Update) {
         $ready = Ensure-InstallPowerShell -DryRun:$DryRun -Yes:$Yes
         if (-not $ready -and -not $DryRun) { return }
@@ -572,6 +731,7 @@ function Invoke-PsAiInstaller {
         return
     }
     $results = @()
+    $conflicts = 0
     $Source = Resolve-InstallSource -Source $Source
     foreach ($tool in $Tools) {
         $entry = Get-InstallTool -Tool $tool
@@ -586,7 +746,14 @@ function Invoke-PsAiInstaller {
             continue
         }
         $configEnv = $entry.configEnv
-        Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $ConfigDir -DryRun:$DryRun
+        try {
+            Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $ConfigDir -DryRun:$DryRun
+        } catch {
+            if (-not $_.Exception.Data['InstallMarketplaceConflict']) { throw }
+            $_.Exception.Message
+            $conflicts++
+            continue
+        }
         if (-not $DryRun) {
             $version = (& $entry.command --version 2>$null | Select-Object -First 1)
             $hooks = $entry.hooks.status
@@ -595,8 +762,9 @@ function Invoke-PsAiInstaller {
         if ($entry.hooks.hint) { $entry.hooks.hint }
     }
     if (-not $DryRun -and -not $Update) { $results | Format-Table Tool, Version, Plugin, Hooks -AutoSize }
+    if ($conflicts) { throw "$conflicts marketplace conflict(s); resolve the registrations above and retry." }
 }
 
 if (-not $NoRun) {
-    Invoke-PsAiInstaller -Tools $Tools -Source $Source -SourceRef $SourceRef -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes -Update:$Update
+    Invoke-PsAiInstaller -Tools $Tools -Source $Source -SourceRef $SourceRef -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes -Update:$Update -Uninstall:$Uninstall
 }

@@ -71,7 +71,10 @@
       "additionalProperties": false,
       "required": [
         "marketplaceAdd",
+        "marketplaceRemove",
+        "marketplaceRemoveHint",
         "install",
+        "uninstall",
         "marketplaceUpdate",
         "update",
         "marketplaceList",
@@ -90,7 +93,16 @@
         "marketplaceAdd": {
           "$ref": "#/$defs/arguments"
         },
+        "marketplaceRemove": {
+          "$ref": "#/$defs/arguments"
+        },
+        "marketplaceRemoveHint": {
+          "type": "string"
+        },
         "install": {
+          "$ref": "#/$defs/arguments"
+        },
+        "uninstall": {
           "$ref": "#/$defs/arguments"
         },
         "marketplaceUpdate": {

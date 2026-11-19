@@ -118,7 +118,7 @@
     $schema = Join-Path $repo 'plugins/ps-ai/schemas/tool.schema.json'
     $descriptorJson = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw
     $bootstrap = (Get-PsAiInstallRecipes).pwsh
-    $fields = @('marketplaceAdd', 'install', 'marketplaceList', 'list', 'marketplaceUpdate', 'update')
+    $fields = @('marketplaceAdd', 'marketplaceRemove', 'install', 'marketplaceList', 'list', 'marketplaceUpdate', 'update')
     $scratchRoot = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/restructure'))
     $scratch = Join-Path $scratchRoot ('catalog-boundaries-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $scratch -Force | Out-Null
@@ -154,6 +154,13 @@
             Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile $schema -ErrorAction SilentlyContinue)) 'Schema rejects non-string hooks.status'
             Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'tools.json')
             Assert-Throws { Get-InstallCatalog -Source $scratch } 'Loader rejects non-string hooks.status'
+        }
+        foreach ($value in @($null, 42, @('hint'))) {
+            $descriptor = $descriptorJson | ConvertFrom-Json
+            $descriptor.plugin.marketplaceRemoveHint = $value
+            Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile $schema -ErrorAction SilentlyContinue)) 'Schema rejects non-string removal hint'
+            Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'tools.json')
+            Assert-Throws { Get-InstallCatalog -Source $scratch } 'Loader rejects non-string removal hint'
         }
     } finally {
         $cleanupPath = [IO.Path]::GetFullPath($scratch)

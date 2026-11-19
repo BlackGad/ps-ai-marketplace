@@ -8,6 +8,9 @@
     "defaultConfigDir": "~/.copilot",
     "installedRoot": "installed-plugins",
     "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
+    "uninstall": ["plugin", "uninstall", "ps-ai@ps-ai-marketplace"],
+    "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-ai-marketplace", "--force"],
+    "marketplaceRemoveHint": "--force is required when a plugin from this marketplace is installed.",
     "install": ["plugin", "install", "ps-ai@ps-ai-marketplace"],
     "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
     "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
@@ -15,7 +18,7 @@
     "list": ["plugin", "list"],
     "listing": {"format": "lines", "rejectPattern": "not installed|disabled"}
   },
-  "hooks": {"status": "unknown", "hint": ""},
+  "hooks": {"status": "loaded with plugin", "hint": ""},
   "install": {
     "check": ["copilot", "--version"], "hint": "npm install -g @github/copilot",
     "windows": {

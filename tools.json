@@ -31,6 +31,20 @@
           "add",
           "{source}"
         ],
+        "uninstall": [
+          "plugin",
+          "uninstall",
+          "ps-ai@ps-ai-marketplace"
+        ],
+        "marketplaceRemove": [
+          "plugin",
+          "marketplace",
+          "remove",
+          "ps-ai-marketplace",
+          "--scope",
+          "user"
+        ],
+        "marketplaceRemoveHint": "",
         "install": [
           "plugin",
           "install",
@@ -82,6 +96,18 @@
           "add",
           "{source}"
         ],
+        "uninstall": [
+          "plugin",
+          "remove",
+          "ps-ai@ps-ai-marketplace"
+        ],
+        "marketplaceRemove": [
+          "plugin",
+          "marketplace",
+          "remove",
+          "ps-ai-marketplace"
+        ],
+        "marketplaceRemoveHint": "Removing this marketplace removes hook approval; approve the ps-ai hooks again with /hooks after reinstalling.",
         "install": [
           "plugin",
           "add",
@@ -130,6 +156,19 @@
           "add",
           "{source}"
         ],
+        "uninstall": [
+          "plugin",
+          "uninstall",
+          "ps-ai@ps-ai-marketplace"
+        ],
+        "marketplaceRemove": [
+          "plugin",
+          "marketplace",
+          "remove",
+          "ps-ai-marketplace",
+          "--force"
+        ],
+        "marketplaceRemoveHint": "--force is required when a plugin from this marketplace is installed.",
         "install": [
           "plugin",
           "install",
@@ -161,7 +200,7 @@
         }
       },
       "hooks": {
-        "status": "unknown",
+        "status": "loaded with plugin",
         "hint": ""
       },
       "installHint": "npm install -g @github/copilot"

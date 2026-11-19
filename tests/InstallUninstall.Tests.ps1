@@ -1,0 +1,178 @@
+$repo = Split-Path $PSScriptRoot -Parent
+& {
+    . (Join-Path $repo 'install.ps1') -NoRun
+    $catalog = Get-InstallCatalog -Source $repo
+    $sandbox = Join-Path $repo ('.agents/temp/uninstall-' + [guid]::NewGuid().ToString('N'))
+    $bin = Join-Path $sandbox '.agents/bin'
+    $personalisation = Join-Path $sandbox '.agents/configuration/ps-ai-personalisation.json'
+    $account = Join-Path $sandbox '.agents/accounts/codex-a'
+    $calls = [Collections.Generic.List[string]]::new()
+    $writes = [Collections.Generic.List[string]]::new()
+    $state = @{ Missing=$false; FailList=$false; FailRemove=$false; Answer='n'; Prompts=0; OnlyMissing=$false }
+    function Get-InstallHome { $sandbox }
+    function Get-InstallSourceText { throw 'No network in tests' }
+    function Ensure-InstallPowerShell { throw 'Uninstall must not install prerequisites' }
+    function Test-InstallCommandAvailable { param($Name) -not $state.OnlyMissing }
+    function Read-Host {
+        param($Prompt)
+        Assert-Equal 'Uninstall ps-ai from these targets? [y/N]' $Prompt 'Exact confirmation prompt'
+        Assert-Equal 0 $writes.Count 'No CLI changes before confirmation'
+        Assert-True (Test-Path (Join-Path $bin 'codex-a.cmd')) 'No files removed before confirmation'
+        $state.Prompts++
+        $state.Answer
+    }
+    function Invoke-ClosedInput {
+        param([string[]]$Command)
+        $entry = $catalog.tools | Where-Object command -EQ $Command[0]
+        $folder = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
+        $calls.Add("$($entry.id):$folder|$($Command -join '|')")
+        $line = $Command -join '|'
+        if ($line -eq "$($entry.command)|plugin|list$(if ($entry.id -eq 'claude') { '|--json' })") {
+            if ($state.FailList) { return @{ExitCode=7;Output=@()} }
+            $output = if ($state.Missing) { if ($entry.id -eq 'claude') { '[]' } else { 'ps-ai@ps-ai-marketplace not installed' } }
+                elseif ($entry.id -eq 'claude') { '[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]' }
+                else { 'ps-ai@ps-ai-marketplace installed (disabled)' }
+            return @{ExitCode=0;Output=@($output)}
+        }
+        if ($line -eq "$($entry.command)|plugin|marketplace|list") {
+            return @{ExitCode=0;Output=@($(if (-not $state.Missing) { 'ps-ai-marketplace example/other-source' }))}
+        }
+        $allowed = @('claude|plugin|uninstall|ps-ai@ps-ai-marketplace', 'codex|plugin|remove|ps-ai@ps-ai-marketplace',
+            'copilot|plugin|uninstall|ps-ai@ps-ai-marketplace', 'claude|plugin|marketplace|remove|ps-ai-marketplace|--scope|user',
+            'codex|plugin|marketplace|remove|ps-ai-marketplace', 'copilot|plugin|marketplace|remove|ps-ai-marketplace|--force',
+            'fourth-cli|plugin|erase|ps-ai@ps-ai-marketplace', 'fourth-cli|plugin|marketplace|unregister|ps-ai-marketplace')
+        if ($line -notin $allowed) { throw "Unexpected command: $line" }
+        if ($state.FailRemove) { return @{ExitCode=8;Output=@()} }
+        $writes.Add($line)
+        return @{ExitCode=0;Output=@()}
+    }
+    $saved = @{}
+    foreach ($entry in $catalog.tools) {
+        $saved[$entry.configEnv] = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
+        [Environment]::SetEnvironmentVariable($entry.configEnv, 'inherited-account', 'Process')
+    }
+    try {
+        New-Item -ItemType Directory -Path $bin, (Split-Path $personalisation), $account -Force | Out-Null
+        $agents = @(
+            @{id='codex-a';tool='codex';command='~/.agents/bin/codex-a.cmd';configDir='~/.agents/accounts/codex-a'},
+            @{id='codex-b';tool='codex';command=(Join-Path $bin 'codex-b');configDir='~/.agents/accounts/codex-b'},
+            @{id='external';tool='claude';command='external-command';configDir=(Join-Path $sandbox 'custom account')},
+            @{id='codex-duplicate';tool='codex';command='external-command';configDir='~/.agents/accounts/codex-a'}
+        )
+        @{agents=$agents} | ConvertTo-Json | Set-Content $personalisation
+        $original = Get-Content $personalisation -Raw
+        'notes' | Set-Content (Join-Path (Split-Path $personalisation) 'ps-ai-notes.md')
+        'login' | Set-Content (Join-Path $account 'auth.json')
+        foreach ($name in @('codex-a','codex-a.cmd','codex-b','codex-b.cmd','external','external.cmd','unrelated','ps-ai-overseer.cmd')) {
+            'owner file' | Set-Content (Join-Path $bin $name)
+        }
+        '#!/bin/sh
+exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Content (Join-Path $bin 'ps-ai-overseer')
+        # Use the actual runtime publisher, with no CLI or network boundary involved.
+        & {
+            . (Join-Path $repo 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
+            $null = Sync-PsAiFoundryRuntime -Tool codex -HomeRoot $sandbox
+        }
+        $runtime = Join-Path $bin '.ps-ai-runtime'
+        $published = @(Get-ChildItem -LiteralPath $runtime -Recurse -File -Force | ForEach-Object FullName)
+        'keep' | Set-Content (Join-Path $runtime 'owner.txt')
+        'owner script' | Set-Content (Join-Path $runtime 'skills/ps-ai-codex/scripts/foundry-custom.ps1')
+        $caseOwner = [pscustomobject]@{agents=@(
+            [pscustomobject]@{id='codex-a';tool='codex';command='~/.agents/bin/codex-a.cmd';configDir=(Join-Path $sandbox 'case-account')},
+            [pscustomobject]@{id='codex-b';tool='codex';command='~/.agents/bin/codex-b.cmd';configDir=(Join-Path $sandbox 'Case-account')}
+        )}
+        $savedOS = $env:OS
+        try {
+            $env:OS = 'fixture-unix'
+            Assert-Equal 2 @(Get-UninstallFiles -Owner $caseOwner -ConfigDir (Join-Path $sandbox 'case-account')).Count 'Unix filters preserve case-distinct account launchers'
+        } finally { $env:OS = $savedOS }
+        Assert-Equal 2 @(Get-UninstallFiles -Owner ([pscustomobject]@{agents=$agents}) -ConfigDir ($account + [IO.Path]::DirectorySeparatorChar)).Count 'Directory filters match a trailing separator'
+        $preview = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -DryRun)
+        Assert-Equal 0 $calls.Count 'Dry run never calls any CLI'
+        Assert-Equal 0 $state.Prompts 'Dry run never asks'
+        Assert-True (($preview -join "`n").Contains('copilot plugin marketplace remove ps-ai-marketplace --force')) 'Preview includes force from metadata'
+        Assert-True (($preview -join "`n").Contains($account)) 'Preview includes recorded targets'
+        Assert-True (($preview -join "`n").Contains((Join-Path $bin 'codex-a.cmd'))) 'Preview includes generated file removals'
+        Assert-True (Test-Path (Join-Path $runtime 'bin/ps-ai-foundry.ps1')) 'Preview preserves runtime'
+
+        $declined = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall)
+        Assert-Equal 1 $state.Prompts 'Default confirmation happens once'
+        Assert-Equal 0 $writes.Count 'Declined uninstall changes no CLI'
+        Assert-True (Test-Path (Join-Path $bin 'codex-a.cmd')) 'Declined uninstall preserves launchers'
+        $calls.Clear()
+
+        $null = Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools codex -ConfigDir $account -Uninstall -Yes
+        Assert-Equal 2 $writes.Count 'Filters remove exactly one target'
+        Assert-Equal 'codex|plugin|remove|ps-ai@ps-ai-marketplace' $writes[0] 'Disabled plugin uninstalls before marketplace'
+        Assert-True ($calls[0].StartsWith("codex:$account|")) 'Explicit config scopes listing'
+        Assert-True (-not (Test-Path (Join-Path $bin 'codex-a.cmd'))) 'Selected account wrappers removed'
+        Assert-True (Test-Path (Join-Path $bin 'codex-b')) 'Other account launcher kept by filters'
+        Assert-True (Test-Path (Join-Path $runtime 'bin/ps-ai-foundry.ps1')) 'Shared runtime stays while another owned launcher remains'
+        $writes.Clear(); $calls.Clear()
+
+        $output = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -Yes)
+        Assert-Equal 12 $writes.Count 'Three defaults plus three unique account targets removed'
+        foreach ($entry in $catalog.tools) {
+            Assert-True ($calls -contains "$($entry.id):|$($entry.command)|plugin|list$(if ($entry.id -eq 'claude') { '|--json' })") 'Default ignores inherited config override'
+            Assert-Equal 'inherited-account' ([Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')) 'Caller environment restored'
+        }
+        foreach ($name in @('codex-a','codex-a.cmd','codex-b','codex-b.cmd','ps-ai-overseer')) {
+            Assert-True (-not (Test-Path (Join-Path $bin $name))) 'Generated launcher removed'
+        }
+        foreach ($name in @('external','external.cmd','unrelated','ps-ai-overseer.cmd','.ps-ai-runtime/owner.txt','.ps-ai-runtime/skills/ps-ai-codex/scripts/foundry-custom.ps1')) {
+            Assert-True (Test-Path (Join-Path $bin $name)) 'Unowned files preserved'
+        }
+        Assert-True (-not (Test-Path (Join-Path $runtime 'bin/ps-ai-foundry.ps1'))) 'Copied runtime files removed'
+        foreach ($path in $published) { Assert-True (-not (Test-Path -LiteralPath $path)) 'Every file from the actual runtime publisher is removed' }
+        Assert-Equal $original (Get-Content $personalisation -Raw) 'Personalisation untouched'
+        Assert-Equal 'login' (Get-Content (Join-Path $account 'auth.json')) 'Account login untouched'
+        foreach ($kept in @((Split-Path $personalisation), $account, 'repositories', 'CLIs')) {
+            Assert-True (($output -join "`n").Contains($kept)) 'Summary names retained data and location'
+        }
+        $writes.Clear(); $calls.Clear()
+        $state.Missing=$true
+        $repeat = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -Yes)
+        Assert-Equal 0 $writes.Count 'Repeat never removes absent plugin or marketplace'
+        Assert-True (($repeat -join "`n") -match 'skip: .*\(not installed\)') 'Repeat prints not installed'
+        $state.Missing=$false
+        foreach ($failure in @('FailList','FailRemove')) {
+            $state[$failure]=$true
+            Assert-Throws { Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools codex -ConfigDir selected -Uninstall -Yes } "$failure propagates"
+            Assert-Equal 'inherited-account' $env:CODEX_HOME 'Failure restores config env'
+            $state[$failure]=$false
+        }
+        $calls.Clear()
+        Assert-Throws { Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Update -Uninstall -Yes } 'Update and uninstall are mutually exclusive'
+        Assert-Equal 0 $calls.Count 'Invalid mode executes nothing'
+
+        $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
+        $catalog.tools += [pscustomobject]@{id='fourth';command='fourth-cli';configEnv='FOURTH_HOME';plugin=$fourth.plugin;hooks=$fourth.hooks;installHint='fixture'}
+        $writes.Clear()
+        $null = Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools fourth -ConfigDir selected -Uninstall -Yes
+        Assert-Equal 'fourth-cli|plugin|erase|ps-ai@ps-ai-marketplace' $writes[0] 'Future tool uninstall uses descriptor argv'
+        Assert-Equal 'fourth-cli|plugin|marketplace|unregister|ps-ai-marketplace' $writes[1] 'Future marketplace uses descriptor argv'
+        $state.OnlyMissing=$true
+        $calls.Clear()
+        $missing = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools codex -Uninstall -Yes)
+        Assert-Equal 0 $calls.Count 'Unavailable CLI never invoked'
+        Assert-True (($missing -join "`n").Contains('skip: codex (not installed)')) 'Missing CLI skipped'
+        '{' | Set-Content -LiteralPath $personalisation
+        Assert-Throws { Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -Yes } 'Invalid owner records fail before removal'
+        Assert-Equal 0 $calls.Count 'Malformed records never reach CLI boundary'
+    } finally {
+        foreach ($key in $saved.Keys) { [Environment]::SetEnvironmentVariable($key, $saved[$key], 'Process') }
+        $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
+        if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe uninstall fixture cleanup' }
+        Remove-Item -LiteralPath $sandbox -Recurse -Force
+    }
+}
+
+& {
+    . (Join-Path $repo 'install.ps1') -NoRun
+    $catalog = Get-InstallCatalog -Source $repo
+    foreach ($field in @('uninstall','marketplaceRemove')) {
+        $bad = $catalog | ConvertTo-Json -Depth 100 | ConvertFrom-Json
+        $bad.tools[0].plugin | Add-Member $field 'invalid' -Force
+        Assert-Throws { Get-InstallCatalog -Catalog $bad } "Invalid $field rejected before mutation"
+    }
+}
