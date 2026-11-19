@@ -9,11 +9,11 @@ If `claude` is missing, follow [install.md](install.md) first. Continue with acc
 pwsh -NoProfile -File <plugin>/bin/ps-ai-account.ps1 -Action add -Tool claude -Id <id> [-ConfigDir <existing folder>] [-HomeRoot <home>]
 ```
 
-This creates a wrapper that sets `CLAUDE_CONFIG_DIR`, a config folder, and the personalisation entry. For a new folder only, tell the owner to run `<id>` in a terminal and log in once; never handle tokens or open credential files. Then install ps-ai for that account:
+This creates a wrapper that sets `CLAUDE_CONFIG_DIR`, a config folder, and the personalisation entry. Make sure `<home>/.legion/bin` is on the user PATH (add it once if missing; never in tests). For a new folder only, tell the owner to run `<id>` in a terminal and log in once; never handle tokens or open credential files. Then install ps-ai for that account:
 
 ```text
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools claude -ConfigDir <account folder> -Yes
-pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.agents/configuration/ps-ai-personalisation.json
+pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.legion/configuration/ps-ai-personalisation.json
 ```
 
 To check from the system temp folder, run `claude plugin list --json` with `CLAUDE_CONFIG_DIR` set to the account's recorded folder (never guess paths); ps-ai is installed when `ps-ai@ps-ai-marketplace` is listed and enabled.

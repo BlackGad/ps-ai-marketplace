@@ -6,6 +6,8 @@ param(
     [switch]$NoRun
 )
 
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
+
 . (Join-Path $PSScriptRoot 'lib/tools.ps1')
 
 function Get-ToolInstallData {
@@ -87,12 +89,12 @@ function Invoke-ToolDownload {
 function Get-ToolInstallRoot {
     param([string]$Tool)
     $null = Get-ToolInstallData -Tool $Tool
-    Join-Path $HOME ".agents/tools/$Tool"
+    Get-PsAiHomePath -Path "tools/$Tool"
 }
 
 function New-ToolDownloadPath {
     param([string]$Extension = 'txt')
-    $tempRoot = Join-Path $HOME '.agents/temp'
+    $tempRoot = Get-PsAiHomePath -Path 'temp'
     New-Item -ItemType Directory -Path $tempRoot -Force -ErrorAction Stop | Out-Null
     Join-Path $tempRoot ("install-$([guid]::NewGuid().ToString('N')).$Extension")
 }

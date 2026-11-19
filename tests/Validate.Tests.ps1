@@ -82,7 +82,7 @@ try {
     $fixture = Join-Path $scratch ('consumers-' + [guid]::NewGuid().ToString('N'))
     $plugin = Join-Path $fixture 'plugin'
     $homeRoot = Join-Path $fixture 'home with spaces'
-    $ownerPath = Join-Path $homeRoot '.agents/configuration/ps-ai-personalisation.json'
+    $ownerPath = Join-Path $homeRoot '.legion/configuration/ps-ai-personalisation.json'
     $savedPath = $env:PATH
     try {
         New-Item -ItemType Directory (Split-Path $ownerPath -Parent) -Force | Out-Null
@@ -95,7 +95,7 @@ try {
         Assert-Equal 'FOURTH_HOME' (Get-PsAiTool -Tool fourth).configEnv 'Fourth config environment comes from descriptor'
         $env:PATH = @($fourthSkill,$env:PATH) -join [IO.Path]::PathSeparator
         & (Join-Path $plugin 'bin/ps-ai-account.ps1') -Action add -Tool fourth -Id fourth-dev -HomeRoot $homeRoot | Out-Null
-        Assert-True ((Get-Content (Join-Path $homeRoot '.agents/bin/fourth-dev') -Raw).Contains((Join-Path $fourthSkill 'fourth-cli.ps1'))) 'Account default command uses descriptor executable'
+        Assert-True ((Get-Content (Join-Path $homeRoot '.legion/bin/fourth-dev') -Raw).Contains((Join-Path $fourthSkill 'fourth-cli.ps1'))) 'Account default command uses descriptor executable'
         Assert-Equal 0 @(Invoke-PsAiValidation -Kind personalisation -Path $ownerPath).Count 'Fourth account validates with matching skill'
         $discovery = @{Source='management';Deployments=@(@{name='model[1]-a';model='model[1]-a'})}
         $syntheticProvider = New-PsAiFoundryProvider -Endpoint 'https://resource.cognitiveservices.azure.com' -Tool fourth -Deployments 'model[1]-a' -Default 'model[1]-a' -Aliases 'model[1]-a=alpha' -Discovery $discovery

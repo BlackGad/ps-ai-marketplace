@@ -15,7 +15,7 @@
     foreach ($id in @('claude', 'codex', 'copilot')) {
         $adapter = Join-Path $skillRoot "ps-ai-$id/scripts/foundry-launch.ps1"
         Assert-True (Test-Path -LiteralPath $adapter) "$id launch adapter exists"
-        foreach ($configDir in @('~/.agents/legion/agent-a', (Join-Path $homeRoot 'absolute config'))) {
+        foreach ($configDir in @('~/.legion/agents/agent-a', (Join-Path $homeRoot 'absolute config'))) {
             $adapterAgent = [pscustomobject]@{ id = 'agent-a'; tool = $id; configDir = $configDir; provider = $provider }
             $result = @(& $adapter -Agent $adapterAgent -HomeRoot $homeRoot -Token $injectedToken)
             Assert-Equal 1 $result.Count "$id emits exactly one object"
@@ -30,7 +30,7 @@
                 Assert-Equal 'deployment-b' $json.models[1].modelId 'Copilot falls back to deployment id'
                 Assert-Equal 'deployment-b' $json.models[1].wireModel 'Copilot wire model is deployment id'
                 Assert-True (-not ($json.PSObject.Properties.Name -contains 'default')) 'Copilot does not select the saved default'
-                Assert-Equal (Join-Path $homeRoot '.agents/temp') (Split-Path $launch.ProvidersFile -Parent) 'Copilot provider file stays in per-home temp'
+                Assert-Equal (Join-Path $homeRoot '.legion/temp') (Split-Path $launch.ProvidersFile -Parent) 'Copilot provider file stays in per-home temp'
                 Assert-Equal $launch.ProvidersFile $launch.Set.COPILOT_PROVIDERS_CONFIG 'Provider env points to returned file'
                 Assert-True (-not (Test-Path -LiteralPath $launch.ProvidersFile)) 'Adapter leaves file creation to the runner'
             } else {
@@ -200,7 +200,7 @@ $agentData = Get-Content -LiteralPath $AgentPath -Raw | ConvertFrom-Json
         $fourthCopy = Join-Path $pluginCopy 'skills/ps-ai-fourth'
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth') -Destination $fourthCopy -Recurse
         $homeCopy = Join-Path $configRoot 'delegation home'
-        $personalisation = Join-Path $homeCopy '.agents/configuration/ps-ai-personalisation.json'
+        $personalisation = Join-Path $homeCopy '.legion/configuration/ps-ai-personalisation.json'
         New-Item -ItemType Directory -Path (Split-Path $personalisation -Parent) -Force | Out-Null
         [IO.File]::WriteAllText($personalisation, '{"schemaVersion":1,"agents":[]}')
         & {

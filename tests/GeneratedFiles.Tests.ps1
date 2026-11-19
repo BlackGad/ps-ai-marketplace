@@ -8,7 +8,7 @@ try {
     $script:chmodCalls = 0
     function chmod { $script:chmodCalls++; $global:LASTEXITCODE = 0 }
     function Sync-PsAiFoundryRuntime { param($Tool,$HomeRoot,$Changes) Join-Path $tempRoot 'runtime/ps-ai-foundry.ps1' }
-    New-Item -ItemType Directory -Path (Join-Path $tempRoot '.agents/bin') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $tempRoot '.legion/bin') -Force | Out-Null
     New-FoundryWrappers -Id fixture -Tool claude -HomeRoot $tempRoot
     Assert-Equal 1 $script:chmodCalls 'A generated shell wrapper is executable'
     New-FoundryWrappers -Id fixture -Tool claude -HomeRoot $tempRoot

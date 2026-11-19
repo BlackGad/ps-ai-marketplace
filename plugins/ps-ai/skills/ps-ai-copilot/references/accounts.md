@@ -9,11 +9,11 @@ If `copilot` is missing, follow [install.md](install.md) first. Continue with ac
 pwsh -NoProfile -File <plugin>/bin/ps-ai-account.ps1 -Action add -Tool copilot -Id <id> [-ConfigDir <existing folder>] [-HomeRoot <home>]
 ```
 
-This creates a wrapper that sets `COPILOT_HOME`, the account config folder, and the personalisation entry. For a new folder only, tell the owner to run `<id>` in a terminal and log in once; never handle credentials. Then install and validate:
+This creates a wrapper that sets `COPILOT_HOME`, the account config folder, and the personalisation entry. Make sure `<home>/.legion/bin` is on the user PATH (add it once if missing; never in tests). For a new folder only, tell the owner to run `<id>` in a terminal and log in once; never handle credentials. Then install and validate:
 
 ```text
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools copilot -ConfigDir <account folder> -Yes
-pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.agents/configuration/ps-ai-personalisation.json
+pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.legion/configuration/ps-ai-personalisation.json
 ```
 
 To check from the system temp folder, run `copilot plugin list` with `COPILOT_HOME` set to the account's recorded folder (never guess paths); ps-ai is installed when `ps-ai@ps-ai-marketplace` is listed and enabled.
@@ -42,7 +42,7 @@ For a requested provider configuration change, reuse the supplied settings and a
 
 An identical result prints `skip: models <id> (no changes)` and writes nothing. Validate personalisation and install ps-ai into the account config folder with the commands above.
 
-Launch `<id>`. The wrapper sets `COPILOT_HOME` and points `COPILOT_PROVIDERS_CONFIG` to a per-launch file under `~/.agents/temp/`. This is the approved exception to the no-token-storage rule: Copilot's provider file holds a **fixed bearer token**. The runner creates it with access restricted to the current Windows user, or mode `0600` on other platforms, before writing the token. It deletes the file in `finally` when Copilot exits, including an error exit. Never read or log it.
+Launch `<id>`. The wrapper sets `COPILOT_HOME` and points `COPILOT_PROVIDERS_CONFIG` to a per-launch file under `~/.legion/temp/`. This is the approved exception to the no-token-storage rule: Copilot's provider file holds a **fixed bearer token**. The runner creates it with access restricted to the current Windows user, or mode `0600` on other platforms, before writing the token. It deletes the file in `finally` when Copilot exits, including an error exit. Never read or log it.
 
 Each Copilot Foundry launch also removes expired ps-ai provider files left by interrupted runs, using the exact token expiry recorded in their filenames. Fresh and unrelated files are preserved. No fixed token lifetime is assumed.
 

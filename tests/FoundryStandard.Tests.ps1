@@ -59,7 +59,7 @@ $savedPath = $env:PATH
 $savedAnswers = $env:PS_AI_FAKE_AZ
 $savedLog = $env:PS_AI_FAKE_AZ_LOG
 $sandbox = Join-Path $repo ('.agents/temp/foundry-standard-' + [guid]::NewGuid().ToString('N'))
-$file = Join-Path $sandbox '.agents/configuration/ps-ai-personalisation.json'
+$file = Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json'
 New-Item -ItemType Directory -Path (Split-Path $file -Parent) -Force | Out-Null
 @{schemaVersion=1;agents=@();channels=@()} | ConvertTo-Json | Set-Content $file
 try {
@@ -120,7 +120,7 @@ try {
         Assert-True ($_.Exception.Message -match 'haiku.*opus-5-1.*claude-sonnet-5-5') 'Missing alias stops with available candidates'
     }
     Assert-Equal $before ([IO.File]::ReadAllText($file)) 'Unresolved add preserves personalisation'
-    Assert-True (-not (Test-Path (Join-Path $sandbox '.agents/legion/claude-missing'))) 'Unresolved add creates no account folder'
+    Assert-True (-not (Test-Path (Join-Path $sandbox '.legion/agents/claude-missing'))) 'Unresolved add creates no account folder'
     foreach ($choice in @(@{Default='opus-5-1'},@{Aliases=@('opus-5-1=opus')})) {
         Assert-Throws { & $accountScript -Action add -Id invalid -Tool claude @common -Standard @choice } 'Standard add rejects explicit mapping flags'
         Assert-Throws { & $accountScript -Action models -Id claude-standard -HomeRoot $sandbox -Standard @choice } 'Standard update rejects explicit mapping flags'

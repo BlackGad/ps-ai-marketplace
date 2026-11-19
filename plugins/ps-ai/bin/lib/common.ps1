@@ -1,8 +1,9 @@
+. (Join-Path $PSScriptRoot 'paths.ps1')
 . (Join-Path $PSScriptRoot 'tools.ps1')
 
 function Get-PsAiLease {
     param([string]$Repo)
-    $path = Join-Path $Repo '.agents/temp/overseer.lock'
+    $path = Get-PsAiRepoPath -Repo $Repo -Path 'temp/overseer.lock'
     if (-not (Test-Path -LiteralPath $path)) { return @{ State = 'free'; Data = $null } }
     try {
         for ($readAttempt = 0; $readAttempt -lt 5; $readAttempt++) {
@@ -49,5 +50,5 @@ function Get-PsAiWrapperCommand {
     param([string]$Id, [string]$HomeRoot = $HOME)
     if ($Id -cnotmatch '^[a-z][a-z0-9-]*$') { throw 'invalid account id' }
     $name = if ($IsWindows) { "$Id.cmd" } else { $Id }
-    return [IO.Path]::GetFullPath((Join-Path $HomeRoot ".agents/bin/$name"))
+    return [IO.Path]::GetFullPath((Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$name"))
 }

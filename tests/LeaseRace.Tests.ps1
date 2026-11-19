@@ -3,7 +3,7 @@ $script = Join-Path $root 'plugins/ps-ai/bin/ps-ai-lease.ps1'
 . (Join-Path $root 'plugins/ps-ai/bin/lib/common.ps1')
 $tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
 $repo = Join-Path $tempRoot 'repo'
-$leasePath = Join-Path $repo '.agents/temp/overseer.lock'
+$leasePath = Join-Path $repo '.legion/temp/overseer.lock'
 New-Item -ItemType Directory -Path (Split-Path $leasePath -Parent) -Force | Out-Null
 try {
     # A lease file that was just created but not yet written belongs to a session that is taking it.

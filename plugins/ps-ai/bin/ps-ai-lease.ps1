@@ -7,7 +7,7 @@ param(
 )
 
 . (Join-Path $PSScriptRoot 'lib/common.ps1')
-$path = Join-Path $Repo '.agents/temp/overseer.lock'
+$path = Get-PsAiRepoPath -Repo $Repo -Path 'temp/overseer.lock'
 $hostName = [System.Net.Dns]::GetHostName()
 
 if ($Action -eq 'status') {

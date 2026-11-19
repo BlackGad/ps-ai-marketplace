@@ -5,4 +5,4 @@
 3. If any tracked file must move, present the exact source and destination, link updates, and expected git diff to the owner. Wait for approval before moving it.
 4. After approval, migrate one owner at a time, update references, create missing templates, record repository choices in workflow, and validate minimal project JSON. Review `git diff --check`; verify every entry in [layout.md](layout.md)'s authoritative ignore list is ignored and no other ignore rules were added or broadened.
 
-For a fixed step currently outside `.agents/scripts/`, first add a wrapper there that calls the existing script and index the wrapper. Moving the original tracked script is a separate migration decision.
+For a fixed step currently outside `.legion/scripts/`, first add a wrapper there that calls the existing script and index the wrapper. Moving the original tracked script is a separate migration decision.

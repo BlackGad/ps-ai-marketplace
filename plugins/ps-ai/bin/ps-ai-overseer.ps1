@@ -89,11 +89,11 @@ function Start-OverseerLaunch {
 
 if (-not $launcherNoRun) {
     if (-not $Account) { 'Usage: ps-ai-overseer -Account <id> [-Tool <tool>] [-Channel <id[]>] [-Arguments <string[]>] [-Repo <path>]'; return }
-    $projectFile = Join-Path $Repo '.agents/configuration/project.json'
+    $projectFile = Get-PsAiRepoPath -Repo $Repo -Path 'configuration/project.json'
     if (-not (Test-Path -LiteralPath $projectFile)) {
-        throw "no .agents/configuration/project.json in $Repo; run setup first"
+        throw "no .legion/configuration/project.json in $Repo; run setup first"
     }
-    $ownerFile = Join-Path $HomeRoot '.agents/configuration/ps-ai-personalisation.json'
+    $ownerFile = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
     foreach ($inputFile in @(@{Kind='personalisation';Path=$ownerFile},@{Kind='project';Path=$projectFile})) {
         $issues = @(Invoke-PsAiValidation $inputFile.Kind $inputFile.Path)
         if ($issues.Count) { throw ($issues -join '; ') }

@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $tempRoot = Join-Path $root ('.agents/temp/restructure/lease-release-' + [guid]::NewGuid().ToString('N'))
 $repo = Join-Path $tempRoot 'repo'
-$leasePath = Join-Path $repo '.agents/temp/overseer.lock'
+$leasePath = Join-Path $repo '.legion/temp/overseer.lock'
 $guardPath = "$leasePath.takeover"
 $eventsPath = Join-Path $tempRoot 'events.txt'
 $fixtureScript = Join-Path $tempRoot 'ps-ai-lease.ps1'
@@ -10,11 +10,13 @@ New-Item -ItemType Directory -Path (Split-Path $leasePath -Parent) -Force | Out-
 try {
     Copy-Item (Join-Path $root 'plugins/ps-ai/bin/ps-ai-lease.ps1') $fixtureScript
     New-Item -ItemType Directory -Path (Join-Path $tempRoot 'lib') -Force | Out-Null
+    Copy-Item (Join-Path $root 'plugins/ps-ai/bin/lib/paths.ps1') (Join-Path $tempRoot 'lib/paths.ps1')
     # A contender tries to replace the lease at both release boundaries. Only common I/O is replaced.
     @'
+. (Join-Path $PSScriptRoot 'paths.ps1')
 function Invoke-FixtureTakeover {
     param([string]$Boundary)
-    $leasePath = Join-Path $Repo '.agents/temp/overseer.lock'
+    $leasePath = Join-Path $Repo '.legion/temp/overseer.lock'
     $guardPath = "$leasePath.takeover"
     $eventsPath = Join-Path $PSScriptRoot '../events.txt'
     try {
@@ -33,7 +35,7 @@ function Invoke-FixtureTakeover {
 }
 function Get-PsAiLease {
     param([string]$Repo)
-    $leasePath = Join-Path $Repo '.agents/temp/overseer.lock'
+    $leasePath = Join-Path $Repo '.legion/temp/overseer.lock'
     if (-not (Test-Path -LiteralPath $leasePath)) { return @{ State = 'free'; Data = $null } }
     $snapshot = [IO.File]::ReadAllText($leasePath) | ConvertFrom-Json
     Invoke-FixtureTakeover -Boundary read
@@ -42,7 +44,7 @@ function Get-PsAiLease {
 function Remove-Item {
     [CmdletBinding()]
     param([string]$LiteralPath, [switch]$Force)
-    if ($LiteralPath -eq (Join-Path $Repo '.agents/temp/overseer.lock')) {
+    if ($LiteralPath -eq (Join-Path $Repo '.legion/temp/overseer.lock')) {
         Invoke-FixtureTakeover -Boundary remove
     }
     Microsoft.PowerShell.Management\Remove-Item @PSBoundParameters

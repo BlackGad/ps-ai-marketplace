@@ -5,7 +5,7 @@
     {
       "id": "claude",
       "tool": "other",
-      "configDir": "~/.agents/legion/claude"
+      "configDir": "~/.legion/agents/claude"
     }
   ],
   "channels": []

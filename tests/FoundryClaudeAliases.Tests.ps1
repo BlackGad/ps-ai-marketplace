@@ -10,7 +10,7 @@ try {
     $env:PS_AI_FAKE_TOOL_LOG = Join-Path $tempRoot 'child.json'
     $env:PS_AI_FAKE_TOOL_EXIT = '0'
     foreach ($alias in $aliases) { [Environment]::SetEnvironmentVariable('ANTHROPIC_DEFAULT_' + $alias + '_MODEL', 'parent-' + $alias) }
-    $claudeAgent = @{ tool = 'claude'; configDir = '~/.agents/legion/claude-dev'; provider = @{
+    $claudeAgent = @{ tool = 'claude'; configDir = '~/.legion/agents/claude-dev'; provider = @{
         endpoint = 'https://res-a.cognitiveservices.azure.com'; default = 'claude-opus-x'
         deployments = @(@{ name = 'claude-opus-x'; alias = 'opus' })
     } }

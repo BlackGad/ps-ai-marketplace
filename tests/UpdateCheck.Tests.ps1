@@ -6,7 +6,7 @@ Assert-True (Test-Path -LiteralPath $checker) 'Shared update checker exists'
     . $checker -NoRun
     $sandbox = Join-Path $repo ('.agents/temp/restructure/check-' + [guid]::NewGuid().ToString('N'))
     $plugin = Join-Path $sandbox 'marketplace/plugins/ps-ai'
-    $cache = Join-Path $sandbox '.agents/temp/ps-ai-update.json'
+    $cache = Join-Path $sandbox '.legion/temp/ps-ai-update.json'
     New-Item -ItemType Directory -Path $plugin, (Join-Path $sandbox 'marketplace/.git') -Force | Out-Null
     '{"name":"ps-ai","version":"0.2.0"}' | Set-Content (Join-Path $plugin 'plugin.json')
     function Get-PsAiUpdateHome { $sandbox }

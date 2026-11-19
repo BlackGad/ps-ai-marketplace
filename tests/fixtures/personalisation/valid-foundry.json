@@ -5,7 +5,7 @@
     {
       "id": "claude",
       "tool": "claude",
-      "configDir": "~/.agents/legion/claude"
+      "configDir": "~/.legion/agents/claude"
     },
     {
       "id": "claude-b",
@@ -20,17 +20,17 @@
     {
       "id": "codex-b",
       "tool": "codex",
-      "configDir": "~/.agents/legion/codex-b"
+      "configDir": "~/.legion/agents/codex-b"
     },
     {
       "id": "copilot",
       "tool": "copilot",
-      "configDir": "~/.agents/legion/copilot"
+      "configDir": "~/.legion/agents/copilot"
     },
     {
       "id": "claude-dev",
       "tool": "claude",
-      "configDir": "~/.agents/legion/claude-dev",
+      "configDir": "~/.legion/agents/claude-dev",
       "provider": {
         "kind": "foundry",
         "endpoint": "https://res-a.cognitiveservices.azure.com",

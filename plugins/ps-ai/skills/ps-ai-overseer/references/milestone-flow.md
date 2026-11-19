@@ -1,6 +1,6 @@
 # Milestone state machine
 
-Use the terms in [the overseer skill](../SKILL.md#terms-and-work-size). Use `State` in the handoff for the current stage; write each transition to disk at once and commit it with its stage. For a fixed repo step, resolve its script name from the gates named in `workflow.md` and `scripts/index.md`; create/index a missing fixed script before invoking it. Plans and specs live at the paths recorded in `workflow.md`. Give those paths to installed method skills in place of their defaults.
+Use the terms in [the overseer skill](../SKILL.md#terms-and-work-size). Use `State` in the handoff for the current stage; write each transition to disk at once and commit it with its stage. Save state and close-out history in the owning Git repository using [takeover.md](takeover.md). For a fixed repo step, resolve its script name from the gates named in `workflow.md` and `scripts/index.md`; create/index a missing fixed script before invoking it. Plans and specs live at the paths recorded in `workflow.md`. Give those paths to installed method skills in place of their defaults.
 
 When the owner starts a goal milestone, check the active-milestone rule in [roadmap.md](roadmap.md), set its status to `active`, and commit it with the stage.
 

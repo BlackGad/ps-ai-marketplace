@@ -1,6 +1,6 @@
 ---
 name: ps-ai-overseer
-description: Use when the owner asks to continue, check status, report in, make a roadmap, or orchestrate a goal or milestone in a repo with .agents/state; never in legion mode.
+description: Use when the owner asks to continue, check status, report in, make a roadmap, or orchestrate a goal or milestone in a repo with .legion/state; never in legion mode.
 ---
 
 # Overseer

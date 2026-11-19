@@ -7,7 +7,7 @@ $saved = @{}
 foreach ($name in @('PATH', 'PS_AI_FAKE_AZ', 'PS_AI_FAKE_AZ_LOG', 'PS_AI_PRIVACY_LOG')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
 $fakeRoot = $null
 try {
-    $config = Join-Path $tempRoot '.agents/configuration'
+    $config = Join-Path $tempRoot '.legion/configuration'
     New-Item -ItemType Directory -Path $config -Force | Out-Null
     @{ agents = @(@{ id = 'copilot-dev'; tool = 'copilot'; configDir = '~/copilot'; provider = @{
         kind = 'foundry'; endpoint = 'https://res-a.cognitiveservices.azure.com'; default = 'claude-opus-x'; deployments = @(@{ name = 'claude-opus-x' })

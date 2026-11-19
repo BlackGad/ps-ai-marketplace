@@ -19,7 +19,7 @@ function Get-FoundryToolCommand {
     param([string]$Tool, [string]$HomeRoot)
     $descriptor = Get-PsAiTool -Tool $Tool
     if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
-    $bin = [IO.Path]::GetFullPath((Join-Path $HomeRoot '.agents/bin'))
+    $bin = [IO.Path]::GetFullPath((Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'))
     $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     foreach ($command in @(Get-Command $descriptor.command -CommandType Application,ExternalScript -All -ErrorAction SilentlyContinue)) {
         $folder = [IO.Path]::GetFullPath((Split-Path $command.Source -Parent))
@@ -92,7 +92,7 @@ function Write-FoundryProviderFile {
 if (-not $NoRun) {
     $launch = $null
     try {
-        $file = Join-Path $HomeRoot '.agents/configuration/ps-ai-personalisation.json'
+        $file = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
         $data = [IO.File]::ReadAllText($file).TrimStart([char]0xFEFF) | ConvertFrom-Json -Depth 100 -ErrorAction Stop
         $selected = @($data.agents | Where-Object { $_.id -ceq $Agent })[0]
         if (-not $selected) { throw "unknown account '$Agent'" }

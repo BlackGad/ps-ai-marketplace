@@ -1,3 +1,4 @@
+. (Join-Path $PSScriptRoot 'paths.ps1')
 . (Join-Path $PSScriptRoot 'tools.ps1')
 
 function ConvertTo-FoundryEndpoint {

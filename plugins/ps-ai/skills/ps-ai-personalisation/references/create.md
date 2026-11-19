@@ -2,7 +2,7 @@
 
 1. Read existing settings and notes. Reuse previous answers. Ask only which agents to add: the tool, account name, and an existing folder or a new one. Ask one question at a time unless told otherwise. Adding no accounts yet is valid.
 
-2. Resolve account name or shortcut conflicts before replacing files. Create missing `<home>/.agents/configuration/ps-ai-personalisation.json` before helpers with `{"schemaVersion":1,"agents":[],"channels":[]}`. Create missing notes from [notes-template.md](notes-template.md). Use the optional stable schema URL in [fields.md](fields.md). Validate against the bundled schema.
+2. Resolve account name or shortcut conflicts before replacing files. Create missing `<home>/.legion/configuration/ps-ai-personalisation.json` before helpers with `{"schemaVersion":1,"agents":[],"channels":[]}`. Create missing notes from [notes-template.md](notes-template.md). Use the optional stable schema URL in [fields.md](fields.md). Validate against the bundled schema.
 
 3. Read `skills/ps-ai-<agent.tool>/SKILL.md` for each selected account; stop if missing. Explain that adding the selected accounts includes installing ps-ai into each folder. Preview any missing CLI installs with those installs and ask for one yes covering them all. Reuse existing approval. Deduplicate installation by normalized config folder. Use the tool's account guide for add/adopt/register and install ps-ai into each account. Resolve a previous default-folder answer through `tool.plugin.defaultConfigDir` to a concrete folder. Expand `~/` against the chosen home. Keep existing shortcuts, settings and logins. Only new accounts need owner login. Declined or failed installs stay incomplete under Finish later.
 
