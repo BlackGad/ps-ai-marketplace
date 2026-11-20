@@ -1,7 +1,7 @@
 $repo = Split-Path $PSScriptRoot -Parent
 . (Join-Path $repo 'plugins/ps-ai/bin/ps-ai-overseer.ps1') -NoRun
 $expected = @{
-    claude = @('-p','--permission-mode','bypassPermissions')
+    claude = @('-p','--permission-mode','bypassPermissions','--strict-mcp-config')
     codex = @('exec','--dangerously-bypass-approvals-and-sandbox','-C','repo with spaces','-o','report with spaces.last.md','-')
     copilot = @('-p','Read and follow the task in task prompt with spaces.md; the report goes to stdout.','-s','--allow-all-tools','--deny-tool=shell(git push)')
 }
