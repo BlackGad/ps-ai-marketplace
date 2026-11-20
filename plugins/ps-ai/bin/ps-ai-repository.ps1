@@ -162,10 +162,21 @@ function Assert-ValidProject {
     if ($issues.Count) { throw "project.json is not valid: $($issues -join '; ')" }
 }
 
-# Paths with anything git would commit: untracked, modified or deleted. A repeat after a failed commit finds them.
-function Get-PendingPaths {
-    param([string]$GitRoot, [string[]]$Paths)
-    return @($Paths | Where-Object { git -C $GitRoot status --porcelain -- $_ })
+# Setup files to commit, never the owner's other edits:
+#   - untracked files (new, or left by an earlier failed run)
+#   - files already staged (left by an earlier failed commit)
+#   - files this run wrote, in $WrittenPaths
+# A modified tracked file that is none of these is the owner's work and stays out.
+function Get-SetupCommitPaths {
+    param([string]$GitRoot, [string[]]$Paths, [string[]]$WrittenPaths)
+    $commitPaths = @()
+    foreach ($line in @(git -C $GitRoot status --porcelain --untracked-files=all -- $Paths)) {
+        if ($line.StartsWith('??') -or $line[0] -ne ' ') { $commitPaths += $line.Substring(3) }
+    }
+    foreach ($written in $WrittenPaths) {
+        if (git -C $GitRoot status --porcelain -- $written) { $commitPaths += $written }
+    }
+    return @($commitPaths | Select-Object -Unique)
 }
 
 function Save-SetupCommit {
@@ -225,10 +236,13 @@ New-OrchestrationFiles -RulesName $rulesName
 Assert-ValidProject
 
 if ($Mode -eq 'Shared') {
-    Add-PsAiIgnoreLines -Path $outerIgnore -Lines @('.legion/temp/', '.legion/docs/') | Out-Null
-    if (-not (Test-RulesBlock $rulesPath)) { Add-RulesBlock $rulesPath }
+    if (Add-PsAiIgnoreLines -Path $outerIgnore -Lines @('.legion/temp/', '.legion/docs/')) { $changedPaths += $outerIgnore }
+    if (-not (Test-RulesBlock $rulesPath)) {
+        Add-RulesBlock $rulesPath
+        $changedPaths += $rulesPath
+    }
     $setupPaths = @('.legion/configuration', '.legion/scripts', '.legion/state', $outerIgnore, $rulesPath) | Where-Object { $_ }
-    $pending = Get-PendingPaths -GitRoot $repoRoot -Paths $setupPaths
+    $pending = Get-SetupCommitPaths -GitRoot $repoRoot -Paths $setupPaths -WrittenPaths $changedPaths
     if ($pending.Count) {
         Save-SetupCommit -GitRoot $repoRoot -IdentityRepo $repoRoot -Paths $pending
         $prepared = $true
@@ -238,14 +252,15 @@ if ($Mode -eq 'Shared') {
     if ($LASTEXITCODE -ne 0) { throw 'Cannot find the repository exclude file' }
     $exclude = [IO.Path]::GetFullPath([IO.Path]::Combine($repoRoot, $exclude))
     if (Add-PsAiIgnoreLines -Path $exclude -Lines @('.legion/')) { $prepared = $true }
-    Add-PsAiIgnoreLines -Path (Join-Path $legion '.gitignore') -Lines @('temp/', 'docs/') | Out-Null
+    $innerIgnore = Join-Path $legion '.gitignore'
+    if (Add-PsAiIgnoreLines -Path $innerIgnore -Lines @('temp/', 'docs/')) { $changedPaths += $innerIgnore }
     if (-not (Test-Path -LiteralPath $innerGit)) {
         git init --quiet $legion
         if ($LASTEXITCODE -ne 0) { throw 'Cannot initialize Private history' }
         $prepared = $true
     }
     # The first commit also takes setup files that already existed: they are untracked.
-    $pending = Get-PendingPaths -GitRoot $legion -Paths @('.gitignore', 'configuration', 'scripts', 'state')
+    $pending = Get-SetupCommitPaths -GitRoot $legion -Paths @('.gitignore', 'configuration', 'scripts', 'state') -WrittenPaths $changedPaths
     if ($pending.Count) {
         Save-SetupCommit -GitRoot $legion -IdentityRepo $repoRoot -Paths $pending
         $prepared = $true

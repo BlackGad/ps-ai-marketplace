@@ -44,6 +44,19 @@ try {
     Assert-Equal 'prepared: Shared orchestration' $repeat[-1] 'The repeat after a failed commit does not say already done'
     Assert-Equal '' ((git -C $repo status --porcelain) -join "`n") 'The repeat commits every setup file'
 
+    # N1: a repeat never commits the owner's unrelated uncommitted edits.
+    foreach ($mode in @('Shared', 'Private')) {
+        $repo = New-ReviewRepo "owner-edits-$mode"
+        & $setup -Repo $repo -Mode $mode | Out-Null
+        $ownerFiles = @('.legion/state/handoff.md')
+        if ($mode -eq 'Shared') { $ownerFiles += @('AGENTS.md', '.gitignore') }
+        foreach ($file in $ownerFiles) { Add-Content -LiteralPath (Join-Path $repo $file) -Value 'owner edit' }
+        $repeat = @(& $setup -Repo $repo -Mode $mode)
+        Assert-Equal "skip: $mode orchestration (already done)" $repeat[-1] "$mode repeat leaves owner edits alone"
+        $dirty = @(git -C $repo status --porcelain -- $ownerFiles) + @(git -C (Join-Path $repo '.legion') status --porcelain -- state/handoff.md)
+        Assert-True ($dirty.Count -ge $ownerFiles.Count) "$mode owner edits stay uncommitted"
+    }
+
     # D2: a rules file outside the repository is refused.
     $repo = New-ReviewRepo 'rules-outside'
     foreach ($outside in @('../outside.md', (Join-Path $sandbox 'outside.md'))) {
