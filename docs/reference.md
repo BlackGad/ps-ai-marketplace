@@ -15,7 +15,7 @@ On Windows, run this in Windows PowerShell 5.1 or PowerShell 7 (`pwsh`):
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1)))
 ```
 
-The script checks for PowerShell 7, which the plugin needs at runtime. If it is missing on Windows, the script shows `winget install --id Microsoft.PowerShell -e` and asks before installing. If winget is missing or fails, it offers the official per-user ZIP, verifies its SHA-256 digest, extracts it to `~/.legion/tools/pwsh/`, and adds that folder to the process PATH, and to the user PATH only after you agree. Before installing ps-ai, the script asks once: `Install ps-ai for <tools> now? [y/N]`. Use `-Yes` to skip every question. `-Update`, `-Uninstall` and `-DryRun` do not ask this question.
+The script checks for PowerShell 7, which the plugin needs at runtime. If it is missing on Windows, the script shows `winget install --id Microsoft.PowerShell -e` and asks before installing. If winget is missing or fails, it offers the official per-user ZIP, verifies its SHA-256 digest, extracts it to `~/.legion/tools/pwsh/`, and adds that folder to the process PATH, and to the user PATH only after you agree. Before installing ps-ai, the script asks once: `Install ps-ai for <tools> now? [y/N]`. Use `-Yes` to skip every question. `-Update`, `-Uninstall` and `-DryRun` do not ask this question. `-Update` asks its own question for a folder where ps-ai is missing (see Install and update targets).
 
 On macOS or Linux, [install PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) first, then run:
 
@@ -30,9 +30,9 @@ By default, the script installs ps-ai for every installed coding CLI, using the 
 Plain install and `-Update` select the same targets:
 
 - Without `-Tools`, select the CLIs found on PATH from `tools.json`. `-Tools` selects the named descriptors instead; update skips a selected CLI if its executable is missing.
-- For each selected CLI, target its default config with the inherited account environment override cleared, then each matching `agents[].configDir` in `~/.legion/configuration/ps-ai-personalisation.json`. Ignore missing or blank `configDir` values and the value `default`; expand a leading `~/` or `~\` against the owner home and resolve recorded paths to full paths. Repeated recorded paths run once (case insensitive on Windows, case sensitive elsewhere).
+- For each selected CLI, the default folder is the one named by the CLI's account environment variable when it is set (for example `CLAUDE_CONFIG_DIR`). When it is not set, the CLI's own default runs with that variable cleared. Then add each matching `agents[].configDir` in `~/.legion/configuration/ps-ai-personalisation.json`; a recorded folder equal to the default folder is not run twice. Blank or missing `configDir` values are ignored; a leading `~/` or `~\` expands against the owner home and recorded paths become full paths. Repeated recorded paths run once (case insensitive on Windows, case sensitive elsewhere).
 - `-ConfigDir` replaces that folder list with only the supplied folder for each selected CLI. `-Tools` and `-ConfigDir` can be combined.
-- Plain install skips completed steps. Update refreshes installed copies, including disabled ones; if ps-ai is missing, it uses the same marketplace registration and plugin installation steps as plain install. Missing recorded folders can be created by installation. `-DryRun` reads listings and previews mutations.
+- Plain install skips completed steps. Update refreshes installed copies, including disabled ones; if ps-ai is missing in a folder, update asks `ps-ai is not installed for <tool> in <folder>. Install it now? [y/N]` before a fresh install. `-Yes` skips that question; `-DryRun` only previews. After a yes it uses the same marketplace registration and plugin installation steps as plain install; a no prints a `skip:` line for that folder. Missing recorded folders can be created by installation. `-DryRun` reads listings and previews mutations.
 
 Uninstall keeps its existing selection: selected installed CLIs' defaults and recorded account folders, or only `-ConfigDir` when supplied, plus matching ps-ai generated files. It skips absent plugins and marketplace registrations and preserves account settings and logins.
 
@@ -145,7 +145,7 @@ commands: missing ps-ai-setup, ps-ai-status, ps-ai-overseer, legion
 repo none
 ```
 
-`ps-ai-setup` without `-Add` finishes setup for recorded accounts. `legion setup` does the same. A completed plan prints `Nothing to do.` Adding the same tool again without an explicit id creates another account; adopting the same folder again reuses its account. When the plan needs the remote installer, it names the download.
+`ps-ai-setup` without `-Add` finishes setup for recorded accounts. `legion setup` does the same. A completed plan prints `Nothing to do.` The plan shows prerequisite repairs, such as a Node.js that is on PATH but does not run, on its `cli` line, so apply does nothing the plan did not show. With `-HomeRoot <home>`, the commands setup writes carry that home, so `ps-ai-setup`, `ps-ai-status`, `ps-ai-overseer` and `legion` read that home and not the real one. A default-home install is unchanged. Adding the same tool again without an explicit id creates another account; adopting the same folder again reuses its account. When the plan needs the remote installer, it names the download.
 
 ### Legion commands
 

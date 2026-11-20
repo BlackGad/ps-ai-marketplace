@@ -10,7 +10,7 @@ The result includes the installed and available versions and a GitHub script-blo
 
 Before asking for approval, read `skills/ps-ai-<agent.tool>/SKILL.md` and its plugin/update reference for each targeted account's tool. Stop if the tool skill is missing. Explain the documented update scope, including whether it can refresh other marketplaces in that account.
 
-After the owner's yes, run the returned update command. If the check fails, explain the failed check and offer the default GitHub update instead; it still requires the owner's yes:
+After the owner's yes, run the returned update command with `-Yes`; the owner has already agreed, and `-Yes` also answers the question the installer asks when ps-ai is missing in a folder. If the check fails, explain the failed check and offer the default GitHub update instead; it still requires the owner's yes:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Update
