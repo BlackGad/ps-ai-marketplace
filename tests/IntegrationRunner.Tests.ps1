@@ -128,17 +128,24 @@ try {
     Assert-True ($summary -like '*| add | 1.500 | 0.000 | failed |*') 'summary row for a failed step'
     Assert-True ((Get-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Raw) -like '*| setup | 4.210*') 'summary appended to GITHUB_STEP_SUMMARY'
 
-    # Tree hash: same for an unchanged folder, different after a change.
+    # Snapshots retain content hashes and diagnose changed, added and removed paths.
     $tree = Join-Path $tempRoot 'tree'
     New-Item -ItemType Directory -Path (Join-Path $tree 'sub') -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $tree 'sub/a.txt') -Value 'one'
-    $before = Get-TreeHash -Path $tree
-    Assert-Equal $before (Get-TreeHash -Path $tree) 'unchanged folder hashes the same'
+    $before = Get-TreeSnapshot -Path $tree
+    Assert-TreeUnchanged $before (Get-TreeSnapshot -Path $tree)
     Set-Content -LiteralPath (Join-Path $tree 'sub/a.txt') -Value 'two'
-    Assert-True ($before -ne (Get-TreeHash -Path $tree)) 'a changed file changes the hash'
+    $result = Invoke-IntegrationBlock { Assert-TreeUnchanged $before (Get-TreeSnapshot -Path $tree) }
+    Assert-True ($result.Message -like '*changed: sub/a.txt*') 'changed file is named'
     Set-Content -LiteralPath (Join-Path $tree 'sub/a.txt') -Value 'one'
     Rename-Item -LiteralPath (Join-Path $tree 'sub/a.txt') -NewName 'b.txt'
-    Assert-True ($before -ne (Get-TreeHash -Path $tree)) 'a renamed file changes the hash'
+    $result = Invoke-IntegrationBlock { Assert-TreeUnchanged $before (Get-TreeSnapshot -Path $tree) }
+    Assert-True ($result.Message -like '*removed: sub/a.txt*') 'removed file is named'
+    Assert-True ($result.Message -like '*added: sub/b.txt*') 'added file is named'
+    foreach ($number in 1..25) { Set-Content -LiteralPath (Join-Path $tree "file-$number.txt") -Value 'new' }
+    $result = Invoke-IntegrationBlock { Assert-TreeUnchanged $before (Get-TreeSnapshot -Path $tree) }
+    Assert-Equal 20 @($result.Message -split "`n" | Where-Object { $_ -match '^(added|removed|changed):' }).Count 'diagnostic lists at most 20 relative paths'
+    Assert-True ($result.Message -like '*7 more paths omitted*') 'diagnostic reports omitted path count'
 
     # Without -NoRun and without CI=true the script stops before any step.
     $env:CI = ''
@@ -164,6 +171,47 @@ try {
         . $runner -NoRun
         $null = Get-IntegrationSteps -HomeRoot $fakeHome -Checkout $root -Work $fakeWork -Os 'linux' -AllowFallback:$AllowFallback
         $script:calls = @()
+    }
+
+    # CLI process logs are runtime output; all ps-ai state must still be compared.
+    foreach ($repeatStep in 'Invoke-PsAiInstallRepeat', 'Invoke-SetupRepeat') {
+        . Reset-Runner
+        $repeatHome = Join-Path $tempRoot $repeatStep
+        $script:Ctx.HomeRoot = $repeatHome
+        foreach ($tool in 'claude', 'codex', 'copilot') { $script:Ctx.Targets[$tool] = @{ Source = $root; SourceRef = '' } }
+        $config = Join-Path $repeatHome '.legion/configuration'
+        New-Item -ItemType Directory -Path $config -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $config 'ps-ai-personalisation.json') -Value '{"agents":[{"id":"copilot1","tool":"copilot","configDir":"~/.legion/agents/copilot1"}]}'
+        New-Item -ItemType Directory -Path (Join-Path $repeatHome '.copilot'), (Join-Path $repeatHome '.codex'), (Join-Path $repeatHome '.legion/agents/copilot1') -Force | Out-Null
+        $script:runtimeFiles = @('.copilot/logs/process-1-100.log', '.legion/agents/copilot1/logs/process-2-200.log')
+        foreach ($os in 'windows', 'linux', 'macos') { $script:runtimeFiles += ".codex/tmp/arg0-$os/codex-arg0abc123/.lock" }
+        $script:ownedFile = ''
+        function Invoke-IntegrationScript {
+            foreach ($relative in $script:runtimeFiles) {
+                $log = Join-Path $script:Ctx.HomeRoot $relative
+                New-Item -ItemType Directory -Path (Split-Path $log) -Force | Out-Null
+                Add-Content -LiteralPath $log -Value 'listing'
+            }
+            if ($script:ownedFile) { Add-Content -LiteralPath (Join-Path $script:Ctx.HomeRoot $script:ownedFile) -Value 'unexpected write' }
+            return @('skip: ps-ai (already done)')
+        }
+        $script:Ctx.HomeSnapshot = Get-IntegrationHomeSnapshot
+        $result = Invoke-IntegrationBlock { & $repeatStep }
+        Assert-Equal 'passed' $result.Result "$repeatStep allows CLI-owned logs and helper locks"
+        # Existing logs can change while another listing creates a new one.
+        $script:runtimeFiles += '.copilot/logs/process-3-300.log'
+        $result = Invoke-IntegrationBlock { & $repeatStep }
+        Assert-Equal 'passed' $result.Result "$repeatStep allows new CLI process logs"
+        foreach ($relative in '.copilot/settings.json', '.copilot/settings.json.lock', '.claude/plugins/installed_plugins.json', '.codex/config.toml', '.copilot/logs/ps-ai.json', '.copilot/logs/process-extra.log', '.codex/tmp/ps-ai.json', '.codex/plugins/cache/ps-ai-marketplace/ps-ai/0.6.0/SKILL.md', '.legion/configuration/ps-ai-notes.md') {
+            $file = Join-Path $repeatHome $relative
+            New-Item -ItemType Directory -Path (Split-Path $file) -Force | Out-Null
+            Set-Content -LiteralPath $file -Value 'first'
+            $script:Ctx.HomeSnapshot = Get-IntegrationHomeSnapshot
+            $script:ownedFile = $relative
+            $result = Invoke-IntegrationBlock { & $repeatStep }
+            Assert-Equal 'failed' $result.Result "$repeatStep rejects changes to $relative"
+            Assert-True ($result.Message.Contains("changed: $relative")) 'failure names the changed relative path'
+        }
     }
 
     # Every CLI's config variable points at the throwaway default folder.
@@ -226,7 +274,6 @@ try {
         function Test-IntegrationPluginListed { return $true }
         function Assert-IntegrationControlFolder { }
         function Get-IntegrationPluginVersion { return Get-CheckoutVersion }
-        function Get-TreeHash { return 'hash' }
     }
 
     # An ordinary installer failure fails the step, and the other tools are still tried.

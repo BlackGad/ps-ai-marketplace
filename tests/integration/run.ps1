@@ -151,20 +151,58 @@ function Write-IntegrationReport {
     if ($env:GITHUB_STEP_SUMMARY) { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $text -NoNewline }
 }
 
-# Hashes relative paths and file contents, so a repeat run can prove nothing changed.
-function Get-TreeHash {
-    param([string]$Path)
+# Keep a hash per relative path so failures can name additions, removals and changes.
+function Get-TreeSnapshot {
+    param([string]$Path, [string[]]$Exclude = @())
     $base = (Resolve-Path -LiteralPath $Path).ProviderPath
-    $items = [System.Collections.Generic.List[string]]::new()
+    $items = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
     foreach ($item in Get-ChildItem -LiteralPath $base -Recurse -Force) {
         $relative = [IO.Path]::GetRelativePath($base, $item.FullName).Replace('\', '/')
-        if ($item.PSIsContainer) { $items.Add("dir:$relative") }
-        else { $items.Add("file:${relative}:$((Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash)") }
+        if (@($Exclude | Where-Object { $relative -cmatch $_ }).Count) { continue }
+        $items[$relative] = if ($item.PSIsContainer) { 'directory' } else { (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash }
     }
-    $sorted = $items.ToArray()
-    [Array]::Sort($sorted, [StringComparer]::Ordinal)
-    $bytes = [Text.Encoding]::UTF8.GetBytes($sorted -join "`n")
-    return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
+    return ,$items
+}
+
+function Assert-TreeUnchanged {
+    param($Before, $After)
+    $paths = @(@($Before.Keys) + @($After.Keys) | Sort-Object -Unique -CaseSensitive)
+    $changes = @(foreach ($path in $paths) {
+        if (-not $Before.ContainsKey($path)) { "added: $path" }
+        elseif (-not $After.ContainsKey($path)) { "removed: $path" }
+        elseif ($Before[$path] -cne $After[$path]) { "changed: $path" }
+    })
+    if ($changes.Count) {
+        $message = @('the home changed on the repeat run:') + @($changes | Select-Object -First 20)
+        if ($changes.Count -gt 20) { $message += "$($changes.Count - 20) more paths omitted" }
+        throw ($message -join "`n")
+    }
+}
+
+function Get-IntegrationHomeSnapshot {
+    # Observed with the installed CLIs in disposable config folders, listing twice:
+    $runtimePaths = @{
+        claude = @() # 2.1.330: plugin and marketplace listings wrote nothing.
+        # 0.171.0: per-process PATH helpers/locks; OS suffixes match codex-rs/arg0.
+        codex = @('tmp', 'tmp/arg0-(windows|linux|macos)(/codex-arg0[^/]+(/.*)?)?')
+        copilot = @('logs', 'logs/process-[0-9]+-[0-9]+\.log') # 1.0.114: one timestamp/pid log per invocation.
+    }
+    $folders = @(foreach ($tool in $script:IntegrationTools) {
+        @{ Tool = $tool; Folder = Get-IntegrationToolFolder $tool }
+    })
+    $settings = Join-Path $script:Ctx.HomeRoot '.legion/configuration/ps-ai-personalisation.json'
+    if (Test-Path -LiteralPath $settings) {
+        foreach ($agent in (Get-IntegrationSettings).Data.agents) {
+            $folders += @{ Tool = $agent.tool; Folder = Resolve-IntegrationFolder $agent.configDir }
+        }
+    }
+    $exclude = @(foreach ($entry in $folders) {
+        $relative = [IO.Path]::GetRelativePath($script:Ctx.HomeRoot, $entry.Folder).Replace('\', '/')
+        foreach ($path in $runtimePaths[$entry.Tool]) {
+            '^' + [regex]::Escape($relative) + '/' + $path + '$'
+        }
+    })
+    return Get-TreeSnapshot $script:Ctx.HomeRoot -Exclude $exclude
 }
 
 # ---- Real steps: call the repository scripts by path -------------------------------------------
@@ -420,7 +458,7 @@ function Invoke-PsAiInstallFirst {
         $found = Get-IntegrationPluginVersion $tool $folder
         Assert-IntegrationTrue ($found -eq $expected) "$tool has ps-ai $found, expected $expected"
     }
-    $script:Ctx.HomeHash = Get-TreeHash $script:Ctx.HomeRoot
+    $script:Ctx.HomeSnapshot = Get-IntegrationHomeSnapshot
     return $lines
 }
 
@@ -428,7 +466,7 @@ function Invoke-PsAiInstallRepeat {
     $lines = @()
     foreach ($tool in (Get-IntegrationActiveTools)) { $lines += Invoke-PsAiInstall $tool $script:Ctx.Targets[$tool] }
     Assert-IntegrationText $lines 'skip:'
-    Assert-IntegrationTrue ((Get-TreeHash $script:Ctx.HomeRoot) -eq $script:Ctx.HomeHash) 'the home changed on the repeat run'
+    Assert-TreeUnchanged $script:Ctx.HomeSnapshot (Get-IntegrationHomeSnapshot)
     return $lines
 }
 
@@ -464,7 +502,7 @@ function Invoke-SetupFirst {
     } else {
         Assert-IntegrationText $lines 'export PATH='
     }
-    $script:Ctx.HomeHash = Get-TreeHash $script:Ctx.HomeRoot
+    $script:Ctx.HomeSnapshot = Get-IntegrationHomeSnapshot
     return $lines
 }
 
@@ -480,7 +518,7 @@ function Assert-AccountsHavePsAi {
 function Invoke-SetupRepeat {
     $lines = Invoke-SetupAccounts
     Assert-IntegrationText $lines 'skip:'
-    Assert-IntegrationTrue ((Get-TreeHash $script:Ctx.HomeRoot) -eq $script:Ctx.HomeHash) 'the home changed on the repeat run'
+    Assert-TreeUnchanged $script:Ctx.HomeSnapshot (Get-IntegrationHomeSnapshot)
     return $lines
 }
 
