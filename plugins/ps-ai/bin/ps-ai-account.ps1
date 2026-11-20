@@ -98,14 +98,60 @@ function ConvertTo-PsAiShellLiteral {
 
 function Write-PsAiGeneratedFile {
     param([string]$Path, [string]$Content, [Collections.Generic.List[string]]$Changes, [switch]$Executable)
-    if ((Test-Path -LiteralPath $Path) -and [IO.File]::ReadAllText($Path) -ceq $Content) { return }
-    New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
-    [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
-    if ($Executable -and -not $IsWindows) {
+    $same = (Test-Path -LiteralPath $Path) -and [IO.File]::ReadAllText($Path) -ceq $Content
+    if (-not $same) {
+        New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
+        [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
+    }
+    if ($Executable -and -not $IsWindows -and -not (Test-PsAiLauncherExecutable -Path $Path)) {
         & chmod +x $Path
         if ($LASTEXITCODE -ne 0) { throw 'could not make the generated wrapper executable' }
     }
-    if ($null -ne $Changes) { $Changes.Add($Path) }
+    if (-not $same -and $null -ne $Changes) { $Changes.Add($Path) }
+}
+
+function Test-PsAiLauncherExecutable {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    if ($IsWindows) { return $true }
+    return ([IO.File]::GetUnixFileMode($Path) -band [IO.UnixFileMode]::UserExecute) -ne 0
+}
+
+function Get-PsAiShellWrapperTarget {
+    param([string]$Path, [string]$Tool, [string]$ConfigDir)
+    $prefix = (Get-PsAiTool $Tool).configEnv + '=' + (ConvertTo-PsAiShellLiteral $ConfigDir) + ' exec '
+    $line = [IO.File]::ReadAllLines($Path) | Select-Object -Last 1
+    if (-not $line.StartsWith($prefix) -or -not $line.EndsWith(' "$@"')) { return $null }
+    $literal = $line.Substring($prefix.Length, $line.Length - $prefix.Length - ' "$@"'.Length)
+    if ($literal.StartsWith('pwsh -NoProfile -File ')) { $literal = $literal.Substring('pwsh -NoProfile -File '.Length) }
+    if (-not $literal.StartsWith("'") -or -not $literal.EndsWith("'")) { return $null }
+    $escape = "'" + '"' + "'" + '"' + "'"
+    $target = $literal.Substring(1, $literal.Length - 2).Replace($escape, "'")
+    if ((ConvertTo-PsAiShellLiteral $target) -ceq $literal) { return $target }
+    return $null
+}
+
+function Get-PsAiWrapperTarget {
+    param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$ConfigDir)
+    $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
+    $candidates = [Collections.Generic.List[string]]::new()
+    $sh = Join-Path $bin $Id
+    if (Test-PsAiOwnedWrapper $sh $Id) {
+        $target = Get-PsAiShellWrapperTarget -Path $sh -Tool $Tool -ConfigDir $ConfigDir
+        if ($target) { $candidates.Add($target) }
+    }
+    $cmd = Join-Path $bin "$Id.cmd"
+    if ($IsWindows -and (Test-PsAiOwnedWrapper $cmd $Id)) {
+        $line = [IO.File]::ReadAllLines($cmd) | Select-Object -Skip 3 -First 1
+        if ($line -cmatch '^@(?:pwsh -NoProfile -File |call )?"([^"]+)" %\*$') { $candidates.Add($Matches[1].Replace('%%', '%')) }
+    }
+    if (-not $candidates.Count) { return $null }
+    $target = $candidates[0]
+    foreach ($candidate in $candidates) { if (-not (Get-PsAiPathComparer).Equals($target, $candidate)) { return $null } }
+    # Regenerate in check-only mode to reject edited or conflicting surviving wrappers.
+    try { New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -ConfigDir $ConfigDir -RealCommand $target -CheckOnly }
+    catch { return $null }
+    return $target
 }
 
 function Get-PsAiNewAccountDir {
@@ -361,15 +407,9 @@ function Add-PsAiSubscriptionAccount {
     $accountDir = [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($accountDir))
     $existingDir = if ($existing.configDir -match '^~[/\\]') { Join-Path $HomeRoot $existing.configDir.Substring(2) } else { $existing.configDir }
     if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and (Get-PsAiPathComparer).Equals($existingDir, $accountDir)) {
-        if ($Command) { New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $Command -ConfigDir $accountDir }
-        else {
-            $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
-            $missing = @($suffixes | Where-Object { -not (Test-Path -LiteralPath (Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$Id$_")) })
-            if ($missing.Count) {
-                $realCommand = (Get-Command (Get-PsAiTool -Tool $Tool).command -CommandType Application -ErrorAction Stop).Source
-                New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $realCommand -ConfigDir $accountDir
-            } elseif (-not (Test-PsAiOwnedWrapper (Get-PsAiWrapperCommand $Id $HomeRoot) $Id)) { throw "wrapper collision for '$Id'" }
-        }
+        if (-not $Command) { $Command = Get-PsAiWrapperTarget -Id $Id -Tool $Tool -HomeRoot $HomeRoot -ConfigDir $accountDir }
+        if (-not $Command) { throw "target needed: $Id; ask the owner for the registered executable" }
+        New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $Command -ConfigDir $accountDir
         "skip: account $Id (already done)"
         return
     }
