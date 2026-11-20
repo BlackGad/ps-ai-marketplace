@@ -4,7 +4,7 @@
 function New-BenchmarkEntries {
     param(
         [Parameter(Mandatory)][string]$Os,
-        [Parameter(Mandatory)][object[]]$Cases,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Cases,
         [string]$Extra
     )
     foreach ($case in $Cases) {
@@ -21,7 +21,7 @@ function New-BenchmarkEntries {
 function Write-BenchmarkFile {
     param(
         [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][object[]]$Entries
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Entries
     )
     # -InputObject @(...) keeps a one-item array an array; ConvertTo-Json always writes a `.` decimal.
     $json = ConvertTo-Json -InputObject @($Entries) -Depth 5

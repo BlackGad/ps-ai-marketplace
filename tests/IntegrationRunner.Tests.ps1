@@ -122,6 +122,227 @@ try {
     Assert-Equal 'install-cli-claude,install-cli-codex,install-cli-copilot,install-ps-ai,setup,add,remove,repo-private,repo-shared,uninstall' (($steps.Name) -join ',') 'step order'
     Assert-True ($steps.Where({ $_.Name -eq 'setup' }).DependsOn -contains 'install-ps-ai') 'setup needs install-ps-ai'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $tempRoot 'home'))) 'building the steps touches nothing'
+
+    # ---- Fakes below replace the runner's functions; each block loads the real ones again first. ----
+    $fakeHome = Join-Path $tempRoot 'fake-home'
+    $fakeWork = Join-Path $tempRoot 'fake-work'
+    New-Item -ItemType Directory -Path $fakeHome, $fakeWork -Force | Out-Null
+    function Reset-Runner {
+        param([switch]$AllowFallback)
+        . $runner -NoRun
+        $null = Get-IntegrationSteps -HomeRoot $fakeHome -Checkout $root -Work $fakeWork -Os 'linux' -AllowFallback:$AllowFallback
+        $script:calls = @()
+    }
+
+    # Every CLI's config variable points at the throwaway default folder.
+    . Reset-Runner
+    $savedEnv = @{}
+    foreach ($name in 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'COPILOT_HOME') { $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name) }
+    try {
+        Set-IntegrationConfigEnvironment
+        Assert-Equal (Join-Path $fakeHome '.claude') $env:CLAUDE_CONFIG_DIR 'claude config variable'
+        Assert-Equal (Join-Path $fakeHome '.codex') $env:CODEX_HOME 'codex config variable'
+    } finally {
+        foreach ($name in $savedEnv.Keys) {
+            if ($null -eq $savedEnv[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
+            else { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name]) }
+        }
+    }
+
+    # After an install the executable is found through the saved PATH, in this process.
+    . Reset-Runner
+    $savedPath = $env:PATH
+    try {
+        # A tiny fake CLI in a folder that is not on PATH yet.
+        $savedFolder = Join-Path $fakeWork 'saved-bin'
+        New-Item -ItemType Directory -Path $savedFolder -Force | Out-Null
+        $fakeCli = if ($IsWindows) { 'ps-ai-fake-cli.cmd' } else { 'ps-ai-fake-cli' }
+        Set-Content -LiteralPath (Join-Path $savedFolder $fakeCli) -Value $(if ($IsWindows) { '@echo off' } else { '#!/bin/sh' })
+        if (-not $IsWindows) { chmod +x (Join-Path $savedFolder $fakeCli) }
+        function Get-IntegrationPersistentFolders { return @($savedFolder) }
+        $resolved = Resolve-IntegrationCommand 'ps-ai-fake-cli'
+        Assert-True (Test-Path -LiteralPath $resolved -PathType Leaf) 'the executable is resolved from the saved PATH'
+        Assert-True (@($env:PATH -split [IO.Path]::PathSeparator) -contains $savedFolder) 'the runner PATH now has the folder'
+        $threw = $false
+        function Get-IntegrationPersistentFolders { return @() }
+        try { Resolve-IntegrationCommand 'ps-ai-missing-cli' | Out-Null } catch { $threw = $true }
+        Assert-True $threw 'a tool missing everywhere is an error'
+    } finally { $env:PATH = $savedPath }
+
+    # Windows without a working winget asks the installer for the zip method.
+    . Reset-Runner
+    function Get-IntegrationOs { return 'windows' }
+    function Invoke-IntegrationScript { param($Script, $Arguments = @()) $script:calls += , @($Arguments | ForEach-Object { $_ }); return @('ok') }
+    function Test-IntegrationWingetWorks { return $false }
+    Invoke-CliInstallScript 'claude' | Out-Null
+    Assert-True ((@($calls[0]) -join ' ') -like '*-Method zip*') 'no winget selects -Method zip'
+    function Test-IntegrationWingetWorks { return $true }
+    $script:calls = @()
+    Invoke-CliInstallScript 'claude' | Out-Null
+    Assert-True ((@($calls[0]) -join ' ') -notlike '*-Method*') 'a working winget keeps the default method'
+
+    # Step 2 with fakes: nothing real runs; the behaviour block decides what each install.ps1 call does.
+    $refusal = "install.ps1 exited 1`ncodex exited 1`nlocal folder marketplace is not supported"
+    function Install-Fakes {
+        function Invoke-IntegrationScript {
+            param($Script, $Arguments = @())
+            $words = @($Arguments)
+            $call = @{ Tool = $words[$words.IndexOf('-Tools') + 1]; Source = $words[$words.IndexOf('-Source') + 1]; Words = $words }
+            $script:calls += , $call
+            return @(& $script:behavior $call)
+        }
+        function Test-IntegrationPluginListed { return $true }
+        function Assert-IntegrationControlFolder { }
+        function Get-IntegrationPluginVersion { return Get-CheckoutVersion }
+        function Get-TreeHash { return 'hash' }
+    }
+
+    # An ordinary installer failure fails the step, and the other tools are still tried.
+    . Reset-Runner -AllowFallback
+    . Install-Fakes
+    $script:behavior = { param($call) if ($call.Tool -eq 'codex') { throw "install.ps1 exited 1`nnetwork unreachable" }; 'ok' }
+    $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
+    Assert-Equal 'failed' $result.Result 'an ordinary installer failure is a failure, not a skip'
+    Assert-True ($result.Message -like '*codex*network unreachable*') "the failure keeps the tool and the message: [$($result.Message)]"
+    Assert-Equal 'claude,codex,copilot' (($calls | ForEach-Object { $_.Tool }) -join ',') 'the other tools were still installed'
+    Assert-Equal 0 $script:Ctx.NotTested.Count 'nothing was marked not tested'
+
+    # A positively identified refusal skips only that tool; the others pass with the checkout.
+    . Reset-Runner
+    . Install-Fakes
+    $script:behavior = { param($call) if ($call.Tool -eq 'codex') { throw $refusal }; 'ok' }
+    $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
+    Assert-Equal 'passed' $result.Result 'the other tools still pass'
+    Assert-Equal 'codex' (@($script:Ctx.NotTested.Keys) -join ',') 'only codex is not tested'
+    Assert-Equal 'claude,copilot' ((Get-IntegrationActiveTools) -join ',') 'later steps use the other two tools'
+    Assert-True ($result.Log -like '*not tested from the checkout*') 'the log says codex was not tested from the checkout'
+    Assert-True (-not ($calls | Where-Object { $_.Source -ne $root })) 'no call used another source'
+
+    # A release call from a main push never falls back unless the parameter says so.
+    $savedRef = $env:GITHUB_REF; $savedEvent = $env:GITHUB_EVENT_NAME
+    try {
+        $env:GITHUB_REF = 'refs/heads/main'; $env:GITHUB_EVENT_NAME = 'push'
+        . Reset-Runner
+        . Install-Fakes
+        $script:behavior = { param($call) if ($call.Tool -eq 'codex') { throw $refusal }; 'ok' }
+        $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
+        Assert-True (-not ($calls | Where-Object { $_.Source -like '*ps-ai-marketplace' -and $_.Source -ne $root })) 'the main-push environment alone enables no fallback'
+        Assert-Equal 'codex' (@($script:Ctx.NotTested.Keys) -join ',') 'the release call skips codex'
+    } finally { $env:GITHUB_REF = $savedRef; $env:GITHUB_EVENT_NAME = $savedEvent }
+
+    # With the parameter, the fallback uses the published source bound to the tested revision.
+    . Reset-Runner -AllowFallback
+    . Install-Fakes
+    function Get-IntegrationRevision { return 'abc123' }
+    function Get-IntegrationRemoteMain { return 'abc123' }
+    $script:behavior = { param($call) if ($call.Tool -eq 'codex' -and $call.Source -eq $root) { throw $refusal }; 'ok' }
+    $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
+    Assert-Equal 'passed' $result.Result 'the fallback passes'
+    $fallback = @($calls | Where-Object { $_.Source -eq 'BlackGad/ps-ai-marketplace' })
+    Assert-Equal 1 $fallback.Count 'only the refusing tool used the fallback'
+    Assert-Equal 'codex' $fallback[0].Tool 'the fallback was for codex'
+    Assert-True ((@($fallback[0].Words) -join ' ') -like '*-SourceRef abc123*') 'the fallback is bound to the tested revision'
+    Assert-Equal 0 $script:Ctx.NotTested.Count 'a fallback tool is tested'
+
+    # A moved main branch is a failure, not a different revision under test.
+    . Reset-Runner -AllowFallback
+    . Install-Fakes
+    function Get-IntegrationRevision { return 'abc123' }
+    function Get-IntegrationRemoteMain { return 'def456' }
+    $script:behavior = { param($call) if ($call.Tool -eq 'codex' -and $call.Source -eq $root) { throw $refusal }; 'ok' }
+    $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
+    Assert-Equal 'failed' $result.Result 'a fallback for another revision fails'
+
+    # When every tool refuses without a fallback, the step is skipped.
+    . Reset-Runner
+    . Install-Fakes
+    $script:behavior = { param($call) throw "install.ps1 exited 1`n$($call.Tool) exited 1`nlocal folder marketplace is not supported" }
+    $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
+    Assert-Equal 'skipped' $result.Result 'all tools refusing skips the step'
+
+    # Another tool's refusal text does not excuse this tool.
+    . Reset-Runner
+    Assert-True (-not (Test-IntegrationLocalRefusal 'claude' $refusal)) 'a refusal by codex is not a claude refusal'
+    Assert-True (Test-IntegrationLocalRefusal 'codex' $refusal) 'a codex refusal is identified'
+    Assert-True (-not (Test-IntegrationLocalRefusal 'codex' "install.ps1 exited 1`ncodex exited 1`nconnection reset")) 'an unrelated failure is not a refusal'
+
+    # Setup repeats for explicit ids and never asks for new accounts; both runs use the same arguments.
+    . Reset-Runner
+    foreach ($tool in 'claude', 'codex', 'copilot') { $script:Ctx.Targets[$tool] = @{ Source = $root; SourceRef = '' } }
+    function Invoke-IntegrationScript { param($Script, $Arguments = @()) $script:calls += , @($Arguments | ForEach-Object { $_ }); return @('ok') }
+    Invoke-SetupAccounts | Out-Null
+    $firstCalls = @($calls | ForEach-Object { @($_) -join ' ' })
+    $script:calls = @()
+    Invoke-SetupAccounts | Out-Null
+    $repeatCalls = @($calls | ForEach-Object { @($_) -join ' ' })
+    Assert-Equal 3 $firstCalls.Count 'one setup call per tool'
+    Assert-Equal ($firstCalls -join "`n") ($repeatCalls -join "`n") 'the repeat uses the same arguments'
+    foreach ($tool in 'claude', 'codex', 'copilot') {
+        Assert-True (@($firstCalls | Where-Object { $_ -like "*-Add $tool -Id ${tool}1 *" }).Count -eq 1) "$tool has an explicit stable id"
+    }
+
+    # The Shared fixture commits AGENTS.md and passes -RulesFile; Private passes none.
+    . Reset-Runner
+    function Invoke-IntegrationScript { param($Script, $Arguments = @()) $script:calls += , @($Arguments | ForEach-Object { $_ }); return @('ok') }
+    Invoke-RepositoryScript 'repo' 'Shared' | Out-Null
+    Assert-True ((@($calls[0]) -join ' ') -like '*-RulesFile AGENTS.md*') 'Shared passes -RulesFile'
+    $script:calls = @()
+    Invoke-RepositoryScript 'repo' 'Private' | Out-Null
+    Assert-True ((@($calls[0]) -join ' ') -notlike '*-RulesFile*') 'Private passes no rules file'
+    $repoB = New-IntegrationRepo 'repo-b' -WithRules
+    Assert-True (@(git -C $repoB ls-files 'AGENTS.md').Count -eq 1) 'the Shared fixture tracks AGENTS.md'
+    $repoA = New-IntegrationRepo 'repo-a'
+    Assert-True (@(git -C $repoA ls-files 'AGENTS.md').Count -eq 0) 'the plain fixture has no AGENTS.md'
+
+    # Listing: the catalog's arguments and parser; a disabled entry is not installed.
+    . Reset-Runner
+    function Invoke-IntegrationCli { param($Tool, $Arguments, $Folder) $script:calls += , @($Arguments | ForEach-Object { $_ }); return @{ ExitCode = 0; Lines = @($script:listing) } }
+    $script:listing = '[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]'
+    Assert-True (-not (Test-IntegrationPluginListed 'claude' 'folder')) 'a disabled entry is not installed'
+    Assert-True (Test-IntegrationPluginListed 'claude' 'folder' -IncludeDisabled) 'a disabled entry is still listed'
+    Assert-Equal 'plugin list --json' (@($calls[0]) -join ' ') 'the catalog listing arguments are used'
+    $script:listing = '[{"id":"ps-ai@ps-ai-marketplace","enabled":true}]'
+    Assert-True (Test-IntegrationPluginListed 'claude' 'folder') 'an enabled entry is installed'
+    $script:listing = '[]'
+    Assert-True (-not (Test-IntegrationPluginListed 'claude' 'folder' -IncludeDisabled)) 'an empty folder lists nothing'
+    Assert-IntegrationControlFolder 'claude'
+    $script:listing = '[{"id":"ps-ai@ps-ai-marketplace","enabled":true}]'
+    $threw = $false
+    try { Assert-IntegrationControlFolder 'claude' } catch { $threw = $true }
+    Assert-True $threw 'a control folder that lists ps-ai fails'
+
+    # Uninstall: default and account folders are captured first and checked afterwards; the repeat must have nothing to do.
+    . Reset-Runner
+    foreach ($tool in 'claude', 'codex', 'copilot') { $script:Ctx.Targets[$tool] = @{ Source = $root; SourceRef = '' } }
+    New-Item -ItemType Directory -Path (Join-Path $fakeHome '.legion/configuration'), (Join-Path $fakeHome '.legion/agents'), (Join-Path $fakeHome '.legion/bin') -Force | Out-Null
+    $accountFolder = '~/.legion/agents/claude1'
+    function Get-IntegrationSettings { return @{ Path = 'x'; Data = [pscustomobject]@{ agents = @([pscustomobject]@{ id = 'claude1'; tool = 'claude'; configDir = $accountFolder }) } } }
+    $targets = @(Get-IntegrationUninstallTargets)
+    Assert-Equal 4 $targets.Count 'three default folders and one account folder'
+    Assert-True (@($targets | Where-Object { $_.Tool -eq 'claude' -and $_.Folder -eq (Join-Path $fakeHome '.legion/agents/claude1') }).Count -eq 1) 'the account folder is a target'
+    function Invoke-UninstallScript { return @($script:uninstallOutput) }
+    function Resolve-IntegrationCommand { return @((Get-Command pwsh -CommandType Application).Source)[0] }
+    function Get-IntegrationPluginVersion { return $null }
+    $script:stale = ''
+    function Test-IntegrationPluginListed { param($Tool, $Folder, [switch]$IncludeDisabled) return ($Folder -like "*$script:stale*" -and $script:stale -ne '') }
+    $script:uninstallOutput = 'Uninstalled'
+    Invoke-UninstallFirst | Out-Null
+    $script:stale = 'claude1'
+    $threw = $false
+    try { Invoke-UninstallFirst | Out-Null } catch { $threw = $_.Exception.Message -like '*claude1*' }
+    Assert-True $threw 'a plugin left in an account folder fails the uninstall'
+    $script:stale = ''
+    $cacheFolder = Join-Path $fakeHome '.claude/plugins/cache/ps-ai-marketplace'
+    New-Item -ItemType Directory -Path $cacheFolder -Force | Out-Null
+    $threw = $false
+    try { Invoke-UninstallFirst | Out-Null } catch { $threw = $_.Exception.Message -like '*cache*' }
+    Assert-True $threw 'a cache left behind fails the uninstall'
+    Remove-Item -LiteralPath (Join-Path $fakeHome '.claude') -Recurse -Force
+    $threw = $false
+    try { Invoke-UninstallRepeat | Out-Null } catch { $threw = $true }
+    Assert-True $threw 'a repeat that does not say Nothing to uninstall fails'
+    $script:uninstallOutput = 'Nothing to uninstall.'
+    Invoke-UninstallRepeat | Out-Null
 } finally {
     $env:CI = $savedCi
     $env:GITHUB_STEP_SUMMARY = $savedSummary

@@ -57,6 +57,13 @@ try {
     Assert-Equal 'windows / setup' $mergedItems[0].name 'merge order first'
     Assert-Equal 'linux / setup' $mergedItems[1].name 'merge order second'
     Assert-Equal 'linux / setup (repeat)' $mergedItems[2].name 'merge order third'
+
+    # No passed case still gives an empty entry list and an empty JSON array file.
+    $none = @(New-BenchmarkEntries -Os 'linux' -Cases @())
+    Assert-Equal 0 $none.Count 'an empty case list gives no entries'
+    $emptyFile = Join-Path $tempRoot 'empty.json'
+    Write-BenchmarkFile -Path $emptyFile -Entries $none
+    Assert-Equal '[]' ((Get-Content -LiteralPath $emptyFile -Raw) -replace '\s', '') 'empty entries write an empty array'
 } finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

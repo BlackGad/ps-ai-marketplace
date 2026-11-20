@@ -1,10 +1,12 @@
 # Integration suite: install, setup and uninstall on a clean runner with the real CLIs and no login.
 # CI only. Without -NoRun the script refuses to start unless CI is "true", so a local run never touches a real home.
+# -AllowSourceFallback is set by the workflow for a direct push to main; it lets a CLI that refuses the checkout use the published source at the tested revision.
 # Steps are data: @{ Name; DependsOn = @(<names>); First = { }; Repeat = { } }. A block throws to fail and may return @{ Skipped = '<reason>' }.
 param(
     [string]$Out,
     [string]$HomeRoot,
     [string]$Checkout,
+    [switch]$AllowSourceFallback,
     [switch]$NoRun
 )
 
@@ -159,6 +161,7 @@ function Get-TreeHash {
 
 $script:Ctx = @{}
 $script:IntegrationTools = @('claude', 'codex', 'copilot')
+$script:MarketplaceRepo = 'BlackGad/ps-ai-marketplace'
 
 # Runs a repository script in its own pwsh. Plain values are quoted, -Names are not, arrays become a,b,c.
 function Invoke-IntegrationScript {
@@ -204,6 +207,13 @@ function Get-IntegrationToolFolder {
     return Resolve-IntegrationFolder (Get-IntegrationToolInfo $Tool).plugin.defaultConfigDir
 }
 
+# Install, listing and uninstall all run with each CLI's config variable pointing at the throwaway default folder.
+function Set-IntegrationConfigEnvironment {
+    foreach ($tool in $script:IntegrationTools) {
+        [Environment]::SetEnvironmentVariable((Get-IntegrationToolInfo $tool).configEnv, (Get-IntegrationToolFolder $tool))
+    }
+}
+
 function Get-IntegrationPluginVersion {
     param([string]$Tool, [string]$Folder)
     return Get-PsAiInstalledVersion -ConfigDir $Folder -Tool (Get-IntegrationToolInfo $Tool)
@@ -213,16 +223,88 @@ function Get-CheckoutVersion {
     return (Get-Content -LiteralPath (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/plugin.json') -Raw | ConvertFrom-Json).version
 }
 
-# `<cli> plugin list` against the config folder the install used.
-function Get-IntegrationPluginList {
-    param([string]$Tool, [string]$Folder)
-    $envName = (Get-IntegrationToolInfo $Tool).configEnv
-    $saved = [Environment]::GetEnvironmentVariable($envName)
-    [Environment]::SetEnvironmentVariable($envName, $Folder)
-    try { $lines = @(& $Tool plugin list 2>&1 | ForEach-Object { "$_" }) }
-    finally { [Environment]::SetEnvironmentVariable($envName, $saved) }
-    if ($LASTEXITCODE -ne 0) { throw "$Tool plugin list exited $LASTEXITCODE" }
-    return $lines
+# Tools that skipped the checkout (local-folder refusal) take no part in the later steps.
+function Get-IntegrationActiveTools {
+    return @($script:IntegrationTools | Where-Object { -not $script:Ctx.NotTested.Contains($_) })
+}
+
+# ---- CLI executables and listings --------------------------------------------------------------
+
+function Get-IntegrationPersistentFolders {
+    if ((Get-IntegrationOs) -eq 'windows') {
+        $text = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')
+        return @($text -split ';' | Where-Object { $_.Trim() } | ForEach-Object { [Environment]::ExpandEnvironmentVariables($_.Trim().Trim('"')) })
+    }
+    return @((Join-Path $HOME '.local/bin'))
+}
+
+# An installer changes the saved PATH, not this process; add the saved folders here so the runner and its children see the new tool.
+function Resolve-IntegrationCommand {
+    param([string]$Name)
+    $found = @(Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue)[0]
+    if (-not $found) {
+        $separator = [IO.Path]::PathSeparator
+        foreach ($folder in Get-IntegrationPersistentFolders) {
+            if ((Test-Path -LiteralPath $folder -PathType Container) -and (@($env:PATH -split $separator) -notcontains $folder)) {
+                $env:PATH = $env:PATH + $separator + $folder
+            }
+        }
+        $found = @(Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue)[0]
+    }
+    if (-not $found) { throw "$Name was not found on PATH after the install" }
+    return $found.Source
+}
+
+function Test-IntegrationWingetWorks {
+    try { & winget --version 2>&1 | Out-Null; return ($LASTEXITCODE -eq 0) } catch { return $false }
+}
+
+# Runs the tool's own CLI with its config variable (and listing variables) set to $Folder, then puts them back.
+function Invoke-IntegrationCli {
+    param([string]$Tool, [string[]]$Arguments, [string]$Folder)
+    $info = Get-IntegrationToolInfo $Tool
+    $command = Resolve-IntegrationCommand $info.command
+    $values = [ordered]@{ $info.configEnv = $Folder }
+    if ($info.plugin.listingEnv) { foreach ($property in $info.plugin.listingEnv.PSObject.Properties) { $values[$property.Name] = $property.Value } }
+    $saved = @{}
+    foreach ($name in $values.Keys) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+    try {
+        foreach ($name in $values.Keys) { [Environment]::SetEnvironmentVariable($name, $values[$name]) }
+        $lines = @(& $command @Arguments 2>&1 | ForEach-Object { "$_" })
+        $code = $LASTEXITCODE
+    } finally {
+        foreach ($name in $values.Keys) {
+            if ($null -eq $saved[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
+            else { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
+        }
+    }
+    return @{ ExitCode = $code; Lines = $lines }
+}
+
+# The installer's own parser, loaded in a child scope so its parameters and helpers stay out of this script.
+function Test-IntegrationListing {
+    param([string]$Tool, [string[]]$Lines, [switch]$IncludeDisabled)
+    return & {
+        . (Join-Path $script:Ctx.Checkout 'install.ps1') -NoRun
+        $script:installCatalog = Get-InstallCatalog -Source $script:Ctx.Checkout
+        Test-InstallListing -Kind plugin -Tool $Tool -Lines $Lines -IncludeDisabled:$IncludeDisabled
+    }
+}
+
+# True when the folder lists ps-ai. A disabled entry counts as not installed unless -IncludeDisabled.
+function Test-IntegrationPluginListed {
+    param([string]$Tool, [string]$Folder, [switch]$IncludeDisabled)
+    $result = Invoke-IntegrationCli -Tool $Tool -Arguments @((Get-IntegrationToolInfo $Tool).plugin.list) -Folder $Folder
+    if ($result.ExitCode -ne 0) { throw "$Tool plugin list exited $($result.ExitCode)" }
+    return [bool](Test-IntegrationListing -Tool $Tool -Lines $result.Lines -IncludeDisabled:$IncludeDisabled)
+}
+
+# A folder nobody installed into must list nothing; this proves the listing follows the folder it is given.
+function Assert-IntegrationControlFolder {
+    param([string]$Tool)
+    $control = Join-Path $script:Ctx.Work "control-$Tool"
+    New-Item -ItemType Directory -Path $control -Force | Out-Null
+    Assert-IntegrationTrue (-not (Test-IntegrationPluginListed $Tool $control -IncludeDisabled)) "$Tool lists ps-ai in an empty control folder"
 }
 
 function Get-IntegrationSettings {
@@ -230,55 +312,100 @@ function Get-IntegrationSettings {
     return @{ Path = $path; Data = (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json) }
 }
 
-function Get-IntegrationSource { return $script:Ctx.Source }
-
-# Local-folder fallback (spec risk note): a CLI that refuses the checkout is tested from GitHub on main push runs only.
-function Test-IntegrationMainPush {
-    return ($env:GITHUB_REF -eq 'refs/heads/main' -and $env:GITHUB_EVENT_NAME -eq 'push')
+# Step 1
+function Invoke-CliInstallScript {
+    param([string]$Tool)
+    $arguments = @('-Tool', $Tool, '-Yes')
+    # Without a working winget the installer only asks for a method; zip needs no admin rights.
+    if ((Get-IntegrationOs) -eq 'windows' -and -not (Test-IntegrationWingetWorks)) { $arguments += @('-Method', 'zip') }
+    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-install-tool.ps1') $arguments
 }
 
-# Step 1
+function Get-IntegrationToolVersion {
+    param([string]$Tool)
+    $command = Resolve-IntegrationCommand (Get-IntegrationToolInfo $Tool).command
+    $version = @(& $command --version 2>&1 | ForEach-Object { "$_" })
+    Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "$Tool --version exited $LASTEXITCODE"
+    return $version -join ' '
+}
+
 function Invoke-CliInstallFirst {
     param([string]$Tool)
-    $lines = Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-install-tool.ps1') @('-Tool', $Tool, '-Yes')
-    $version = @(& $Tool --version 2>&1 | ForEach-Object { "$_" })
-    Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "$Tool --version exited $LASTEXITCODE"
-    $script:Ctx.Versions[$Tool] = $version -join ' '
+    $lines = Invoke-CliInstallScript $Tool
+    $script:Ctx.Versions[$Tool] = Get-IntegrationToolVersion $Tool
     return $lines
 }
 
 function Invoke-CliInstallRepeat {
     param([string]$Tool)
-    $lines = Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-install-tool.ps1') @('-Tool', $Tool, '-Yes')
+    $lines = Invoke-CliInstallScript $Tool
     Assert-IntegrationText $lines 'skip:'
-    $version = @(& $Tool --version 2>&1 | ForEach-Object { "$_" }) -join ' '
-    Assert-IntegrationTrue ($LASTEXITCODE -eq 0 -and $version -eq $script:Ctx.Versions[$Tool]) "$Tool version changed on the repeat run"
+    Assert-IntegrationTrue ((Get-IntegrationToolVersion $Tool) -eq $script:Ctx.Versions[$Tool]) "$Tool version changed on the repeat run"
     return $lines
 }
 
-# Step 2
+# Step 2: one install.ps1 run per tool, so one tool's refusal never hides the others.
 function Invoke-PsAiInstall {
-    param([string]$Source)
-    $lines = @()
-    foreach ($tool in $script:IntegrationTools) {
-        $lines += Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'install.ps1') @('-Source', $Source, '-Tools', $tool, '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
+    param([string]$Tool, $Target)
+    $arguments = @('-Source', $Target.Source, '-Tools', $Tool, '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
+    if ($Target.SourceRef) { $arguments += @('-SourceRef', $Target.SourceRef) }
+    return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'install.ps1') $arguments
+}
+
+# Only the affected CLI's own refusal of a local folder counts; any other message is a real failure.
+function Test-IntegrationLocalRefusal {
+    param([string]$Tool, [string]$Message)
+    $command = [regex]::Escape((Get-IntegrationToolInfo $Tool).command)
+    if ($Message -notmatch "(?m)\b$command exited \d+") { return $false }
+    return $Message -match '(?i)(local (path|folder|directory|source|marketplace)|filesystem|directory source)[^\r\n]{0,80}(not supported|unsupported|not allowed|not permitted|cannot|refus|rejected)'
+}
+
+function Get-IntegrationRevision { return (git -C $script:Ctx.Checkout rev-parse HEAD) }
+
+function Get-IntegrationRemoteMain {
+    return ((git -C $script:Ctx.Checkout ls-remote origin refs/heads/main) -split '\s+')[0]
+}
+
+function Install-IntegrationTool {
+    param([string]$Tool)
+    $checkout = @{ Source = $script:Ctx.Checkout; SourceRef = '' }
+    try {
+        $lines = Invoke-PsAiInstall $Tool $checkout
+        $script:Ctx.Targets[$Tool] = $checkout
+        return $lines
+    } catch {
+        if (-not (Test-IntegrationLocalRefusal $Tool $_.Exception.Message)) { throw }
+        $reason = ($_.Exception.Message -split "`n")[0]
     }
+    if (-not $script:Ctx.AllowFallback) {
+        $script:Ctx.NotTested[$Tool] = "$Tool refuses a local folder and was not tested from the checkout: $reason"
+        return @("skip: $($script:Ctx.NotTested[$Tool])")
+    }
+    # The published source must be exactly the tested revision.
+    $revision = Get-IntegrationRevision
+    $remote = Get-IntegrationRemoteMain
+    if ($remote -ne $revision) { throw "$Tool needs the published source, but main is $remote and the tested revision is $revision" }
+    $fallback = @{ Source = $script:MarketplaceRepo; SourceRef = $revision }
+    $lines = Invoke-PsAiInstall $Tool $fallback
+    $script:Ctx.Targets[$Tool] = $fallback
     return $lines
 }
 
 function Invoke-PsAiInstallFirst {
-    try { $lines = Invoke-PsAiInstall -Source $script:Ctx.Checkout }
-    catch {
-        if (-not (Test-IntegrationMainPush)) {
-            return @{ Skipped = "a CLI did not install ps-ai from the checkout, so it was not tested from it: $(($_.Exception.Message -split "`n")[0])" }
-        }
-        $script:Ctx.Source = 'BlackGad/ps-ai-marketplace'
-        $lines = Invoke-PsAiInstall -Source $script:Ctx.Source
-    }
-    $expected = Get-CheckoutVersion
+    $lines = @()
+    $errors = @()
     foreach ($tool in $script:IntegrationTools) {
+        try { $lines += Install-IntegrationTool $tool }
+        catch { $errors += "${tool}: $($_.Exception.Message)" }
+    }
+    if ($errors.Count) { throw ($errors -join "`n") }
+    $active = Get-IntegrationActiveTools
+    if (-not $active.Count) { return @{ Skipped = (@($script:Ctx.NotTested.Values) -join '; ') } }
+    $expected = Get-CheckoutVersion
+    foreach ($tool in $active) {
         $folder = Get-IntegrationToolFolder $tool
-        Assert-IntegrationText (Get-IntegrationPluginList $tool $folder) 'ps-ai'
+        Assert-IntegrationTrue (Test-IntegrationPluginListed $tool $folder) "$tool does not list an enabled ps-ai"
+        Assert-IntegrationControlFolder $tool
         $found = Get-IntegrationPluginVersion $tool $folder
         Assert-IntegrationTrue ($found -eq $expected) "$tool has ps-ai $found, expected $expected"
     }
@@ -287,30 +414,35 @@ function Invoke-PsAiInstallFirst {
 }
 
 function Invoke-PsAiInstallRepeat {
-    $lines = Invoke-PsAiInstall -Source $script:Ctx.Source
+    $lines = @()
+    foreach ($tool in (Get-IntegrationActiveTools)) { $lines += Invoke-PsAiInstall $tool $script:Ctx.Targets[$tool] }
     Assert-IntegrationText $lines 'skip:'
     Assert-IntegrationTrue ((Get-TreeHash $script:Ctx.HomeRoot) -eq $script:Ctx.HomeHash) 'the home changed on the repeat run'
     return $lines
 }
 
-# Steps 3 and 4: setup with the checkout as the plugin source.
+# Steps 3 and 4: setup with each tool's tested source. Explicit ids keep a repeat from asking for more accounts.
 function Invoke-Setup {
-    param([string[]]$Add, [string]$Id)
-    $arguments = @('-Add', $Add)
-    if ($Id) { $arguments += @('-Id', $Id) }
-    $arguments += @('-Yes', '-HomeRoot', $script:Ctx.HomeRoot, '-Source', (Get-IntegrationSource))
+    param([string]$Tool, [string]$Id)
+    $arguments = @('-Add', @($Tool), '-Id', $Id, '-Yes', '-HomeRoot', $script:Ctx.HomeRoot, '-Source', $script:Ctx.Targets[$Tool].Source)
     return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-setup.ps1') $arguments
 }
 
+function Invoke-SetupAccounts {
+    $lines = @()
+    foreach ($tool in (Get-IntegrationActiveTools)) { $lines += Invoke-Setup -Tool $tool -Id "${tool}1" }
+    return $lines
+}
+
 function Invoke-SetupFirst {
-    $lines = Invoke-Setup -Add $script:IntegrationTools
+    $lines = Invoke-SetupAccounts
     $settings = Get-IntegrationSettings
     Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-validate.ps1') @('-Kind', 'personalisation', '-Path', $settings.Path) | Out-Null
     Assert-IntegrationTrue (Test-Path -LiteralPath (Join-Path (Split-Path $settings.Path) 'ps-ai-notes.md')) 'ps-ai-notes.md is missing'
     $ids = @($settings.Data.agents | ForEach-Object id)
-    foreach ($id in 'claude1', 'codex1', 'copilot1') {
-        Assert-IntegrationTrue ($ids -contains $id) "account $id is missing"
-        Assert-IntegrationText $lines "log in: run $id"
+    foreach ($tool in (Get-IntegrationActiveTools)) {
+        Assert-IntegrationTrue ($ids -contains "${tool}1") "account ${tool}1 is missing"
+        Assert-IntegrationText $lines "log in: run ${tool}1"
     }
     $bin = Join-Path $script:Ctx.HomeRoot '.legion/bin'
     Assert-IntegrationTrue (@(Get-ChildItem -LiteralPath $bin -File -ErrorAction SilentlyContinue).Count -gt 0) 'no owner commands in .legion/bin'
@@ -335,14 +467,16 @@ function Assert-AccountsHavePsAi {
 }
 
 function Invoke-SetupRepeat {
-    $lines = Invoke-Setup -Add $script:IntegrationTools
+    $lines = Invoke-SetupAccounts
     Assert-IntegrationText $lines 'skip:'
     Assert-IntegrationTrue ((Get-TreeHash $script:Ctx.HomeRoot) -eq $script:Ctx.HomeHash) 'the home changed on the repeat run'
     return $lines
 }
 
+function Get-AddTool { return (Get-IntegrationActiveTools)[0] }
+
 function Invoke-AddFirst {
-    $lines = Invoke-Setup -Add @('claude') -Id 'ci-extra'
+    $lines = Invoke-Setup -Tool (Get-AddTool) -Id 'ci-extra'
     $settings = Get-IntegrationSettings
     $agent = @($settings.Data.agents | Where-Object id -eq 'ci-extra')
     Assert-IntegrationTrue ($agent.Count -eq 1) 'account ci-extra was not recorded'
@@ -353,7 +487,7 @@ function Invoke-AddFirst {
 }
 
 function Invoke-AddRepeat {
-    $lines = Invoke-Setup -Add @('claude') -Id 'ci-extra'
+    $lines = Invoke-Setup -Tool (Get-AddTool) -Id 'ci-extra'
     Assert-IntegrationText $lines 'skip: account ci-extra (already done)'
     Assert-IntegrationTrue (@((Get-IntegrationSettings).Data.agents).Count -eq $script:Ctx.AgentCount) 'the repeat run added an account'
     return $lines
@@ -379,9 +513,9 @@ function Invoke-RemoveRepeat {
     return $lines
 }
 
-# Steps 6 and 7: throwaway Git repositories.
+# Steps 6 and 7: throwaway Git repositories. Shared needs a tracked rules file.
 function New-IntegrationRepo {
-    param([string]$Name)
+    param([string]$Name, [switch]$WithRules)
     $repo = Join-Path $script:Ctx.Work $Name
     New-Item -ItemType Directory -Path $repo -Force | Out-Null
     git -C $repo init --quiet
@@ -390,13 +524,19 @@ function New-IntegrationRepo {
     git -C $repo config commit.gpgsign false
     Set-Content -LiteralPath (Join-Path $repo 'README.md') -Value $Name
     git -C $repo add README.md
+    if ($WithRules) {
+        Set-Content -LiteralPath (Join-Path $repo 'AGENTS.md') -Value "# $Name rules"
+        git -C $repo add AGENTS.md
+    }
     git -C $repo commit --quiet -m 'initial'
     return $repo
 }
 
 function Invoke-RepositoryScript {
     param([string]$Repo, [string]$Mode)
-    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-repository.ps1') @('-Repo', $Repo, '-Mode', $Mode, '-Gate', 'pwsh -NoProfile -Command exit 0')
+    $arguments = @('-Repo', $Repo, '-Mode', $Mode, '-Gate', 'pwsh -NoProfile -Command exit 0')
+    if ($Mode -eq 'Shared') { $arguments += @('-RulesFile', 'AGENTS.md') }
+    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-repository.ps1') $arguments
 }
 
 function Get-CommitCount {
@@ -432,7 +572,7 @@ function Invoke-RepoPrivateRepeat {
 }
 
 function Invoke-RepoSharedFirst {
-    $repo = New-IntegrationRepo 'repo-b'
+    $repo = New-IntegrationRepo 'repo-b' -WithRules
     $lines = Invoke-RepositoryScript $repo 'Shared'
     Assert-LegionItems $repo
     $rules = [regex]::Matches((Get-Content -LiteralPath (Join-Path $repo 'AGENTS.md') -Raw), '(?m)^## ps-ai orchestration').Count
@@ -451,14 +591,41 @@ function Invoke-RepoSharedRepeat {
     return $lines
 }
 
-# Step 8
+# Step 8: the default folders and the registered account folders, captured before the uninstall removes anything.
+function Get-IntegrationUninstallTargets {
+    $active = Get-IntegrationActiveTools
+    $targets = @()
+    foreach ($tool in $active) { $targets += @{ Tool = $tool; Folder = Get-IntegrationToolFolder $tool } }
+    foreach ($agent in @((Get-IntegrationSettings).Data.agents)) {
+        if ($agent.tool -notin $active -or -not $agent.configDir) { continue }
+        $folder = Resolve-IntegrationFolder $agent.configDir
+        if (-not @($targets | Where-Object { $_.Tool -eq $agent.tool -and $_.Folder -eq $folder }).Count) { $targets += @{ Tool = $agent.tool; Folder = $folder } }
+    }
+    return $targets
+}
+
+function Assert-IntegrationUninstalled {
+    param($Target)
+    $tool = $Target.Tool
+    $info = Get-IntegrationToolInfo $tool
+    Assert-IntegrationTrue ($null -eq (Get-IntegrationPluginVersion $tool $Target.Folder)) "ps-ai is still in $($Target.Folder)"
+    Assert-IntegrationTrue (-not (Test-IntegrationPluginListed $tool $Target.Folder -IncludeDisabled)) "$tool still lists ps-ai in $($Target.Folder)"
+    if ($info.plugin.cacheDir) {
+        Assert-IntegrationTrue (-not (Test-Path -LiteralPath (Join-Path $Target.Folder $info.plugin.cacheDir))) "the $tool cache is still in $($Target.Folder)"
+    }
+}
+
+function Invoke-UninstallScript {
+    return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'install.ps1') @('-Uninstall', '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
+}
+
 function Invoke-UninstallFirst {
-    $lines = Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'install.ps1') @('-Uninstall', '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
-    foreach ($tool in $script:IntegrationTools) {
-        $folder = Get-IntegrationToolFolder $tool
-        Assert-IntegrationTrue ($null -eq (Get-IntegrationPluginVersion $tool $folder)) "ps-ai is still in the $tool folder"
-        Assert-IntegrationTrue (-not ((Get-IntegrationPluginList $tool $folder) -join "`n").Contains('ps-ai')) "$tool still lists ps-ai"
-        & $tool --version | Out-Null
+    $targets = @(Get-IntegrationUninstallTargets)
+    $lines = Invoke-UninstallScript
+    foreach ($target in $targets) { Assert-IntegrationUninstalled $target }
+    foreach ($tool in (Get-IntegrationActiveTools)) {
+        $command = Resolve-IntegrationCommand (Get-IntegrationToolInfo $tool).command
+        & $command --version | Out-Null
         Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "$tool is no longer installed"
     }
     $bin = Join-Path $script:Ctx.HomeRoot '.legion/bin'
@@ -470,13 +637,18 @@ function Invoke-UninstallFirst {
 }
 
 function Invoke-UninstallRepeat {
-    return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'install.ps1') @('-Uninstall', '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
+    $lines = Invoke-UninstallScript
+    Assert-IntegrationText $lines 'Nothing to uninstall.'
+    return $lines
 }
 
 # The steps in the spec's order 1-8. Building them touches nothing; only running a block does.
 function Get-IntegrationSteps {
-    param([string]$HomeRoot, [string]$Checkout, [string]$Work, [string]$Os)
-    $script:Ctx = @{ HomeRoot = $HomeRoot; Checkout = $Checkout; Work = $Work; Os = $Os; Source = $Checkout; Versions = [ordered]@{} }
+    param([string]$HomeRoot, [string]$Checkout, [string]$Work, [string]$Os, [switch]$AllowFallback)
+    $script:Ctx = @{
+        HomeRoot = $HomeRoot; Checkout = $Checkout; Work = $Work; Os = $Os; AllowFallback = [bool]$AllowFallback
+        Versions = [ordered]@{}; Targets = @{}; NotTested = [ordered]@{}
+    }
     $steps = @()
     foreach ($tool in $script:IntegrationTools) {
         $steps += @{
@@ -512,9 +684,11 @@ $work = Join-Path (Split-Path $HomeRoot -Parent) 'ps-ai-work'
 New-Item -ItemType Directory -Path $HomeRoot, $work, $Out -Force | Out-Null
 
 $probe = @(Get-IntegrationProbe -Checks (Get-IntegrationProbeChecks))
-$steps = Get-IntegrationSteps -HomeRoot $HomeRoot -Checkout $Checkout -Work $work -Os $os
+$steps = Get-IntegrationSteps -HomeRoot $HomeRoot -Checkout $Checkout -Work $work -Os $os -AllowFallback:$AllowSourceFallback
+Set-IntegrationConfigEnvironment
 $cases = @(Invoke-IntegrationSteps -Steps $steps -LogFolder (Join-Path $Out 'logs'))
 $extra = ($script:Ctx.Versions.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value)" }) -join ', '
+if ($script:Ctx.NotTested.Count) { $extra += "; not tested from the checkout: $(@($script:Ctx.NotTested.Keys) -join ', ')" }
 Write-IntegrationReport -Out $Out -Os $os -Cases $cases -Probe $probe -Extra $extra
 if (@($cases | Where-Object Result -eq 'failed').Count) { exit 1 }
 exit 0
