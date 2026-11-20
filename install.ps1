@@ -209,7 +209,19 @@ function Invoke-ClosedInput {
         $names = if ($Environment -is [Collections.IDictionary]) { $Environment.Keys } else { $Environment.PSObject.Properties.Name }
         foreach ($name in $names) { $info.EnvironmentVariables[$name] = [string]$Environment.$name }
     }
-    $process = [System.Diagnostics.Process]::Start($info)
+    # The stdin pipe must carry nothing, but a UTF-8 console code page makes the pipe send a byte-order mark,
+    # which the CLI reads as one character instead of EOF. PowerShell 5.1 has no StandardInputEncoding, so it
+    # starts the process with a mark-free console input encoding.
+    $noMark = New-Object System.Text.UTF8Encoding -ArgumentList $false
+    $savedInputEncoding = $null
+    if ($info.PSObject.Properties['StandardInputEncoding']) {
+        $info.StandardInputEncoding = $noMark
+    } else {
+        $savedInputEncoding = [Console]::InputEncoding
+        [Console]::InputEncoding = $noMark
+    }
+    try { $process = [System.Diagnostics.Process]::Start($info) }
+    finally { if ($savedInputEncoding) { [Console]::InputEncoding = $savedInputEncoding } }
     $process.StandardInput.Close()
     $errorTask = $process.StandardError.ReadToEndAsync()
     $output = $process.StandardOutput.ReadToEnd()
