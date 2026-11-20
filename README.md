@@ -14,7 +14,7 @@ ps-ai connects **Claude Code, Codex CLI and Copilot CLI** into a team. An **over
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1)))
 ```
 
-Run this in PowerShell to install ps-ai for your installed AI tools; it asks before installing missing prerequisites.
+Run this in PowerShell to install ps-ai for your installed AI tools; it asks once before installing, and again before installing missing prerequisites. Add `-Yes` to skip the questions.
 
 ## Why mix tools
 
@@ -54,6 +54,8 @@ Say “Update ps-ai” or “Uninstall ps-ai.” Your tool guides you through ap
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Uninstall
 ```
+
+Uninstall keeps your `ps-ai-setup`, `ps-ai-status`, `ps-ai-overseer` and `legion` commands working through another ps-ai install if one is left. If none is left, it removes them.
 
 ## Security
 

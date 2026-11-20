@@ -15,7 +15,7 @@ On Windows, run this in Windows PowerShell 5.1 or PowerShell 7 (`pwsh`):
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1)))
 ```
 
-The script checks for PowerShell 7, which the plugin needs at runtime. If it is missing on Windows, the script shows `winget install --id Microsoft.PowerShell -e` and asks before installing. If winget is missing or fails, it offers the official per-user ZIP, verifies its SHA-256 digest, extracts it to `~/.legion/tools/pwsh/`, and adds that folder to the user and current process PATH. Use `-Yes` to approve installation without prompts.
+The script checks for PowerShell 7, which the plugin needs at runtime. If it is missing on Windows, the script shows `winget install --id Microsoft.PowerShell -e` and asks before installing. If winget is missing or fails, it offers the official per-user ZIP, verifies its SHA-256 digest, extracts it to `~/.legion/tools/pwsh/`, and adds that folder to the process PATH, and to the user PATH only after you agree. Before installing ps-ai, the script asks once: `Install ps-ai for <tools> now? [y/N]`. Use `-Yes` to skip every question. `-Update`, `-Uninstall` and `-DryRun` do not ask this question.
 
 On macOS or Linux, [install PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) first, then run:
 
@@ -50,7 +50,7 @@ For options, use the script-block form in PowerShell. This example selects an ex
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools <tool-id> -ConfigDir <account folder>
 ```
 
-Use `-Tools <tool-id>` (or an array of ids) to choose tools, `-Source <owner/repository>` to override the GitHub marketplace source, and `-DryRun` to print the steps without changing anything. The default source is `BlackGad/ps-ai-marketplace`. `-SourceRef` selects its catalog revision (default `main`). A working-tree script uses its sibling `tools.json` unless `-Source` or `-SourceRef` is supplied. Remote dry runs read that metadata once. It does not change the marketplace source passed to the CLI. Install and update dry runs execute read-only listings to detect existing registrations and plugins; displayed add and update commands are previews.
+Use `-Tools <tool-id>` (or an array of ids) to choose tools, `-Source <owner/repository>` to override the GitHub marketplace source, and `-DryRun` to print the steps without changing anything. `-HomeRoot <folder>` uses that folder as the home for `~/.legion` and the files the installer writes, for a test or an alternate home. The default is your real home. The default source is `BlackGad/ps-ai-marketplace`. `-SourceRef` selects its catalog revision (default `main`). A working-tree script uses its sibling `tools.json` unless `-Source` or `-SourceRef` is supplied. Remote dry runs read that metadata once. It does not change the marketplace source passed to the CLI. Install and update dry runs execute read-only listings to detect existing registrations and plugins; displayed add and update commands are previews.
 
 To adopt a signed-in account folder, run `legion add codex <existing folder>` or `ps-ai-setup -Add 'codex:<existing folder>'`. The folder must exist; setup keeps its settings and login, records it and creates a shortcut. Setup installs a missing CLI, and ps-ai only where a folder has none, under the same approval; moving an installed ps-ai to a new version is the update flow's job. Adopting the same folder again reuses its account. Only the owner logs in if the CLI asks. An existing shortcut can instead be recorded through the tool's account guide.
 
@@ -107,7 +107,7 @@ Codex hooks need one-time trust through `/hooks` in the selected account. Reinst
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Uninstall
 ```
 
-Shows the targets and generated files before asking. Use `-Yes` to skip the prompt, `-DryRun` to preview, or `-Tools` and `-ConfigDir` to narrow targets. Removes ps-ai and its marketplace registration, plus its generated account wrappers and copied runtime. When the last account is uninstalled, it also removes the four owner commands ps-ai created in `~/.legion/bin`: `ps-ai-setup`, `ps-ai-status`, `ps-ai-overseer` and `legion` (including Windows `.cmd` files). Unrelated files stay. Keeps `~/.legion/configuration` (settings and notes), `~/.legion/agents` (account folders and logins), repositories, and the CLIs themselves.
+Shows the targets and generated files before asking. Use `-Yes` to skip the prompt, `-DryRun` to preview, or `-Tools` and `-ConfigDir` to narrow targets. Removes ps-ai and its marketplace registration, plus its generated account wrappers and copied runtime. The four owner commands in `~/.legion/bin` (`ps-ai-setup`, `ps-ai-status`, `ps-ai-overseer` and `legion`, with Windows `.cmd` files) keep working: if their ps-ai copy is gone and another install is left, they point to that install; if none is left, ps-ai removes them. Unrelated files stay. Keeps `~/.legion/configuration` (settings and notes), `~/.legion/agents` (account folders and logins), repositories, and the CLIs themselves.
 
 ## First run
 
