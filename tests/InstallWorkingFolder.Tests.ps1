@@ -12,7 +12,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     } finally {
         Pop-Location
     }
-    Remove-Item -LiteralPath (Join-Path $callerFolder '.codex')
+    Remove-Item -LiteralPath (Join-Path $callerFolder '.codex') -Force
     Remove-Item -LiteralPath $callerFolder
     Assert-Equal 0 $result.ExitCode 'Working folder probe runs'
     $expected = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/')
