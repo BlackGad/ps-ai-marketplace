@@ -223,4 +223,9 @@ try {
     $env:PATH = $savedPath
     $env:PS_AI_FAKE_TOOL_LOG = $savedLog
     $env:PS_AI_STATUS_BIN = $savedStatusBin
+    $allowed = [IO.Path]::GetFullPath((Join-Path $root '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
+    if ([IO.Path]::GetFullPath($scratch).StartsWith($allowed) -and (Test-Path -LiteralPath $scratch)) {
+        Remove-Item -LiteralPath $scratch -Recurse -Force
+    }
 }
+Assert-Equal $false (Test-Path -LiteralPath $scratch) 'R4 B7 status removes its fixture tree, including the lease lock'
