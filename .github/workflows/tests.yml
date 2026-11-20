@@ -1,0 +1,57 @@
+name: tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch or commit to test; empty tests the triggering commit
+        type: string
+        default: ''
+    outputs:
+      sha:
+        description: Commit that was tested
+        value: ${{ jobs.unit.outputs.sha }}
+
+permissions: {}
+
+jobs:
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.head.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+      - id: head
+        shell: pwsh
+        run: |
+          "sha=$(git rev-parse HEAD)" >> $env:GITHUB_OUTPUT
+      - shell: pwsh
+        run: pwsh -NoProfile -File tests/run.ps1
+
+  gate:
+    needs: unit
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        env:
+          UNIT_RESULT: ${{ needs.unit.result }}
+        run: |
+          if ($env:UNIT_RESULT -ne 'success') {
+            Write-Error "unit finished as $env:UNIT_RESULT"
+            exit 1
+          }

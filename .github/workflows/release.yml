@@ -1,0 +1,59 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  release-please:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    outputs:
+      pr: ${{ steps.release.outputs.pr }}
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  test-release-pr:
+    needs: release-please
+    if: needs.release-please.outputs.pr != ''
+    permissions:
+      contents: read
+    uses: ./.github/workflows/tests.yml
+    with:
+      ref: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
+
+  mark-release-pr:
+    needs: test-release-pr
+    if: always() && needs.test-release-pr.result != 'skipped'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    steps:
+      - shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.test-release-pr.outputs.sha }}
+          RESULT: ${{ needs.test-release-pr.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if (-not $env:SHA) { Write-Error 'no tested commit to mark'; exit 1 }
+          $state = if ($env:RESULT -eq 'success') { 'success' } else { 'failure' }
+          gh api "repos/${{ github.repository }}/statuses/$env:SHA" -f state=$state -f context=gate -f target_url=$env:RUN_URL -f description="unit tests on the release branch: $state"
