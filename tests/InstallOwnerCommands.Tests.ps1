@@ -9,6 +9,8 @@ try {
         # C-1: install.ps1 is standalone and keeps its own copy of the rule; both copies must agree on every sample.
         $target = Join-Path $scratch "owner's plugin/bin/legion.ps1"
         $samples = @(
+            (Get-PsAiShimText -Script $target).Replace(' "$@"', ' -Repo "work folder" "$@"'),
+            (Get-PsAiShimText -Script 'C:\plugin folder\bin\legion.ps1' -Windows).Replace(' %*', ' -Repo "C:\work folder" %*'),
             (Get-PsAiShimText -Script $target),
             (Get-PsAiShimText -Script 'C:\plugin folder\bin\legion.ps1' -Windows),
             (Get-PsAiShimText -Script $target).Replace(' "$@"', ' --extra "$@"'),
@@ -29,8 +31,12 @@ try {
                 Assert-Equal (Test-PsAiOwnerCommandFile -Path $path -Script $script) (Test-InstallOwnerCommandFile -Path $path -Script $script) "Both copies of the rule agree on: $text"
             }
         }
-        [IO.File]::WriteAllText($path, $samples[5])
+        [IO.File]::WriteAllText($path, $samples[7])
         Assert-Equal $false (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'A comment naming the script is not ours to delete'
+        foreach ($text in $samples[0..1]) {
+            [IO.File]::WriteAllText($path, $text)
+            Assert-True (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R4 B2 installer accepts literal quoted owner arguments'
+        }
 
         # G2: the standalone copy decodes batch quoting too.
         $percentScript = Join-Path $scratch 'plugin 100%/bin/legion.ps1'

@@ -23,15 +23,19 @@ function Get-PsAiShimText {
 # The whole file is the generated launcher: an optional shebang, then one line
 # [exec |@]pwsh <options> -File <script path> <owner flags>. Any other code makes it the owner's file.
 # Owner flags are plain words, quoted words, "$@" and %*. install.ps1 keeps its own copy of this rule.
-$script:OwnerLauncherPattern = '\A(?:#![^\r\n]*\r?\n)?(?:[ \t]*\r?\n)*[ \t]*(?:exec[ \t]+|@)?pwsh[ \t]+(?:-\S+[ \t]+)*?-File[ \t]+(?<target>(?:''[^'']*''|"[^"]*"|[^\s''"]+)+)' +
-    '(?:[ \t]+(?:"\$@"|\$@|%\*|[\w.=:/\\-]+|''[^'']*''))*\s*\z'
 
 # -Batch: a .cmd file writes % as %%, so decode it before looking for the file.
 function Get-PsAiOwnerCommandTarget {
     param([string]$Text, [string]$Script, [switch]$Batch)
 
-    $match = [regex]::Match($Text, $script:OwnerLauncherPattern)
+    $launcher = '\A(?:#![^\r\n]*\r?\n)?(?:[ \t]*\r?\n)*[ \t]*(?:exec[ \t]+|@)?pwsh[ \t]+(?:-\S+[ \t]+)*?-File[ \t]+'
+    $scriptWord = '(?<target>(?:''[^''\r\n]*''|"[^"\r\n]*"|[^\s''"]+)+)'
+    $match = [regex]::Match($Text, $launcher + $scriptWord)
     if (-not $match.Success) { return $null }
+    # Literal arguments may contain spaces. Only the generated forwarding tokens expand.
+    $argument = '(?:"\$@"|\$@|%\*|[\w.=:/\\-]+|''[^''\r\n]*''|"[^"$`\r\n]*")'
+    $tail = $Text.Substring($match.Length)
+    if ($tail -notmatch ('\A(?:[ \t]+' + $argument + ')*\s*\z')) { return $null }
     $word = $match.Groups['target']
     # Drop the shell quotes; the generated form joins quoted pieces such as 'a'"'"'b'.
     $path = [regex]::Replace($word.Value, '''([^'']*)''|"([^"]*)"', { param($piece) $piece.Groups[1].Value + $piece.Groups[2].Value })

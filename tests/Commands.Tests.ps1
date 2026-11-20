@@ -16,6 +16,12 @@ $expected = "#!/bin/sh`n" + 'exec pwsh -NoProfile -File ' + (ConvertTo-PsAiShell
 Assert-Equal $expected $unix 'Unix shim quotes spaces and apostrophes with the shared shell literal'
 $windows = Get-PsAiShimText -Script 'C:\plugin folder\bin\legion.ps1' -Windows
 Assert-Equal "@pwsh -NoProfile -File `"C:\plugin folder\bin\legion.ps1`" %*`r`n" $windows 'Windows shim quotes the target'
+foreach ($text in @($windows.Replace(' %*', ' -Repo "C:\work folder" %*'), $unix.Replace(' "$@"', ' -Repo "work folder" "$@"'))) {
+    $match = Get-PsAiOwnerCommandTarget -Text $text -Script legion.ps1
+    Assert-True ([bool]$match) 'R4 B2 literal quoted owner arguments are recognized'
+    $updated = Update-PsAiOwnerCommandText -Text $text -Script legion.ps1 -Runner '/new/bin/legion.ps1'
+    Assert-True ($updated.Contains('work folder"')) 'R4 B2 retarget preserves the quoted owner argument'
+}
 
 $path = Join-Path $scratch 'legion'
 Assert-Equal $false (Test-PsAiOwnerCommandFile -Path $path -Script legion.ps1) 'Missing command is not owned'

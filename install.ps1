@@ -442,10 +442,15 @@ function Get-InstallOwnerCommands {
 function Get-InstallOwnerCommandTarget {
     param([string]$Path, [string]$Script)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
-    $pattern = '\A(?:#![^\r\n]*\r?\n)?(?:[ \t]*\r?\n)*[ \t]*(?:exec[ \t]+|@)?pwsh[ \t]+(?:-\S+[ \t]+)*?-File[ \t]+(?<target>(?:''[^'']*''|"[^"]*"|[^\s''"]+)+)' +
-        '(?:[ \t]+(?:"\$@"|\$@|%\*|[\w.=:/\\-]+|''[^'']*''))*\s*\z'
-    $match = [regex]::Match([IO.File]::ReadAllText($Path), $pattern)
+    $text = [IO.File]::ReadAllText($Path)
+    $launcher = '\A(?:#![^\r\n]*\r?\n)?(?:[ \t]*\r?\n)*[ \t]*(?:exec[ \t]+|@)?pwsh[ \t]+(?:-\S+[ \t]+)*?-File[ \t]+'
+    $scriptWord = '(?<target>(?:''[^''\r\n]*''|"[^"\r\n]*"|[^\s''"]+)+)'
+    $match = [regex]::Match($text, $launcher + $scriptWord)
     if (-not $match.Success) { return }
+    # Literal arguments may contain spaces. Only the generated forwarding tokens expand.
+    $argument = '(?:"\$@"|\$@|%\*|[\w.=:/\\-]+|''[^''\r\n]*''|"[^"$`\r\n]*")'
+    $tail = $text.Substring($match.Length)
+    if ($tail -notmatch ('\A(?:[ \t]+' + $argument + ')*\s*\z')) { return }
     $target = $match.Groups['target'].Value -replace '''([^'']*)''|"([^"]*)"', '$1$2'
     if ([IO.Path]::GetExtension($Path) -ieq '.cmd') { $target = $target.Replace('%%', '%') }
     if ($target.Replace('\', '/').EndsWith("/bin/$Script", [StringComparison]::Ordinal)) { return $target }
