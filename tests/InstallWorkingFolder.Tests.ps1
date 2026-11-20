@@ -1,4 +1,5 @@
 $repo = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
 & {
     . (Join-Path $repo 'install.ps1') -NoRun
     # Codex reads <cwd>/.codex/config.toml as project settings, so running from the home folder
@@ -15,6 +16,6 @@ $repo = Split-Path $PSScriptRoot -Parent
     Remove-Item -LiteralPath (Join-Path $callerFolder '.codex') -Force
     Remove-Item -LiteralPath $callerFolder
     Assert-Equal 0 $result.ExitCode 'Working folder probe runs'
-    $expected = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/')
+    $expected = (Get-TestTempPath).TrimEnd('\', '/')
     Assert-Equal $expected ($result.Output[0].TrimEnd('\', '/')) 'CLI processes run from the system temp folder, not the caller folder'
 }

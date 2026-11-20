@@ -78,6 +78,16 @@ exit 0
             $global:LASTEXITCODE = $savedExitCode
         }
     }
+    # macOS chmod stops reading options at the mode, so "--" must come first; this fake refuses any other order.
+    if (-not $IsWindows) {
+        $fakeChmod = Join-Path $fakeTools 'chmod'
+        "#!/bin/sh`n[ `"`$1`" = `"--`" ] || exit 1`nshift`nexec /bin/chmod `"`$@`"`n" | Set-Content -NoNewline -LiteralPath $fakeChmod
+        [IO.File]::SetUnixFileMode($fakeChmod, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+        . $runner -NoRun
+        $orderedFile = Join-Path $tempRoot 'chmod-order.json'
+        Write-FoundryProviderFile -Path $orderedFile -Json 'FAKE-NONCREDENTIAL'
+        Assert-Equal 'FAKE-NONCREDENTIAL' ([IO.File]::ReadAllText($orderedFile)) 'chmod receives -- before the mode'
+    }
 } finally {
     foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
     if ($fakeRoot -and (Test-Path -LiteralPath $fakeRoot)) { Remove-Item -LiteralPath $fakeRoot -Recurse -Force }

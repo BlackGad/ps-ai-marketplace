@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $root = Split-Path $PSScriptRoot -Parent
 $account = Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1'
-$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path (Get-TestTempPath) ('ps-ai-tests/' + [guid]::NewGuid())
 $previousLog = $env:PS_AI_WRAPPER_LOG
 $previousExpand = $env:PS_AI_WRAPPER_EXPAND
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
