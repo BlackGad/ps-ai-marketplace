@@ -14,6 +14,7 @@ Use the shared [terms](../ps-ai-overseer/references/terms.md) to recognize the o
 This context provider grounds every ps-ai mode. Read both the owner's settings and notes before applying another ps-ai skill. Use [fields.md](references/fields.md) for their locations and validation, and [create.md](references/create.md) for an alternate home. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
 
 - Never read, print, log, or store credentials or token files. Store account identity, folders and verified channel bindings only.
+- Ask the owner exactly one question per message or dialog, then wait for the answer before asking the next. Never bundle questions or offer "accept all recommendations" for a list of choices. Put the recommended option first.
 - Change personalisation only when the owner requested it. Keep project facts in the repo and personal habits in notes.
 - Leave legion access consent to the overseer's [first dispatch](../ps-ai-overseer/references/task-loop.md#first-legion-dispatch). Setup asks only which agents to add and for one yes to install ps-ai into them.
 - Validate settings after every change using [fields.md](references/fields.md).

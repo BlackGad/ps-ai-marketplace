@@ -5,7 +5,7 @@ Use the terms and work sizes in [the overseer skill](../SKILL.md#terms-and-work-
 ## Create a roadmap
 
 1. Start when the owner names a larger outcome or asks for a roadmap.
-2. Brainstorm only the split: milestones, their order, and observable done-criteria. Use the installed brainstorming method's decomposition when present. Otherwise ask one question at a time, recommendation first. Leave milestone details and specs until that milestone starts.
+2. Brainstorm only the split: milestones, their order, and observable done-criteria. Use the installed brainstorming method's decomposition when present. Leave milestone details and specs until that milestone starts.
 3. Show the proposed roadmap. Wait for the owner's yes before writing it. Use [roadmap-template.md](../../ps-ai-repository/references/roadmap-template.md), then commit the file.
 4. Ask whether to start the first milestone now. Follow [milestone-flow.md](milestone-flow.md) only if the owner chooses to start it.
 

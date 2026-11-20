@@ -1,6 +1,6 @@
 # Create or finish owner configuration
 
-1. Read existing settings and notes. Reuse previous answers. Ask only which agents to add: the tool, account name, and an existing folder or a new one. Ask one question at a time unless told otherwise. Adding no accounts yet is valid.
+1. Read existing settings and notes. Reuse previous answers. Ask only which agents to add: the tool, account name, and an existing folder or a new one. Adding no accounts yet is valid.
 
 2. Resolve account name or shortcut conflicts before replacing files. Create missing `<home>/.legion/configuration/ps-ai-personalisation.json` before helpers with `{"schemaVersion":1,"agents":[],"channels":[]}`. Create missing notes from [notes-template.md](notes-template.md). Use the optional stable schema URL in [fields.md](fields.md). Validate against the bundled schema.
 

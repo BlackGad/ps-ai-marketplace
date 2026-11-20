@@ -31,7 +31,7 @@ This planner owns the tracked workflow. Activate only on the owner's request in 
 - Owner notes govern routing; save newly stated preferences there. Without preferences, follow [task routing](references/task-loop.md) and choose a different tool/provider for independent reviews. Name the chosen agent. Omit model flags by default; follow [model tiers and cost consent](references/task-loop.md#model-tiers) when notes name a model or allow a tier. Respect exclusions, careful use and paid-use approval. Ping through the tool skill before declaring an account exhausted. Never resume on a different account.
 - Before the first legion dispatch, ask once about running without a sandbox and record the answer in notes using [task-loop.md](references/task-loop.md#first-legion-dispatch). Follow the recorded answer without asking again.
 - Fixed repo gates run only through indexed scripts named in repository workflow; delegate creation of a missing fixed script and index row before using it. Never force-push or amend. Follow the configured delivery mode before merging to main; see [task-loop.md](references/task-loop.md).
-- Ask design questions one at a time, with the recommended option first. Keep progress and owner-facing reports in the owner's stated tone and supported format.
+- Follow the [shared question rule](../ps-ai-personalisation/SKILL.md#identity-and-hard-rules) for every owner question. Keep progress and owner-facing reports in the owner's stated tone and supported format.
 - Speak to the owner in plain words. Show a command only when they ask for it or must run it themselves.
 
 ## Take over and advance

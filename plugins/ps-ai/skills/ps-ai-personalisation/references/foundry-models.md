@@ -17,4 +17,4 @@ Claude maps `opus`, `sonnet` and `haiku` from separate tokens in the deployment 
 
 Codex and Copilot save no aliases. They prefer the newest deployment containing the `sol` token, else the newest deployment. Copilot discovery still includes only supported Claude deployments.
 
-A missing match or a tie at the newest version stops before writing files. The message names the unresolved alias and candidates. Ask the owner about that alias only. Keep resolved choices, resolve any further missing aliases one at a time, then save the full selection with explicit flags. If discovery failed, resolve discovery first.
+A missing match or a tie at the newest version stops before writing files. The message names the unresolved alias and candidates. Ask the owner about that alias only. Keep resolved choices, resolve any further missing aliases, then save the full selection with explicit flags. If discovery failed, resolve discovery first.

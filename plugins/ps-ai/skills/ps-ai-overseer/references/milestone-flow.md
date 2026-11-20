@@ -7,7 +7,7 @@ When the owner starts a goal milestone, check the active-milestone rule in [road
 | State | Enter when | Action and exit condition |
 | --- | --- | --- |
 | Research | Owner starts or selects a milestone | Read the goal's roadmap when present, existing specs when present, code, and reuse evidence; consult `ps-ai-knowledge`. Apply the work-size suggestion in the overseer skill; the owner decides. Exit with a research note, scope, task split, and questions. |
-| Design questions | Research exposes owner choices | Ask one at a time, recommendation first; record numbered user rulings. Exit when no design question remains. |
+| Design questions | Research exposes owner choices | Ask the owner; record numbered user rulings. Exit when no design question remains. |
 | Spec | Research and design questions settled | Use the installed brainstorming method to write the milestone spec at the spec path in `workflow.md`. Without that method, write a short spec from research and owner rulings. Keep it local. Exit only after the owner approves the spec. |
 | Plan draft | Owner approved the spec | Use the installed planning method when present and [prompts/plan-skeleton.md](prompts/plan-skeleton.md); include contracts, tests, commit messages, review focus. Use the plan path in `workflow.md` (local, never committed). Answer the method's execution choice with legion through [task-loop.md](task-loop.md), or offer the fallback below when no legion account is usable. Exit with the plan saved. |
 | Plan dry-run | Plan saved | One independent read-only dry-run with [prompts/dry-run.md](prompts/dry-run.md). Exit with report. |
