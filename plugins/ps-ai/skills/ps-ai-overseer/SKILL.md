@@ -15,7 +15,7 @@ Use the shared [terms](references/terms.md) for accounts, models, and the owner'
 - **Task:** one plan step. One legion member does it in one run, with tests and a commit. The overseer reviews it.
 - **Ad hoc work:** a single request outside any milestone.
 
-Pick the size from the owner's words. Keep ad hoc work light: do it in the session or send one scoped task to legion and review it. Use a spec only if the method skill calls for one. A standalone milestone needs no roadmap. Create a goal only when the owner names a larger outcome or asks for a roadmap. Never create a goal or milestone on your own.
+Pick the size from the owner's words. Keep ad hoc work light: send one scoped task to legion and review it. Use a spec only if the method skill calls for one. A standalone milestone needs no roadmap. Create a goal only when the owner names a larger outcome or asks for a roadmap. Never create a goal or milestone on your own.
 
 Suggest a milestone once if ad hoc work keeps growing. Suggest a goal once if a milestone needs several specs, parts that could ship separately, or several pull requests. The owner decides. Use [roadmap.md](references/roadmap.md) for goals, switching and status; use [milestone-flow.md](references/milestone-flow.md) for milestones.
 
@@ -25,11 +25,12 @@ For any agent tool operation, read the selected account's tool skill. Stop if th
 
 This planner owns the tracked workflow. Activate only on the owner's request in an orchestrated repo; legion mode disables this skill. Load `ps-ai-personalisation` and notes, then repository context using [takeover.md](references/takeover.md). Use installed method skills for design, TDD, debugging, and review content when present. Dispatch through the selected tool skill; legion members follow `ps-ai-legion` and its report format.
 
+- Delegate work to legion; only plan, dispatch and review. Work in this session only when no legion account is usable or the owner explicitly asks.
 - Take, check, and release the overseer lease through [takeover.md](references/takeover.md). A live lease held here or a lease from another host means tell the owner and wait; stale local leases may be replaced.
 - Only the lease holder edits the handoff and roadmaps. Use [takeover.md](references/takeover.md) for write-ahead records and report review. For ad hoc work, record only what must survive the session, including running legion tasks.
-- Owner notes govern routing; save newly stated preferences there. Without preferences, spread tasks across available agents and choose a different tool/provider for independent reviews. Name the chosen agent. Omit model flags by default; follow [model tiers and cost consent](references/task-loop.md#model-tiers) when notes name a model or allow a tier. Respect exclusions, careful use and paid-use approval. Ping through the tool skill before declaring an account exhausted. Never resume on a different account.
+- Owner notes govern routing; save newly stated preferences there. Without preferences, follow [task routing](references/task-loop.md) and choose a different tool/provider for independent reviews. Name the chosen agent. Omit model flags by default; follow [model tiers and cost consent](references/task-loop.md#model-tiers) when notes name a model or allow a tier. Respect exclusions, careful use and paid-use approval. Ping through the tool skill before declaring an account exhausted. Never resume on a different account.
 - Before the first legion dispatch, ask once about running without a sandbox and record the answer in notes using [task-loop.md](references/task-loop.md#first-legion-dispatch). Follow the recorded answer without asking again.
-- Fixed repo gates run only through indexed scripts named in repository workflow; create or delegate a missing fixed script and index row before using it. Never force-push or amend. Follow the configured delivery mode before merging to main; see [task-loop.md](references/task-loop.md).
+- Fixed repo gates run only through indexed scripts named in repository workflow; delegate creation of a missing fixed script and index row before using it. Never force-push or amend. Follow the configured delivery mode before merging to main; see [task-loop.md](references/task-loop.md).
 - Ask design questions one at a time, with the recommended option first. Keep progress and owner-facing reports in the owner's stated tone and supported format.
 - Speak to the owner in plain words. Show a command only when they ask for it or must run it themselves.
 

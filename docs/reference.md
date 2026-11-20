@@ -118,7 +118,7 @@ Setup has three steps: install ps-ai, add accounts, and start work. After instal
 
 Then open a repository and describe the work. Ask to set up orchestration if needed. `ps-ai-repository` offers [Private (default) or Shared](../plugins/ps-ai/skills/ps-ai-repository/SKILL.md#choose-where-notes-live) storage and creates the `.legion/` layout below. Setup asks no questions about models, account purposes, worker or reviewer roles, notification timing, channels, or knowledge. State preferences later; they are saved in notes. Channels are set up only on request, such as “use Telegram”.
 
-Legion and review runs pass no model flag by default. Each CLI uses that account's own default model. A model flag is passed only when owner notes name one, such as “use astra for reviews”. Routing chooses agents without model discovery or model lists. Without owner preferences, the overseer spreads work across available agents and chooses a different tool/provider for independent reviews. It says which agent was chosen. Owner preferences always win.
+Legion and review runs pass no model flag by default. Each CLI uses that account's own default model. A model flag is passed only when owner notes name one, such as “use astra for reviews”. Routing chooses agents without model discovery or model lists. Without owner preferences, the overseer follows [task routing](../plugins/ps-ai/skills/ps-ai-overseer/references/task-loop.md) and chooses a different tool/provider for independent reviews. It says which agent was chosen. Owner preferences always win.
 
 To open an overseer session with all your launch flags (for example a Telegram channel), run `ps-ai-overseer` in a terminal, or say "continue" in a session and accept the offer.
 
