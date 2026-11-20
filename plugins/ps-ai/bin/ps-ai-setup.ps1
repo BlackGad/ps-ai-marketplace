@@ -15,6 +15,7 @@ $script:SetupPluginRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'ps-ai-account.ps1') -NoRun
 . (Join-Path $PSScriptRoot 'lib/installed.ps1')
 . (Join-Path $PSScriptRoot 'lib/commands.ps1')
+. (Join-Path $PSScriptRoot 'install-tool/recipe.ps1')
 
 function Get-SetupUserPath {
     # Preserve expandable entries such as %USERPROFILE% rather than writing their expanded values.
@@ -124,16 +125,27 @@ function Save-SetupInstaller {
 function Find-SetupLocalInstaller {
     param([string]$HomeRoot = $script:SetupHomeRoot)
     $clone = [IO.Path]::GetFullPath((Join-Path $script:SetupPluginRoot '../../install.ps1'))
-    if (Test-Path -LiteralPath $clone -PathType Leaf) { return $clone }
+    if (Test-SetupInstallerCompatible -Path $clone -HomeRoot $HomeRoot) { return $clone }
     $tools = @(Get-PsAiTools)
     foreach ($relative in @('plugins/marketplaces/ps-ai-marketplace/install.ps1', '.tmp/marketplaces/ps-ai-marketplace/install.ps1')) {
         foreach ($tool in $tools) {
             $folder = Join-Path $HomeRoot $tool.plugin.defaultConfigDir.Substring(2)
             $path = Join-Path $folder $relative
-            if (Test-Path -LiteralPath $path -PathType Leaf) { return $path }
+            if (Test-SetupInstallerCompatible -Path $path -HomeRoot $HomeRoot) { return $path }
         }
     }
     return $null
+}
+
+function Test-SetupInstallerCompatible {
+    param([string]$Path, [string]$HomeRoot)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    $tokens = $null
+    $errors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors)
+    if ($errors.Count) { return $false }
+    if ((Get-PsAiPathComparer).Equals((Resolve-SetupFolder $HomeRoot $HomeRoot), (Resolve-SetupFolder $HOME $HOME))) { return $true }
+    return 'HomeRoot' -iin @($ast.ParamBlock.Parameters.Name.VariablePath.UserPath)
 }
 
 function Find-SetupInstaller {
@@ -145,6 +157,7 @@ function Find-SetupInstaller {
         Save-SetupInstaller -Path $download
         $script:SetupDownloadedInstaller = $download
     }
+    if (-not (Test-SetupInstallerCompatible -Path $download -HomeRoot $script:SetupHomeRoot)) { throw 'downloaded installer does not support the selected home' }
     return $download
 }
 
@@ -182,14 +195,17 @@ function New-SetupAccountRow {
     $nextStep = if (-not $Adopted -and -not $Agent.provider -and $folder -ceq $managed) { "log in: run $($Agent.id)" } else { 'ready' }
     $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
     $missingWrappers = @($suffixes | Where-Object {
-        -not (Test-Path -LiteralPath (Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$($Agent.id)$_") -PathType Leaf)
+        -not (Test-PsAiLauncherExecutable -Path (Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$($Agent.id)$_"))
     }).Count -gt 0
+    $target = $null
+    if ($missingWrappers -and -not $New -and -not $Agent.provider) { $target = Get-PsAiWrapperTarget -Id $Agent.id -Tool $Tool.id -HomeRoot $HomeRoot -ConfigDir $folder }
+    if ($missingWrappers -and -not $New -and -not $Agent.provider -and -not $target) { $nextStep = "target needed: $($Agent.id); ask the owner for the registered executable" }
     return [pscustomobject]@{
         Id = $Agent.id; Tool = $Tool; Folder = $folder
         Requested = [bool]$Requested; New = [bool]$New; Adopted = [bool]$Adopted
         Version = (Get-PsAiInstalledVersion -ConfigDir $folder -Tool $Tool)
-        NextStep = $nextStep; Usable = $true
-        MissingWrappers = $missingWrappers; Provider = $Agent.provider
+        NextStep = $nextStep; Usable = (-not $nextStep.StartsWith('target needed:'))
+        MissingWrappers = $missingWrappers; WrapperTarget = $target; Provider = $Agent.provider
     }
 }
 
@@ -234,6 +250,7 @@ function Get-SetupAccounts {
         $previous = @($rows | Where-Object { $_.Id -ceq $row.Id })[0]
         if ($previous) {
             $row.New = $previous.New
+            if ($row.New) { $row.Usable = $true; $row.NextStep = $previous.NextStep }
             [void]$rows.Remove($previous)
         }
         $rows.Add($row)
@@ -249,6 +266,7 @@ function Get-SetupCommands {
         foreach ($suffix in $suffixes) {
             $path = Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$($entry.Key)$suffix"
             $state = Get-PsAiOwnerCommandState -Path $path -Script $entry.Value
+            if ($state -eq 'owned' -and -not (Test-PsAiLauncherExecutable -Path $path)) { $state = 'permission' }
             [pscustomobject]@{ Name = $entry.Key; Script = $entry.Value; Path = $path; Windows = ($suffix -eq '.cmd'); State = $state }
         }
     }
@@ -261,9 +279,10 @@ function Get-SetupPlan {
     $tools = [ordered]@{}
     foreach ($tool in Get-PsAiTools) { $tools[$tool.id] = $tool }
     $accounts = @(Get-SetupAccounts -Add $Add -Id $Id -Data $data -Tools $tools -HomeRoot $HomeRoot)
+    $usable = @($accounts | Where-Object Usable)
     $missing = @()
     foreach ($tool in $tools.Values) {
-        if ($tool.id -cin @($accounts.Tool.id) -and -not (Test-SetupCommand -Name $tool.command)) { $missing += $tool }
+        if ($tool.id -cin @($usable.Tool.id) -and -not (Test-SetupCommand -Name $tool.command)) { $missing += $tool }
     }
     $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
     $path = if ($IsWindows) { Get-SetupUserPath } else { $env:PATH }
@@ -273,24 +292,18 @@ function Get-SetupPlan {
         Notes = (Join-Path (Split-Path $settings) 'ps-ai-notes.md'); Bin = $bin
         Commands = @(Get-SetupCommands -HomeRoot $HomeRoot); NeedsPath = (-not (Test-PsAiPathEntry -Path $path -Folder $bin))
         Version = $version
-        DownloadInstaller = (@($accounts | Where-Object { -not $_.Version }).Count -gt 0 -and -not (Find-SetupLocalInstaller -HomeRoot $HomeRoot))
+        DownloadInstaller = (@($usable | Where-Object { -not $_.Version }).Count -gt 0 -and -not (Find-SetupLocalInstaller -HomeRoot $HomeRoot))
     }
 }
 
 function Get-SetupPathHint {
-    return 'add to your shell profile: export PATH="$HOME/.legion/bin:$PATH"'
+    param($Plan)
+    return 'add to your shell profile: export PATH=' + (ConvertTo-PsAiShellLiteral $Plan.Bin) + ':"$PATH"'
 }
 
 function Get-SetupToolInstallHint {
     param($Tool, [string]$Platform = $(if ($IsWindows) { 'windows' } elseif ($IsMacOS) { 'macos' } else { 'linux' }))
-    $recipe = $Tool.install.$Platform
-    if ($Platform -eq 'windows') {
-        $npm = $recipe.npmWhenAvailable
-        if ($npm -and (Test-SetupCommand -Name $npm.check)) { return $npm.command -join ' ' }
-        return "winget install --id $($recipe.wingetId) -e"
-    }
-    if (-not $recipe.commands.Count) { return $recipe.docs }
-    return (@($recipe.commands | ForEach-Object { $_ -join ' ' }) -join '; ')
+    return @(Get-ToolInstallHints -Tool $Tool.id -Platform $Platform -CommandAvailable { param($Name) Test-SetupCommand -Name $Name }) -join '; '
 }
 
 function Write-SetupPlan {
@@ -306,17 +319,20 @@ function Write-SetupPlan {
         $kind = if ($row.Adopted) { 'existing' } else { 'new' }
         $lines.Add("  add      $($row.Id) ($($row.Tool.id)) $kind folder $($row.Folder)")
     }
-    $repairs = @($Plan.Accounts | Where-Object { -not $_.New -and $_.MissingWrappers } | Select-Object -ExpandProperty Id)
+    $repairs = @($Plan.Accounts | Where-Object { -not $_.New -and $_.MissingWrappers -and $_.Usable } | Select-Object -ExpandProperty Id)
     if ($repairs.Count) { $lines.Add("  wrappers repair $($repairs -join ', ')") }
-    $folders = @($Plan.Accounts | Where-Object { -not $_.Version } | Select-Object -ExpandProperty Folder -Unique)
+    foreach ($row in $Plan.Accounts) { if ($row.NextStep.StartsWith('target needed:')) { $lines.Add("  wrappers $($row.NextStep)") } }
+    $folders = @($Plan.Accounts | Where-Object { $_.Usable -and -not $_.Version } | Select-Object -ExpandProperty Folder -Unique)
     if ($Plan.DownloadInstaller) { $lines.Add('  download ps-ai installer from https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1') }
     if ($folders.Count) { $lines.Add("  install  ps-ai into $($folders -join ', ')") }
     $commands = @($Plan.Commands | Where-Object State -EQ missing | Select-Object -ExpandProperty Name -Unique)
     if ($commands.Count) { $lines.Add("  commands write $($commands -join ', ') in $($Plan.Bin)") }
     $stale = @($Plan.Commands | Where-Object State -EQ stale | Select-Object -ExpandProperty Name -Unique)
     if ($stale.Count) { $lines.Add("  commands rewrite $($stale -join ', ') (their script is gone)") }
+    $permissions = @($Plan.Commands | Where-Object State -EQ permission | Select-Object -ExpandProperty Name -Unique)
+    if ($permissions.Count) { $lines.Add("  commands restore execute permission for $($permissions -join ', ')") }
     if ($Plan.NeedsPath) {
-        $hint = if ($IsWindows) { "add $($Plan.Bin) to your user PATH" } else { Get-SetupPathHint }
+        $hint = if ($IsWindows) { "add $($Plan.Bin) to your user PATH" } else { Get-SetupPathHint -Plan $Plan }
         $lines.Add("  path     $hint")
     }
     $blocked = @($Plan.Commands | Where-Object State -EQ blocked | Select-Object -ExpandProperty Name -Unique)
@@ -369,7 +385,8 @@ function Add-SetupAccounts {
             $arguments = @{ Id = $row.Id; Tool = $row.Tool.id; HomeRoot = $Plan.HomeRoot; Data = $data; Path = $file }
             $managed = Get-PsAiNewAccountDir -Id $row.Id -HomeRoot $Plan.HomeRoot
             if ($row.Adopted -or -not (Get-PsAiPathComparer).Equals($row.Folder, $managed)) { $arguments.ConfigDir = $row.Folder }
-            if ($row.New -or $row.MissingWrappers) { $arguments.Command = Find-SetupCommand -Name $row.Tool.command }
+            if ($row.New) { $arguments.Command = Find-SetupCommand -Name $row.Tool.command }
+            elseif ($row.MissingWrappers) { $arguments.Command = $row.WrapperTarget }
             try { $null = Add-PsAiSubscriptionAccount @arguments }
             catch { throw (ConvertTo-SetupOneLine $_.Exception.Message) }
             if (-not $row.New) { "skip: account $($row.Id) (already done)" }
@@ -383,6 +400,10 @@ function Write-SetupCommands {
     foreach ($name in (Get-PsAiOwnerCommands).Keys) {
         $files = @($Plan.Commands | Where-Object Name -CEQ $name)
         foreach ($file in $files) {
+            if ($file.State -eq 'permission') {
+                Write-PsAiGeneratedFile -Path $file.Path -Content ([IO.File]::ReadAllText($file.Path)) -Executable
+                continue
+            }
             if ($file.State -notin @('missing', 'stale')) { continue }
             $runner = Join-Path $script:SetupBin $file.Script
             # A stale command keeps the owner's own flags; a missing one is generated whole.
@@ -441,7 +462,7 @@ function Write-SetupTable {
     }
     $blocked = @($Plan.Commands | Where-Object State -EQ blocked | Select-Object -ExpandProperty Name -Unique)
     if ($blocked.Count) { "Blocked commands: $($blocked -join ', ')" }
-    if (-not $IsWindows -and $Plan.NeedsPath) { Get-SetupPathHint }
+    if (-not $IsWindows -and $Plan.NeedsPath) { Get-SetupPathHint -Plan $Plan }
 }
 
 function Invoke-Setup {

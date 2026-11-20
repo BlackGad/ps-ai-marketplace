@@ -44,7 +44,7 @@ try {
     function Get-SetupMachinePath { return '' }
     function Set-SetupUserPath { param($Value) $script:pathWrites.Add($Value); $script:userPath = $Value }
     function Find-SetupInstaller { return (Join-Path $tempRoot 'inert-installer.ps1') }
-    function Save-SetupInstaller { param($Path) $script:downloads.Add($Path); [IO.File]::WriteAllText($Path, '# inert') }
+    function Save-SetupInstaller { param($Path) $script:downloads.Add($Path); [IO.File]::WriteAllText($Path, 'param([string]$HomeRoot) # inert') }
     function Invoke-SetupToolInstall {
         param($Tool)
         $script:toolInstalls.Add($Tool)
@@ -80,6 +80,133 @@ try {
     }
 
     $regressions = [ordered]@{
+        K5 = {
+            Reset-SetupTest 'legacy-installer'
+            $pluginRoot = $script:SetupPluginRoot
+            try {
+                $script:SetupPluginRoot = Join-Path $testHome 'cache/plugins/ps-ai'
+                New-Item -ItemType Directory -Path $script:SetupPluginRoot -Force | Out-Null
+                Copy-Item (Join-Path $pluginRoot 'plugin.json') $script:SetupPluginRoot
+                $legacy = Join-Path $testHome '.claude/plugins/marketplaces/ps-ai-marketplace/install.ps1'
+                New-Item -ItemType Directory -Path (Split-Path $legacy) -Force | Out-Null
+                'param([switch]$Yes) throw "legacy installer must never run"' | Set-Content $legacy
+                Assert-Equal $null (Find-SetupLocalInstaller -HomeRoot $testHome) 'K5 alternate home rejects an installer without HomeRoot'
+                $plan = @(Invoke-Setup -HomeRoot $testHome -Add codex)
+                Assert-SetupText $plan '  download ps-ai installer' 'K5 incompatible cached installer discloses download'
+                $script:SetupHomeRoot = $testHome
+                $download = & $realFindInstaller
+                Assert-Equal 1 $downloads.Count 'K5 compatible installer fallback downloads once'
+                Assert-True ($download.StartsWith($testHome)) 'K5 download stays under the selected home'
+                'param([string]$HomeRoot, [switch]$Yes)' | Set-Content $legacy
+                Assert-Equal $legacy (Find-SetupLocalInstaller -HomeRoot $testHome) 'K5 compatible cache is reused'
+            } finally { $script:SetupPluginRoot = $pluginRoot }
+        }
+        K7 = {
+            Reset-SetupTest 'prerequisite-plan'
+            $script:missingTools = @('node', 'codex')
+            $hint = Get-SetupToolInstallHint -Tool (Get-PsAiTool codex) -Platform macos
+            Assert-Equal 'brew install node; npm install -g @openai/codex' $hint 'K7 macOS consent includes missing Node before npm'
+            $script:missingTools = @('codex')
+            $hint = Get-SetupToolInstallHint -Tool (Get-PsAiTool codex) -Platform macos
+            Assert-Equal 'npm install -g @openai/codex' $hint 'K7 installed prerequisites are omitted'
+            & {
+                . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-install-tool.ps1') -NoRun
+                $installProbe = @{ Installed = @(); Commands = [Collections.Generic.List[string]]::new() }
+                function Test-ToolInstalled { param($Tool) return @{ Installed = ($Tool -in $installProbe.Installed); Version = 'fixture' } }
+                function Test-ToolCommandAvailable { param($Name) return $true }
+                function Invoke-ToolCommand {
+                    param($Command)
+                    $installProbe.Commands.Add(($Command -join ' '))
+                    if ($Command[0] -eq 'brew') { $installProbe.Installed += 'node' } else { $installProbe.Installed += 'codex' }
+                    return 0
+                }
+                Invoke-ToolInstall -Tool codex -Platform macos -Yes | Out-Null
+                Assert-Equal 'brew install node; npm install -g @openai/codex' ($installProbe.Commands -join '; ') 'K7 applied prerequisite commands match the consent recipe'
+            }
+        }
+        K8 = {
+            Reset-SetupTest 'custom-wrapper-repair'
+            Initialize-SetupFiles -Plan (Get-SetupPlan -HomeRoot $testHome) | Out-Null
+            $folder = Join-Path $testHome 'custom account'
+            New-Item -ItemType Directory -Path $folder | Out-Null
+            $custom = Join-Path $fakeBin "custom'100% command.ps1"
+            '# inert custom command' | Set-Content $custom
+            $data = Read-PsAiJson $settings
+            Add-PsAiSubscriptionAccount -Id custom-a -Tool codex -Command $custom -ConfigDir $folder -HomeRoot $testHome -Data $data -Path $settings | Out-Null
+            $sh = Join-Path $testHome '.legion/bin/custom-a'
+            $cmd = "$sh.cmd"
+            if ($IsWindows) {
+                $original = [IO.File]::ReadAllText($cmd)
+                Remove-Item $cmd
+                Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+                Assert-Equal $original ([IO.File]::ReadAllText($cmd)) 'K8 shell survivor restores custom Windows target'
+                $original = [IO.File]::ReadAllText($sh)
+                Remove-Item $sh
+                Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+                Assert-Equal $original ([IO.File]::ReadAllText($sh)) 'K8 batch survivor restores custom shell target'
+                Remove-Item $cmd
+                [IO.File]::AppendAllText($sh, '# owner customization' + "`n")
+                $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
+                Assert-SetupText $output 'target needed' 'K8 edited survivor is ambiguous and never guessed'
+                Assert-Equal $false (Test-Path $cmd) 'K8 edited survivor is kept without generating a replacement'
+                [IO.File]::WriteAllText($sh, $original)
+                Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+                Remove-Item $cmd
+            }
+            Remove-Item $sh
+            $plan = @(Invoke-Setup -HomeRoot $testHome)
+            Assert-SetupText $plan 'target needed: custom-a' 'K8 absent wrappers ask for the target in the plan'
+            $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
+            Assert-SetupText $output 'target needed' 'K8 ambiguous repair reports next step'
+            Assert-Equal $false (Test-Path $sh) 'K8 ambiguous repair never substitutes the stock command'
+        }
+        G1 = {
+            Reset-SetupTest 'interrupted-chmod'
+            Invoke-Setup -HomeRoot $testHome -Add codex -Yes | Out-Null
+            $account = Join-Path $testHome '.legion/bin/codex1'
+            $command = Join-Path $testHome '.legion/bin/legion'
+            $before = [IO.File]::ReadAllText($account)
+            $realExecutable = ${function:Test-PsAiLauncherExecutable}
+            $realWrite = ${function:Write-PsAiGeneratedFile}
+            $repair = @{ Pending = @($account, $command); Fixed = [Collections.Generic.List[string]]::new() }
+            function Test-PsAiLauncherExecutable {
+                param($Path)
+                if ($Path -in $repair.Pending) { return $false }
+                return & $realExecutable -Path $Path
+            }
+            function Write-PsAiGeneratedFile {
+                param($Path, $Content, $Changes, [switch]$Executable)
+                if ($Path -in $repair.Pending -and $Executable) { $repair.Fixed.Add($Path); $repair.Pending = @($repair.Pending | Where-Object { $_ -ne $Path }) }
+                & $realWrite @PSBoundParameters
+            }
+            if (-not $IsWindows) {
+                foreach ($file in @($account, $command)) { [IO.File]::SetUnixFileMode($file, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite) }
+            }
+            try {
+                $plan = @(Invoke-Setup -HomeRoot $testHome)
+                Assert-SetupText $plan 'wrappers repair codex1' 'G1 plan notices account execute permission'
+                Assert-SetupText $plan 'commands restore execute permission for legion' 'G1 plan notices owner command execute permission'
+                Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+                Assert-Equal 2 $repair.Fixed.Count 'G1 setup repairs both owned launchers'
+                Assert-Equal $before ([IO.File]::ReadAllText($account)) 'G1 repair keeps the registered wrapper target'
+                Assert-True (& $realExecutable -Path $account) 'G1 account is executable after repair'
+                Assert-True (& $realExecutable -Path $command) 'G1 owner command is executable after repair'
+            } finally {
+                Set-Item function:Test-PsAiLauncherExecutable $realExecutable
+                Set-Item function:Write-PsAiGeneratedFile $realWrite
+            }
+        }
+        G6 = {
+            Reset-SetupTest 'alternate home with spaces'
+            $plan = @{ Bin = (Join-Path $testHome '.legion/bin') }
+            $hint = Get-SetupPathHint -Plan $plan
+            Assert-Equal ("add to your shell profile: export PATH='" + $plan.Bin + "'" + ':"$PATH"') $hint 'G6 shell hint quotes the selected bin folder'
+            if (-not $IsWindows) {
+                $export = $hint.Substring('add to your shell profile: '.Length)
+                $actual = & /bin/sh -c ($export + '; printf "%s" "$PATH"')
+                Assert-Equal ($plan.Bin + ':' + $fixturePath) $actual 'G6 following the hint adds the alternate bin with spaces'
+            }
+        }
         B1 = {
             Reset-SetupTest 'adopt-repeat'
             $folder = Join-Path $testHome 'existing'
@@ -118,12 +245,16 @@ try {
             finally { Set-Item function:New-PsAiWrappers $realWrappers }
             Assert-Equal 1 (@((Read-PsAiJson $settings).agents).Count) 'B2 interruption leaves a recorded account'
             $plan = @(Invoke-Setup -HomeRoot $testHome)
-            Assert-SetupText $plan '  wrappers repair codex1' 'B2 plan names missing account wrappers'
-            Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+            Assert-SetupText $plan 'target needed: codex1' 'B2 plan names missing account wrapper target'
             $wrapper = Get-PsAiWrapperCommand codex1 $testHome
+            $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
+            Assert-SetupText $output 'target needed: codex1' 'B2 interruption before either wrapper leaves target recovery to the owner'
+            $data = Read-PsAiJson $settings
+            Add-PsAiSubscriptionAccount -Id codex1 -Tool codex -Command (Join-Path $fakeBin $(if ($IsWindows) { 'codex.cmd' } else { 'codex' })) -HomeRoot $testHome -Data $data -Path $settings | Out-Null
             Assert-True (Test-Path -LiteralPath $wrapper) 'B2 finish setup repairs interrupted account wrappers'
             Remove-Item -LiteralPath $wrapper
-            Invoke-Setup -HomeRoot $testHome -Add codex -Id codex1 -Yes | Out-Null
+            if ($IsWindows) { Invoke-Setup -HomeRoot $testHome -Add codex -Id codex1 -Yes | Out-Null }
+            else { Add-PsAiSubscriptionAccount -Id codex1 -Tool codex -Command (Join-Path $fakeBin 'codex') -HomeRoot $testHome -Data $data -Path $settings | Out-Null }
             Assert-True (Test-Path -LiteralPath $wrapper) 'B2 explicit repeat repairs a missing wrapper half'
             $before = Get-SetupTree $testHome
             Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
@@ -458,7 +589,7 @@ try {
     $codexCopy = Join-Path $testHome '.codex/.tmp/marketplaces/ps-ai-marketplace/install.ps1'
     foreach ($path in @($clone, $claudeCopy, $codexCopy)) {
         New-Item -ItemType Directory -Path (Split-Path $path) -Force | Out-Null
-        '# inert' | Set-Content -LiteralPath $path
+        'param([string]$HomeRoot) # inert' | Set-Content -LiteralPath $path
     }
     foreach ($expected in @($clone, $claudeCopy, $codexCopy)) {
         Assert-Equal ([IO.Path]::GetFullPath($expected)) (& $realFindInstaller) 'Installer search prefers next existing local copy'
@@ -475,8 +606,8 @@ try {
     # Exercise the real process boundary against an inert script: flags, closed stdin and captured output.
     $standIn = Join-Path $testHome 'stand in.ps1'
     @'
-param([string]$Tools, [string]$ConfigDir, [switch]$Update, [switch]$Yes)
-@{ Tools=$Tools; ConfigDir=$ConfigDir; Update=[bool]$Update; Yes=[bool]$Yes; StdinClosed=([Console]::In.ReadToEnd() -eq '') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ConfigDir 'args.json')
+param([string]$Tools, [string]$ConfigDir, [string]$HomeRoot, [switch]$Update, [switch]$Yes)
+@{ Tools=$Tools; ConfigDir=$ConfigDir; HomeRoot=$HomeRoot; Update=[bool]$Update; Yes=[bool]$Yes; StdinClosed=([Console]::In.ReadToEnd() -eq '') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ConfigDir 'args.json')
 'inert installer output'
 exit 3
 '@ | Set-Content -LiteralPath $standIn
@@ -485,6 +616,7 @@ exit 3
     $bound = Read-PsAiJson (Join-Path $testHome 'args.json')
     Assert-Equal 'codex' $bound.Tools 'Installer receives -Tools'
     Assert-Equal $testHome $bound.ConfigDir 'Installer receives config folder intact'
+    Assert-Equal $testHome $bound.HomeRoot 'K5 installer process receives the selected home'
     Assert-True ($bound.Update -and $bound.Yes -and $bound.StdinClosed) 'Installer receives update, consent and closed stdin'
     Assert-SetupText (Get-Content (Join-Path $testHome '.legion/temp/setup-install-codex.log')) 'inert installer output' 'Installer output goes to chosen-home log'
     Write-Output "Setup fake timings: plan $([math]::Round($planWatch.Elapsed.TotalSeconds, 3)) s; apply $([math]::Round($applyWatch.Elapsed.TotalSeconds, 3)) s"
