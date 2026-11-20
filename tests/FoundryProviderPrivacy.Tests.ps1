@@ -33,7 +33,7 @@ exit 0
         exit = 0; stdout = (@{ accessToken = 'FAKE-NONCREDENTIAL'; expires_on = $expiresOn.ToUnixTimeSeconds() } | ConvertTo-Json -Compress)
     } }
     $fakeRoot = Split-Path $env:PS_AI_FAKE_AZ -Parent
-    $env:PATH = @($fakeTools, (Join-Path $PSScriptRoot 'fixtures/fake-az'), $PSHOME) -join [IO.Path]::PathSeparator
+    $env:PATH = @($fakeTools, (Join-Path $PSScriptRoot 'fixtures/fake-az'), $PSHOME, $(if ($IsWindows) { $null } else { "/bin:/usr/bin" })) -join [IO.Path]::PathSeparator
     $env:PS_AI_PRIVACY_LOG = Join-Path $tempRoot 'privacy.json'
     $pwshPath = (Get-Process -Id $PID).Path
     $output = @(& $pwshPath -NoProfile -File $runner -Agent copilot-dev -HomeRoot $tempRoot 2>&1)

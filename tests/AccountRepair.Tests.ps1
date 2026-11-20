@@ -5,7 +5,7 @@ New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 $savedPath = $env:PATH
 try {
     . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
-    $env:PATH = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/usr/bin' }
+    $env:PATH = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' }
     # Exercise interrupted chmod even on Windows; chmod itself is an inert seam.
     & {
         $originalWindows = $IsWindows

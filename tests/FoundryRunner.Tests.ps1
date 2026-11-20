@@ -35,7 +35,7 @@ try {
     $fakeAzFolder = Join-Path $PSScriptRoot 'fixtures/fake-az'
     $fakeToolsFolder = Join-Path $PSScriptRoot 'fixtures/fake-tools'
     $pwshPath = (Get-Process -Id $PID).Path
-    $env:PATH = @($fakeToolsFolder,$fakeAzFolder,$PSHOME) -join [IO.Path]::PathSeparator
+    $env:PATH = @($fakeToolsFolder,$fakeAzFolder,$PSHOME,$(if ($IsWindows) { $null } else { "/bin:/usr/bin" })) -join [IO.Path]::PathSeparator
     $env:PS_AI_FAKE_TOOL_LOG = Join-Path $tempRoot 'tool.json'
     $env:PS_AI_FAKE_TOOL_EXIT = '0'
     $env:CLAUDE_CODE_USE_BEDROCK = '1'
@@ -146,12 +146,12 @@ try {
     $brokenName = if ($IsWindows) { 'broken-child.exe' } else { 'broken-child' }
     $brokenPath = Join-Path $tempRoot $brokenName
     [IO.File]::WriteAllBytes($brokenPath, [byte[]]@(0,1,2,3))
-    if (-not $IsWindows) { & chmod +x $brokenPath }
+    if (-not $IsWindows) { [IO.File]::SetUnixFileMode($brokenPath, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute) }
     $copilotDescriptorPath = Join-Path $runtime 'skills/ps-ai-copilot/tool.json'
     $copilotDescriptor = Get-Content $copilotDescriptorPath -Raw | ConvertFrom-Json
     $copilotDescriptor.command = $brokenName
     $copilotDescriptor | ConvertTo-Json -Depth 100 | Set-Content $copilotDescriptorPath
-    $env:PATH = @($tempRoot,$fakeAzFolder,$PSHOME) -join [IO.Path]::PathSeparator
+    $env:PATH = @($tempRoot,$fakeAzFolder,$PSHOME,$(if ($IsWindows) { $null } else { "/bin:/usr/bin" })) -join [IO.Path]::PathSeparator
     $output = @(& $pwshPath -NoProfile -File $bundledRunner -Agent copilot-dev -HomeRoot $homeRoot 2>&1)
     Assert-Equal 1 $LASTEXITCODE 'Child start failure exits one'
     Assert-True (($output -join "`n").Contains('token valid until')) 'Child start failure occurs after provider construction'

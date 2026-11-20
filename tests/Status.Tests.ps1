@@ -144,7 +144,7 @@ try {
         } else {
             (Get-PsAiShimText -Script $fakeTool) |
                 Set-Content -LiteralPath (Join-Path $fakeBin $name)
-            & chmod +x (Join-Path $fakeBin $name)
+            [IO.File]::SetUnixFileMode((Join-Path $fakeBin $name), [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
         }
     }
     $env:PATH = $fakeBin + [IO.Path]::PathSeparator + $bin + [IO.Path]::PathSeparator + $savedPath
