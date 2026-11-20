@@ -7,7 +7,7 @@ $savedEnvironment = @{}
 foreach ($name in @('PATH','PS_AI_FAKE_AZ','PS_AI_FAKE_AZ_LOG','PS_AI_FAKE_TOOL_LOG','PS_AI_FAKE_TOOL_EXIT','CLAUDE_CODE_USE_BEDROCK','ANTHROPIC_DEFAULT_SONNET_MODEL','CLAUDE_CONFIG_DIR')) {
     $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
 }
-$tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 $fakeRoot = $null
 try {

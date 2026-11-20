@@ -1,6 +1,6 @@
 $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-foundry.ps1') -NoRun
-$tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
 $folder = Join-Path $tempRoot '.legion/temp'
 New-Item -ItemType Directory -Path $folder -Force | Out-Null
 try {

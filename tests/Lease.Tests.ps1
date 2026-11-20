@@ -1,7 +1,7 @@
 $root = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $root 'plugins/ps-ai/bin/ps-ai-lease.ps1'
 $hook = Join-Path $root 'plugins/ps-ai/hooks/detect-mode.ps1'
-$tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
 $repo = Join-Path $tempRoot 'repo'
 New-Item -ItemType Directory -Path $repo -Force | Out-Null
 try {

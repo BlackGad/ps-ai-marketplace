@@ -7,7 +7,7 @@ $savedPath = $env:PATH
 $savedAnswers = $env:PS_AI_FAKE_AZ
 $savedLog = $env:PS_AI_FAKE_AZ_LOG
 $savedToolLog = $env:PS_AI_FAKE_TOOL_LOG
-$tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
     $env:PS_AI_FAKE_TOOL_LOG = Join-Path $tempRoot 'tool-log.json'
