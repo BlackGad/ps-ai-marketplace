@@ -3,5 +3,11 @@
   "id": "telegram",
   "launch": {
     "claude": ["--channels", "plugin:telegram@claude-plugins-official"]
+  },
+  "ready": {
+    "command": "bun",
+    "pluginFolder": {
+      "claude": "plugins/cache/claude-plugins-official/telegram"
+    }
   }
 }

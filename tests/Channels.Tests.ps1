@@ -29,3 +29,16 @@ foreach ($bad in @(
     $bad | Set-Content (Join-Path $skill 'channel.json')
     Assert-Throws { Get-PsAiChannels $scratch } 'Malformed descriptor fails'
 }
+# ready is an accepted fourth key; any other extra key is rejected
+Remove-Item -LiteralPath $skill -Recurse -Force
+$telegram = Join-Path $scratch 'ps-ai-telegram'
+New-Item -ItemType Directory $telegram -Force | Out-Null
+Copy-Item (Join-Path $root 'plugins/ps-ai/skills/ps-ai-telegram/SKILL.md') $telegram
+$ready = '"ready":{"command":"bun","pluginFolder":{"claude":"plugins/cache/claude-plugins-official/telegram"}}'
+$base = '"schemaVersion":1,"id":"telegram","launch":{"claude":[]}'
+"{$base,$ready}" | Set-Content (Join-Path $telegram 'channel.json')
+Assert-Equal 'bun' (@(Get-PsAiChannels $scratch | Where-Object id -CEQ telegram)[0].ready.command) 'Ready accepted'
+"{$base,$ready,`"extra`":1}" | Set-Content (Join-Path $telegram 'channel.json')
+Assert-Throws { Get-PsAiChannels $scratch } 'Unknown fifth key rejected'
+"{$base,`"extra`":1}" | Set-Content (Join-Path $telegram 'channel.json')
+Assert-Throws { Get-PsAiChannels $scratch } 'Unknown key without ready rejected'
