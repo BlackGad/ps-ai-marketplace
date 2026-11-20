@@ -2,7 +2,25 @@ $repo = Split-Path $PSScriptRoot -Parent
 & {
     $fixtureHome = Join-Path $repo ('.agents/temp/install-consent-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $fixtureHome -Force | Out-Null
+    $savedPath = $env:PATH
+    $savedLog = $env:PS_AI_CONSENT_LOG
     try {
+        $fixtureBin = Join-Path $fixtureHome 'tools'
+        New-Item -ItemType Directory -Path $fixtureBin -Force | Out-Null
+        $env:PS_AI_CONSENT_LOG = Join-Path $fixtureHome 'versions.txt'
+        $codex = Join-Path $fixtureBin $(if ($IsWindows) { 'codex.cmd' } else { 'codex' })
+        $text = if ($IsWindows) {
+            "@echo %*>>`"%PS_AI_CONSENT_LOG%`"`r`n@echo fixture codex`r`n@exit /b 0`r`n"
+        } else {
+            '#!/bin/sh' + "`n" + 'printf "%s\n" "$*" >> "$PS_AI_CONSENT_LOG"' + "`n" + 'echo fixture codex' + "`n"
+        }
+        [IO.File]::WriteAllText($codex, $text)
+        if (-not $IsWindows) {
+            [IO.File]::SetUnixFileMode($codex, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
+        }
+        $systemBin = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/usr/bin' }
+        $env:PATH = @($fixtureBin, $PSHOME, $systemBin) -join [IO.Path]::PathSeparator
+        Assert-Equal $codex (Get-Command codex -CommandType Application).Source 'R4 B6 consent uses the fixture executable'
         # B4: the home chosen with -HomeRoot is the home for every install path, including the refresh.
         . (Join-Path $repo 'install.ps1') -NoRun -HomeRoot $fixtureHome
         Assert-Equal $fixtureHome (Get-InstallHome) 'B4: -HomeRoot selects the install home'
@@ -44,7 +62,10 @@ $repo = Split-Path $PSScriptRoot -Parent
         $null = Invoke-PsAiInstaller -Catalog (Get-InstallCatalog -Source $repo) -Tools codex -DryRun
         Assert-Equal 3 $script:installs '-Yes and a dry run both go on to the install steps'
         Assert-Equal 0 $script:prompts '-Yes and a dry run never prompt'
+        Assert-Equal '--version|--version' ((Get-Content -LiteralPath $env:PS_AI_CONSENT_LOG) -join '|') 'R4 B6 version probes call only the fixture executable'
     } finally {
+        $env:PATH = $savedPath
+        $env:PS_AI_CONSENT_LOG = $savedLog
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
         if ([IO.Path]::GetFullPath($fixtureHome).StartsWith($allowed)) { Remove-Item -LiteralPath $fixtureHome -Recurse -Force }
     }

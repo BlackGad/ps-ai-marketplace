@@ -511,7 +511,8 @@ try {
     Assert-Equal $(if ($IsWindows) { 1 } else { 0 }) $pathWrites.Count 'Only Windows writes user PATH'
     if ($IsWindows) { Assert-Equal "fixture-path;$bin" $pathWrites[0] 'User PATH appends bin' }
     else {
-        Assert-SetupText $apply 'add to your shell profile: export PATH="$HOME/.legion/bin:$PATH"' 'Unix prints the profile instruction'
+        $quotedBinHint = 'add to your shell profile: export PATH=' + (ConvertTo-PsAiShellLiteral $bin) + ':"$PATH"'
+        Assert-SetupText $apply $quotedBinHint 'R4 B6 Unix profile instruction quotes the fixture bin'
         $env:PATH += [IO.Path]::PathSeparator + $bin
     }
     $before = Get-SetupTree $testHome
