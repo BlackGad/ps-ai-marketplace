@@ -12,18 +12,6 @@ $statusNoRun = $NoRun
 . (Join-Path $PSScriptRoot 'lib/installed.ps1')
 . (Join-Path $PSScriptRoot 'lib/commands.ps1')
 
-function Test-StatusPathEntry {
-    param([string]$Folder)
-
-    $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
-    $separators = [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
-    $folderPath = $Folder.TrimEnd($separators)
-    foreach ($entry in ($env:PATH -split [IO.Path]::PathSeparator)) {
-        if ($entry -and [string]::Equals($folderPath, $entry.TrimEnd($separators), $comparison)) { return $true }
-    }
-    return $false
-}
-
 function Write-StatusAccounts {
     param($Settings, [string]$HomeRoot)
 
@@ -66,7 +54,9 @@ function Write-StatusRepository {
     param([string]$Repo)
 
     $legion = Get-PsAiRepoPath -Repo $Repo -Path ''
-    if (-not (Test-Path -LiteralPath $legion -PathType Container)) { 'repo none'; return }
+    foreach ($file in @('configuration/project.json', 'configuration/workflow.md', 'scripts/index.md')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $legion $file) -PathType Leaf)) { 'repo none'; return }
+    }
     # Private orchestration owns an inner Git history; Shared uses the code repository's history.
     $mode = if (Test-Path -LiteralPath (Join-Path $legion '.git')) { 'Private' } else { 'Shared' }
     $lease = Get-PsAiLease -Repo $Repo
@@ -83,7 +73,7 @@ if (-not $statusNoRun) {
         Write-StatusAccounts -Settings $settings -HomeRoot $HomeRoot
     } else { 'no ps-ai settings yet' }
     $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
-    $onPath = if (Test-StatusPathEntry -Folder $bin) { 'yes' } else { 'no' }
+    $onPath = if (Test-PsAiPathEntry -Path $env:PATH -Folder $bin) { 'yes' } else { 'no' }
     "path ~/.legion/bin on PATH: $onPath"
     Write-StatusCommands -Bin $bin
     foreach ($channel in $settings.channels) {

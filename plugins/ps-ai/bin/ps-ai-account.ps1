@@ -359,9 +359,17 @@ function Add-PsAiSubscriptionAccount {
     }
     if ($accountDir -match '^~[/\\]') { $accountDir = Join-Path $HomeRoot $accountDir.Substring(2) }
     $accountDir = [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($accountDir))
-    if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and $existing.configDir -ceq $accountDir) {
+    $existingDir = if ($existing.configDir -match '^~[/\\]') { Join-Path $HomeRoot $existing.configDir.Substring(2) } else { $existing.configDir }
+    if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and (Get-PsAiPathComparer).Equals($existingDir, $accountDir)) {
         if ($Command) { New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $Command -ConfigDir $accountDir }
-        elseif (-not (Test-PsAiOwnedWrapper (Get-PsAiWrapperCommand $Id $HomeRoot) $Id)) { throw "wrapper collision for '$Id'" }
+        else {
+            $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
+            $missing = @($suffixes | Where-Object { -not (Test-Path -LiteralPath (Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$Id$_")) })
+            if ($missing.Count) {
+                $realCommand = (Get-Command (Get-PsAiTool -Tool $Tool).command -CommandType Application -ErrorAction Stop).Source
+                New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $realCommand -ConfigDir $accountDir
+            } elseif (-not (Test-PsAiOwnedWrapper (Get-PsAiWrapperCommand $Id $HomeRoot) $Id)) { throw "wrapper collision for '$Id'" }
+        }
         "skip: account $Id (already done)"
         return
     }

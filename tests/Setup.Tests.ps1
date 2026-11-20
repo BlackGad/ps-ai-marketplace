@@ -1,3 +1,4 @@
+param([string]$Finding)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $setupScript = Join-Path $root 'plugins/ps-ai/bin/ps-ai-setup.ps1'
@@ -23,6 +24,7 @@ try {
     . $setupScript -NoRun
     $realFindInstaller = ${function:Find-SetupInstaller}
     $realInvokeInstaller = ${function:Invoke-SetupInstaller}
+    $realTestCommand = ${function:Test-SetupCommand}
     $fakeBin = Join-Path $tempRoot 'tools'
     New-Item -ItemType Directory -Path $fakeBin -Force | Out-Null
     foreach ($tool in @('claude', 'codex', 'copilot', 'claude1')) {
@@ -39,6 +41,7 @@ try {
     # All machine, CLI and network seams are inert; account creation still runs the real add path.
     function Test-SetupCommand { param($Name) return ($Name -cnotin $script:missingTools) }
     function Get-SetupUserPath { return $script:userPath }
+    function Get-SetupMachinePath { return '' }
     function Set-SetupUserPath { param($Value) $script:pathWrites.Add($Value); $script:userPath = $Value }
     function Find-SetupInstaller { return (Join-Path $tempRoot 'inert-installer.ps1') }
     function Save-SetupInstaller { param($Path) $script:downloads.Add($Path); [IO.File]::WriteAllText($Path, '# inert') }
@@ -75,6 +78,167 @@ try {
         $script:failFolder = ''
         $env:PATH = $fixturePath
     }
+
+    $regressions = [ordered]@{
+        B1 = {
+            Reset-SetupTest 'adopt-repeat'
+            $folder = Join-Path $testHome 'existing'
+            New-Item -ItemType Directory -Path $folder | Out-Null
+            Invoke-Setup -HomeRoot $testHome -Add "codex:$folder" -Yes | Out-Null
+            $before = Get-SetupTree $testHome
+            $output = @(Invoke-Setup -HomeRoot $testHome -Add "codex:$folder" -Yes)
+            Assert-Equal 1 (@((Read-PsAiJson $settings).agents).Count) 'B1 repeated adoption reuses the account'
+            Assert-Equal $before (Get-SetupTree $testHome) 'B1 repeated adoption changes nothing'
+            Assert-SetupText $output 'skip: account codex1 (already done)' 'B1 reused adoption reports skip'
+            $plan = Get-SetupPlan -HomeRoot $testHome -Add @("codex:$folder", "codex:$folder")
+            Assert-Equal 1 $plan.Accounts.Count 'B1 duplicate adoption in one plan reuses the account'
+            $plan = Get-SetupPlan -HomeRoot $testHome -Add ("codex:" + $folder + [IO.Path]::DirectorySeparatorChar)
+            Assert-Equal 'codex1' $plan.Accounts[0].Id 'B1 trailing directory separator still identifies the same folder'
+            if ($IsWindows) {
+                $plan = Get-SetupPlan -HomeRoot $testHome -Add ("codex:" + $folder.ToUpperInvariant())
+                Assert-Equal 'codex1' $plan.Accounts[0].Id 'B1 folder identity follows Windows case rules'
+            }
+            Reset-SetupTest 'adopt-twice-in-one-run'
+            $folder = Join-Path $testHome 'existing'
+            New-Item -ItemType Directory -Path $folder | Out-Null
+            $plan = Get-SetupPlan -HomeRoot $testHome -Add @("codex:$folder", "codex:$folder")
+            Assert-True $plan.Accounts[0].New 'B1 duplicate new adoption stays visible as an add in the plan'
+            Invoke-Setup -HomeRoot $testHome -Add @("codex:$folder", "codex:$folder") -Yes | Out-Null
+            Assert-Equal 1 (@((Read-PsAiJson $settings).agents).Count) 'B1 duplicate new adoption is recorded once'
+        }
+        B2 = {
+            Reset-SetupTest 'wrapper-repair'
+            $realWrappers = ${function:New-PsAiWrappers}
+            function New-PsAiWrappers {
+                param($Id, $Tool, $HomeRoot, $RealCommand, $ConfigDir, [switch]$CheckOnly)
+                if (-not $CheckOnly) { throw 'fixture interrupted wrapper write' }
+                & $realWrappers @PSBoundParameters
+            }
+            try { Assert-Throws { Invoke-Setup -HomeRoot $testHome -Add codex -Yes } 'B2 interruption after settings is reproducible' }
+            finally { Set-Item function:New-PsAiWrappers $realWrappers }
+            Assert-Equal 1 (@((Read-PsAiJson $settings).agents).Count) 'B2 interruption leaves a recorded account'
+            $plan = @(Invoke-Setup -HomeRoot $testHome)
+            Assert-SetupText $plan '  wrappers repair codex1' 'B2 plan names missing account wrappers'
+            Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+            $wrapper = Get-PsAiWrapperCommand codex1 $testHome
+            Assert-True (Test-Path -LiteralPath $wrapper) 'B2 finish setup repairs interrupted account wrappers'
+            Remove-Item -LiteralPath $wrapper
+            Invoke-Setup -HomeRoot $testHome -Add codex -Id codex1 -Yes | Out-Null
+            Assert-True (Test-Path -LiteralPath $wrapper) 'B2 explicit repeat repairs a missing wrapper half'
+            $before = Get-SetupTree $testHome
+            Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+            Assert-Equal $before (Get-SetupTree $testHome) 'B2 repaired repeat preserves files and timestamps'
+        }
+        B3 = {
+            Reset-SetupTest 'probe-path'
+            # Forbid PATH assignments before exercising the real probe with fixture path sources.
+            $assignments = $realTestCommand.Ast.FindAll({ param($node)
+                $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ieq '$env:PATH'
+            }, $true)
+            Assert-Equal 0 $assignments.Count 'B3 command probing never assigns process PATH'
+            function Get-SetupMachinePath { return '' }
+            $script:userPath = $fakeBin
+            $env:PATH = if ($IsWindows) { $systemBin } else { $fixturePath }
+            $before = $env:PATH
+            Assert-True (& $realTestCommand -Name codex) 'B3 probe finds a CLI on fixture PATH'
+            Assert-Equal $before $env:PATH 'B3 real command probe leaves calling PATH unchanged'
+            $fakeProbe = ${function:Test-SetupCommand}
+            try {
+                Set-Item function:Test-SetupCommand $realTestCommand
+                Invoke-Setup -HomeRoot $testHome -Add codex | Out-Null
+                Assert-Equal $before $env:PATH 'B3 real plan leaves calling PATH unchanged'
+                Invoke-Setup -HomeRoot $testHome -Add codex -Yes | Out-Null
+                Assert-Equal 1 (@((Read-PsAiJson $settings).agents).Count) 'B3 apply can use a CLI discovered on fixture user PATH'
+                $probe = Join-Path $testHome 'probe.ps1'
+                '$env:PATH' | Set-Content -LiteralPath $probe
+                $env:PATH = $before
+                $result = Invoke-SetupProcess -Arguments @('-NoProfile', '-File', $probe)
+                Assert-True (Test-PsAiPathEntry -Path $result.Output.Trim() -Folder $fakeBin) 'B3 installer children can find freshly installed CLI folders'
+                Assert-Equal $before $env:PATH 'B3 child PATH refresh leaves calling PATH unchanged'
+            } finally { Set-Item function:Test-SetupCommand $fakeProbe }
+        }
+        B5 = {
+            Reset-SetupTest 'install-hints'
+            $script:missingTools = @('copilot')
+            $plan = @(Invoke-Setup -HomeRoot $testHome -Add copilot)
+            Assert-SetupText $plan 'npm install -g @github/copilot' 'B5 Copilot plan uses npm when node is available'
+            foreach ($platform in @('linux', 'macos')) {
+                $tool = Get-PsAiTool claude
+                $hint = Get-SetupToolInstallHint -Tool $tool -Platform $platform
+                Assert-Equal ($tool.install.$platform.commands[0] -join ' ') $hint 'B5 Claude hint uses the platform recipe'
+            }
+            $script:missingTools = @('node')
+            $hint = Get-SetupToolInstallHint -Tool (Get-PsAiTool copilot) -Platform windows
+            Assert-Equal 'winget install --id GitHub.Copilot -e' $hint 'B5 Copilot fallback uses the Windows recipe'
+        }
+        B6 = {
+            Reset-SetupTest 'case-cache'
+            # Exercise case-sensitive path semantics even on Windows; the installer is inert.
+            function Get-PsAiPathComparer { return [StringComparer]::Ordinal }
+            $tool = Get-PsAiTool codex
+            $rows = @('account', 'ACCOUNT', 'account') | ForEach-Object {
+                [pscustomobject]@{ Id = 'codex-a'; Tool = $tool; Folder = (Join-Path $testHome $_); Version = $null; Usable = $true; NextStep = 'ready' }
+            }
+            $plan = @{ Accounts = $rows; Version = $version; HomeRoot = $testHome }
+            $script:SetupHomeRoot = $testHome
+            Install-SetupPlugins -Plan $plan | Out-Null
+            Assert-Equal 2 $installs.Count 'B6 case-sensitive folders install separately and exact duplicates install once'
+        }
+        B7 = {
+            foreach ($delivered in @('0.5.0', '9.0.0')) {
+                Reset-SetupTest ("version-" + $delivered)
+                $currentVersion = $version
+                $version = $delivered
+                # The fake install can deliver a version different from the running plugin.
+                Invoke-Setup -HomeRoot $testHome -Add codex -Yes | Out-Null
+                $version = $currentVersion
+                $before = Get-SetupTree $testHome
+                Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+                Assert-Equal 1 $installs.Count 'B7 successful differing installer version does not loop'
+                Assert-Equal $before (Get-SetupTree $testHome) 'B7 differing-version repeat preserves files and timestamps'
+                $plan = @(Invoke-Setup -HomeRoot $testHome)
+                Assert-True (-not (($plan -join "`n") -match 'install  ps-ai')) 'B7 plan agrees with completed differing-version install'
+                $receiptFile = Join-Path $testHome '.legion/temp/setup-installations.json'
+                $receipts = @(Read-PsAiJson $receiptFile)
+                $receipts[0].requestedVersion = '0.0.0'
+                ConvertTo-Json -InputObject $receipts | Set-Content -LiteralPath $receiptFile
+                Assert-Equal $false (Get-SetupPlan -HomeRoot $testHome).Accounts[0].InstallComplete 'B7 a different requested version invalidates the successful-install receipt'
+            }
+        }
+        B7Download = {
+            Reset-SetupTest 'download-plan'
+            $pluginRoot = $script:SetupPluginRoot
+            try {
+                $script:SetupPluginRoot = Join-Path $testHome 'cache/plugins/ps-ai'
+                New-Item -ItemType Directory -Path $script:SetupPluginRoot -Force | Out-Null
+                Copy-Item -LiteralPath (Join-Path $pluginRoot 'plugin.json') -Destination $script:SetupPluginRoot
+                $plan = @(Invoke-Setup -HomeRoot $testHome -Add codex)
+                Assert-SetupText $plan '  download ps-ai installer from https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1' 'B7 plan discloses remote installer download'
+                Assert-Equal 0 $downloads.Count 'B7 planning never downloads the installer'
+            } finally { $script:SetupPluginRoot = $pluginRoot }
+        }
+        B8 = {
+            Reset-SetupTest 'terminal-retry'
+            $script:missingTools = @('codex')
+            $script:needsTerminal = $true
+            $output = @(Invoke-Setup -HomeRoot $testHome -Add codex -Yes)
+            Assert-SetupText $output 'open a new terminal, then repeat the add' 'B8 terminal hint retains the unrecorded add request'
+        }
+        B8Blocked = {
+            Reset-SetupTest 'blocked-plan'
+            Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+            $bin = Join-Path $testHome '.legion/bin'
+            $env:PATH += [IO.Path]::PathSeparator + $bin
+            'owner command' | Set-Content -LiteralPath (Join-Path $bin 'legion')
+            $output = @(Invoke-Setup -HomeRoot $testHome)
+            Assert-SetupText $output 'blocked: command legion (another file is there)' 'B8 completed plan exposes blocked commands'
+            Assert-True (-not ($output -contains 'Nothing to do.')) 'B8 blocked command is not hidden by Nothing to do'
+        }
+    }
+    foreach ($key in $regressions.Keys) {
+        if (-not $Finding -or $Finding -eq $key) { & $regressions[$key] }
+    }
+    if ($Finding) { return }
 
     Reset-SetupTest 'empty'
     $before = Get-SetupTree $testHome
@@ -227,7 +391,7 @@ try {
         } else {
             Assert-Equal 'claude1' ($agents.id -join '|') 'Unusable CLI records no accounts while independent tool completes'
             Assert-Equal 1 $installs.Count 'Only usable CLI gets plugin installation'
-            $expected = if ($scenario -eq 'failure') { 'codex install failed: fixture failure second line' } else { 'codex installed: open a new terminal, then finish setup' }
+            $expected = if ($scenario -eq 'failure') { 'codex install failed: fixture failure second line' } else { 'codex installed: open a new terminal, then repeat the add' }
             Assert-SetupText $output $expected 'CLI failure or terminal row explains next step'
             Assert-True (-not (Test-Path (Join-Path $testHome '.legion/agents/codex1'))) 'Unusable CLI does not create an account folder'
         }
@@ -239,6 +403,7 @@ try {
     Assert-SetupText $output 'install failed: log in with claude1, then finish setup' 'Plugin failure gives login fallback'
     Assert-Equal 2 $installs.Count 'Next folder installs after plugin failure'
     Assert-Equal 0 $LASTEXITCODE 'Plugin failure is a recoverable table row'
+    Assert-Equal $false (Test-Path -LiteralPath (Join-Path $testHome '.legion/temp/setup-installations.json')) 'B7 a failed install never records success'
 
     Reset-SetupTest 'commands'
     $bin = Join-Path $testHome '.legion/bin'

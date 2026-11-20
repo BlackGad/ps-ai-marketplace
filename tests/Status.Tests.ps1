@@ -1,3 +1,4 @@
+param([string]$Finding)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $statusScript = Join-Path $root 'plugins/ps-ai/bin/ps-ai-status.ps1'
@@ -8,6 +9,7 @@ $repo = Join-Path $scratch 'repo'
 New-Item -ItemType Directory -Path $fixtureHome, $repo -Force | Out-Null
 $savedPath = $env:PATH
 $savedLog = $env:PS_AI_FAKE_TOOL_LOG
+$savedStatusBin = $env:PS_AI_STATUS_BIN
 try {
     $lines = @(& pwsh -NoProfile -File $statusScript -HomeRoot $fixtureHome -Repo $repo)
     Assert-Equal 0 $LASTEXITCODE 'Status without settings exits zero'
@@ -16,16 +18,48 @@ try {
 
     . $statusScript -NoRun -HomeRoot $fixtureHome -Repo $repo
     $bin = Join-Path $fixtureHome '.legion/bin'
+    if (-not $Finding -or $Finding -eq 'E2') {
+        $probeRepo = Join-Path $scratch 'scratch-only-repo'
+        $probeLegion = Join-Path $probeRepo '.legion'
+        New-Item -ItemType Directory -Path (Join-Path $probeLegion 'temp') -Force | Out-Null
+        Assert-Equal 'repo none' (Write-StatusRepository -Repo $probeRepo) 'E2 scratch-only legion folder is not Shared setup'
+        foreach ($file in @('configuration/project.json', 'configuration/workflow.md', 'scripts/index.md')) {
+            $path = Join-Path $probeLegion $file
+            New-Item -ItemType Directory -Path (Split-Path $path) -Force | Out-Null
+            'fixture' | Set-Content -LiteralPath $path
+        }
+        Assert-True ((Write-StatusRepository -Repo $probeRepo) -match '^repo Shared') 'E2 repository scaffold identifies Shared setup without a handoff'
+        foreach ($file in @('configuration/project.json', 'configuration/workflow.md', 'scripts/index.md')) {
+            $path = Join-Path $probeLegion $file
+            Remove-Item -LiteralPath $path
+            Assert-Equal 'repo none' (Write-StatusRepository -Repo $probeRepo) 'E2 incomplete Shared scaffold is not setup'
+            'fixture' | Set-Content -LiteralPath $path
+        }
+    }
+    if (-not $Finding -or $Finding -eq 'E3') {
+        $env:PS_AI_STATUS_BIN = $bin
+        $env:PATH = '%PS_AI_STATUS_BIN%'
+        Assert-True (Test-PsAiPathEntry -Path $env:PATH -Folder $bin) 'E3 status expands environment variables in PATH entries'
+        $lines = @(& $statusScript -HomeRoot $fixtureHome -Repo $repo)
+        Assert-True ($lines -match 'on PATH: yes') 'E3 status uses the shared expanded PATH test'
+        $needsPath = & {
+            . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-setup.ps1') -NoRun
+            function Get-SetupUserPath { return $env:PATH }
+            (Get-SetupPlan -HomeRoot $fixtureHome).NeedsPath
+        }
+        Assert-Equal $false $needsPath 'E3 setup uses the same expanded PATH test as status'
+    }
+    if ($Finding) { return }
     $env:PATH = $bin
-    Assert-True (Test-StatusPathEntry -Folder $bin) 'Exact PATH entry'
+    Assert-True (Test-PsAiPathEntry -Path $env:PATH -Folder $bin) 'Exact PATH entry'
     $env:PATH = $bin + [IO.Path]::DirectorySeparatorChar
-    Assert-True (Test-StatusPathEntry -Folder $bin) 'Trailing separator in PATH'
+    Assert-True (Test-PsAiPathEntry -Path $env:PATH -Folder $bin) 'Trailing separator in PATH'
     $env:PATH = $bin
-    Assert-True (Test-StatusPathEntry -Folder ($bin + [IO.Path]::DirectorySeparatorChar)) 'Trailing separator in folder'
+    Assert-True (Test-PsAiPathEntry -Path $env:PATH -Folder ($bin + [IO.Path]::DirectorySeparatorChar)) 'Trailing separator in folder'
     $env:PATH = $bin + '-other'
-    Assert-Equal $false (Test-StatusPathEntry -Folder $bin) 'PATH prefixes are not exact entries'
+    Assert-Equal $false (Test-PsAiPathEntry -Path $env:PATH -Folder $bin) 'PATH prefixes are not exact entries'
     $env:PATH = $bin.ToUpperInvariant()
-    Assert-Equal ([bool]$IsWindows) (Test-StatusPathEntry -Folder $bin) 'PATH case follows the platform'
+    Assert-Equal ([bool]$IsWindows) (Test-PsAiPathEntry -Path $env:PATH -Folder $bin) 'PATH case follows the platform'
 
     $config = Join-Path $fixtureHome '.legion/configuration'
     $manifest = Join-Path $fixtureHome '.claude/plugins/cache/ps-ai-marketplace/ps-ai/0.6.0/plugin.json'
@@ -104,6 +138,11 @@ try {
 
     $legion = Join-Path $repo '.legion'
     New-Item -ItemType Directory -Path (Join-Path $legion 'state'), (Join-Path $legion 'temp') -Force | Out-Null
+    foreach ($file in @('configuration/project.json', 'configuration/workflow.md', 'scripts/index.md')) {
+        $path = Join-Path $legion $file
+        New-Item -ItemType Directory -Path (Split-Path $path) -Force | Out-Null
+        'fixture' | Set-Content -LiteralPath $path
+    }
     'handoff fixture' | Set-Content -LiteralPath (Join-Path $legion 'state/handoff.md')
     $lines = @(& $statusScript -HomeRoot $fixtureHome -Repo $repo)
     Assert-True ($lines -match '^repo\s+Shared\s+lease: free\s+handoff: yes$') 'Shared repo and free lease'
@@ -119,4 +158,5 @@ try {
 } finally {
     $env:PATH = $savedPath
     $env:PS_AI_FAKE_TOOL_LOG = $savedLog
+    $env:PS_AI_STATUS_BIN = $savedStatusBin
 }

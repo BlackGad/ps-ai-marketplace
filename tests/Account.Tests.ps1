@@ -96,3 +96,30 @@ foreach ($reservedId in @('legion', 'ps-ai-setup', 'ps-ai-status', 'ps-ai-overse
     Assert-Throws { & $accountScript -Action add -Id $reservedId -Tool codex -Command $fake -HomeRoot $homeRoot } 'Direct add rejects owner command ids'
 }
 Assert-Equal $before ([IO.File]::ReadAllText($file)) 'Reserved ids preserve settings'
+
+# B2: direct add also repairs missing wrappers without publishing the account again.
+$savedAccountPath = $env:PATH
+try {
+    $repairBin = Join-Path $homeRoot 'fake-bin'
+    New-Item -ItemType Directory -Path $repairBin -Force | Out-Null
+    $repairCommand = Join-Path $repairBin $(if ($IsWindows) { 'codex.cmd' } else { 'codex' })
+    $inertText = if ($IsWindows) { '@exit /b 99' } else { "#!/bin/sh`nexit 99`n" }
+    [IO.File]::WriteAllText($repairCommand, $inertText)
+    if (-not $IsWindows) { & chmod +x $repairCommand }
+    $env:PATH = $repairBin + [IO.Path]::PathSeparator + $(if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/usr/bin' })
+    & $accountScript -Action add -Id codex-repair -Tool codex -HomeRoot $homeRoot | Out-Null
+    $before = [IO.File]::ReadAllText($file)
+    $settingsTicks = (Get-Item -LiteralPath $file).LastWriteTimeUtc.Ticks
+    foreach ($suffix in $(if ($IsWindows) { @('', '.cmd') } else { @('') })) {
+        $missing = Join-Path $homeRoot ".legion/bin/codex-repair$suffix"
+        Remove-Item -LiteralPath $missing
+        & $accountScript -Action add -Id codex-repair -Tool codex -HomeRoot $homeRoot | Out-Null
+        Assert-True (Test-Path -LiteralPath $missing) 'B2 direct add repairs either missing wrapper'
+        Assert-Equal $before ([IO.File]::ReadAllText($file)) 'B2 wrapper repair preserves recorded settings'
+        Assert-Equal $settingsTicks (Get-Item -LiteralPath $file).LastWriteTimeUtc.Ticks 'B2 wrapper repair preserves settings timestamp'
+    }
+    $registered = Join-Path $homeRoot '.legion/bin/claude-b'
+    $registeredBytes = [IO.File]::ReadAllText($registered)
+    & $accountScript -Action add -Id claude-b -Tool claude -ConfigDir '~/existing' -HomeRoot $homeRoot | Out-Null
+    Assert-Equal $registeredBytes ([IO.File]::ReadAllText($registered)) 'B2 complete registered wrappers keep their custom command'
+} finally { $env:PATH = $savedAccountPath }
