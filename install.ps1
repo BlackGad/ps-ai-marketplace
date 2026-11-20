@@ -445,10 +445,15 @@ function Get-UninstallFiles {
         }
     }
     if (-not $remaining) {
-        foreach ($name in @('ps-ai-overseer', 'ps-ai-overseer.cmd')) {
-            $path = Join-Path $bin $name
-            if ((Test-Path -LiteralPath $path -PathType Leaf) -and
-                [IO.File]::ReadAllText($path) -match '(-File\s+)(["''][^\r\n]*?[/\\]bin[/\\]ps-ai-overseer\.ps1["''])') { $paths += $path }
+        # The owner commands ps-ai created; a file is ours only when it calls the matching bin script.
+        $ownerCommands = @{ 'ps-ai-overseer' = 'ps-ai-overseer.ps1'; 'legion' = 'legion.ps1'; 'ps-ai-setup' = 'ps-ai-setup.ps1'; 'ps-ai-status' = 'ps-ai-status.ps1' }
+        foreach ($command in $ownerCommands.Keys) {
+            $script = [regex]::Escape($ownerCommands[$command])
+            foreach ($name in @($command, "$command.cmd")) {
+                $path = Join-Path $bin $name
+                if ((Test-Path -LiteralPath $path -PathType Leaf) -and
+                    [IO.File]::ReadAllText($path) -match "(-File\s+)([`"'][^\r\n]*?[/\\]bin[/\\]$script[`"'])") { $paths += $path }
+            }
         }
         # Exact files published by Sync-PsAiFoundryRuntime; never remove the directory tree.
         $runtime = Join-Path $bin '.ps-ai-runtime'
