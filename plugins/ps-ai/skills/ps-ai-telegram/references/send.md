@@ -4,6 +4,8 @@ Read notes and [formats.md](formats.md). Resolve every requested destination sep
 
 The supported session contract is `reply(chat_id, text, format, reply_to?, files?)`. Inspect the actual tool definition before use. Always supply `chat_id`, `text`, and explicit `format`. `reply_to` is an optional message ID; `files` is an array of absolute paths. Images appear inline; other files are documents. The plugin returns sent message IDs. It supports files up to 50 MB each.
 
+The Telegram plugin's `react` tool sets a reaction on a message. Telegram accepts only its fixed reaction set (for example 👍 👌 🫡 🔥 👀 ✍️); any other emoji fails.
+
 After agreeing the test text, call the connected tool with these fields (substitute the resolved target and absolute bundled path):
 
 ```json
