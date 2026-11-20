@@ -39,7 +39,7 @@ try {
             'fixture' | Set-Content -LiteralPath $path
         }
         Assert-Equal 'repo none' (Write-StatusRepository -Repo $probeRepo) 'G3 untracked scaffold is not Shared setup'
-        $git = (Get-Command git -CommandType Application).Source
+        $git = (Get-Command git -CommandType Application | Select-Object -First 1).Source
         & $git -C $probeRepo init --quiet
         & $git -C $probeRepo add -- .legion/configuration/project.json .legion/configuration/workflow.md .legion/scripts/index.md
         Assert-True ((Write-StatusRepository -Repo $probeRepo) -match '^repo Shared') 'G3 tracked scaffold identifies Shared setup without a handoff'

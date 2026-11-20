@@ -22,7 +22,7 @@ try {
     $public = Join-Path $scratch $(if ($IsWindows) { 'legion.cmd' } else { 'legion' })
     Get-PsAiShimText -Script (Join-Path $plugin 'bin/legion.ps1') -Windows:$IsWindows | Set-Content $public
     if (-not $IsWindows) { & chmod +x $public }
-    $pwsh = (Get-Command pwsh -CommandType Application).Source
+    $pwsh = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
     $env:PATH = (Split-Path $pwsh) + [IO.Path]::PathSeparator + $(if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/usr/bin' })
     Push-Location $repo
     try { $output = @(& $public start --no-channel 2>&1) }

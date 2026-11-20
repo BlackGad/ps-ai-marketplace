@@ -34,7 +34,7 @@ try {
         if (-not $IsWindows) { & chmod +x $path }
     }
     $systemBin = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/usr/bin' }
-    $fixturePath = @($fakeBin, (Split-Path (Get-Command pwsh -CommandType Application).Source), $systemBin) -join [IO.Path]::PathSeparator
+    $fixturePath = @($fakeBin, (Split-Path (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source), $systemBin) -join [IO.Path]::PathSeparator
     $env:PATH = $fixturePath
     $version = (Get-Content (Join-Path $root 'plugins/ps-ai/plugin.json') -Raw | ConvertFrom-Json).version
 
