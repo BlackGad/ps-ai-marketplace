@@ -3,6 +3,9 @@ $ErrorActionPreference = 'Stop'
 $script:LegionBin = $PSScriptRoot
 # Output lines of the last script legion ran, kept so the apply flow can read the plan's last line.
 $script:LegionOutput = @()
+# The exit code of the last command. Invoke-Legion sets it instead of returning it,
+# because a returned value would capture the output of an interactive CLI.
+$script:LegionExit = 0
 
 function Get-LegionHelp {
     return @(
@@ -101,8 +104,10 @@ function Get-LegionCall {
     }
 }
 
-# Runs one script in this process and returns its exit code.
+# Runs one script in this process and sets $script:LegionExit to its exit code.
 # With -Hold the output is kept in $script:LegionOutput and not printed yet.
+# Without it the output is not piped or captured: it streams as the script writes it,
+# and an interactive CLI started by the script keeps the console.
 function Invoke-LegionScript {
     param($Call, [switch]$Hold)
 
@@ -110,14 +115,17 @@ function Invoke-LegionScript {
     $global:LASTEXITCODE = 0
     $script:LegionOutput = @()
     $splat = $Call.Splat
+    $scriptPath = Join-Path $script:LegionBin $Call.Script
     try {
-        $lines = @(& (Join-Path $script:LegionBin $Call.Script) @splat | ForEach-Object { "$_" })
-        $script:LegionOutput = $lines
-        if (-not $Hold) { $lines | ForEach-Object { Write-Host $_ } }
-        return $global:LASTEXITCODE
+        if ($Hold) {
+            $script:LegionOutput = @(& $scriptPath @splat | ForEach-Object { "$_" })
+        } else {
+            & $scriptPath @splat
+        }
+        $script:LegionExit = $global:LASTEXITCODE
     } catch {
         Write-Host $_.Exception.Message
-        return 1
+        $script:LegionExit = 1
     }
 }
 
@@ -133,12 +141,13 @@ function Read-LegionAnswer {
 function Invoke-LegionWithApply {
     param($Call)
 
-    $exit = Invoke-LegionScript -Call $Call -Hold
+    Invoke-LegionScript -Call $Call -Hold
+    $exit = $script:LegionExit
     $plan = $script:LegionOutput
     $nothingToDo = $plan.Count -gt 0 -and $plan[-1] -eq 'Nothing to do.'
     if ($exit -ne 0 -or $nothingToDo -or -not (Test-LegionInteractive)) {
         $plan | ForEach-Object { Write-Host $_ }
-        return $exit
+        return
     }
 
     # The prompt replaces the plan's own hint to run again with -Yes.
@@ -148,13 +157,14 @@ function Invoke-LegionWithApply {
     if ($answer -eq '' -or $answer -eq 'y' -or $answer -eq 'yes') {
         $applied = @{ Script = $Call.Script; Splat = $Call.Splat.Clone(); AsksToApply = $false }
         $applied.Splat.Yes = $true
-        return Invoke-LegionScript -Call $applied
+        Invoke-LegionScript -Call $applied
+        return
     }
     Write-Host 'Nothing changed.'
-    return 0
+    $script:LegionExit = 0
 }
 
-# Returns the exit code for the given words.
+# Runs the given words and sets $script:LegionExit.
 function Invoke-Legion {
     param([string[]]$Words)
 
@@ -163,17 +173,20 @@ function Invoke-Legion {
     } catch {
         Write-Host $_.Exception.Message
         Get-LegionHelp | ForEach-Object { Write-Host $_ }
-        return 1
+        $script:LegionExit = 1
+        return
     }
     if ($null -eq $call) {
         Get-LegionHelp | ForEach-Object { Write-Host $_ }
-        return 0
+        $script:LegionExit = 0
+        return
     }
-    if ($call.AsksToApply) { return Invoke-LegionWithApply -Call $call }
-    return Invoke-LegionScript -Call $call
+    if ($call.AsksToApply) { Invoke-LegionWithApply -Call $call }
+    else { Invoke-LegionScript -Call $call }
 }
 
 # Dot-sourcing (tests) loads the functions only.
 if ($MyInvocation.InvocationName -ne '.') {
-    exit (Invoke-Legion -Words $args)
+    Invoke-Legion -Words $args
+    exit $script:LegionExit
 }

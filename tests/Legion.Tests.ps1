@@ -101,7 +101,8 @@ if ($code -ne 'none') { exit [int]$code }
     }
     function Invoke-Quiet {
         param([string[]]$Words)
-        $script:Output = @(& { $script:Exit = Invoke-Legion -Words $Words } 6>&1 | ForEach-Object { "$_" })
+        $script:Output = @(& { Invoke-Legion -Words $Words } 6>&1 | ForEach-Object { "$_" })
+        $script:Exit = $script:LegionExit
         return $script:Exit
     }
 
