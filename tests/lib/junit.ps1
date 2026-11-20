@@ -11,7 +11,14 @@ function ConvertTo-JUnitXml {
     $total = 0.0
     foreach ($case in $Cases) { $total += [double]$case.Seconds }
 
-    $escape = { param($text) ([Security.SecurityElement]::Escape([string]$text)) -replace "`r", "&#13;" -replace "`n", "&#10;" }
+    $escape = {
+        param($text)
+        # Strip ANSI CSI (colour/cursor) and OSC (title/hyperlink) sequences before XML escaping.
+        $plain = [regex]::Replace([string]$text, '\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1B]*(?:\x07|\x1B\\)|[ -/]*[0-~])', '')
+        # Keep valid surrogate pairs; drop other characters outside XML 1.0's character ranges.
+        $plain = [regex]::Replace($plain, '([\uD800-\uDBFF][\uDC00-\uDFFF])|[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD]', '$1')
+        ([Security.SecurityElement]::Escape($plain)) -replace "`r", "&#13;" -replace "`n", "&#10;"
+    }
     $lines = @('<?xml version="1.0" encoding="UTF-8"?>')
     $lines += "<testsuite name=""$(& $escape $SuiteName)"" tests=""$($Cases.Count)"" failures=""$failures"" skipped=""$skipped"" time=""$(Format-JUnitSeconds $total)"">"
     foreach ($case in $Cases) {

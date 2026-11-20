@@ -5,8 +5,16 @@ $tempRoot = Join-Path $root ('.agents/temp/integration-runner-' + [guid]::NewGui
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 $savedCi = $env:CI
 $savedSummary = $env:GITHUB_STEP_SUMMARY
+$savedNoColor = $env:NO_COLOR
+$savedRendering = $PSStyle.OutputRendering
 try {
     . $runner -NoRun
+    Assert-Equal 'PlainText' ([string]$PSStyle.OutputRendering) 'integration runner captures plain text'
+    Assert-Equal '1' $env:NO_COLOR 'integration children inherit NO_COLOR'
+    $plainScript = Join-Path $tempRoot 'plain-output.ps1'
+    Set-Content -LiteralPath $plainScript -Value 'Write-Output "$env:NO_COLOR|$($PSStyle.OutputRendering)"'
+    $plainOutput = @(Invoke-IntegrationScript $plainScript)
+    Assert-Equal '1|PlainText' ($plainOutput -join "`n") 'child PowerShell disables colour rendering'
 
     # Each fake step gives a first and a repeat case with a time above zero.
     $fake = @(
@@ -346,5 +354,8 @@ try {
 } finally {
     $env:CI = $savedCi
     $env:GITHUB_STEP_SUMMARY = $savedSummary
+    if ($null -eq $savedNoColor) { Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue }
+    else { $env:NO_COLOR = $savedNoColor }
+    $PSStyle.OutputRendering = $savedRendering
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

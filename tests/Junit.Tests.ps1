@@ -23,6 +23,24 @@ Assert-Equal 'x < y & "z" ''w''' $testcases[1].failure.message 'failure message'
 Assert-Equal 'needs step' $testcases[2].skipped.message 'skipped message'
 Assert-True ($null -eq $testcases[0].failure) 'passed case has no failure'
 
+$esc = [char]0x1B
+$emoji = [char]::ConvertFromUtf32(0x1F680)
+$invalid = -join @([char]0, [char]1, [char]0x0B, [char]0x0C, [char]0x1F, [char]0xFFFE, [char]0xFFFF, [char]0xDC00, [char]0xD800)
+# Include both colour codes and an OSC hyperlink, with BEL and ST terminators.
+$dirty = "${esc}7${esc}[31mred${esc}[0m${esc}]8;;https://example.test$([char]7)link${esc}]8;;${esc}\${esc}8${esc}(B & `"quoted`" $emoji$invalid`r`nnext"
+$expected = "redlink & `"quoted`" $emoji`r`nnext"
+$sanitizedText = ConvertTo-JUnitXml -SuiteName $dirty -Cases @(
+    @{ Name=$dirty; ClassName=$dirty; Seconds=0; Result='failed'; Message=$dirty },
+    @{ Name='skip'; ClassName='unit'; Seconds=0; Result='skipped'; Message=$dirty }
+)
+Assert-True (-not $sanitizedText.Contains([string]$esc)) 'JUnit drops raw ANSI escapes'
+$sanitized = [xml]$sanitizedText
+Assert-Equal $expected $sanitized.testsuite.name 'suite strips ANSI and invalid XML characters, preserving Unicode and newlines'
+Assert-Equal $expected $sanitized.testsuite.testcase[0].name 'case name is sanitized'
+Assert-Equal $expected $sanitized.testsuite.testcase[0].classname 'class name is sanitized'
+Assert-Equal $expected $sanitized.testsuite.testcase[0].failure.message 'failure message is sanitized'
+Assert-Equal $expected $sanitized.testsuite.testcase[1].skipped.message 'skip message is sanitized'
+
 $saved = [Threading.Thread]::CurrentThread.CurrentCulture
 try {
     [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('de-DE')

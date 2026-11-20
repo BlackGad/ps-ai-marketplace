@@ -11,6 +11,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$PSStyle.OutputRendering = 'PlainText'
+$env:NO_COLOR = '1'
 . (Join-Path $PSScriptRoot '../lib/junit.ps1')
 . (Join-Path $PSScriptRoot '../lib/benchmark.ps1')
 . (Join-Path $PSScriptRoot '../../plugins/ps-ai/bin/lib/installed.ps1')
