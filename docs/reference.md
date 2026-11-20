@@ -52,7 +52,7 @@ For options, use the script-block form in PowerShell. This example selects an ex
 
 Use `-Tools <tool-id>` (or an array of ids) to choose tools, `-Source <owner/repository>` to override the GitHub marketplace source, and `-DryRun` to print the steps without changing anything. The default source is `BlackGad/ps-ai-marketplace`. `-SourceRef` selects its catalog revision (default `main`). A working-tree script uses its sibling `tools.json` unless `-Source` or `-SourceRef` is supplied. Remote dry runs read that metadata once. It does not change the marketplace source passed to the CLI. Install and update dry runs execute read-only listings to detect existing registrations and plugins; displayed add and update commands are previews.
 
-To adopt a signed-in account folder, run `legion add codex <existing folder>` or `ps-ai-setup -Add 'codex:<existing folder>'`. The folder must exist; setup keeps its settings and login, records it and creates a shortcut. Setup installs a missing CLI and ps-ai under the same approval. Only the owner logs in if the CLI asks. An existing shortcut can instead be recorded through the tool's account guide.
+To adopt a signed-in account folder, run `legion add codex <existing folder>` or `ps-ai-setup -Add 'codex:<existing folder>'`. The folder must exist; setup keeps its settings and login, records it and creates a shortcut. Setup installs a missing CLI, and ps-ai only where a folder has none, under the same approval; moving an installed ps-ai to a new version is the update flow's job. Adopting the same folder again reuses its account. Only the owner logs in if the CLI asks. An existing shortcut can instead be recorded through the tool's account guide.
 
 ### Version checks and catalog revisions
 
@@ -145,7 +145,7 @@ commands: missing ps-ai-setup, ps-ai-status, ps-ai-overseer, legion
 repo none
 ```
 
-`ps-ai-setup` without `-Add` finishes setup for recorded accounts. `legion setup` does the same. A completed plan prints `Nothing to do.` Adding the same tool again without an explicit id creates another account.
+`ps-ai-setup` without `-Add` finishes setup for recorded accounts. `legion setup` does the same. A completed plan prints `Nothing to do.` Adding the same tool again without an explicit id creates another account; adopting the same folder again reuses its account. When the plan needs the remote installer, it names the download.
 
 ### Legion commands
 

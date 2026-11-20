@@ -18,4 +18,4 @@ pwsh -NoProfile -File <plugin>/bin/ps-ai-overseer.ps1 -Account <id> -Tool <tool>
 
 The new session takes the lease, reads handoff and confirms takeover through the channel skill. A failed launch leaves accurate handoff evidence; the old session must reacquire the lease before resuming oversight. No overlapping overseers.
 
-Before every owner question after taking the lease, write the exact decision needed to handoff. Pre-lease questions write nothing. Ask real design, scope, API, budget or tool choices. Recommend first and explain tradeoffs briefly. Ask in the console and every connected channel. Direct launcher invocation is authorization to launch. Simulations describe proposed actions without running them.
+Before every owner question after taking the lease, write the exact decision needed to handoff. Pre-lease questions write nothing. Ask real design, scope, API, budget or tool choices. Recommend first and explain tradeoffs briefly. Ask as the [console and channels rule](../../ps-ai-personalisation/SKILL.md#identity-and-hard-rules) says. Direct launcher invocation is authorization to launch. Simulations describe proposed actions without running them.

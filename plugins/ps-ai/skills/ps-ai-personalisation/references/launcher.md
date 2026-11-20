@@ -1,6 +1,6 @@
 # Overseer launcher
 
-`ps-ai-setup.ps1` writes `ps-ai-overseer` and `legion` into `<home>/.legion/bin` and adds that folder to PATH; `ps-ai-refresh.ps1` retargets them after an update. Never hand-write the shim. A different file with the same name is kept and reported as blocked.
+`ps-ai-setup.ps1` writes `ps-ai-setup`, `ps-ai-status`, `ps-ai-overseer` and `legion` into `<home>/.legion/bin`. On Windows it adds that folder to PATH; on macOS and Linux it prints the line to add; `ps-ai-refresh.ps1` retargets them after an update. Never hand-write the shim. A different file with the same name is kept and reported as blocked.
 
 Usage: `ps-ai-overseer [-Account <id>] [-Tool <tool-id>] [-Channel <id[]>] [-NoChannel] [-Arguments <string[]>] [-Repo <path>]`. `-DryRun` prints the arguments without opening a window; in a fixture pass `-HomeRoot <temp home>`.
 

@@ -23,7 +23,7 @@ For a requested provider configuration change, reuse the supplied settings and a
 & "<plugin>/bin/ps-ai-account.ps1" -Action models -Id '<id>' -Deployments @('gpt-x') -Default gpt-x
 ```
 
-The default must be selected. An identical result prints `skip: models <id> (no changes)` and writes nothing. Then run `ps-ai-setup.ps1 -Yes` to install ps-ai into this account's folder.
+The default must be selected. An identical result prints `skip: models <id> (no changes)` and writes nothing. Then run `ps-ai-setup.ps1` and show the owner its plan. It covers every known account, not only this one, so ask for the owner's one yes and run it again with `-Yes` to install ps-ai wherever it is missing.
 
 Launch `<id>` in a terminal. The wrapper sets `CODEX_HOME`; the provider config supplies the endpoint and token command. Resume only with the same agent and folder. A missing CLI stops with `codex is not installed; run ps-ai-install-tool.ps1 -Tool codex`. Verify an actual GPT response before reporting this path as working.
 

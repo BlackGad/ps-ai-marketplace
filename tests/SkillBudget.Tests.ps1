@@ -29,8 +29,10 @@ foreach ($file in $caps.Keys) {
 
 # Personalisation SKILL.md loads before every flow, so it is not counted per flow.
 $flows = [ordered]@{
-    'first setup' = @(90, @('ps-ai-personalisation/references/create.md'))
-    'add account' = @(70, @('ps-ai-personalisation/references/create.md'))
+    'first setup' = @(90, @('ps-ai-personalisation/references/create.md', 'ps-ai-personalisation/references/fields.md'))
+    'add claude account' = @(70, @('ps-ai-personalisation/references/create.md', 'ps-ai-claude/references/accounts.md'))
+    'add codex account' = @(70, @('ps-ai-personalisation/references/create.md', 'ps-ai-codex/references/accounts.md'))
+    'add copilot account' = @(70, @('ps-ai-personalisation/references/create.md', 'ps-ai-copilot/references/accounts.md'))
     'remove account' = @(60, @('ps-ai-personalisation/references/create.md'))
     'repository' = @(80, @('ps-ai-repository/SKILL.md', 'ps-ai-repository/references/setup.md'))
     'launch' = @(60, @('ps-ai-personalisation/references/launcher.md'))

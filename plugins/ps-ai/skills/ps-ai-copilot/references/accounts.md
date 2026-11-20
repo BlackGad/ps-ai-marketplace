@@ -23,7 +23,7 @@ For a requested provider configuration change, reuse the supplied settings and a
 & "<plugin>/bin/ps-ai-account.ps1" -Action models -Id '<id>' -Deployments @('claude-opus-x','claude-sonnet-x') -Default claude-opus-x
 ```
 
-An identical result prints `skip: models <id> (no changes)` and writes nothing. Then run `ps-ai-setup.ps1 -Yes` to install ps-ai into this account's folder.
+An identical result prints `skip: models <id> (no changes)` and writes nothing. Then run `ps-ai-setup.ps1` and show the owner its plan. It covers every known account, not only this one, so ask for the owner's one yes and run it again with `-Yes` to install ps-ai wherever it is missing.
 
 Launch `<id>`. The wrapper sets `COPILOT_HOME` and points `COPILOT_PROVIDERS_CONFIG` to a per-launch file under `~/.legion/temp/`. This is the approved exception to the no-token-storage rule: Copilot's provider file holds a **fixed bearer token**. The runner creates it with access restricted to the current Windows user, or mode `0600` on other platforms, before writing the token. It deletes the file in `finally` when Copilot exits, including an error exit. Never read or log it.
 
