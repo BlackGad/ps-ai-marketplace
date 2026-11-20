@@ -25,6 +25,7 @@ try {
     $realFindInstaller = ${function:Find-SetupInstaller}
     $realInvokeInstaller = ${function:Invoke-SetupInstaller}
     $realTestCommand = ${function:Test-SetupCommand}
+    $realToolInstalled = ${function:Test-SetupToolInstalled}
     $fakeBin = Join-Path $tempRoot 'tools'
     New-Item -ItemType Directory -Path $fakeBin -Force | Out-Null
     foreach ($tool in @('claude', 'codex', 'copilot', 'claude1')) {
@@ -40,6 +41,7 @@ try {
 
     # All machine, CLI and network seams are inert; account creation still runs the real add path.
     function Test-SetupCommand { param($Name) return ($Name -cnotin $script:missingTools) }
+    function Test-SetupToolInstalled { param($Tool) return ($Tool -cnotin $script:missingTools) }
     function Get-SetupUserPath { return $script:userPath }
     function Get-SetupMachinePath { return '' }
     function Set-SetupUserPath { param($Value) $script:pathWrites.Add($Value); $script:userPath = $Value }
@@ -80,6 +82,27 @@ try {
     }
 
     $regressions = [ordered]@{
+        R4B1 = {
+            Reset-SetupTest 'broken-node'
+            & {
+                Set-Item function:Test-SetupToolInstalled $realToolInstalled
+                . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-install-tool.ps1') -NoRun
+                $probe = @{ Node = $false; Codex = $false; Commands = [Collections.Generic.List[string]]::new() }
+                function node { $global:LASTEXITCODE = if ($probe.Node) { 0 } else { 7 }; 'fixture node' }
+                function codex { $global:LASTEXITCODE = if ($probe.Codex) { 0 } else { 7 }; 'fixture codex' }
+                function Test-ToolCommandAvailable { param($Name) return $true }
+                function Invoke-ToolCommand {
+                    param($Command)
+                    $probe.Commands.Add(($Command -join ' '))
+                    if ($Command[0] -eq 'brew') { $probe.Node = $true } else { $probe.Codex = $true }
+                    return 0
+                }
+                $hint = Get-SetupToolInstallHint -Tool (Get-PsAiTool codex) -Platform macos
+                Assert-Equal 'brew install node; npm install -g @openai/codex' $hint 'R4 B1 consent includes repair of a broken Node command'
+                Invoke-ToolInstall -Tool codex -Platform macos -Yes | Out-Null
+                Assert-Equal $hint ($probe.Commands -join '; ') 'R4 B1 apply matches consent for broken Node'
+            }
+        }
         K5 = {
             Reset-SetupTest 'legacy-installer'
             $pluginRoot = $script:SetupPluginRoot

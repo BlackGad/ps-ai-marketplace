@@ -301,9 +301,18 @@ function Get-SetupPathHint {
     return 'add to your shell profile: export PATH=' + (ConvertTo-PsAiShellLiteral $Plan.Bin) + ':"$PATH"'
 }
 
+function Test-SetupToolInstalled {
+    param([string]$Tool)
+    # Load the installer's probe in a child scope, keeping its parameters and helpers local.
+    & {
+        . (Join-Path $script:SetupBin 'ps-ai-install-tool.ps1') -NoRun -Tool $Tool
+        return (Test-ToolInstalled -Tool $Tool).Installed
+    }
+}
+
 function Get-SetupToolInstallHint {
     param($Tool, [string]$Platform = $(if ($IsWindows) { 'windows' } elseif ($IsMacOS) { 'macos' } else { 'linux' }))
-    return @(Get-ToolInstallHints -Tool $Tool.id -Platform $Platform -CommandAvailable { param($Name) Test-SetupCommand -Name $Name }) -join '; '
+    return @(Get-ToolInstallHints -Tool $Tool.id -Platform $Platform -CommandAvailable { param($Name) Test-SetupCommand -Name $Name } -ToolInstalled { param($Name) Test-SetupToolInstalled -Tool $Name }) -join '; '
 }
 
 function Write-SetupPlan {

@@ -10,11 +10,11 @@ function Get-ToolRecipe {
 }
 
 function Get-ToolInstallHints {
-    param([string]$Tool, [string]$Platform, [scriptblock]$CommandAvailable, $Recipes = (Get-PsAiInstallRecipes))
+    param([string]$Tool, [string]$Platform, [scriptblock]$CommandAvailable, [scriptblock]$ToolInstalled, $Recipes = (Get-PsAiInstallRecipes))
     $recipe = Get-ToolRecipe -Tool $Tool -Platform $Platform -Recipes $Recipes
     foreach ($need in $recipe.Needs) {
-        if (-not (& $CommandAvailable $Recipes[$need].check[0])) {
-            Get-ToolInstallHints -Tool $need -Platform $Platform -CommandAvailable $CommandAvailable -Recipes $Recipes
+        if (-not (& $ToolInstalled $need)) {
+            Get-ToolInstallHints -Tool $need -Platform $Platform -CommandAvailable $CommandAvailable -ToolInstalled $ToolInstalled -Recipes $Recipes
         }
     }
     $npm = $Recipes[$Tool].windows.npmWhenAvailable
