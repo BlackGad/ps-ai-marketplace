@@ -404,16 +404,24 @@ try {
     $bin = Join-Path $testHome '.legion/bin'
     New-Item -ItemType Directory -Path $bin -Force | Out-Null
     $owned = Join-Path $bin 'ps-ai-status'
-    $oldText = Get-PsAiShimText -Script '/old/cache/bin/ps-ai-status.ps1'
+    $liveScript = Join-Path $testHome 'cache/bin/ps-ai-status.ps1'
+    New-Item -ItemType Directory -Path (Split-Path $liveScript) -Force | Out-Null
+    '' | Set-Content -LiteralPath $liveScript
+    $oldText = Get-PsAiShimText -Script $liveScript
     [IO.File]::WriteAllText($owned, $oldText)
+    $staleText = (Get-PsAiShimText -Script '/gone/cache/bin/ps-ai-setup.ps1').Replace(' "$@"', ' --keep "$@"')
+    [IO.File]::WriteAllText((Join-Path $bin 'ps-ai-setup'), $staleText)
     [IO.File]::WriteAllText((Join-Path $bin 'legion'), 'owner command')
+    $plan = @(Invoke-Setup -HomeRoot $testHome)
+    Assert-SetupText $plan 'commands rewrite ps-ai-setup' 'C-2: the plan names a stale command'
     $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
-    Assert-Equal $oldText ([IO.File]::ReadAllText($owned)) 'Existing owned command is kept for refresh'
+    Assert-Equal $oldText ([IO.File]::ReadAllText($owned)) 'Existing owned command with a live script is kept for refresh'
+    $rewritten = [IO.File]::ReadAllText((Join-Path $bin 'ps-ai-setup'))
+    Assert-True ($rewritten.Contains((Join-Path $root 'plugins/ps-ai/bin/ps-ai-setup.ps1')) -and $rewritten.Contains('--keep')) 'C-2: a stale command is retargeted and keeps owner flags'
     Assert-Equal 'owner command' ([IO.File]::ReadAllText((Join-Path $bin 'legion'))) 'Unrelated command stays unchanged'
     Assert-SetupText $output 'skip: command ps-ai-status (already done)' 'Existing owned command reports skip'
     Assert-SetupText $output 'blocked: command legion (another file is there)' 'Unrelated command reports blocked'
     Assert-SetupText $output 'Blocked commands: legion' 'Blocked command is listed after table'
-
     Reset-SetupTest 'finder-failure'
     $script:findCalls = 0
     function Find-SetupInstaller { $script:findCalls++; throw 'fixture download failure' }

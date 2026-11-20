@@ -150,7 +150,7 @@ function Find-SetupInstaller {
 
 function Invoke-SetupInstaller {
     param([string]$Installer, [string]$Tool, [string]$ConfigDir)
-    $result = Invoke-SetupProcess -Arguments @('-NoProfile', '-File', $Installer, '-Tools', $Tool, '-ConfigDir', $ConfigDir, '-Update', '-Yes')
+    $result = Invoke-SetupProcess -Arguments @('-NoProfile', '-File', $Installer, '-Tools', $Tool, '-ConfigDir', $ConfigDir, '-HomeRoot', $script:SetupHomeRoot, '-Update', '-Yes')
     $log = Get-PsAiHomePath -HomeRoot $script:SetupHomeRoot -Path "temp/setup-install-$Tool.log"
     New-Item -ItemType Directory -Path (Split-Path $log) -Force | Out-Null
     [IO.File]::WriteAllText($log, $result.Output)
@@ -248,8 +248,7 @@ function Get-SetupCommands {
         $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
         foreach ($suffix in $suffixes) {
             $path = Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$($entry.Key)$suffix"
-            $state = if (-not (Test-Path -LiteralPath $path)) { 'missing' }
-                elseif (Test-PsAiOwnerCommandFile -Path $path -Script $entry.Value) { 'owned' } else { 'blocked' }
+            $state = Get-PsAiOwnerCommandState -Path $path -Script $entry.Value
             [pscustomobject]@{ Name = $entry.Key; Script = $entry.Value; Path = $path; Windows = ($suffix -eq '.cmd'); State = $state }
         }
     }
@@ -314,6 +313,8 @@ function Write-SetupPlan {
     if ($folders.Count) { $lines.Add("  install  ps-ai into $($folders -join ', ')") }
     $commands = @($Plan.Commands | Where-Object State -EQ missing | Select-Object -ExpandProperty Name -Unique)
     if ($commands.Count) { $lines.Add("  commands write $($commands -join ', ') in $($Plan.Bin)") }
+    $stale = @($Plan.Commands | Where-Object State -EQ stale | Select-Object -ExpandProperty Name -Unique)
+    if ($stale.Count) { $lines.Add("  commands rewrite $($stale -join ', ') (their script is gone)") }
     if ($Plan.NeedsPath) {
         $hint = if ($IsWindows) { "add $($Plan.Bin) to your user PATH" } else { Get-SetupPathHint }
         $lines.Add("  path     $hint")
@@ -385,8 +386,11 @@ function Write-SetupCommands {
     foreach ($name in (Get-PsAiOwnerCommands).Keys) {
         $files = @($Plan.Commands | Where-Object Name -CEQ $name)
         foreach ($file in $files) {
-            if ($file.State -ne 'missing') { continue }
-            $text = Get-PsAiShimText -Script (Join-Path $script:SetupBin $file.Script) -Windows:$file.Windows
+            if ($file.State -notin @('missing', 'stale')) { continue }
+            $runner = Join-Path $script:SetupBin $file.Script
+            # A stale command keeps the owner's own flags; a missing one is generated whole.
+            $text = if ($file.State -eq 'stale') { Update-PsAiOwnerCommandText -Text ([IO.File]::ReadAllText($file.Path)) -Script $file.Script -Runner $runner -Windows:$file.Windows }
+                else { Get-PsAiShimText -Script $runner -Windows:$file.Windows }
             Write-PsAiGeneratedFile -Path $file.Path -Content $text -Executable
         }
         if (@($files | Where-Object State -EQ blocked).Count) { "blocked: command $name (another file is there)" }

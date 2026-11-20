@@ -20,16 +20,7 @@ foreach ($entry in (Get-PsAiOwnerCommands).GetEnumerator()) {
         $path = Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$($entry.Key)$suffix"
         if (-not (Test-PsAiOwnerCommandFile -Path $path -Script $entry.Value)) { continue }
         $text = [IO.File]::ReadAllText($path)
-        # Retarget only the quoted script path, preserving the owner's other shim flags.
-        $start = $text.IndexOf('-File') + 5
-        while ([char]::IsWhiteSpace($text[$start])) { $start++ }
-        $quote = $text[$start]
-        if ($quote -notin @([char]'"', [char]"'")) { continue }
-        $end = $text.IndexOf($entry.Value + $quote, $start, [StringComparison]::Ordinal)
-        if ($end -lt 0) { continue }
-        $end += $entry.Value.Length + 1
-        $target = if ($suffix) { '"' + $runner.Replace('%', '%%') + '"' } else { ConvertTo-PsAiShellLiteral $runner }
-        $updated = $text.Substring(0, $start) + $target + $text.Substring($end)
+        $updated = Update-PsAiOwnerCommandText -Text $text -Script $entry.Value -Runner $runner -Windows:([bool]$suffix)
         Write-PsAiGeneratedFile -Path $path -Content $updated -Changes $changes
     }
 }

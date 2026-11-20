@@ -32,22 +32,19 @@ function Write-StatusCommands {
     $commands = Get-PsAiOwnerCommands
     $missing = @()
     $blocked = @()
+    $stale = @()
     foreach ($name in $commands.Keys) {
-        $absent = $false
-        $conflict = $false
         $files = @($name)
         if ($IsWindows) { $files += "$name.cmd" }
-        foreach ($file in $files) {
-            $path = Join-Path $Bin $file
-            if (-not (Test-Path -LiteralPath $path)) { $absent = $true }
-            elseif (-not (Test-PsAiOwnerCommandFile -Path $path -Script $commands[$name])) { $conflict = $true }
-        }
-        if ($conflict) { $blocked += $name }
-        elseif ($absent) { $missing += $name }
+        $states = @($files | ForEach-Object { Get-PsAiOwnerCommandState -Path (Join-Path $Bin $_) -Script $commands[$name] })
+        if ($states -contains 'blocked') { $blocked += $name }
+        elseif ($states -contains 'missing') { $missing += $name }
+        elseif ($states -contains 'stale') { $stale += $name }
     }
     if ($blocked.Count) { 'commands: blocked ' + ($blocked -join ', ') }
     if ($missing.Count) { 'commands: missing ' + ($missing -join ', ') }
-    if (-not $blocked.Count -and -not $missing.Count) { 'commands: yes' }
+    if ($stale.Count) { 'commands: stale ' + ($stale -join ', ') }
+    if (-not $blocked.Count -and -not $missing.Count -and -not $stale.Count) { 'commands: yes' }
 }
 
 function Write-StatusRepository {

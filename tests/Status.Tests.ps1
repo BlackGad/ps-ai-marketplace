@@ -136,6 +136,16 @@ try {
         Assert-True ($lines -contains 'commands: blocked legion') 'Conflicting extensionless file remains blocked beside a valid cmd shim'
     }
 
+    # C-2: an owned command whose script is gone is stale, and status does not call it ready.
+    foreach ($name in @('legion', 'legion.cmd')) {
+        $path = Join-Path $bin $name
+        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
+    }
+    (Get-PsAiShimText -Script (Join-Path $scratch 'gone/bin/legion.ps1')) | Set-Content -LiteralPath (Join-Path $bin 'legion')
+    if ($IsWindows) { (Get-PsAiShimText -Script (Join-Path $scratch 'gone/bin/legion.ps1') -Windows) | Set-Content -LiteralPath (Join-Path $bin 'legion.cmd') }
+    $lines = @(& $statusScript -HomeRoot $fixtureHome -Repo $repo)
+    Assert-True ($lines -contains 'commands: stale legion') 'A command whose script is gone is stale'
+    Assert-True ($lines -notcontains 'commands: yes') 'A stale command is not ready'
     $legion = Join-Path $repo '.legion'
     New-Item -ItemType Directory -Path (Join-Path $legion 'state'), (Join-Path $legion 'temp') -Force | Out-Null
     foreach ($file in @('configuration/project.json', 'configuration/workflow.md', 'scripts/index.md')) {

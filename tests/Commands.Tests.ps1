@@ -30,3 +30,33 @@ foreach ($text in @('unrelated command', 'pwsh -NoProfile -File "/plugin/legion.
     Assert-Equal $false (Test-PsAiOwnerCommandFile -Path $path -Script legion.ps1) 'Unrelated files are not owned'
 }
 Assert-Equal $false (Test-PsAiOwnerCommandFile -Path $scratch -Script legion.ps1) 'A directory is not an owner command'
+
+# C-1: only a launcher line whose -File argument is the target counts; comments and later arguments do not.
+$lookalikes = @(
+    "#!/bin/sh`n# exec pwsh -NoProfile -File '/plugin/bin/legion.ps1' `"`$@`"`necho owner command",
+    "@rem pwsh -NoProfile -File `"C:\plugin\bin\legion.ps1`" %*`r`n@echo owner command",
+    "pwsh -NoProfile -File /owner/custom.ps1 /plugin/bin/legion.ps1",
+    "echo ok # pwsh -NoProfile -File /plugin/bin/legion.ps1",
+    "python run.py pwsh -File /plugin/bin/legion.ps1")
+foreach ($text in $lookalikes) {
+    [IO.File]::WriteAllText($path, $text)
+    Assert-Equal $false (Test-PsAiOwnerCommandFile -Path $path -Script legion.ps1) 'A comment or a later argument naming the script is not a ps-ai command'
+}
+
+# C-3: one matcher finds the target as written, so refresh can replace it without index arithmetic.
+$match = Get-PsAiOwnerCommandTarget -Text $unix -Script legion.ps1
+Assert-Equal $target $match.Path 'Matcher unquotes the shell literal'
+Assert-Equal (ConvertTo-PsAiShellLiteral $target) $unix.Substring($match.Start, $match.Length) 'Matcher reports the target span as written'
+Assert-Equal $null (Get-PsAiOwnerCommandTarget -Text 'unrelated' -Script legion.ps1) 'No target in an unrelated file'
+
+# C-2: an owned command whose script is gone is stale.
+Assert-Equal 'missing' (Get-PsAiOwnerCommandState -Path (Join-Path $scratch 'nothing') -Script legion.ps1) 'Absent file is missing'
+[IO.File]::WriteAllText($path, 'unrelated command')
+Assert-Equal 'blocked' (Get-PsAiOwnerCommandState -Path $path -Script legion.ps1) 'Foreign file is blocked'
+[IO.File]::WriteAllText($path, $unix)
+Assert-Equal 'stale' (Get-PsAiOwnerCommandState -Path $path -Script legion.ps1) 'Owned command with a missing script is stale'
+New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
+'' | Set-Content -LiteralPath $target
+Assert-Equal 'owned' (Get-PsAiOwnerCommandState -Path $path -Script legion.ps1) 'Owned command with an existing script is owned'
+$moved = Update-PsAiOwnerCommandText -Text ($unix.Replace(' "$@"', ' --extra "$@"')) -Script legion.ps1 -Runner '/new/bin/legion.ps1'
+Assert-Equal ($unix.Replace((ConvertTo-PsAiShellLiteral $target), "'/new/bin/legion.ps1'").Replace(' "$@"', ' --extra "$@"')) $moved 'Retarget keeps the owner flags'

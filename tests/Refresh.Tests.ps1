@@ -69,6 +69,20 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/ps-ai-overseer.ps1' -Acco
     $repeat = @(& $refresh -HomeRoot $tempRoot)
     Assert-True ([bool]($repeat -match '^skip: .*\(already done\)$')) 'Repeated refresh reports skip'
     Assert-Equal $before (@(Get-ChildItem $bin -File -Recurse | Sort-Object FullName | ForEach-Object { $_.LastWriteTimeUtc.Ticks }) -join '|') 'Repeated refresh writes nothing'
+    # C-1: a file that only mentions the launcher in a comment or a later argument is not rewritten.
+    $lookalike = "#!/bin/sh`n# pwsh -NoProfile -File '/old/cache/bin/legion.ps1'`necho mine"
+    [IO.File]::WriteAllText((Join-Path $bin 'legion'), $lookalike)
+    $argumentOnly = "#!/bin/sh`nexec pwsh -NoProfile -File /mine/tool.ps1 '/old/cache/bin/ps-ai-status.ps1'`n"
+    [IO.File]::WriteAllText((Join-Path $bin 'ps-ai-status'), $argumentOnly)
+    & $refresh -HomeRoot $tempRoot | Out-Null
+    Assert-Equal $lookalike ([IO.File]::ReadAllText((Join-Path $bin 'legion'))) 'Refresh leaves a comment-only mention untouched'
+    Assert-Equal $argumentOnly ([IO.File]::ReadAllText((Join-Path $bin 'ps-ai-status'))) 'Refresh leaves a later-argument mention untouched'
+    # C-2: an owned command whose script is gone is rewritten to the current one.
+    $stale = "#!/bin/sh`nexec pwsh -NoProfile -File '/gone/cache/bin/ps-ai-setup.ps1' -OwnerFlag keep `"`$@`"`n"
+    [IO.File]::WriteAllText((Join-Path $bin 'ps-ai-setup'), $stale)
+    & $refresh -HomeRoot $tempRoot | Out-Null
+    $fixed = [IO.File]::ReadAllText((Join-Path $bin 'ps-ai-setup'))
+    Assert-True ($fixed.Contains((Join-Path $root 'plugins/ps-ai/bin/ps-ai-setup.ps1')) -and $fixed.Contains('-OwnerFlag keep')) 'Refresh retargets a stale command and keeps its flags'
 } finally {
     if ([IO.Path]::GetFullPath($tempRoot).StartsWith([IO.Path]::GetFullPath((Join-Path $root '.agents/temp/')))) {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force
