@@ -62,6 +62,16 @@ function Resolve-RulesFileName {
     throw 'choose -RulesFile: AGENTS.md, CLAUDE.md'
 }
 
+# A link in the rules file path would send the write outside the repository.
+function Assert-NoLinkInPath {
+    param([string]$RepoRoot, [string]$Path)
+    for ($current = $Path; $current.Length -gt $RepoRoot.Length; $current = Split-Path $current -Parent) {
+        if ([IO.FileInfo]::new($current).LinkTarget) {
+            throw "$([IO.Path]::GetRelativePath($RepoRoot, $current)) is a link; choose a rules file that is not linked"
+        }
+    }
+}
+
 function Test-RulesBlock {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return $false }
@@ -79,19 +89,24 @@ function Assert-NoUncommittedEdits {
     }
 }
 
-# Recreating a tracked setup file the owner deleted would hide the pending deletion.
+# Recreating a tracked setup file the owner deleted or renamed away would hide the pending change.
 function Assert-NoDeletedSetupFiles {
     param([string]$GitRoot, [string[]]$Paths)
-    $deleted = @(git -C $GitRoot status --porcelain -- $Paths | Where-Object { $_ -match '^(D.|.D) ' })
+    $deleted = @(git -C $GitRoot status --porcelain -- $Paths | Where-Object { $_ -match '^(D.|.D|R.) ' })
     if ($deleted.Count) {
-        throw "$($deleted[0].Substring(3)) was deleted and the deletion is not committed; commit or restore it before setup"
+        # A rename line reads "source -> target"; the source side is the file setup would recreate.
+        $source = ($deleted[0].Substring(3) -split ' -> ')[0]
+        throw "$source was deleted and the deletion is not committed; commit or restore it before setup"
     }
 }
 
 function New-SetupFile {
     param([string]$Path, [string]$Text, [string]$Note = '')
     $fullPath = Join-Path $legion $Path
-    if (Test-Path -LiteralPath $fullPath) { return }
+    if (Test-Path -LiteralPath $fullPath) {
+        $script:keptPaths += $Path
+        return
+    }
     Write-Text -Path $fullPath -Text $Text
     $script:changedPaths += $fullPath
     "created .legion/$Path$Note"
@@ -127,23 +142,38 @@ function Get-GateScriptText {
     return "# Gate for this repository: one command, run after each task.`n`$ErrorActionPreference = 'Stop'`n$GateCommand`nexit `$LASTEXITCODE`n"
 }
 
+# The command inside a gate script written by this tool; empty when there is no such script.
+function Get-ExistingGateCommand {
+    param([string]$GatePath)
+    if (-not (Test-Path -LiteralPath $GatePath)) { return '' }
+    $lines = (Read-Text $GatePath) -split '\r?\n'
+    if ($lines.Count -ge 4 -and $lines[1] -ceq '$ErrorActionPreference = ''Stop''' -and $lines[3] -ceq 'exit $LASTEXITCODE') { return $lines[2] }
+    return ''
+}
+
 function New-OrchestrationFiles {
     param([string]$RulesName)
-    # The gate shows up in the index and workflow only when this run wrote the gate script.
+    # The gate shows up in the index and workflow when its script exists, whichever run wrote it.
     $gatePath = Join-Path $legion 'scripts/check-task.ps1'
     if ($Gate -and (Test-Path -LiteralPath $gatePath) -and (Read-Text $gatePath) -cne (Get-GateScriptText $Gate)) {
         'skip: .legion/scripts/check-task.ps1 (exists; -Gate not applied, edit the script to change the gate)'
     } elseif ($Gate) {
         New-SetupFile 'scripts/check-task.ps1' (Get-GateScriptText $Gate) " (gate: $Gate)"
+    } elseif (Test-Path -LiteralPath $gatePath) {
+        $script:keptPaths += 'scripts/check-task.ps1'
     }
-    $wroteGate = $Gate -and ($changedPaths -contains $gatePath)
+    $gateCommand = Get-ExistingGateCommand $gatePath
     New-SetupFile 'configuration/project.json' (Read-Reference 'project-template.json')
-    New-SetupFile 'configuration/workflow.md' (Get-WorkflowText $RulesName $wroteGate)
-    New-SetupFile 'scripts/index.md' (Get-IndexText $(if ($wroteGate) { $Gate } else { '' }))
+    New-SetupFile 'configuration/workflow.md' (Get-WorkflowText $RulesName ([bool]$gateCommand))
+    New-SetupFile 'scripts/index.md' (Get-IndexText $gateCommand)
     New-SetupFile 'state/handoff.md' (Read-Reference 'handoff-template.md')
     New-SetupFile 'state/history/.gitkeep' ''
     foreach ($folder in @('docs/specs', 'docs/plans', 'temp')) {
         New-Item -ItemType Directory -Path (Join-Path $legion $folder) -Force | Out-Null
+    }
+    # Only a partial setup names the kept files; a full repeat prints its one line at the end.
+    if ($changedPaths.Count) {
+        foreach ($kept in $keptPaths) { "skip: .legion/$kept (already done)" }
     }
 }
 
@@ -202,6 +232,7 @@ if ((Split-Path $repoRoot -Leaf) -eq '.legion') {
 $legion = Get-PsAiRepoPath -Repo $repoRoot -Path ''
 $innerGit = Join-Path $legion '.git'
 $changedPaths = @()   # setup files written by this run
+$keptPaths = @()      # setup files that already existed, relative to .legion
 $prepared = $false
 
 if ($Mode -eq 'Shared') {
@@ -215,6 +246,7 @@ if ($Mode -eq 'Shared') {
 $rulesName = Resolve-RulesFileName -RepoRoot $repoRoot -Requested $RulesFile
 if ($Mode -eq 'Shared' -and -not $rulesName) { throw 'Shared needs a rules file: choose -RulesFile <file>' }
 $rulesPath = if ($rulesName) { Join-Path $repoRoot $rulesName } else { '' }
+if ($rulesPath) { Assert-NoLinkInPath -RepoRoot $repoRoot -Path $rulesPath }
 
 # Refuse before any change when a file this run would edit has uncommitted work.
 if ($Mode -eq 'Shared') {

@@ -37,6 +37,8 @@ try {
     $hook = Join-Path $repo '.git/hooks/pre-commit'
     New-Item -ItemType Directory -Path (Split-Path $hook -Parent) -Force | Out-Null
     [IO.File]::WriteAllText($hook, "#!/bin/sh`nexit 1`n")
+    # Git runs a hook on Unix only when it is executable.
+    if (-not $IsWindows) { chmod +x $hook }
     $message = Get-ThrownMessage { & $setup -Repo $repo -Mode Shared }
     Assert-True ($message -like '*Cannot commit setup files*') 'The commit failure is reported'
     Remove-Item -LiteralPath $hook
@@ -96,6 +98,44 @@ try {
     & $setup -Repo $repo -Gate 'Get-Item -LiteralPath ./missing-for-gate' | Out-Null
     & pwsh -NoProfile -File (Join-Path $repo '.legion/scripts/check-task.ps1') 2>&1 | Out-Null
     Assert-True ($LASTEXITCODE -ne 0) 'A failing cmdlet gate exits nonzero'
+
+    # K2: a rules file that is a link, or sits under a linked folder, is refused before anything is written.
+    $outside = Join-Path $sandbox 'outside-target'
+    New-Item -ItemType Directory -Path $outside -Force | Out-Null
+    [IO.File]::WriteAllText((Join-Path $outside 'RULES.md'), 'outside')
+    $linkCases = @(
+        @{ Name = 'file link'; RulesFile = 'RULES.md'; LinkPath = 'RULES.md'; Type = 'SymbolicLink'; Target = (Join-Path $outside 'RULES.md') },
+        @{ Name = 'folder link'; RulesFile = 'docs/RULES.md'; LinkPath = 'docs'; Type = $(if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }); Target = $outside }
+    )
+    foreach ($case in $linkCases) {
+        $repo = New-ReviewRepo "link-$($case.Name -replace ' ', '-')"
+        try { New-Item -ItemType $case.Type -Path (Join-Path $repo $case.LinkPath) -Target $case.Target -ErrorAction Stop | Out-Null }
+        catch { Write-Host "skip K2 $($case.Name): cannot create a link here"; continue }
+        $message = Get-ThrownMessage { & $setup -Repo $repo -Mode Shared -RulesFile $case.RulesFile }
+        Assert-True ($message -like '*link*') "K2 $($case.Name): the rules file is refused"
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $repo '.legion'))) "K2 $($case.Name): nothing is written"
+        Assert-Equal 'outside' ([IO.File]::ReadAllText((Join-Path $outside 'RULES.md'))) "K2 $($case.Name): the target is untouched"
+    }
+
+    # K2: a staged rename of a scaffold file is not recreated at its source.
+    $repo = New-ReviewRepo 'staged-rename'
+    & $setup -Repo $repo -Mode Shared | Out-Null
+    git -C $repo mv .legion/configuration/project.json .legion/configuration/moved.json
+    $message = Get-ThrownMessage { & $setup -Repo $repo -Mode Shared }
+    Assert-True ($message -like '*project.json*') 'K2: a staged rename of a setup file is refused'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $repo '.legion/configuration/project.json'))) 'K2: the rename source is not recreated'
+
+    # G4: a partial setup builds the index from the gate that exists and reports the kept files.
+    $repo = New-ReviewRepo 'partial'
+    & $setup -Repo $repo -Mode Shared -Gate 'echo kept-gate' | Out-Null
+    git -C $repo rm -q .legion/scripts/index.md
+    git -C $repo commit -q -m 'Drop index'
+    $repeat = @(& $setup -Repo $repo -Mode Shared)
+    $index = [IO.File]::ReadAllText((Join-Path $repo '.legion/scripts/index.md'))
+    Assert-True ($index.Contains('echo kept-gate')) 'G4: the new index has the row of the existing gate'
+    Assert-True ($repeat -contains 'skip: .legion/scripts/check-task.ps1 (already done)') 'G4: a partial setup reports a kept file'
+    $full = @(& $setup -Repo $repo -Mode Shared)
+    Assert-Equal 1 $full.Count 'G4: a full repeat prints one line'
 } finally {
     foreach ($name in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name], 'Process') }
     Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue
