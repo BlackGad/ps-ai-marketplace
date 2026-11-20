@@ -30,3 +30,9 @@ function Test-PsAiPathEntry {
     }
     return $false
 }
+
+function Test-PsAiSameStartTime {
+    # Linux and macOS derive a process start time from the clock, so two reads can differ by a few milliseconds.
+    param([datetime]$First, [datetime]$Second)
+    return [math]::Abs(($First.ToUniversalTime() - $Second.ToUniversalTime()).TotalMilliseconds) -lt 500
+}

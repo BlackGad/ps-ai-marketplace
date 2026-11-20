@@ -4,6 +4,8 @@ $hook = Join-Path $root 'plugins/ps-ai/hooks/detect-mode.ps1'
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
 $repo = Join-Path $tempRoot 'repo'
 New-Item -ItemType Directory -Path $repo -Force | Out-Null
+# -WindowStyle exists only on Windows.
+$hidden = if ($IsWindows) { @{ WindowStyle = "Hidden" } } else { @{} }
 try {
     # Each helper exits before the next starts; their non-shell ancestor stays alive.
     & pwsh -NoProfile -File $script -Action take -Repo $repo -Tool codex -Account session | Out-Null
@@ -38,7 +40,7 @@ Assert-Equal 0 $LASTEXITCODE 'Bash helper takes the session lease'
 Assert-Equal 'held' (Get-PsAiLease -Repo $Repo).State 'A short-lived bash helper leases for its long-lived parent'
 $lease = Get-Content (Join-Path $Repo '.legion/temp/overseer.lock') -Raw | ConvertFrom-Json
 Assert-Equal $PID $lease.pid 'Shell-only ancestry uses the surviving session, not bash or the helper'
-Assert-Equal (Get-Process -Id $PID).StartTime.ToUniversalTime() ([datetime]$lease.processStartedAt).ToUniversalTime() 'Lease start time belongs to the selected session'
+Assert-True (Test-PsAiSameStartTime (Get-Process -Id $PID).StartTime $lease.processStartedAt) 'Lease start time belongs to the selected session'
 & $Bash -c 'pwsh -NoProfile -File "$PS_AI_TEST_LEASE_SCRIPT" -Action release -Repo "$PS_AI_TEST_LEASE_REPO"'
 Assert-Equal 0 $LASTEXITCODE 'Another bash helper releases the session lease'
 Assert-Equal 'free' (Get-PsAiLease -Repo $Repo).State 'Bash release removes the session lease'
@@ -48,7 +50,8 @@ Assert-Equal 'free' (Get-PsAiLease -Repo $Repo).State 'Bash release removes the 
         @'
 param($SessionScript, $Root, $LeaseScript, $Repo, $Bash, $Ready, $Output, $Errors, $PidFile)
 $arguments = @('-NoProfile', '-File', "`"$SessionScript`"", "`"$Root`"", "`"$LeaseScript`"", "`"$Repo`"", "`"$Bash`"", "`"$Ready`"")
-$session = Start-Process pwsh -ArgumentList $arguments -PassThru -WindowStyle Hidden -RedirectStandardOutput $Output -RedirectStandardError $Errors
+$hidden = if ($IsWindows) { @{ WindowStyle = "Hidden" } } else { @{} }
+$session = Start-Process pwsh -ArgumentList $arguments -PassThru @hidden -RedirectStandardOutput $Output -RedirectStandardError $Errors
 $session.Id | Set-Content -LiteralPath $PidFile
 '@ | Set-Content -LiteralPath $launcher
         $ready = Join-Path $tempRoot 'ready'
@@ -56,7 +59,7 @@ $session.Id | Set-Content -LiteralPath $PidFile
         $errors = Join-Path $tempRoot 'session.err'
         $pidFile = Join-Path $tempRoot 'session.pid'
         $launchArguments = @('-NoProfile', '-File', "`"$launcher`"", "`"$sessionScript`"", "`"$root`"", "`"$script`"", "`"$repo`"", "`"$($bash.Source)`"", "`"$ready`"", "`"$output`"", "`"$errors`"", "`"$pidFile`"")
-        $launchProcess = Start-Process pwsh -ArgumentList $launchArguments -PassThru -WindowStyle Hidden
+        $launchProcess = Start-Process pwsh -ArgumentList $launchArguments -PassThru @hidden
         Assert-True ($launchProcess.WaitForExit(10000)) 'Transient session launcher exits'
         $sessionId = Get-Content -LiteralPath $pidFile
         $session = Get-Process -Id ([int]$sessionId)
@@ -95,7 +98,7 @@ exit $result
     $outputs = 1..2 | ForEach-Object { Join-Path $tempRoot "take$_.out" }
     $errors = 1..2 | ForEach-Object { Join-Path $tempRoot "take$_.err" }
     $processes = 1..2 | ForEach-Object {
-        Start-Process pwsh -ArgumentList @('-NoProfile', '-File', "`"$runner`"", "`"$script`"", "`"$repo`"", "unit$_") -PassThru -Wait:$false -RedirectStandardOutput $outputs[$_ - 1] -RedirectStandardError $errors[$_ - 1] -WindowStyle Hidden
+        Start-Process pwsh -ArgumentList @('-NoProfile', '-File', "`"$runner`"", "`"$script`"", "`"$repo`"", "unit$_") -PassThru -Wait:$false -RedirectStandardOutput $outputs[$_ - 1] -RedirectStandardError $errors[$_ - 1] @hidden
     }
     $processes | Wait-Process
     Assert-Equal 1 @($processes | Where-Object ExitCode -eq 0).Count 'Only one concurrent lease take succeeds'
