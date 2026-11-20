@@ -14,19 +14,24 @@ if (Test-Path -LiteralPath $file) {
     }
 }
 
-$runner = Join-Path $PSScriptRoot 'ps-ai-overseer.ps1'
-foreach ($name in @('ps-ai-overseer', 'ps-ai-overseer.cmd')) {
-    $path = Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$name"
-    if (-not (Test-Path -LiteralPath $path)) { continue }
-    $text = [IO.File]::ReadAllText($path)
-    # Retarget the generated quoted -File argument, preserving the owner's other shim flags.
-    $pattern = '(-File\s+)(["''][^\r\n]*?[/\\]bin[/\\]ps-ai-overseer\.ps1["''])'
-    $updated = [regex]::Replace($text, $pattern, [Text.RegularExpressions.MatchEvaluator]{
-        param($match)
-        $target = if ($name.EndsWith('.cmd')) { '"' + $runner.Replace('%', '%%') + '"' } else { ConvertTo-PsAiShellLiteral $runner }
-        $match.Groups[1].Value + $target
-    })
-    Write-PsAiGeneratedFile -Path $path -Content $updated -Changes $changes
+foreach ($entry in (Get-PsAiOwnerCommands).GetEnumerator()) {
+    $runner = Join-Path $PSScriptRoot $entry.Value
+    foreach ($suffix in @('', '.cmd')) {
+        $path = Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$($entry.Key)$suffix"
+        if (-not (Test-PsAiOwnerCommandFile -Path $path -Script $entry.Value)) { continue }
+        $text = [IO.File]::ReadAllText($path)
+        # Retarget only the quoted script path, preserving the owner's other shim flags.
+        $start = $text.IndexOf('-File') + 5
+        while ([char]::IsWhiteSpace($text[$start])) { $start++ }
+        $quote = $text[$start]
+        if ($quote -notin @([char]'"', [char]"'")) { continue }
+        $end = $text.IndexOf($entry.Value + $quote, $start, [StringComparison]::Ordinal)
+        if ($end -lt 0) { continue }
+        $end += $entry.Value.Length + 1
+        $target = if ($suffix) { '"' + $runner.Replace('%', '%%') + '"' } else { ConvertTo-PsAiShellLiteral $runner }
+        $updated = $text.Substring(0, $start) + $target + $text.Substring($end)
+        Write-PsAiGeneratedFile -Path $path -Content $updated -Changes $changes
+    }
 }
 if ($changes.Count) { 'ps-ai generated runtimes and launchers refreshed' }
 else { 'skip: ps-ai generated runtimes and launchers (already done)' }

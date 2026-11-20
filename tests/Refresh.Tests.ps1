@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $refresh = Join-Path $root 'plugins/ps-ai/bin/ps-ai-refresh.ps1'
-$tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path $root ('.agents/temp/refresh-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
     $config = Join-Path $tempRoot '.legion/configuration'
@@ -34,6 +34,10 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/ps-ai-overseer.ps1' -Acco
 '@ | Set-Content $shim
     $cmdShim = Join-Path $bin 'ps-ai-overseer.cmd'
     '@pwsh -NoProfile -File "C:\old\cache\bin\ps-ai-overseer.ps1" -Account chosen %*' | Set-Content $cmdShim
+    foreach ($name in @('legion', 'ps-ai-setup', 'ps-ai-status')) {
+        "#!/bin/sh`nexec pwsh -NoProfile -File '/old/cache/bin/$name.ps1' -OwnerFlag keep `"`$@`"" | Set-Content (Join-Path $bin $name)
+        "@pwsh -NoProfile -File `"C:\old\cache\bin\$name.ps1`" -OwnerFlag keep %*" | Set-Content (Join-Path $bin "$name.cmd")
+    }
     & $refresh -HomeRoot $tempRoot | Out-Null
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/ps-ai/bin/ps-ai-foundry.ps1'))) ([IO.File]::ReadAllText((Join-Path $runtime 'ps-ai-foundry.ps1'))) 'Approved refresh updates copied runtime bytes'
     foreach ($name in @('foundry', 'tools')) {
@@ -51,10 +55,22 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/ps-ai-overseer.ps1' -Acco
     }
     Assert-Equal $ownerBytes ([IO.File]::ReadAllText($file)) 'Refresh preserves owner settings bytes'
     Assert-Equal 'custom wrapper' (Get-Content (Join-Path $bin 'external')) 'External command remains untouched'
+    foreach ($name in @('legion', 'ps-ai-setup', 'ps-ai-status')) {
+        foreach ($suffix in @('', '.cmd')) {
+            $text = Get-Content (Join-Path $bin "$name$suffix") -Raw
+            Assert-True ($text.Contains((Join-Path $root "plugins/ps-ai/bin/$name.ps1"))) 'Refresh retargets all owner commands'
+            Assert-True ($text.Contains('-OwnerFlag keep')) 'Refresh keeps extra owner flags for every command'
+        }
+    }
+    [IO.File]::WriteAllText((Join-Path $bin 'legion'), 'unrelated owner command')
+    & $refresh -HomeRoot $tempRoot | Out-Null
+    Assert-Equal 'unrelated owner command' ([IO.File]::ReadAllText((Join-Path $bin 'legion'))) 'Refresh leaves an unrelated command untouched'
     $before = @(Get-ChildItem $bin -File -Recurse | Sort-Object FullName | ForEach-Object { $_.LastWriteTimeUtc.Ticks }) -join '|'
     $repeat = @(& $refresh -HomeRoot $tempRoot)
     Assert-True ([bool]($repeat -match '^skip: .*\(already done\)$')) 'Repeated refresh reports skip'
     Assert-Equal $before (@(Get-ChildItem $bin -File -Recurse | Sort-Object FullName | ForEach-Object { $_.LastWriteTimeUtc.Ticks }) -join '|') 'Repeated refresh writes nothing'
 } finally {
-    Remove-Item -LiteralPath $tempRoot -Recurse -Force
+    if ([IO.Path]::GetFullPath($tempRoot).StartsWith([IO.Path]::GetFullPath((Join-Path $root '.agents/temp/')))) {
+        Remove-Item -LiteralPath $tempRoot -Recurse -Force
+    }
 }

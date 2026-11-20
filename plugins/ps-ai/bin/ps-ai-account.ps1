@@ -20,6 +20,7 @@ $accountNoRun = $NoRun
 . (Join-Path $PSScriptRoot 'ps-ai-validate.ps1') -NoRun
 . (Join-Path $PSScriptRoot 'lib/common.ps1')
 . (Join-Path $PSScriptRoot 'lib/foundry.ps1')
+. (Join-Path $PSScriptRoot 'lib/commands.ps1')
 
 function Assert-PsAiId {
     param([string]$Id)
@@ -29,6 +30,7 @@ function Assert-PsAiId {
 function Assert-PsAiNewId {
     param([string]$Id, $Data)
     Assert-PsAiId -Id $Id
+    if ((Get-PsAiOwnerCommands).Contains($Id)) { throw "'$Id' is reserved for an owner command" }
     if (@($Data.agents | Where-Object { $_.id -ceq $Id }).Count) { throw "account '$Id' already exists" }
     if (Get-Command $Id -CommandType Application -ErrorAction SilentlyContinue) { throw "'$Id' is already a command" }
 }
