@@ -228,7 +228,24 @@ try {
             'owner command' | Set-Content -LiteralPath (Join-Path $bin 'legion')
             $output = @(Invoke-Setup -HomeRoot $testHome)
             Assert-SetupText $output 'blocked: command legion (another file is there)' 'B8 completed plan exposes blocked commands'
-            Assert-True (-not ($output -contains 'Nothing to do.')) 'B8 blocked command is not hidden by Nothing to do'
+            Assert-Equal 'Nothing to do.' $output[-1] 'N2 a plan with only blocked commands ends with Nothing to do.'
+        }
+        N4Folder = {
+            if (-not $IsWindows) { return }
+            Reset-SetupTest 'folder-case'
+            Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+            $realAdd = ${function:Add-PsAiSubscriptionAccount}
+            $script:addArguments = $null
+            function Add-PsAiSubscriptionAccount {
+                param($Id, $Tool, $HomeRoot, $Data, $Path, $ConfigDir, $Command)
+                $script:addArguments = $PSBoundParameters
+            }
+            $managed = Get-PsAiNewAccountDir -Id 'codex1' -HomeRoot $testHome
+            $row = [pscustomobject]@{ Id = 'codex1'; Tool = @{ id = 'codex'; command = 'codex' }; Folder = $managed.ToUpperInvariant()
+                Requested = $true; New = $false; Adopted = $false; Usable = $true; MissingWrappers = $false; Provider = $null; NextStep = '' }
+            try { Add-SetupAccounts -Plan ([pscustomobject]@{ HomeRoot = $testHome; Accounts = @($row) }) | Out-Null }
+            finally { Set-Item -Path function:Add-PsAiSubscriptionAccount -Value $realAdd }
+            Assert-True (-not $script:addArguments.ContainsKey('ConfigDir')) 'N4 a folder that differs only by case is the managed folder'
         }
     }
     foreach ($key in $regressions.Keys) {
@@ -420,8 +437,8 @@ try {
     Assert-True ($rewritten.Contains((Join-Path $root 'plugins/ps-ai/bin/ps-ai-setup.ps1')) -and $rewritten.Contains('--keep')) 'C-2: a stale command is retargeted and keeps owner flags'
     Assert-Equal 'owner command' ([IO.File]::ReadAllText((Join-Path $bin 'legion'))) 'Unrelated command stays unchanged'
     Assert-SetupText $output 'skip: command ps-ai-status (already done)' 'Existing owned command reports skip'
-    Assert-SetupText $output 'blocked: command legion (another file is there)' 'Unrelated command reports blocked'
     Assert-SetupText $output 'Blocked commands: legion' 'Blocked command is listed after table'
+    Assert-Equal 1 @($output | Where-Object { $_ -like '*legion*another file*' -or $_ -like 'Blocked commands:*' }).Count 'N3 a blocked command is reported once on apply'
     Reset-SetupTest 'finder-failure'
     $script:findCalls = 0
     function Find-SetupInstaller { $script:findCalls++; throw 'fixture download failure' }

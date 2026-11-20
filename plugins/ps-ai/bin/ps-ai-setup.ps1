@@ -321,10 +321,7 @@ function Write-SetupPlan {
     }
     $blocked = @($Plan.Commands | Where-Object State -EQ blocked | Select-Object -ExpandProperty Name -Unique)
     foreach ($name in $blocked) { "blocked: command $name (another file is there)" }
-    if (-not $lines.Count) {
-        if (-not $blocked.Count) { 'Nothing to do.' }
-        return
-    }
+    if (-not $lines.Count) { 'Nothing to do.'; return }
     'Plan (nothing changed yet):'
     $lines.ToArray()
     'Run again with -Yes to apply.'
@@ -371,7 +368,7 @@ function Add-SetupAccounts {
         if ($row.Requested -or $row.MissingWrappers) {
             $arguments = @{ Id = $row.Id; Tool = $row.Tool.id; HomeRoot = $Plan.HomeRoot; Data = $data; Path = $file }
             $managed = Get-PsAiNewAccountDir -Id $row.Id -HomeRoot $Plan.HomeRoot
-            if ($row.Adopted -or $row.Folder -cne $managed) { $arguments.ConfigDir = $row.Folder }
+            if ($row.Adopted -or -not (Get-PsAiPathComparer).Equals($row.Folder, $managed)) { $arguments.ConfigDir = $row.Folder }
             if ($row.New -or $row.MissingWrappers) { $arguments.Command = Find-SetupCommand -Name $row.Tool.command }
             try { $null = Add-PsAiSubscriptionAccount @arguments }
             catch { throw (ConvertTo-SetupOneLine $_.Exception.Message) }
@@ -393,8 +390,8 @@ function Write-SetupCommands {
                 else { Get-PsAiShimText -Script $runner -Windows:$file.Windows }
             Write-PsAiGeneratedFile -Path $file.Path -Content $text -Executable
         }
-        if (@($files | Where-Object State -EQ blocked).Count) { "blocked: command $name (another file is there)" }
-        elseif (@($files | Where-Object State -EQ owned).Count) { "skip: command $name (already done)" }
+        # Blocked commands are reported once, in the final table.
+        if (@($files | Where-Object State -EQ owned).Count) { "skip: command $name (already done)" }
     }
 }
 
