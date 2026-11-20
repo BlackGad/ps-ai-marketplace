@@ -4,7 +4,7 @@ function Get-ToolRecipe {
     $data = $Recipes[$Tool]
     if (-not $data) { throw "unknown tool '$Tool'" }
     if ($Platform -eq 'windows') {
-        return [pscustomobject]@{ Install = @(,([string[]]@('winget', 'install', '--id', $data.windows.wingetId, '-e'))); Needs = @(); Docs = '' }
+        return [pscustomobject]@{ Install = @(,([string[]]@('winget', 'install', '--id', $data.windows.wingetId, '-e', '--source', 'winget', '--accept-source-agreements', '--accept-package-agreements'))); Needs = @(); Docs = '' }
     }
     return [pscustomobject]@{ Install = [object[]]@($data.$Platform.commands); Needs = [string[]]@($data.$Platform.needs); Docs = $data.$Platform.docs }
 }

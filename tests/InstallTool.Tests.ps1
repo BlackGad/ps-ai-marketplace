@@ -43,7 +43,9 @@ $expected = @{
 foreach ($platform in @('windows','macos')) {
     foreach ($tool in $expected[$platform].Keys) {
         $recipe = Get-ToolRecipe -Tool $tool -Platform $platform
-        Assert-Equal $expected[$platform][$tool] ($recipe.Install[0] -join ' ') "$platform $tool recipe"
+        $expectedCommand = $expected[$platform][$tool]
+        if ($platform -eq 'windows') { $expectedCommand += ' --source winget --accept-source-agreements --accept-package-agreements' }
+        Assert-Equal $expectedCommand ($recipe.Install[0] -join ' ') "$platform $tool recipe"
     }
 }
 $linuxDocs = @{ git='https://git-scm.com/download/linux'; node='https://nodejs.org/en/download'; az='https://learn.microsoft.com/cli/azure/install-azure-cli-linux' }
@@ -326,7 +328,7 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
         Assert-Equal 'node' ($recipe.Needs -join '|') 'Recipe needs come from platform data'
         Assert-Equal 'fixture-manager|setup|space value' ($recipe.Install[0] -join '|') 'Recipe commands retain array boundaries'
         Assert-Equal 'https://fixture.test/install' (Get-ToolRecipe -Tool fourth -Platform linux).Docs 'Recipe docs come from data'
-        Assert-Equal 'winget|install|--id|Example.Fourth|-e' ((Get-ToolRecipe -Tool fourth -Platform windows).Install[0] -join '|') 'Recipe Windows id comes from data'
+        Assert-Equal 'winget|install|--id|Example.Fourth|-e|--source|winget|--accept-source-agreements|--accept-package-agreements' ((Get-ToolRecipe -Tool fourth -Platform windows).Install[0] -join '|') 'Recipe Windows id comes from data'
         $probeLog = Join-Path $sandbox 'probe.json'
         $fake = '@($args) | ConvertTo-Json | Set-Content -LiteralPath ''' + $probeLog.Replace("'","''") + '''; Write-Output "fixture-version"'
         $fake | Set-Content (Join-Path $fourthSkill 'fourth-cli.ps1')

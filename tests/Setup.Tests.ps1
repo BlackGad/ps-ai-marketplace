@@ -425,7 +425,7 @@ try {
             }
             $script:missingTools = @('node')
             $hint = Get-SetupToolInstallHint -Tool (Get-PsAiTool copilot) -Platform windows
-            Assert-Equal 'winget install --id GitHub.Copilot -e' $hint 'B5 Copilot fallback uses the Windows recipe'
+            Assert-Equal 'winget install --id GitHub.Copilot -e --source winget --accept-source-agreements --accept-package-agreements' $hint 'B5 Copilot fallback uses the Windows recipe'
         }
         B6 = {
             Reset-SetupTest 'case-cache'
