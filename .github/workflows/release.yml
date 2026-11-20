@@ -66,8 +66,20 @@ jobs:
     with:
       sha: ${{ needs.resolve-release-pr.outputs.sha }}
 
+  integration-release-pr:
+    needs: resolve-release-pr
+    if: needs.resolve-release-pr.outputs.sha != ''
+    # GitHub validates the callee's permission ceiling even for skipped jobs.
+    # Its execution/report jobs narrow to read-only; its writer rejects a SHA input.
+    permissions:
+      contents: write
+      pages: write
+    uses: ./.github/workflows/integration.yml
+    with:
+      sha: ${{ needs.resolve-release-pr.outputs.sha }}
+
   mark-release-pr:
-    needs: [resolve-release-pr, test-release-pr]
+    needs: [resolve-release-pr, test-release-pr, integration-release-pr]
     if: always() && needs.resolve-release-pr.result != 'skipped'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -80,8 +92,22 @@ jobs:
           SHA: ${{ needs.resolve-release-pr.outputs.sha }}
           RESULT: ${{ needs.test-release-pr.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           if ($env:SHA -notmatch '^[0-9a-f]{40}$') { throw 'missing or invalid release PR head SHA; cannot publish gate status' }
           $state = if ($env:RESULT -eq 'success') { 'success' } else { 'failure' }
-          gh api "repos/${{ github.repository }}/statuses/$env:SHA" -f state=$state -f context=gate -f target_url=$env:RUN_URL -f description="unit tests on the release PR commit: $state"
+          gh api "repos/$env:REPOSITORY/statuses/$env:SHA" -f state=$state -f context=gate -f target_url=$env:RUN_URL -f description="unit tests on the release PR commit: $state"
           if ($LASTEXITCODE -ne 0) { throw 'could not publish gate status on the release PR head SHA' }
+      - if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.resolve-release-pr.outputs.sha }}
+          INTEGRATION_RESULT: ${{ needs.integration-release-pr.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if ($env:SHA -notmatch '^[0-9a-f]{40}$') { throw 'missing or invalid release PR head SHA; cannot publish integration status' }
+          $state = if ($env:INTEGRATION_RESULT -eq 'success') { 'success' } else { 'failure' }
+          gh api "repos/$env:REPOSITORY/statuses/$env:SHA" -f state=$state -f context=integration -f target_url=$env:RUN_URL -f description="integration tests on the release PR commit: $state"
+          if ($LASTEXITCODE -ne 0) { throw 'could not publish integration status on the release PR head SHA' }
