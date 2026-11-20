@@ -17,7 +17,8 @@ function Test-PsAiPathEntry {
     param([string]$Path, [string]$Folder)
     $comparer = Get-PsAiPathComparer
     foreach ($entry in $Path.Split([IO.Path]::PathSeparator)) {
-        $expanded = [Environment]::ExpandEnvironmentVariables($entry).TrimEnd('/', '\')
+        $expanded = if ($IsWindows) { [Environment]::ExpandEnvironmentVariables($entry) } else { $entry }
+        $expanded = $expanded.TrimEnd('/', '\')
         if ($entry -and $comparer.Equals($expanded, $Folder.TrimEnd('/', '\'))) { return $true }
     }
     return $false

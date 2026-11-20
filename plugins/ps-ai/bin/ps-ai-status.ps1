@@ -56,6 +56,15 @@ function Write-StatusRepository {
     }
     # Private orchestration owns an inner Git history; Shared uses the code repository's history.
     $mode = if (Test-Path -LiteralPath (Join-Path $legion '.git')) { 'Private' } else { 'Shared' }
+    $gitRoot = if ($mode -eq 'Private') { $legion } else { $Repo }
+    $required = @('configuration/project.json', 'configuration/workflow.md', 'scripts/index.md')
+    $paths = if ($mode -eq 'Private') { $required } else { @($required | ForEach-Object { ".legion/$_" }) }
+    $previousExit = $global:LASTEXITCODE
+    try {
+        & git -C $gitRoot ls-files --error-unmatch -- @paths 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { 'repo none'; return }
+    } catch { 'repo none'; return }
+    finally { $global:LASTEXITCODE = $previousExit }
     $lease = Get-PsAiLease -Repo $Repo
     $handoff = if (Test-Path -LiteralPath (Join-Path $legion 'state/handoff.md') -PathType Leaf) { 'yes' } else { 'no' }
     "repo $mode   lease: $($lease.State)   handoff: $handoff"

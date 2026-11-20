@@ -18,6 +18,16 @@ try {
 
     . $statusScript -NoRun -HomeRoot $fixtureHome -Repo $repo
     $bin = Join-Path $fixtureHome '.legion/bin'
+    if (-not $Finding -or $Finding -eq 'G3') {
+        & {
+            $originalWindows = $IsWindows
+            try {
+                Set-Variable IsWindows -Value $false -Force
+                $env:PS_AI_STATUS_BIN = $bin
+                Assert-Equal $false (Test-PsAiPathEntry -Path '%PS_AI_STATUS_BIN%' -Folder $bin) 'G3 Unix PATH entries keep literal percent variables'
+            } finally { Set-Variable IsWindows -Value $originalWindows -Force }
+        }
+    }
     if (-not $Finding -or $Finding -eq 'E2') {
         $probeRepo = Join-Path $scratch 'scratch-only-repo'
         $probeLegion = Join-Path $probeRepo '.legion'
@@ -28,26 +38,41 @@ try {
             New-Item -ItemType Directory -Path (Split-Path $path) -Force | Out-Null
             'fixture' | Set-Content -LiteralPath $path
         }
-        Assert-True ((Write-StatusRepository -Repo $probeRepo) -match '^repo Shared') 'E2 repository scaffold identifies Shared setup without a handoff'
+        Assert-Equal 'repo none' (Write-StatusRepository -Repo $probeRepo) 'G3 untracked scaffold is not Shared setup'
+        $git = (Get-Command git -CommandType Application).Source
+        & $git -C $probeRepo init --quiet
+        & $git -C $probeRepo add -- .legion/configuration/project.json .legion/configuration/workflow.md .legion/scripts/index.md
+        Assert-True ((Write-StatusRepository -Repo $probeRepo) -match '^repo Shared') 'G3 tracked scaffold identifies Shared setup without a handoff'
+        & $git -C $probeRepo rm --cached --quiet -- .legion/scripts/index.md
+        Assert-Equal 'repo none' (Write-StatusRepository -Repo $probeRepo) 'G3 every required scaffold path must be tracked'
+        & $git -C $probeRepo add -- .legion/scripts/index.md
         foreach ($file in @('configuration/project.json', 'configuration/workflow.md', 'scripts/index.md')) {
             $path = Join-Path $probeLegion $file
             Remove-Item -LiteralPath $path
             Assert-Equal 'repo none' (Write-StatusRepository -Repo $probeRepo) 'E2 incomplete Shared scaffold is not setup'
             'fixture' | Set-Content -LiteralPath $path
         }
+        & $git -C $probeLegion init --quiet
+        Assert-Equal 'repo none' (Write-StatusRepository -Repo $probeRepo) 'G3 untracked Private scaffold is not setup'
+        & $git -C $probeLegion add -- configuration/project.json configuration/workflow.md scripts/index.md
+        Assert-True ((Write-StatusRepository -Repo $probeRepo) -match '^repo Private') 'G3 Private scaffold uses its inner tracking history'
+        $global:LASTEXITCODE = 7
+        Write-StatusRepository -Repo $probeRepo | Out-Null
+        Assert-Equal 7 $LASTEXITCODE 'G3 status preserves the caller native exit status'
     }
     if (-not $Finding -or $Finding -eq 'E3') {
         $env:PS_AI_STATUS_BIN = $bin
         $env:PATH = '%PS_AI_STATUS_BIN%'
-        Assert-True (Test-PsAiPathEntry -Path $env:PATH -Folder $bin) 'E3 status expands environment variables in PATH entries'
+        Assert-Equal ([bool]$IsWindows) (Test-PsAiPathEntry -Path $env:PATH -Folder $bin) 'E3 only Windows expands percent environment variables in PATH entries'
         $lines = @(& $statusScript -HomeRoot $fixtureHome -Repo $repo)
-        Assert-True ($lines -match 'on PATH: yes') 'E3 status uses the shared expanded PATH test'
+        $expectedPath = if ($IsWindows) { 'yes' } else { 'no' }
+        Assert-True ($lines -match "on PATH: $expectedPath") 'E3 status uses the shared platform PATH test'
         $needsPath = & {
             . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-setup.ps1') -NoRun
             function Get-SetupUserPath { return $env:PATH }
             (Get-SetupPlan -HomeRoot $fixtureHome).NeedsPath
         }
-        Assert-Equal $false $needsPath 'E3 setup uses the same expanded PATH test as status'
+        Assert-Equal (-not $IsWindows) $needsPath 'E3 setup uses the same platform PATH test as status'
     }
     if ($Finding) { return }
     $env:PATH = $bin
@@ -91,7 +116,7 @@ try {
         if ($IsWindows) {
             "@pwsh -NoProfile -File `"$fakeTool`" %*" | Set-Content -LiteralPath (Join-Path $fakeBin "$name.cmd")
         } else {
-            ("#!/bin/sh`nexec pwsh -NoProfile -File " + (ConvertTo-PsAiShellLiteral $fakeTool) + ' "$@"') |
+            (Get-PsAiShimText -Script $fakeTool) |
                 Set-Content -LiteralPath (Join-Path $fakeBin $name)
             & chmod +x (Join-Path $fakeBin $name)
         }
@@ -113,9 +138,12 @@ try {
     Assert-Equal $before $after 'Status preserves home files and modification times'
     Assert-Equal $false (Test-Path -LiteralPath $env:PS_AI_FAKE_TOOL_LOG) 'Status never starts the fake CLIs'
 
-    # In-process probes forbid every process launch, including git, for repo and command status.
+    # Only the read-only Git tracking probe is allowed; no CLI or agent can launch.
     function Start-Process { throw 'Status must not start a process' }
-    function git { throw 'Status must not start git' }
+    function git {
+        Assert-True ($args -contains 'ls-files') 'Status only asks Git about tracked scaffold files'
+        $global:LASTEXITCODE = 0
+    }
     function pwsh { throw 'Status must not start pwsh' }
     $env:PATH = $fakeBin
     $lines = @(& $statusScript -HomeRoot $fixtureHome -Repo $repo)
