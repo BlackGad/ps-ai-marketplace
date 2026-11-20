@@ -280,9 +280,10 @@ function Get-SetupPlan {
     foreach ($tool in Get-PsAiTools) { $tools[$tool.id] = $tool }
     $accounts = @(Get-SetupAccounts -Add $Add -Id $Id -Data $data -Tools $tools -HomeRoot $HomeRoot)
     $usable = @($accounts | Where-Object Usable)
+    $needsStockCommand = @($usable | Where-Object { -not $_.WrapperTarget })
     $missing = @()
     foreach ($tool in $tools.Values) {
-        if ($tool.id -cin @($usable.Tool.id) -and -not (Test-SetupCommand -Name $tool.command)) { $missing += $tool }
+        if ($tool.id -cin @($needsStockCommand.Tool.id) -and -not (Test-SetupCommand -Name $tool.command)) { $missing += $tool }
     }
     $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
     $path = if ($IsWindows) { Get-SetupUserPath } else { $env:PATH }
@@ -372,7 +373,7 @@ function Install-SetupTools {
             else { '' }
         if (-not $reason) { continue }
         foreach ($row in $Plan.Accounts) {
-            if ($row.Tool.id -cne $tool.id) { continue }
+            if ($row.Tool.id -cne $tool.id -or $row.WrapperTarget) { continue }
             $row.Usable = $false
             $row.NextStep = $reason
         }

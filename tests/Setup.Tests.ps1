@@ -82,6 +82,27 @@ try {
     }
 
     $regressions = [ordered]@{
+        R4B3 = {
+            foreach ($addStockAccount in @($false, $true)) {
+                Reset-SetupTest "independent-wrapper-$addStockAccount"
+                Initialize-SetupFiles -Plan (Get-SetupPlan -HomeRoot $testHome) | Out-Null
+                $custom = Join-Path $testHome 'custom command.ps1'
+                '# inert custom command' | Set-Content $custom
+                $data = Read-PsAiJson $settings
+                Add-PsAiSubscriptionAccount -Id custom-a -Tool codex -Command $custom -HomeRoot $testHome -Data $data -Path $settings | Out-Null
+                $wrapper = Join-Path $testHome '.legion/bin/custom-a'
+                $repairPath = $wrapper
+                if ($IsWindows) { $repairPath = "$wrapper.cmd"; Remove-Item $repairPath }
+                else { [IO.File]::SetUnixFileMode($wrapper, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite) }
+                $script:missingTools = @('codex')
+                $script:toolFailure = $true
+                $adds = if ($addStockAccount) { @('codex') } else { @() }
+                Invoke-Setup -HomeRoot $testHome -Add $adds -Yes | Out-Null
+                Assert-True (Test-PsAiLauncherExecutable $repairPath) 'R4 B3 custom wrapper repairs independently of stock CLI failure'
+                Assert-Equal ([int]$addStockAccount) $toolInstalls.Count 'R4 B3 stock install is needed only by the new stock account'
+                Assert-Equal $custom (Get-PsAiWrapperTarget -Id custom-a -Tool codex -HomeRoot $testHome -ConfigDir (Get-PsAiNewAccountDir custom-a $testHome)) 'R4 B3 repair preserves the recovered custom executable'
+            }
+        }
         R4B1 = {
             Reset-SetupTest 'broken-node'
             & {
