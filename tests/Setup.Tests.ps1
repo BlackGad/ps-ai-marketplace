@@ -13,8 +13,9 @@ function Assert-SetupText {
 function Get-SetupTree {
     param([string]$Folder)
     return (@(Get-ChildItem -LiteralPath $Folder -Force -Recurse | Sort-Object FullName | ForEach-Object {
-        $content = if ($_.PSIsContainer) { 'directory' } else { (Get-FileHash -LiteralPath $_.FullName).Hash }
-        $_.FullName + ':' + $content + ':' + $_.LastWriteTimeUtc.Ticks
+        # Windows can update directory timestamps lazily after child writes; compare their paths only.
+        if ($_.PSIsContainer) { $_.FullName + ':directory' }
+        else { $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash + ':' + $_.LastWriteTimeUtc.Ticks }
     }) -join '|')
 }
 
