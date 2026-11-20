@@ -60,7 +60,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-Equal 0 $installed.Count 'Update preview never mutates missing targets'
         Assert-True (($preview -join "`n") -match 'plugin marketplace add') 'Update previews marketplace install for missing plugin'
         $calls.Clear()
-        $null = Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Update
+        $null = Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Update -Yes
         $targets = @($calls | ForEach-Object { ($_ -split '\|')[0] } | Sort-Object -Unique)
         Assert-Equal ($expected -join '|') ($targets -join '|') 'Update and install use the same targets'
         Assert-Equal 4 $installed.Count 'Update installs every missing target'

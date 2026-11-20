@@ -44,11 +44,13 @@ $repo = Split-Path $PSScriptRoot -Parent
                 if ($mode -eq 'update') { $options.Update=$true }
                 if ($mode -eq 'uninstall') { $options.Uninstall=$true }
                 $preview = @(Invoke-PsAiInstaller @options)
-                Assert-Equal 1 @($calls | Select-Object -Unique).Count "$mode selects one real folder"
-                Assert-True ($calls -contains "$($entry.id):$expected") "$mode uses the account environment"
+                # An uninstall also reads the other CLIs to find installs that stay; this test is about the selected tool.
+                $selectedCalls = @($calls | Where-Object { $_.StartsWith("$($entry.id):") })
+                Assert-Equal 1 @($selectedCalls | Select-Object -Unique).Count "$mode selects one real folder"
+                Assert-True ($selectedCalls -contains "$($entry.id):$expected") "$mode uses the account environment"
                 $expectedReads = if ($mode -eq 'update') { 1 } else { 2 }
                 if ($mode -eq 'install' -and $entry.plugin.marketplaceListing.rootField) { $expectedReads = 3 }
-                Assert-Equal $expectedReads $calls.Count "$mode reads each target once"
+                Assert-Equal $expectedReads $selectedCalls.Count "$mode reads each target once"
                 Assert-True (($preview -join "`n") -notmatch 'default config') "$mode labels the account folder"
             }
 

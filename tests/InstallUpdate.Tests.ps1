@@ -90,8 +90,22 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-Equal 3 $calls.Count 'Tools and ConfigDir narrow to exactly one target'
         Assert-True ($calls[2].StartsWith('copilot:selected account|')) 'Selected folder scopes mutation'
 
+        # K6: -Update skips the question, but installing a missing plugin is a fresh install and needs consent.
         $calls.Clear()
         $state.Missing = $true
+        $script:answer = 'n'
+        $script:questions = 0
+        function Read-Host { $script:questions++; $script:answer }
+        $declined = @(Invoke-PsAiInstaller -Tools claude -ConfigDir absent -Source $repo -Catalog $catalog -Update)
+        Assert-Equal 1 $script:questions 'A missing plugin asks before a fresh install'
+        Assert-Equal 0 @($calls | Where-Object { $_ -match '\|(add|install)\|' }).Count 'A declined install adds no marketplace and installs nothing'
+        Assert-True (($declined -join "`n") -match 'skip: claude ps-ai in absent \(not installed\)') 'A declined install says what was skipped'
+        $calls.Clear()
+        $script:questions = 0
+        $null = Invoke-PsAiInstaller -Tools claude -ConfigDir absent -Source $repo -Catalog $catalog -Update -DryRun
+        Assert-Equal 0 $script:questions 'A dry run never asks'
+        $script:answer = 'y'
+        $calls.Clear()
         $output = @(Invoke-PsAiInstaller -Tools claude -ConfigDir absent -Source $repo -Catalog $catalog -Update)
         Assert-True ($calls -contains "claude:absent|claude|plugin|marketplace|add|$(Resolve-InstallSource $repo)") 'Update registers marketplace for missing plugin'
         Assert-True ($calls -contains 'claude:absent|claude|plugin|install|ps-ai@ps-ai-marketplace') 'Update installs missing plugin'

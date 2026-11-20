@@ -14,9 +14,9 @@ function Invoke-ClosedInput {
     $state.Calls++
     $line = $Command -join '|'
     if ($Command[2] -eq 'list') {
-        $output = if ($Command[0] -eq 'claude') {
-            if ($state.Plugin) { '[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]' } else { '[]' }
-        } elseif ($state.Plugin) { 'ps-ai@ps-ai-marketplace installed, disabled' }
+        # Only codex has ps-ai here; the other CLIs must not look like surviving installs.
+        $output = if ($Command[0] -ne 'codex') { '[]' }
+        elseif ($state.Plugin) { 'ps-ai@ps-ai-marketplace installed, disabled' }
         else { 'ps-ai@ps-ai-marketplace not installed' }
         return @{ExitCode=0;Output=@($output)}
     }

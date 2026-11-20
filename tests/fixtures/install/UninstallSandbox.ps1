@@ -3,7 +3,7 @@
 $catalog = Get-InstallCatalog -Source $repo
 $sandbox = Join-Path $repo ('.agents/temp/uninstall-clean-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
-$state = @{ Plugin=$true; Marketplace=$true; FailRemove=$false; KeepListed=$false; FailVerify=$false; Answer='n'; Prompts=0 }
+$state = @{ Only=''; Plugin=$true; Marketplace=$true; FailRemove=$false; KeepListed=$false; FailVerify=$false; Answer='n'; Prompts=0 }
 $writes = [Collections.Generic.List[string]]::new()
 $calls = [Collections.Generic.List[string]]::new()
 . (Join-Path $PSScriptRoot 'InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
@@ -16,9 +16,11 @@ function Invoke-ClosedInput {
     $entry = $catalog.tools | Where-Object command -CEQ $Command[0]
     if ($line -ceq ((@($entry.command) + $entry.plugin.list) -join '|')) {
         if ($state.FailVerify -and $writes.Count) { return @{ExitCode=7;Output=@()} }
+        # Only: when set, just that tool has ps-ai installed, so the others are not survivors.
+        $installed = $state.Plugin -and (-not $state.Only -or $state.Only -ceq $entry.id)
         $output = if ($entry.plugin.listing.format -eq 'json') {
-            if ($state.Plugin) { '[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]' } else { '[]' }
-        } elseif ($state.Plugin) { 'ps-ai@ps-ai-marketplace installed (disabled)' } else { '' }
+            if ($installed) { '[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]' } else { '[]' }
+        } elseif ($installed) { 'ps-ai@ps-ai-marketplace installed (disabled)' } else { '' }
         return @{ExitCode=0;Output=@($output)}
     }
     if ($line -ceq ((@($entry.command) + $entry.plugin.marketplaceList) -join '|')) {

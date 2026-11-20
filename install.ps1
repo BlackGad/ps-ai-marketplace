@@ -467,32 +467,71 @@ function Get-InstallOwnerCommandPaths {
     }
 }
 
-# After an uninstall, a command whose script is gone moves to a surviving install, or is removed when none is left.
-function Repair-InstallOwnerCommands {
+# Owner commands whose script is gone, or lives in a folder this uninstall is about to remove.
+function Get-InstallDeadCommandPaths {
+    param([string[]]$RemovedFolders = @())
     $bin = [IO.Path]::GetFullPath((Get-InstallLegionPath 'bin'))
     $owner = Get-InstallOwnerCommands
-    $dead = @()
     foreach ($command in $owner.Keys) {
         foreach ($name in @($command, "$command.cmd")) {
             $path = Join-Path $bin $name
             $target = Get-InstallOwnerCommandTarget -Path $path -Script $owner[$command]
-            if ($target -and -not (Test-Path -LiteralPath $target -PathType Leaf)) { $dead += $path }
+            if (-not $target) { continue }
+            $scriptGone = -not (Test-Path -LiteralPath $target -PathType Leaf)
+            $insideRemoved = $false
+            foreach ($folder in $RemovedFolders) {
+                $prefix = [IO.Path]::GetFullPath($folder).TrimEnd('\', '/') +[IO.Path]::DirectorySeparatorChar
+                if ([IO.Path]::GetFullPath($target).StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { $insideRemoved = $true }
+            }
+            if (($scriptGone -or $insideRemoved) -and (Test-InstallGeneratedPathSafe -Path $path -Bin $bin)) { $path }
         }
     }
-    if (-not $dead.Count) { return }
+}
+
+# Installs that stay after this uninstall: the plugin is installed there and no target removes it.
+function Get-UninstallSurvivors {
+    param($Targets)
+    $removed = @()
+    foreach ($target in $Targets) {
+        if (@($target.Steps | Where-Object Kind -CEQ 'plugin').Count) { $removed += Get-InstallFolderKey -Entry $target.Entry -Folder $target.Folder }
+    }
     foreach ($entry in $script:installCatalog.tools) {
         if (-not (Test-InstallCommandAvailable -Name $entry.command)) { continue }
         foreach ($folder in (Get-UpdateConfigDirs -Tool $entry.id)) {
+            if ($removed -contains (Get-InstallFolderKey -Entry $entry -Folder $folder)) { continue }
             if (-not (Test-InstallStepDone -Command (@($entry.command) + $entry.plugin.install) -ConfigEnv $entry.configEnv -ConfigDir $folder -IncludeDisabled)) { continue }
-            Invoke-InstallRefresh -Entry $entry -ConfigDir $folder
-            return
+            [pscustomobject]@{ Entry = $entry; Folder = $folder }
         }
     }
-    foreach ($path in $dead) { Remove-Item -LiteralPath $path -Force -ErrorAction Stop; "Removed command: $path" }
+}
+
+# The same install seen from a target and from the folder list: '' is the CLI's default folder.
+function Get-InstallFolderKey {
+    param($Entry, [string]$Folder)
+    if (-not $Folder) { $Folder = $Entry.plugin.defaultConfigDir }
+    $key = $Entry.id + '|' + $(if ($Folder) { Resolve-InstallConfigDir $Folder } else { '' })
+    if ($env:OS -eq 'Windows_NT') { return $key.ToLowerInvariant() }
+    return $key
+}
+
+# After an uninstall, a command whose script is gone moves to a surviving install, or is removed when none is left.
+# Only the commands the plan listed are removed; anything else that went dead is reported and kept.
+function Repair-InstallOwnerCommands {
+    param($Survivors = @(), [string[]]$Planned = @())
+    $dead = @(Get-InstallDeadCommandPaths)
+    if (-not $dead.Count) { return }
+    if ($Survivors.Count) {
+        Invoke-InstallRefresh -Entry $Survivors[0].Entry -ConfigDir $Survivors[0].Folder
+        return
+    }
+    foreach ($path in $dead) {
+        if ($Planned -contains $path) { Remove-Item -LiteralPath $path -Force -ErrorAction Stop; "Removed command: $path" }
+        else { "Kept command: $path (its script is gone; it was not in the plan)" }
+    }
 }
 
 function Get-UninstallFiles {
-    param([string[]]$Tools, [string]$ConfigDir, $Owner)
+    param([string[]]$Tools, [string]$ConfigDir, $Owner, [switch]$KeepOwnerCommands)
     $homeRoot = Get-InstallHome
     $bin = [IO.Path]::GetFullPath((Get-InstallLegionPath 'bin'))
     $paths = @()
@@ -515,7 +554,7 @@ function Get-UninstallFiles {
         }
     }
     if (-not $remaining) {
-        $paths += Get-InstallOwnerCommandPaths -Bin $bin
+        if (-not $KeepOwnerCommands) { $paths += Get-InstallOwnerCommandPaths -Bin $bin }
         # Exact files published by Sync-PsAiFoundryRuntime; never remove the directory tree.
         $runtime = Join-Path $bin '.ps-ai-runtime'
         foreach ($name in @('bin/lib/tools.ps1', 'bin/lib/foundry.ps1', 'bin/lib/paths.ps1', 'bin/ps-ai-foundry.ps1', 'schemas/tool.schema.json')) {
@@ -529,18 +568,22 @@ function Get-UninstallFiles {
     }
     foreach ($path in ($paths | Select-Object -Unique)) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
-        # A linked file or directory belongs to its owner; do not follow it outside bin.
-        $safe = $true
-        $currentPath = [IO.Path]::GetFullPath($path)
-        if (-not $currentPath.StartsWith($bin + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe generated file path' }
-        while ($currentPath.Length -ge $bin.Length) {
-            $current = Get-Item -LiteralPath $currentPath -Force -ErrorAction Stop
-            if ($current.Attributes -band [IO.FileAttributes]::ReparsePoint) { $safe = $false; break }
-            if ($currentPath -eq $bin) { break }
-            $currentPath = Split-Path $currentPath -Parent
-        }
-        if ($safe) { $path }
+        if (Test-InstallGeneratedPathSafe -Path $path -Bin $bin) { $path }
     }
+}
+
+# A linked file or directory belongs to its owner; do not follow it outside bin.
+function Test-InstallGeneratedPathSafe {
+    param([string]$Path, [string]$Bin)
+    $currentPath = [IO.Path]::GetFullPath($Path)
+    if (-not $currentPath.StartsWith($Bin + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe generated file path' }
+    while ($currentPath.Length -ge $Bin.Length) {
+        $current = Get-Item -LiteralPath $currentPath -Force -ErrorAction Stop
+        if ($current.Attributes -band [IO.FileAttributes]::ReparsePoint) { return $false }
+        if ($currentPath -eq $Bin) { break }
+        $currentPath = Split-Path $currentPath -Parent
+    }
+    return $true
 }
 
 function Get-UninstallCachePath {
@@ -614,11 +657,20 @@ function Invoke-PsAiUninstall {
             if ($cache) { "Remove cache folder: $cache" }
         }
     }
-    $files = @(Get-UninstallFiles -Tools $Tools -ConfigDir $ConfigDir -Owner $owner)
+    # Find the installs that stay before removing anything; their commands must keep working.
+    $survivors = @(Get-UninstallSurvivors -Targets $targets)
+    $files = @(Get-UninstallFiles -Tools $Tools -ConfigDir $ConfigDir -Owner $owner -KeepOwnerCommands:($survivors.Count -gt 0))
     foreach ($path in $files) { "Remove file: $path" }
     if (-not $files.Count) { 'skip: ps-ai generated files (not installed)' }
-    'Channel plugins and their state remain in place.'
     $hasWork = $targets.Count -or $files.Count
+    # With no survivor, a command that loses its script has nothing to move to, so it is removed.
+    $plannedDead = @()
+    if ($hasWork -and -not $survivors.Count) {
+        $removedFolders = @($targets | Where-Object Cache | ForEach-Object { $_.Cache })
+        $plannedDead = @(Get-InstallDeadCommandPaths -RemovedFolders $removedFolders | Where-Object { $files -notcontains $_ })
+    }
+    foreach ($path in $plannedDead) { "Remove dead command: $path" }
+    'Channel plugins and their state remain in place.'
     if (-not $hasWork) { 'Nothing to uninstall.' }
     if ($hasWork -and -not $DryRun -and ($Yes -or (Read-Host 'Uninstall ps-ai from these targets? [y/N]') -match '^(?i:y|yes)$')) {
         foreach ($target in $targets) {
@@ -651,7 +703,7 @@ function Invoke-PsAiUninstall {
                 $parent = Split-Path $parent -Parent
             }
         }
-        Repair-InstallOwnerCommands
+        Repair-InstallOwnerCommands -Survivors $survivors -Planned $plannedDead
     }
     $configuration = Get-InstallLegionPath 'configuration'
     $accounts = Get-InstallLegionPath 'agents'
@@ -672,7 +724,7 @@ function Invoke-PsAiUninstall {
 }
 
 function Invoke-PsAiUpdateSteps {
-    param($Entry, [string]$ConfigDir, [switch]$DryRun, [string]$Source = 'BlackGad/ps-ai-marketplace')
+    param($Entry, [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, [string]$Source = 'BlackGad/ps-ai-marketplace')
     $configEnv = $Entry.configEnv
     $previous = [Environment]::GetEnvironmentVariable($configEnv, 'Process')
     try {
@@ -682,6 +734,12 @@ function Invoke-PsAiUpdateSteps {
         Format-InstallCommand -Command $list -ConfigEnv $configEnv -ConfigDir $ConfigDir
         $install = @($Entry.command) + $Entry.plugin.install
         if (-not (Test-InstallStepDone -Command $install -ConfigEnv $configEnv -ConfigDir $ConfigDir -IncludeDisabled)) {
+            # A missing plugin means a fresh install, which needs consent even though -Update skips the question.
+            $label = if ($ConfigDir) { $ConfigDir } else { 'default config' }
+            if (-not $DryRun -and -not (Confirm-InstallChange -Yes:$Yes -Question "ps-ai is not installed for $($Entry.id) in $label. Install it now? [y/N]")) {
+                "skip: $($Entry.id) ps-ai in $label (not installed)"
+                return
+            }
             Invoke-PsAiInstallSteps -Tool $Entry.id -Source $Source -ConfigEnv $configEnv -ConfigDir $ConfigDir -DryRun:$DryRun
             if (-not $DryRun) { Invoke-InstallRefresh -Entry $Entry -ConfigDir $ConfigDir }
             return
@@ -699,6 +757,19 @@ function Invoke-PsAiUpdateSteps {
 }
 
 function Invoke-InstallRefresh {
+    param($Entry, [string]$ConfigDir)
+    # The listing that finds the installed script must see the same install the caller means.
+    $previous = [Environment]::GetEnvironmentVariable($Entry.configEnv, 'Process')
+    try {
+        if ($ConfigDir) { Set-InstallConfigEnvironment -Name $Entry.configEnv -Value $ConfigDir }
+        else { Set-InstallConfigEnvironment -Name $Entry.configEnv -Value $null }
+        Invoke-InstallRefreshScript -Entry $Entry -ConfigDir $ConfigDir
+    } finally {
+        Set-InstallConfigEnvironment -Name $Entry.configEnv -Value $previous
+    }
+}
+
+function Invoke-InstallRefreshScript {
     param($Entry, [string]$ConfigDir)
     # Resolve after the update: the previous plugin cache can already be obsolete.
     $result = Invoke-ClosedInput -Command (@($Entry.command) + $Entry.plugin.list) -Environment $Entry.plugin.listingEnv
@@ -946,7 +1017,7 @@ function Invoke-PsAiInstaller {
         $configEnv = $entry.configEnv
         foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
             if ($Update) {
-                Invoke-PsAiUpdateSteps -Entry $entry -ConfigDir $folder -DryRun:$DryRun -Source $Source
+                Invoke-PsAiUpdateSteps -Entry $entry -ConfigDir $folder -DryRun:$DryRun -Yes:$Yes -Source $Source
             } else {
                 Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $folder -DryRun:$DryRun
             }

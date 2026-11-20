@@ -58,20 +58,25 @@ try {
         function Invoke-InstallRefresh { param($Entry, [string]$ConfigDir) $refreshes.Add("$($Entry.id):$ConfigDir") }
         function Test-InstallCommandAvailable { param($Name) $true }
 
+        # The survivors are found before anything is removed; repair only moves commands to one, or removes the planned ones.
+        $deadLegion = Join-Path $bin 'legion'
         Write-RepairFixture
-        function Test-InstallStepDone { param($Command, $ConfigEnv, $ConfigDir, [switch]$IncludeDisabled, [switch]$RequireRoot) $Command[0] -eq 'codex' -and $ConfigDir -eq 'survivor' }
-        function Get-UpdateConfigDirs { param([string]$Tool, [string]$ConfigDir) ,@('survivor') }
-        Repair-InstallOwnerCommands
+        $survivor = [pscustomobject]@{ Entry = (Get-InstallTool codex); Folder = 'survivor' }
+        Repair-InstallOwnerCommands -Survivors @($survivor) -Planned @($deadLegion)
         Assert-Equal 'codex:survivor' ($refreshes -join '|') 'Dead commands are retargeted through a surviving install'
-        Assert-True (Test-Path -LiteralPath (Join-Path $bin 'legion')) 'Dead command is kept while a survivor can fix it'
+        Assert-True (Test-Path -LiteralPath $deadLegion) 'Dead command is kept while a survivor can fix it'
 
         $refreshes.Clear()
-        function Test-InstallStepDone { param($Command, $ConfigEnv, $ConfigDir, [switch]$IncludeDisabled, [switch]$RequireRoot) $false }
-        Repair-InstallOwnerCommands
+        Repair-InstallOwnerCommands -Planned @($deadLegion)
         Assert-Equal 0 $refreshes.Count 'No survivor means no refresh'
-        Assert-Equal $false (Test-Path -LiteralPath (Join-Path $bin 'legion')) 'Dead command is removed when no install is left'
+        Assert-Equal $false (Test-Path -LiteralPath $deadLegion) 'A planned dead command is removed when no install is left'
         Assert-True (Test-Path -LiteralPath (Join-Path $bin 'ps-ai-status')) 'A working command stays'
         Assert-True (Test-Path -LiteralPath (Join-Path $bin 'ps-ai-setup')) 'A foreign file stays'
+
+        Write-RepairFixture
+        $kept = @(Repair-InstallOwnerCommands)
+        Assert-True (Test-Path -LiteralPath $deadLegion) 'A dead command outside the plan is kept'
+        Assert-True (($kept -join "`n") -match 'Kept command: .*legion') 'A kept dead command is reported'
     }
 } finally {
     $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
