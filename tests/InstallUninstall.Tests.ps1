@@ -13,6 +13,8 @@ $repo = Split-Path $PSScriptRoot -Parent
     $state = @{ Missing=$false; FailList=$false; FailRemove=$false; Answer='n'; Prompts=0; OnlyMissing=$false }
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
     function Ensure-InstallPowerShell { throw 'Uninstall must not install prerequisites' }
+    # Retargeting dead commands through a surviving install is covered in InstallOwnerCommands; here it only must not run a real refresh.
+    function Invoke-InstallRefresh { param($Entry, [string]$ConfigDir) }
     function Test-InstallCommandAvailable { param($Name) -not $state.OnlyMissing }
     function Read-Host {
         param($Prompt)

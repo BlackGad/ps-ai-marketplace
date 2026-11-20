@@ -7,7 +7,8 @@ param(
     [switch]$NoRun,
     [string]$SourceRef = 'main',
     [switch]$Update,
-    [switch]$Uninstall
+    [switch]$Uninstall,
+    [string]$HomeRoot
 )
 
 # Standalone: this file also runs as downloaded script text in Windows PowerShell 5.1.
@@ -374,8 +375,17 @@ function Invoke-PsAiInstallSteps {
     }
 }
 
+# -HomeRoot lets a caller with an alternate home keep every write, refresh included, inside it.
+$script:installHomeRoot = $HomeRoot
 function Get-InstallHome {
+    if ($script:installHomeRoot) { return $script:installHomeRoot }
     return [Environment]::GetFolderPath('UserProfile')
+}
+
+# Persistent changes need consent: -Yes, or a yes at the prompt.
+function Confirm-InstallChange {
+    param([string]$Question, [switch]$Yes)
+    return $Yes -or (Read-Host $Question) -match '^(?i:y|yes)$'
 }
 
 function Get-InstallLegionPath {
@@ -421,6 +431,63 @@ function Get-UpdateConfigDirs {
     return ,$folders
 }
 
+# The owner commands ps-ai creates, and the bin script each one calls.
+function Get-InstallOwnerCommands {
+    return [ordered]@{ 'ps-ai-setup' = 'ps-ai-setup.ps1'; 'ps-ai-status' = 'ps-ai-status.ps1'; 'ps-ai-overseer' = 'ps-ai-overseer.ps1'; 'legion' = 'legion.ps1' }
+}
+
+# Same rule as lib/commands.ps1 (this file is standalone): one launcher line whose -File argument is the script.
+# Returns the script path the command calls, or nothing when the file is not a ps-ai command.
+function Get-InstallOwnerCommandTarget {
+    param([string]$Path, [string]$Script)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+    $pattern = '(?m)^[ \t]*(?:exec[ \t]+|@)?pwsh[ \t]+(?:-\S+[ \t]+)*?-File[ \t]+(?<target>(?:''[^'']*''|"[^"]*"|[^\s''"]+)+)(?=\s|$)'
+    foreach ($match in [regex]::Matches([IO.File]::ReadAllText($Path), $pattern)) {
+        $target = $match.Groups['target'].Value -replace '''([^'']*)''|"([^"]*)"', '$1$2'
+        if ($target.Replace('\', '/').EndsWith("/bin/$Script", [StringComparison]::Ordinal)) { return $target }
+    }
+}
+
+function Test-InstallOwnerCommandFile {
+    param([string]$Path, [string]$Script)
+    return [bool](Get-InstallOwnerCommandTarget -Path $Path -Script $Script)
+}
+
+function Get-InstallOwnerCommandPaths {
+    param([string]$Bin)
+    $owner = Get-InstallOwnerCommands
+    foreach ($command in $owner.Keys) {
+        foreach ($name in @($command, "$command.cmd")) {
+            $path = Join-Path $Bin $name
+            if (Test-InstallOwnerCommandFile -Path $path -Script $owner[$command]) { $path }
+        }
+    }
+}
+
+# After an uninstall, a command whose script is gone moves to a surviving install, or is removed when none is left.
+function Repair-InstallOwnerCommands {
+    $bin = [IO.Path]::GetFullPath((Get-InstallLegionPath 'bin'))
+    $owner = Get-InstallOwnerCommands
+    $dead = @()
+    foreach ($command in $owner.Keys) {
+        foreach ($name in @($command, "$command.cmd")) {
+            $path = Join-Path $bin $name
+            $target = Get-InstallOwnerCommandTarget -Path $path -Script $owner[$command]
+            if ($target -and -not (Test-Path -LiteralPath $target -PathType Leaf)) { $dead += $path }
+        }
+    }
+    if (-not $dead.Count) { return }
+    foreach ($entry in $script:installCatalog.tools) {
+        if (-not (Test-InstallCommandAvailable -Name $entry.command)) { continue }
+        foreach ($folder in (Get-UpdateConfigDirs -Tool $entry.id)) {
+            if (-not (Test-InstallStepDone -Command (@($entry.command) + $entry.plugin.install) -ConfigEnv $entry.configEnv -ConfigDir $folder -IncludeDisabled)) { continue }
+            Invoke-InstallRefresh -Entry $entry -ConfigDir $folder
+            return
+        }
+    }
+    foreach ($path in $dead) { Remove-Item -LiteralPath $path -Force -ErrorAction Stop; "Removed command: $path" }
+}
+
 function Get-UninstallFiles {
     param([string[]]$Tools, [string]$ConfigDir, $Owner)
     $homeRoot = Get-InstallHome
@@ -445,16 +512,7 @@ function Get-UninstallFiles {
         }
     }
     if (-not $remaining) {
-        # The owner commands ps-ai created; a file is ours only when it calls the matching bin script.
-        $ownerCommands = @{ 'ps-ai-overseer' = 'ps-ai-overseer.ps1'; 'legion' = 'legion.ps1'; 'ps-ai-setup' = 'ps-ai-setup.ps1'; 'ps-ai-status' = 'ps-ai-status.ps1' }
-        foreach ($command in $ownerCommands.Keys) {
-            $script = [regex]::Escape($ownerCommands[$command])
-            foreach ($name in @($command, "$command.cmd")) {
-                $path = Join-Path $bin $name
-                if ((Test-Path -LiteralPath $path -PathType Leaf) -and
-                    [IO.File]::ReadAllText($path) -match "(-File\s+)([`"'][^\r\n]*?[/\\]bin[/\\]$script[`"'])") { $paths += $path }
-            }
-        }
+        $paths += Get-InstallOwnerCommandPaths -Bin $bin
         # Exact files published by Sync-PsAiFoundryRuntime; never remove the directory tree.
         $runtime = Join-Path $bin '.ps-ai-runtime'
         foreach ($name in @('bin/lib/tools.ps1', 'bin/lib/foundry.ps1', 'bin/lib/paths.ps1', 'bin/ps-ai-foundry.ps1', 'schemas/tool.schema.json')) {
@@ -590,6 +648,7 @@ function Invoke-PsAiUninstall {
                 $parent = Split-Path $parent -Parent
             }
         }
+        Repair-InstallOwnerCommands
     }
     $configuration = Get-InstallLegionPath 'configuration'
     $accounts = Get-InstallLegionPath 'agents'
@@ -814,7 +873,8 @@ function Ensure-InstallPowerShell {
         Write-Host 'skip: PowerShell 7 (already done)'
         # A previous portable install may be present before this shell has refreshed PATH.
         $portable = Get-InstallPortablePowerShell
-        if ($OnWindows -and -not $DryRun -and $portable -and $command.Source -eq $portable) {
+        if ($OnWindows -and -not $DryRun -and $portable -and $command.Source -eq $portable -and
+            (Confirm-InstallChange -Yes:$Yes -Question 'Add the portable PowerShell 7 folder to your user PATH? [y/N]')) {
             Add-InstallPowerShellPath -Path (Split-Path $portable -Parent)
         }
         return $true
@@ -869,6 +929,7 @@ function Invoke-PsAiInstaller {
         foreach ($entry in $script:installCatalog.tools) { if ($entry.installHint) { $entry.installHint } }
         return
     }
+    if (-not $Update -and -not $DryRun -and -not (Confirm-InstallChange -Yes:$Yes -Question "Install ps-ai for $($Tools -join ', ') now? [y/N]")) { return }
     $results = @()
     $Source = Resolve-InstallSource -Source $Source
     foreach ($tool in $Tools) {
