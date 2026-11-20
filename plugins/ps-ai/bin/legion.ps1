@@ -102,8 +102,9 @@ function Get-LegionCall {
 }
 
 # Runs one script in this process and returns its exit code.
+# With -Hold the output is kept in $script:LegionOutput and not printed yet.
 function Invoke-LegionScript {
-    param($Call)
+    param($Call, [switch]$Hold)
 
     # Reset first: a script that ends without `exit` must not report an older failure.
     $global:LASTEXITCODE = 0
@@ -112,7 +113,7 @@ function Invoke-LegionScript {
     try {
         $lines = @(& (Join-Path $script:LegionBin $Call.Script) @splat | ForEach-Object { "$_" })
         $script:LegionOutput = $lines
-        foreach ($line in $lines) { Write-Host $line }
+        if (-not $Hold) { $lines | ForEach-Object { Write-Host $_ } }
         return $global:LASTEXITCODE
     } catch {
         Write-Host $_.Exception.Message
@@ -132,10 +133,16 @@ function Read-LegionAnswer {
 function Invoke-LegionWithApply {
     param($Call)
 
-    $exit = Invoke-LegionScript -Call $Call
-    if ($exit -ne 0) { return $exit }
-    if ($script:LegionOutput.Count -gt 0 -and $script:LegionOutput[-1] -eq 'Nothing to do.') { return 0 }
-    if (-not (Test-LegionInteractive)) { return 0 }
+    $exit = Invoke-LegionScript -Call $Call -Hold
+    $plan = $script:LegionOutput
+    $nothingToDo = $plan.Count -gt 0 -and $plan[-1] -eq 'Nothing to do.'
+    if ($exit -ne 0 -or $nothingToDo -or -not (Test-LegionInteractive)) {
+        $plan | ForEach-Object { Write-Host $_ }
+        return $exit
+    }
+
+    # The prompt replaces the plan's own hint to run again with -Yes.
+    $plan | Where-Object { $_ -ne 'Run again with -Yes to apply.' } | ForEach-Object { Write-Host $_ }
 
     $answer = (Read-LegionAnswer).Trim()
     if ($answer -eq '' -or $answer -eq 'y' -or $answer -eq 'yes') {

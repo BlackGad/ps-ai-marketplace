@@ -202,6 +202,23 @@ if ($code -ne 'none') { exit [int]$code }
     Assert-Equal 1 (Get-Records).Count 'Nothing to do runs once'
     Assert-Equal 0 $script:Asked 'Nothing to do never prompts'
 
+    $hintPlan = @('Plan (nothing changed yet):', '  create   settings', 'Run again with -Yes to apply.')
+    Reset-StandIns -Plan $hintPlan
+    $script:Answers = @('n')
+    Invoke-Quiet @('setup') | Out-Null
+    Assert-True ($script:Output -contains '  create   settings') 'Interactive prompt still shows the plan'
+    Assert-True ($script:Output -notcontains 'Run again with -Yes to apply.') 'Interactive prompt hides the -Yes hint'
+
+    Reset-StandIns -Plan $hintPlan
+    $script:Interactive = $false
+    Invoke-Quiet @('setup') | Out-Null
+    Assert-True ($script:Output -contains 'Run again with -Yes to apply.') 'Non-interactive keeps the -Yes hint'
+    $script:Interactive = $true
+
+    Reset-StandIns -Plan $hintPlan
+    Invoke-Quiet @('setup', '--yes') | Out-Null
+    Assert-True ($script:Output -contains 'Run again with -Yes to apply.') '--yes keeps the full output'
+
     Reset-StandIns -Exit '4'
     $script:Asked = 0
     $exit = Invoke-Quiet @('add', 'claude')
