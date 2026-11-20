@@ -25,8 +25,22 @@ function Test-PsAiOwnerCommandFile {
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
     $text = [IO.File]::ReadAllText($Path)
-    # Match refresh's quoted -File target, including shell-escaped apostrophes and extra owner flags.
-    $target = '["''][^\r\n]*?[/\\]bin[/\\]' + [regex]::Escape($Script) + '["'']'
-    $pattern = '(?m)^(?:exec\s+|@)?pwsh\s+[^\r\n]*?-File\s+' + $target
-    return [regex]::IsMatch($text, $pattern)
+    foreach ($line in $text.Split("`n")) {
+        # Only recognize a pwsh call, allowing the Unix exec and Windows @ prefixes.
+        $call = $line.Trim()
+        if ($call.StartsWith('exec ')) { $call = $call.Substring(5).TrimStart() }
+        $words = $call.TrimStart('@').Split([char[]]" `t", [StringSplitOptions]::RemoveEmptyEntries)
+        if ($words.Count -eq 0 -or $words[0] -cne 'pwsh') { continue }
+
+        # Require a separate -File argument followed by a target.
+        $fileIndex = [array]::IndexOf($words, '-File')
+        if ($fileIndex -lt 1 -or $fileIndex -eq $words.Count - 1) { continue }
+
+        # Ignore quoting and separator differences; the target must end in bin/<script>.
+        foreach ($word in $words[($fileIndex + 1)..($words.Count - 1)]) {
+            $target = $word.Replace('"', '').Replace("'", '').Replace('\', '/')
+            if ($target.EndsWith("/bin/$Script", [StringComparison]::Ordinal)) { return $true }
+        }
+    }
+    return $false
 }

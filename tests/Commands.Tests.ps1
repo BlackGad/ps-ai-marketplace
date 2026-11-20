@@ -19,7 +19,8 @@ Assert-Equal "@pwsh -NoProfile -File `"C:\plugin folder\bin\legion.ps1`" %*`r`n"
 
 $path = Join-Path $scratch 'legion'
 Assert-Equal $false (Test-PsAiOwnerCommandFile -Path $path -Script legion.ps1) 'Missing command is not owned'
-foreach ($text in @($unix, $windows, $unix.Replace(' "$@"', ' --extra "$@"'), $windows.Replace(' %*', ' --extra %*'))) {
+foreach ($text in @($unix, $windows, $unix.Replace(' "$@"', ' --extra "$@"'), $windows.Replace(' %*', ' --extra %*'),
+    'pwsh -NoProfile -File /plugin/bin/legion.ps1', '@pwsh -NoProfile -File C:\plugin\bin\legion.ps1')) {
     [IO.File]::WriteAllText($path, $text)
     Assert-True (Test-PsAiOwnerCommandFile -Path $path -Script legion.ps1) 'Generated and owner-extended shims are recognized'
     Assert-Equal $false (Test-PsAiOwnerCommandFile -Path $path -Script ps-ai-status.ps1) 'Another owner command target does not match'

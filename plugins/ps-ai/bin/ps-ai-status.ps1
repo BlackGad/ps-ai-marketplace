@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Dot-sourcing the validator with -NoRun overwrites $NoRun, so preserve the caller's choice.
 $statusNoRun = $NoRun
 . (Join-Path $PSScriptRoot 'ps-ai-validate.ps1') -NoRun
 . (Join-Path $PSScriptRoot 'lib/common.ps1')
