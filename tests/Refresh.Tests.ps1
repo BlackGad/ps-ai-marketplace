@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $refresh = Join-Path $root 'plugins/ps-ai/bin/ps-ai-refresh.ps1'
-$tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path $root ('.agents/temp/refresh-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
     $config = Join-Path $tempRoot '.legion/configuration'
@@ -33,7 +33,19 @@ try {
 exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/ps-ai-overseer.ps1' -Account chosen "$@"
 '@ | Set-Content $shim
     $cmdShim = Join-Path $bin 'ps-ai-overseer.cmd'
-    '@pwsh -NoProfile -File "C:\old\cache\bin\ps-ai-overseer.ps1" -Account chosen %*' | Set-Content $cmdShim
+    '@pwsh -NoProfile -File "C:\old\cache\bin\ps-ai-overseer.ps1" -Account chosen -Repo "\\server\team$\work folder" %*' | Set-Content $cmdShim
+    foreach ($name in @('legion', 'ps-ai-setup', 'ps-ai-status')) {
+        "#!/bin/sh`nexec pwsh -NoProfile -File '/old/cache/bin/$name.ps1' -OwnerFlag keep `"`$@`"" | Set-Content (Join-Path $bin $name)
+        "@pwsh -NoProfile -File `"C:\old\cache\bin\$name.ps1`" -OwnerFlag keep %*" | Set-Content (Join-Path $bin "$name.cmd")
+    }
+    & $refresh -HomeRoot $tempRoot | Out-Null
+    $homeFlag = & {
+        . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
+        '-HomeRoot ' + (ConvertTo-PsAiShellLiteral $tempRoot)
+    }
+    Assert-True ((Get-Content $shim -Raw).Contains($homeFlag)) 'R4 B4 refresh binds an older unbound command to the selected home'
+    & $refresh -HomeRoot $tempRoot | Out-Null
+    Assert-Equal 1 ([regex]::Matches((Get-Content $shim -Raw), '-HomeRoot ').Count) 'R4 B4 refresh preserves one home binding'
     & $refresh -HomeRoot $tempRoot | Out-Null
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/ps-ai/bin/ps-ai-foundry.ps1'))) ([IO.File]::ReadAllText((Join-Path $runtime 'ps-ai-foundry.ps1'))) 'Approved refresh updates copied runtime bytes'
     foreach ($name in @('foundry', 'tools')) {
@@ -49,12 +61,39 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/ps-ai-overseer.ps1' -Acco
         Assert-True ($text.Contains((Join-Path $root 'plugins/ps-ai/bin/ps-ai-overseer.ps1'))) 'Refresh retargets existing overseer shim'
         Assert-True ($text.Contains('-Account chosen')) 'Refresh preserves shim arguments'
     }
+    Assert-True ((Get-Content $cmdShim -Raw).Contains('-Repo "\\server\team$\work folder"')) 'R5 B2 refresh preserves the quoted batch dollar path'
     Assert-Equal $ownerBytes ([IO.File]::ReadAllText($file)) 'Refresh preserves owner settings bytes'
     Assert-Equal 'custom wrapper' (Get-Content (Join-Path $bin 'external')) 'External command remains untouched'
+    foreach ($name in @('legion', 'ps-ai-setup', 'ps-ai-status')) {
+        foreach ($suffix in @('', '.cmd')) {
+            $text = Get-Content (Join-Path $bin "$name$suffix") -Raw
+            Assert-True ($text.Contains((Join-Path $root "plugins/ps-ai/bin/$name.ps1"))) 'Refresh retargets all owner commands'
+            Assert-True ($text.Contains('-OwnerFlag keep')) 'Refresh keeps extra owner flags for every command'
+        }
+    }
+    [IO.File]::WriteAllText((Join-Path $bin 'legion'), 'unrelated owner command')
+    & $refresh -HomeRoot $tempRoot | Out-Null
+    Assert-Equal 'unrelated owner command' ([IO.File]::ReadAllText((Join-Path $bin 'legion'))) 'Refresh leaves an unrelated command untouched'
     $before = @(Get-ChildItem $bin -File -Recurse | Sort-Object FullName | ForEach-Object { $_.LastWriteTimeUtc.Ticks }) -join '|'
     $repeat = @(& $refresh -HomeRoot $tempRoot)
     Assert-True ([bool]($repeat -match '^skip: .*\(already done\)$')) 'Repeated refresh reports skip'
     Assert-Equal $before (@(Get-ChildItem $bin -File -Recurse | Sort-Object FullName | ForEach-Object { $_.LastWriteTimeUtc.Ticks }) -join '|') 'Repeated refresh writes nothing'
+    # C-1: a file that only mentions the launcher in a comment or a later argument is not rewritten.
+    $lookalike = "#!/bin/sh`n# pwsh -NoProfile -File '/old/cache/bin/legion.ps1'`necho mine"
+    [IO.File]::WriteAllText((Join-Path $bin 'legion'), $lookalike)
+    $argumentOnly = "#!/bin/sh`nexec pwsh -NoProfile -File /mine/tool.ps1 '/old/cache/bin/ps-ai-status.ps1'`n"
+    [IO.File]::WriteAllText((Join-Path $bin 'ps-ai-status'), $argumentOnly)
+    & $refresh -HomeRoot $tempRoot | Out-Null
+    Assert-Equal $lookalike ([IO.File]::ReadAllText((Join-Path $bin 'legion'))) 'Refresh leaves a comment-only mention untouched'
+    Assert-Equal $argumentOnly ([IO.File]::ReadAllText((Join-Path $bin 'ps-ai-status'))) 'Refresh leaves a later-argument mention untouched'
+    # C-2: an owned command whose script is gone is rewritten to the current one.
+    $stale = "#!/bin/sh`nexec pwsh -NoProfile -File '/gone/cache/bin/ps-ai-setup.ps1' -OwnerFlag keep `"`$@`"`n"
+    [IO.File]::WriteAllText((Join-Path $bin 'ps-ai-setup'), $stale)
+    & $refresh -HomeRoot $tempRoot | Out-Null
+    $fixed = [IO.File]::ReadAllText((Join-Path $bin 'ps-ai-setup'))
+    Assert-True ($fixed.Contains((Join-Path $root 'plugins/ps-ai/bin/ps-ai-setup.ps1')) -and $fixed.Contains('-OwnerFlag keep')) 'Refresh retargets a stale command and keeps its flags'
 } finally {
-    Remove-Item -LiteralPath $tempRoot -Recurse -Force
+    if ([IO.Path]::GetFullPath($tempRoot).StartsWith([IO.Path]::GetFullPath((Join-Path $root '.agents/temp/')))) {
+        Remove-Item -LiteralPath $tempRoot -Recurse -Force
+    }
 }

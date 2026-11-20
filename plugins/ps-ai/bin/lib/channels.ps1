@@ -9,7 +9,12 @@ function Get-PsAiChannels {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
         $data = ConvertFrom-PsAiToolJson ([IO.File]::ReadAllText($path))
         $keys = @($data.PSObject.Properties.Name)
-        if ($keys.Count -ne 3 -or 'schemaVersion' -cnotin $keys -or 'id' -cnotin $keys -or 'launch' -cnotin $keys) { throw "invalid channel descriptor '$path'" }
+        foreach ($required in @('schemaVersion', 'id', 'launch')) {
+            if ($required -cnotin $keys) { throw "invalid channel descriptor '$path'" }
+        }
+        foreach ($key in $keys) {
+            if ($key -cnotin @('schemaVersion', 'id', 'launch', 'ready')) { throw "invalid channel descriptor '$path'" }
+        }
         if ($data.schemaVersion -isnot [long] -or $data.schemaVersion -ne 1 -or $data.id -isnot [string] -or $data.id -cnotmatch '^[a-z][a-z0-9-]*$') { throw "invalid channel identity '$path'" }
         if ($folder.Name -cne "ps-ai-$($data.id)") { throw "channel folder does not match '$($data.id)'" }
         if ($data.id -cin $ids) { throw "duplicate channel kind '$($data.id)'" }

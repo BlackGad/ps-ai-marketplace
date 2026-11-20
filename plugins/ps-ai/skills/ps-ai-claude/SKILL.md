@@ -22,8 +22,8 @@ Use this tool skill for Claude Code operations only. Load `ps-ai-personalisation
 
 1. **Run or resume:** read [run.md](references/run.md). Supply the task prompt and capture the response in its report. Keep the task environment on that process only.
 2. **Limits:** read [limits.md](references/limits.md). Ping the selected account before interpreting its limits.
-3. **Accounts:** read [accounts.md](references/accounts.md) to add, register, rename, or remove accounts; use the installer only after the owner's login step for a new account.
-4. **Missing CLI:** follow [install.md](references/install.md) before adding an account or running Claude Code.
+3. **Accounts:** read [accounts.md](references/accounts.md) to add, register, rename, or remove accounts. Setup installs ps-ai before the owner logs in.
+4. **Missing CLI:** setup installs it with the owner's yes; use [install.md](references/install.md) only for a CLI-only install the owner asks for.
 
 ## Stop and verification
 

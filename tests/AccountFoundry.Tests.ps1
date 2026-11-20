@@ -230,7 +230,9 @@ approval_policy = "never"
         $collisionFile = Join-Path $collisionHome '.legion/configuration/ps-ai-personalisation.json'
         New-Item -ItemType Directory (Split-Path $collisionFile -Parent) -Force | Out-Null
         Copy-Item $file $collisionFile
-        & $accountScript -Action add -Id ps-ai-runtime -Tool claude -Command preserved-cli -HomeRoot $collisionHome | Out-Null
+        $preservedCommand = Join-Path $collisionHome 'preserved-cli.ps1'
+        '# inert preserved CLI' | Set-Content -LiteralPath $preservedCommand
+        & $accountScript -Action add -Id ps-ai-runtime -Tool claude -Command $preservedCommand -HomeRoot $collisionHome | Out-Null
         $collisionWrapper = Join-Path $collisionHome '.legion/bin/ps-ai-runtime'
         $collisionBytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))
         $runtimeChanges = [Collections.Generic.List[string]]::new()
@@ -239,7 +241,7 @@ approval_policy = "never"
         Assert-True (Test-Path $collisionRunner -PathType Leaf) 'A valid account named ps-ai-runtime cannot block runtime sync'
         Assert-Equal $collisionBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))) 'Runtime sync preserves same-named account wrapper'
         & $accountScript -Action rename -Id ps-ai-runtime -NewId runtime-renamed -HomeRoot $collisionHome | Out-Null
-        & $accountScript -Action add -Id ps-ai-runtime -Tool claude -Command preserved-cli -HomeRoot $collisionHome | Out-Null
+        & $accountScript -Action add -Id ps-ai-runtime -Tool claude -Command $preservedCommand -HomeRoot $collisionHome | Out-Null
         Assert-True ((Get-Content $collisionWrapper -Raw).Contains('preserved-cli')) 'Account creation still works after runtime installation'
         $pluginCopy = Join-Path $tempRoot 'source-plugin'
         Copy-Item (Join-Path $root 'plugins/ps-ai') $pluginCopy -Recurse

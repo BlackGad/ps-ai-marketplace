@@ -5,8 +5,9 @@ $configEnvs = @()
 if (Test-Path -LiteralPath $catalogPath) {
     $configEnvs = (Get-Content $catalogPath -Raw | ConvertFrom-Json).tools.configEnv
 }
+$configEnvs += @('PS_AI_ROLE', 'PS_AI_TASK')
 foreach ($test in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Sort-Object Name) {
-    # Tests select fixture homes; inherited CLI overrides must not select real folders.
+    # Tests select fixture homes and modes; inherited overrides must not affect them.
     $savedConfig = @{}
     foreach ($name in $configEnvs) {
         $savedConfig[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')

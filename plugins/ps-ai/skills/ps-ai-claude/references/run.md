@@ -22,3 +22,7 @@ To continue a legion task after a question, use the same account and folder with
 Tool-enforced read-only reviewer dispatch is unsupported by this adapter: no verified fresh-run or resume recipe is supplied. Stop before launching a reviewer or reviewer follow-up through this tool. A read-only prompt does not enforce access restrictions; do not reuse the legion recipe for reviews. Tell the overseer to select a routed tool with a documented enforced reviewer recipe, or ask the owner how to proceed if none is available.
 
 For interactive overseer launches with explicit account/model/argument choices and selected channels, use [launcher.md](launcher.md). Install and account login steps stay in [accounts.md](accounts.md).
+
+## Keep the session responsive
+
+Claude Code offers background shell commands: start long steps in the background and read the output when the completion notice arrives. Why and the blocking notice: [Keep the main session responsive](../../ps-ai-overseer/SKILL.md#identity-and-hard-rules).

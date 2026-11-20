@@ -143,13 +143,17 @@ else { 'ps-ai@ps-ai-marketplace installed, enabled' }
     Copy-Item -LiteralPath $fixtureInstaller -Destination $standalone
     Copy-Item -LiteralPath (Join-Path $Repo 'tests/fixtures/install/catalog.json') -Destination (Join-Path $sandbox 'tools.json')
     $runner = Join-Path $sandbox 'invoke-text.ps1'
-    'param($Installer); & ([scriptblock]::Create((Get-Content -Raw $Installer))) -DryRun -Tools codex -Source (Split-Path $Installer)' | Set-Content -LiteralPath $runner
+    # The child reads the fixture home's accounts, never the real personalisation file.
+    New-Item -ItemType Directory -Path (Join-Path $sandbox '.legion/configuration') -Force | Out-Null
+    '{"agents":[{"id":"codex-fixture","tool":"codex","configDir":"~/.legion/agents/codex-fixture"}]}' | Set-Content -LiteralPath (Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json')
+    'param($Installer); & ([scriptblock]::Create((Get-Content -Raw $Installer))) -DryRun -Tools codex -Source (Split-Path $Installer) -HomeRoot (Split-Path $Installer)' | Set-Content -LiteralPath $runner
     $result = Invoke-ClosedInput -Command @($fixturePwshExe, '-NoProfile', '-File', $runner, '-Installer', $standalone)
     $output = $result.Output
     Assert-Equal 0 $result.ExitCode 'Script text runs standalone without repository context'
+    Assert-True (($output -join "`n").Contains('codex-fixture')) 'P2: the child uses the fixture home, not the real personalisation file'
     Assert-Equal 1 @($output | Where-Object { "$_" -eq 'Codex: approve the ps-ai hooks once with /hooks in a Codex session.' }).Count 'Codex prints hook approval reminder once'
     if ($windowsPowerShell) {
-        $result = Invoke-ClosedInput -Command @($windowsPowerShell.Source, '-NoProfile', '-File', $fixtureInstaller, '-DryRun', '-Source', $Repo, '-Tools', 'claude')
+        $result = Invoke-ClosedInput -Command @($windowsPowerShell.Source, '-NoProfile', '-File', $fixtureInstaller, '-DryRun', '-Source', $Repo, '-Tools', 'claude', '-HomeRoot', $sandbox)
         $output = $result.Output
         Assert-Equal 0 $result.ExitCode 'Root installer runs under Windows PowerShell 5.1'
         Assert-True (($output -join "`n").Contains('claude plugin marketplace add')) 'Windows PowerShell 5.1 previews CLI command'

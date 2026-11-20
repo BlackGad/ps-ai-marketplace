@@ -18,6 +18,7 @@ You are one working agent for one task. Activate only when the hook declares leg
 - Commit completed work locally with the task's message and required co-author. Never push, amend, rebase, or rewrite commits.
 - Never edit the tracked handoff; only the overseer owns it. Report learned preferences to the overseer for saving under the [shared memory rule](../ps-ai-personalisation/SKILL.md#identity-and-hard-rules); never edit shared files outside the assigned scope. Never launch agents: **A summoned unit cannot summon.**
 - Never read, print, or log credential files. A fixed repo gate runs through its indexed script; see [task.md](references/task.md).
+- Never message the owner; report questions to the overseer, who asks per the [console and channels rule](../ps-ai-personalisation/SKILL.md#identity-and-hard-rules).
 - Speak to the owner in plain words. Show commands only when asked or when they must run them themselves; keep exact checks in the task report.
 
 ## Task flow

@@ -3,9 +3,9 @@ $root = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $root 'plugins/ps-ai/bin/ps-ai-overseer.ps1'
 $tempRoot = Join-Path $root ('.agents/temp/overseer-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $tempRoot -Force | Out-Null
-$lines = @(& pwsh -NoProfile -File $script -HomeRoot $tempRoot)
-Assert-Equal 0 $LASTEXITCODE 'BareLauncherOnlyPrintsUsage without configuration'
-Assert-True ($lines -match 'Usage:') 'Bare launcher usage'
+$lines = @(& pwsh -NoProfile -File $script -HomeRoot $tempRoot -Repo $tempRoot 2>&1)
+Assert-True ($LASTEXITCODE -ne 0) 'Bare launcher without configuration fails'
+Assert-True (-not ($lines -match 'Usage:')) 'Bare launcher prints no usage line'
 . $script -NoRun -HomeRoot $tempRoot
 $owner = [pscustomobject]@{schemaVersion=1;agents=@(
     @{id='claude-a';tool='claude';configDir='~/a'},
@@ -92,3 +92,61 @@ New-Item -ItemType Directory $repoPath -Force | Out-Null
             Assert-True ($decoded.StartsWith('Remove-Item Env:NO_COLOR, Env:TERM -ErrorAction Ignore; ')) 'New terminal tab drops inherited no-color settings'
         }
     }
+
+# Account and channel choice (Task 5). Nothing below opens a terminal or starts an agent.
+$one = [pscustomobject]@{schemaVersion=1;agents=@(@{id='claude1';tool='claude';configDir='~/a'})}
+Assert-Equal 'claude1' (Select-OverseerAccount $one).id 'One account is picked'
+$two = [pscustomobject]@{schemaVersion=1;agents=@(
+    @{id='claude1';tool='claude';configDir='~/a'},
+    @{id='codex1';tool='codex';configDir='~/c'}
+);channels=@(@{id='my-telegram';kind='telegram';target='123';accounts=@('claude1')})}
+try { Select-OverseerAccount $two; throw 'Expected a choice error' }
+catch { Assert-Equal 'Choose an account: -Account claude1 | codex1' $_.Exception.Message 'Two accounts list the candidates' }
+Assert-Equal 'claude1' (Select-OverseerAccount $two -Channel @('my-telegram')).id 'Channel narrows the choice to one account'
+Assert-Equal 'codex1' (Select-OverseerAccount $two -Tool codex).id 'Tool narrows the choice to one account'
+
+Assert-Equal 'my-telegram' (Get-OverseerDefaultChannel -Personalisation $two -AccountId claude1 -Tool claude) 'One fitting binding is the default channel'
+Assert-True ($null -eq (Get-OverseerDefaultChannel -Personalisation $two -AccountId codex1 -Tool codex)) 'No binding means no default channel'
+$both = $two | ConvertTo-Json -Depth 100 | ConvertFrom-Json
+$both.channels = @($both.channels) + [pscustomobject]@{id='alerts';kind='telegram';target='456';accounts=@('claude1')}
+Assert-True ($null -eq (Get-OverseerDefaultChannel -Personalisation $both -AccountId claude1 -Tool claude)) 'Two fitting bindings give no default channel'
+
+# Whole run with a temp home; Start-OverseerLaunch is replaced, so no agent starts.
+$runHome = Join-Path $tempRoot 'run-home'
+$runRepo = Join-Path $tempRoot 'run-repo'
+New-Item -ItemType Directory (Join-Path $runHome '.legion/configuration'), (Join-Path $runRepo '.legion/configuration') -Force | Out-Null
+'{"schemaVersion":1}' | Set-Content (Join-Path $runRepo '.legion/configuration/project.json')
+$two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
+& {
+    $state = @{Launch=$null; Fail=$false}
+    function Start-OverseerLaunch {
+        param([string]$Repo, $Launch, [switch]$DryRun)
+        if ($state.Fail) { throw 'terminal failed' }
+        $state.Launch = $Launch
+    }
+    $run = @{Repo=$runRepo; HomeRoot=$runHome; Arguments=@()}
+    $text = @(Invoke-Overseer @run -Account claude1 -Channel @())
+    Assert-Equal ('launched claude1 (claude) in ' + $runRepo + ' channel my-telegram') ($text -join '|') 'Launched line names the default channel'
+    Assert-True ($state.Launch.Args -contains '--channels') 'One fitting binding adds the channel arguments'
+    $text = @(Invoke-Overseer @run -Account claude1 -Channel @() -NoChannel)
+    Assert-Equal ('launched claude1 (claude) in ' + $runRepo) ($text -join '|') 'NoChannel launched line has no channel'
+    Assert-True ($state.Launch.Args -cnotcontains '--channels') 'NoChannel adds no channel arguments'
+    $text = @(Invoke-Overseer @run -Account '' -Channel @() -Tool claude)
+    Assert-True ($text -contains ('launched claude1 (claude) in ' + $runRepo + ' channel my-telegram')) 'The only claude account is picked without -Account'
+    $state.Fail = $true
+    $text = @()
+    try { $text = @(Invoke-Overseer @run -Account claude1 -Channel @()); throw 'Expected launch failure' }
+    catch { Assert-Equal 'terminal failed' $_.Exception.Message 'A failed launch raises the error' }
+    Assert-True (-not ($text -match 'launched')) 'A failed launch prints no launched line'
+
+    # A wrapper or terminal that exits nonzero is a failed launch, not a launched one.
+    $state.Fail = $false
+    function Start-OverseerLaunch {
+        param([string]$Repo, $Launch, [switch]$DryRun)
+        $global:LASTEXITCODE = 5
+    }
+    $text = @()
+    try { $text = @(Invoke-Overseer @run -Account claude1 -Channel @()); throw 'Expected launch failure' }
+    catch { Assert-True ($_.Exception.Message -like '*exit code 5*') 'A nonzero exit raises an error naming the code' }
+    Assert-True (-not ($text -match 'launched')) 'A nonzero exit prints no launched line'
+}

@@ -20,6 +20,7 @@ $accountNoRun = $NoRun
 . (Join-Path $PSScriptRoot 'ps-ai-validate.ps1') -NoRun
 . (Join-Path $PSScriptRoot 'lib/common.ps1')
 . (Join-Path $PSScriptRoot 'lib/foundry.ps1')
+. (Join-Path $PSScriptRoot 'lib/commands.ps1')
 
 function Assert-PsAiId {
     param([string]$Id)
@@ -29,8 +30,9 @@ function Assert-PsAiId {
 function Assert-PsAiNewId {
     param([string]$Id, $Data)
     Assert-PsAiId -Id $Id
+    if ((Get-PsAiOwnerCommands).Contains($Id)) { throw "'$Id' is reserved for an owner command" }
     if (@($Data.agents | Where-Object { $_.id -ceq $Id }).Count) { throw "account '$Id' already exists" }
-    if (Get-Command $Id -ErrorAction SilentlyContinue) { throw "'$Id' is already a command" }
+    if (Get-Command $Id -CommandType Application -ErrorAction SilentlyContinue) { throw "'$Id' is already a command" }
 }
 
 function Update-PsAiChannelAccounts {
@@ -96,14 +98,53 @@ function ConvertTo-PsAiShellLiteral {
 
 function Write-PsAiGeneratedFile {
     param([string]$Path, [string]$Content, [Collections.Generic.List[string]]$Changes, [switch]$Executable)
-    if ((Test-Path -LiteralPath $Path) -and [IO.File]::ReadAllText($Path) -ceq $Content) { return }
-    New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
-    [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
-    if ($Executable -and -not $IsWindows) {
+    $same = (Test-Path -LiteralPath $Path) -and [IO.File]::ReadAllText($Path) -ceq $Content
+    if (-not $same) {
+        New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
+        [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
+    }
+    if ($Executable -and -not $IsWindows -and -not (Test-PsAiLauncherExecutable -Path $Path)) {
         & chmod +x $Path
         if ($LASTEXITCODE -ne 0) { throw 'could not make the generated wrapper executable' }
     }
-    if ($null -ne $Changes) { $Changes.Add($Path) }
+    if (-not $same -and $null -ne $Changes) { $Changes.Add($Path) }
+}
+
+function Get-PsAiShellWrapperTarget {
+    param([string]$Path, [string]$Tool, [string]$ConfigDir)
+    $prefix = (Get-PsAiTool $Tool).configEnv + '=' + (ConvertTo-PsAiShellLiteral $ConfigDir) + ' exec '
+    $line = [IO.File]::ReadAllLines($Path) | Select-Object -Last 1
+    if (-not $line.StartsWith($prefix) -or -not $line.EndsWith(' "$@"')) { return $null }
+    $literal = $line.Substring($prefix.Length, $line.Length - $prefix.Length - ' "$@"'.Length)
+    if ($literal.StartsWith('pwsh -NoProfile -File ')) { $literal = $literal.Substring('pwsh -NoProfile -File '.Length) }
+    if (-not $literal.StartsWith("'") -or -not $literal.EndsWith("'")) { return $null }
+    $escape = "'" + '"' + "'" + '"' + "'"
+    $target = $literal.Substring(1, $literal.Length - 2).Replace($escape, "'")
+    if ((ConvertTo-PsAiShellLiteral $target) -ceq $literal) { return $target }
+    return $null
+}
+
+function Get-PsAiWrapperTarget {
+    param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$ConfigDir)
+    $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
+    $candidates = [Collections.Generic.List[string]]::new()
+    $sh = Join-Path $bin $Id
+    if (Test-PsAiOwnedWrapper $sh $Id) {
+        $target = Get-PsAiShellWrapperTarget -Path $sh -Tool $Tool -ConfigDir $ConfigDir
+        if ($target) { $candidates.Add($target) }
+    }
+    $cmd = Join-Path $bin "$Id.cmd"
+    if ($IsWindows -and (Test-PsAiOwnedWrapper $cmd $Id)) {
+        $line = [IO.File]::ReadAllLines($cmd) | Select-Object -Skip 3 -First 1
+        if ($line -cmatch '^@(?:pwsh -NoProfile -File |call )?"([^"]+)" %\*$') { $candidates.Add($Matches[1].Replace('%%', '%')) }
+    }
+    if (-not $candidates.Count) { return $null }
+    $target = $candidates[0]
+    foreach ($candidate in $candidates) { if (-not (Get-PsAiPathComparer).Equals($target, $candidate)) { return $null } }
+    # Check the executable and reject edited or conflicting surviving wrappers before recovery.
+    try { New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -ConfigDir $ConfigDir -RealCommand $target -CheckOnly }
+    catch { return $null }
+    return $target
 }
 
 function Get-PsAiNewAccountDir {
@@ -114,6 +155,7 @@ function Get-PsAiNewAccountDir {
 function New-PsAiWrappers {
     param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$RealCommand, [string]$ConfigDir, [switch]$CheckOnly)
     Assert-PsAiId $Id
+    if (-not (Test-Path -LiteralPath $RealCommand -PathType Leaf)) { throw "target needed: $Id; ask the owner for an existing executable" }
     $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
     $folder = if ($ConfigDir) { $ConfigDir } else { Get-PsAiNewAccountDir -Id $Id -HomeRoot $HomeRoot }
     if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }
@@ -344,6 +386,45 @@ function Remove-PsAiWrappers {
     }
 }
 
+function Add-PsAiSubscriptionAccount {
+    param([string]$Id, [string]$Tool, [string]$Command, [string]$ConfigDir, [string]$HomeRoot, $Data, [string]$Path)
+    $existing = @($Data.agents | Where-Object { $_.id -ceq $Id })[0]
+    $accountDir = if ($ConfigDir) { $ConfigDir } else { Get-PsAiNewAccountDir -Id $Id -HomeRoot $HomeRoot }
+    if ($ConfigDir) {
+        $folder = $ConfigDir
+        if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }
+        if (-not (Test-Path -LiteralPath $folder -PathType Container)) { throw 'Existing account config folder does not exist.' }
+        $folder = (Resolve-Path -LiteralPath $folder -ErrorAction Stop).ProviderPath
+        if ($ConfigDir -notmatch '^~[/\\]') { $accountDir = $folder }
+    }
+    if ($accountDir -match '^~[/\\]') { $accountDir = Join-Path $HomeRoot $accountDir.Substring(2) }
+    $accountDir = [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($accountDir))
+    $existingDir = if ($existing.configDir -match '^~[/\\]') { Join-Path $HomeRoot $existing.configDir.Substring(2) } else { $existing.configDir }
+    if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and (Get-PsAiPathComparer).Equals($existingDir, $accountDir)) {
+        if (-not $Command) { $Command = Get-PsAiWrapperTarget -Id $Id -Tool $Tool -HomeRoot $HomeRoot -ConfigDir $accountDir }
+        if (-not $Command) { throw "target needed: $Id; ask the owner for the registered executable" }
+        New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $Command -ConfigDir $accountDir
+        "skip: account $Id (already done)"
+        return
+    }
+    Assert-PsAiNewId -Id $Id -Data $Data
+
+    $realCommand = if ($Command) { $Command } else { (Get-Command (Get-PsAiTool -Tool $Tool).command -ErrorAction Stop).Source }
+    foreach ($suffix in @('', '.cmd')) {
+        $destination = Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$Id$suffix"
+        if ($realCommand -eq "$Id$suffix" -or ([IO.Path]::IsPathRooted($realCommand) -and [IO.Path]::GetFullPath($realCommand) -eq [IO.Path]::GetFullPath($destination))) { throw 'wrapper target would recurse' }
+    }
+    $entry = [pscustomobject]@{
+        id = $Id; tool = $Tool; configDir = $accountDir
+    }
+    New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $realCommand -ConfigDir $accountDir -CheckOnly
+    $Data.agents = @($Data.agents) + @($entry)
+    Write-PsAiPersonalisation -Data $Data -Path $Path
+    New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $realCommand -ConfigDir $accountDir
+    if ($ConfigDir) { "Existing account folder kept at $ConfigDir; use '$Id' to open it." }
+    else { "Run '$Id' in a terminal and log in once." }
+}
+
 if ($accountNoRun) { return }
 
 if ($Standard -and ($PSBoundParameters.ContainsKey('Aliases') -or $PSBoundParameters.ContainsKey('Default'))) {
@@ -388,38 +469,7 @@ switch ($Action) {
             "Run '$Id' in a terminal; it signs in to Azure through az when needed."
             break
         }
-        $accountDir = if ($ConfigDir) { $ConfigDir } else { Get-PsAiNewAccountDir -Id $Id -HomeRoot $HomeRoot }
-        if ($ConfigDir) {
-            $folder = $ConfigDir
-            if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }
-            if (-not (Test-Path -LiteralPath $folder -PathType Container)) { throw 'Existing account config folder does not exist.' }
-            $folder = (Resolve-Path -LiteralPath $folder -ErrorAction Stop).ProviderPath
-            if ($ConfigDir -notmatch '^~[/\\]') { $accountDir = $folder }
-        }
-        if ($accountDir -match '^~[/\\]') { $accountDir = Join-Path $HomeRoot $accountDir.Substring(2) }
-        $accountDir = [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($accountDir))
-        if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and $existing.configDir -ceq $accountDir) {
-            if ($Command) { New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $Command -ConfigDir $accountDir }
-            elseif (-not (Test-PsAiOwnedWrapper (Get-PsAiWrapperCommand $Id $HomeRoot) $Id)) { throw "wrapper collision for '$Id'" }
-            "skip: account $Id (already done)"
-            break
-        }
-        Assert-PsAiNewId -Id $Id -Data $data
-
-        $realCommand = if ($Command) { $Command } else { (Get-Command (Get-PsAiTool -Tool $Tool).command -ErrorAction Stop).Source }
-        foreach ($suffix in @('', '.cmd')) {
-            $destination = Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$Id$suffix"
-            if ($realCommand -eq "$Id$suffix" -or ([IO.Path]::IsPathRooted($realCommand) -and [IO.Path]::GetFullPath($realCommand) -eq [IO.Path]::GetFullPath($destination))) { throw 'wrapper target would recurse' }
-        }
-        $entry = [pscustomobject]@{
-            id = $Id; tool = $Tool; configDir = $accountDir
-        }
-        New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $realCommand -ConfigDir $accountDir -CheckOnly
-        $data.agents = @($data.agents) + @($entry)
-        Write-PsAiPersonalisation -Data $data -Path $file
-        New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $realCommand -ConfigDir $accountDir
-        if ($ConfigDir) { "Existing account folder kept at $ConfigDir; use '$Id' to open it." }
-        else { "Run '$Id' in a terminal and log in once." }
+        Add-PsAiSubscriptionAccount -Id $Id -Tool $Tool -Command $Command -ConfigDir $ConfigDir -HomeRoot $HomeRoot -Data $data -Path $file
     }
     models {
         $agent = @($data.agents | Where-Object { $_.id -ceq $Id })[0]

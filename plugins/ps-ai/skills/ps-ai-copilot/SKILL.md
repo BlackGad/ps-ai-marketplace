@@ -22,8 +22,8 @@ Use this tool skill for Copilot CLI operations only. Load `ps-ai-personalisation
 
 1. **Run or resume:** follow [run.md](references/run.md) to supply the task and restrict reviewers to read-only access.
 2. **Limits:** [limits.md](references/limits.md) describes the quota-error ping and unknown result.
-3. **Accounts:** use [accounts.md](references/accounts.md) for account changes, owner login, installation, and validation.
-4. **Missing CLI:** follow [install.md](references/install.md) before adding an account or running Copilot CLI.
+3. **Accounts:** use [accounts.md](references/accounts.md) for account changes; setup installs ps-ai before the owner logs in.
+4. **Missing CLI:** setup installs it with the owner's yes; use [install.md](references/install.md) only for a CLI-only install the owner asks for.
 
 ## Stop and verification
 

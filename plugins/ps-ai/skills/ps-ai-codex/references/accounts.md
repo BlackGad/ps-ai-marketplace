@@ -1,26 +1,9 @@
 # Codex CLI accounts
 
 Follow [owner notes](../../ps-ai-personalisation/references/fields.md) before account, model or channel choices.
-Use the plugin's `bin/ps-ai-account.ps1`. Read existing IDs, suggest `codex<n>` (next unused number), and accept a custom valid ID such as `codex-client`. Do not put a client name into a wiki label. The script rejects duplicate IDs and command names on PATH.
+Add and adopt through `ps-ai-setup.ps1`, as [create.md](../../ps-ai-personalisation/references/create.md) describes. It suggests `codex<n>`, accepts a valid custom lowercase hyphenated id that is not a command on PATH, installs a missing `codex` CLI, creates the wrapper and config folder, and installs ps-ai, all before login. For a new folder only, the owner runs `<id>` in a terminal to log in once; never handle tokens or credential files. Follow the [shared account rules](../../ps-ai-personalisation/references/fields.md#account-setup).
 
-If `codex` is missing, follow [install.md](install.md) first. Continue with account setup only after the CLI is available.
-
-```text
-pwsh -NoProfile -File <plugin>/bin/ps-ai-account.ps1 -Action add -Tool codex -Id <id> [-ConfigDir <existing folder>] [-HomeRoot <home>]
-```
-
-This creates the `CODEX_HOME` wrapper, config folder, and personalisation entry. Make sure `<home>/.legion/bin` is on the user PATH (add it once if missing; never in tests). For a new folder only, tell the owner to run `<id>` in a terminal and log in once; never read tokens. Then install ps-ai into that account's config folder and validate:
-
-```text
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools codex -ConfigDir <account folder> -Yes
-pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Path <home>/.legion/configuration/ps-ai-personalisation.json
-```
-
-To check from the system temp folder, run `codex plugin list` with `CODEX_HOME` set to the account's recorded folder (never guess paths); ps-ai is installed when `ps-ai@ps-ai-marketplace` is listed and enabled.
-
-To adopt a signed-in folder, pass `-ConfigDir <existing folder>` to `add`. For an adopted or registered folder, add `-Update` to the installer command: it installs ps-ai if missing and otherwise brings an older copy current, which a plain install reports as already done. Follow the [shared account rules](../../ps-ai-personalisation/references/fields.md#account-setup) for retained logins, installation approval and incomplete work.
-
-Register an existing wrapper with `-Action register -Id <id> -Tool codex -Command <wrapper> -ConfigDir <dir> -HomeRoot <home>`. Rename with `-Action rename -Id <old> -NewId <new>`, or remove with `-Action remove -Id <id>`, then validate. The script updates exact channel account bindings, keeps the config folder, and prints its location. Ask before changing or deleting that folder.
+[install.md](install.md) covers a CLI-only install the owner asks for. Register an existing wrapper with `-Action register -Id <id> -Tool codex -Command <wrapper> -ConfigDir <dir> -HomeRoot <home>`; rename with `-Action rename -Id <old> -NewId <new>`; remove with `-Action remove -Id <id>`. These use `bin/ps-ai-account.ps1`; they update channel bindings, keep the config folder and print its location. Ask before changing or deleting that folder.
 
 ## Foundry agent
 
@@ -40,7 +23,7 @@ For a requested provider configuration change, reuse the supplied settings and a
 & "<plugin>/bin/ps-ai-account.ps1" -Action models -Id '<id>' -Deployments @('gpt-x') -Default gpt-x
 ```
 
-The default must be selected. An identical result prints `skip: models <id> (no changes)` and writes nothing. Validate personalisation and install ps-ai into this account's config folder with the commands above.
+The default must be selected. An identical result prints `skip: models <id> (no changes)` and writes nothing. Then run `ps-ai-setup.ps1` and show the owner its plan. It covers every known account, not only this one, so ask for the owner's one yes and run it again with `-Yes` to install ps-ai wherever it is missing.
 
 Launch `<id>` in a terminal. The wrapper sets `CODEX_HOME`; the provider config supplies the endpoint and token command. Resume only with the same agent and folder. A missing CLI stops with `codex is not installed; run ps-ai-install-tool.ps1 -Tool codex`. Verify an actual GPT response before reporting this path as working.
 

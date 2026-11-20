@@ -35,6 +35,15 @@ function Get-RepositorySnapshot {
     }) -join "`n")
 }
 
+function Get-WorktreeSnapshot {
+    param([string]$Repo)
+    # Skips .git: Git itself refreshes its index when asked for status.
+    return (@(Get-ChildItem -LiteralPath $Repo -Recurse -Force -File |
+        Where-Object { $_.FullName.Replace('\', '/') -notlike '*/.git/*' } | ForEach-Object {
+        "$($_.FullName)|$((Get-FileHash -LiteralPath $_.FullName).Hash)"
+    }) -join "`n")
+}
+
 New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
 try {
     # No global identity: only the code repo supplies the first Private commit's identity.
@@ -123,6 +132,33 @@ try {
         Assert-Equal '.legion/configuration/input.txt' (git -C $repo check-ignore .legion/configuration/input.txt) 'Private configuration stays ignored in either worktree'
         Assert-Equal '' ((git -C $repo status --porcelain) -join "`n") 'Private setup leaves code Git clean in either worktree'
     }
+
+    # 3g (R9): an unrelated staged file stays staged and out of the setup commit.
+    $repo = New-RepositoryFixture 'staged-unrelated'
+    'rules' | Set-Content (Join-Path $repo 'AGENTS.md')
+    git -C $repo add AGENTS.md
+    git -C $repo commit --quiet -m 'Rules'
+    'unrelated' | Set-Content (Join-Path $repo 'other.txt')
+    git -C $repo add other.txt
+    & $setup -Repo $repo -Mode Shared | Out-Null
+    Assert-Equal 'other.txt' ((git -C $repo diff --cached --name-only) -join '|') 'Unrelated staged file stays staged'
+    $committed = @(git -C $repo show --name-only --format= HEAD)
+    Assert-True ($committed -ccontains 'AGENTS.md') 'Setup commit holds the rules file it changed'
+    Assert-True ($committed -cnotcontains 'other.txt') 'Setup commit leaves the unrelated staged file out'
+
+    # 3h (R9): a rules file with uncommitted edits stops the script before any change.
+    $repo = New-RepositoryFixture 'dirty-rules'
+    'rules' | Set-Content (Join-Path $repo 'AGENTS.md')
+    git -C $repo add AGENTS.md
+    git -C $repo commit --quiet -m 'Rules'
+    'rules with owner edits' | Set-Content (Join-Path $repo 'AGENTS.md')
+    $before = Get-WorktreeSnapshot $repo
+    $head = git -C $repo rev-parse HEAD
+    $message = ''
+    try { & $setup -Repo $repo -Mode Shared | Out-Null } catch { $message = $_.Exception.Message }
+    Assert-True ($message -like '*AGENTS.md*uncommitted*') 'Dirty rules file is named in the refusal'
+    Assert-Equal $before (Get-WorktreeSnapshot $repo) 'Refusal changes no file'
+    Assert-Equal $head (git -C $repo rev-parse HEAD) 'Refusal makes no commit'
 } finally {
     foreach ($name in $savedEnv.Keys) {
         if ($null -eq $savedEnv[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }

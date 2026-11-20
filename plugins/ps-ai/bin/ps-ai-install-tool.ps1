@@ -17,24 +17,7 @@ function Get-ToolInstallData {
     return $recipes[$Tool]
 }
 
-function Get-ToolRecipe {
-    param(
-        [string]$Tool,
-        [ValidateSet('windows','macos','linux')][string]$Platform
-    )
-    $data = Get-ToolInstallData -Tool $Tool
-    $needs = [string[]]@()
-    $docs = ''
-    $install = [object[]]@()
-    if ($Platform -eq 'windows' -and $null -ne $data.windows) {
-        $install = @(,([string[]]@('winget','install','--id',$data.windows.wingetId,'-e')))
-    } else {
-        $needs = [string[]]@($data.$Platform.needs)
-        $docs = $data.$Platform.docs
-        $install = [object[]]@($data.$Platform.commands)
-    }
-    return [pscustomobject]@{ Install=$install; Needs=$needs; Docs=$docs }
-}
+. (Join-Path $PSScriptRoot 'install-tool/recipe.ps1')
 
 function Test-ToolCommandAvailable {
     param([string]$Name)

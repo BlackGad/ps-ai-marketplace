@@ -1,6 +1,6 @@
 # Installation
 
-Only Claude is verified as a supported tool. Read its tool skill. Check Bun with `bun --version`. In each selected account's config context, check the CLI plugin listing for `telegram@claude-plugins-official`. Use the selected account's canonical wrapper; never inspect its credential files.
+Only Claude is verified as a supported tool. Read its tool skill. Check what is ready without starting a CLI: `pwsh -NoProfile -File <plugin>/bin/ps-ai-channel.ps1 -Action check -Kind telegram -Accounts <ids>` reports Bun and the Telegram plugin folder for each account. Never inspect credential files.
 
 Deduplicate setup by kind/account, and installation by normalized config folder. Preview only missing work. One owner yes covers the shown helper and plugin actions. Decline makes no changes. Repeat completed work prints `skip: <what> (already done)`.
 
