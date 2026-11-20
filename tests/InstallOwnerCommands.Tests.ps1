@@ -37,6 +37,10 @@ try {
             [IO.File]::WriteAllText($path, $text)
             Assert-True (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R4 B2 installer accepts literal quoted owner arguments'
         }
+        $bound = Get-PsAiShimText -Script $target -HomeRoot (Join-Path $scratch "owner's home")
+        [IO.File]::WriteAllText($path, $bound)
+        Assert-True (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R4 B2 installer recognizes adjacent shell quotes in literal arguments'
+        Assert-Equal (Test-PsAiOwnerCommandFile -Path $path -Script legion.ps1) (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R4 B2 bound-home matcher parity'
 
         # G2: the standalone copy decodes batch quoting too.
         $percentScript = Join-Path $scratch 'plugin 100%/bin/legion.ps1'

@@ -417,8 +417,8 @@ function Write-SetupCommands {
             if ($file.State -notin @('missing', 'stale')) { continue }
             $runner = Join-Path $script:SetupBin $file.Script
             # A stale command keeps the owner's own flags; a missing one is generated whole.
-            $text = if ($file.State -eq 'stale') { Update-PsAiOwnerCommandText -Text ([IO.File]::ReadAllText($file.Path)) -Script $file.Script -Runner $runner -Windows:$file.Windows }
-                else { Get-PsAiShimText -Script $runner -Windows:$file.Windows }
+            $text = if ($file.State -eq 'stale') { Update-PsAiOwnerCommandText -Text ([IO.File]::ReadAllText($file.Path)) -Script $file.Script -Runner $runner -Windows:$file.Windows -HomeRoot $Plan.HomeRoot }
+                else { Get-PsAiShimText -Script $runner -Windows:$file.Windows -HomeRoot $Plan.HomeRoot }
             Write-PsAiGeneratedFile -Path $file.Path -Content $text -Executable
         }
         # Blocked commands are reported once, in the final table.

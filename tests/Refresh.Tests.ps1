@@ -39,6 +39,14 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/ps-ai-overseer.ps1' -Acco
         "@pwsh -NoProfile -File `"C:\old\cache\bin\$name.ps1`" -OwnerFlag keep %*" | Set-Content (Join-Path $bin "$name.cmd")
     }
     & $refresh -HomeRoot $tempRoot | Out-Null
+    $homeFlag = & {
+        . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
+        '-HomeRoot ' + (ConvertTo-PsAiShellLiteral $tempRoot)
+    }
+    Assert-True ((Get-Content $shim -Raw).Contains($homeFlag)) 'R4 B4 refresh binds an older unbound command to the selected home'
+    & $refresh -HomeRoot $tempRoot | Out-Null
+    Assert-Equal 1 ([regex]::Matches((Get-Content $shim -Raw), '-HomeRoot ').Count) 'R4 B4 refresh preserves one home binding'
+    & $refresh -HomeRoot $tempRoot | Out-Null
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/ps-ai/bin/ps-ai-foundry.ps1'))) ([IO.File]::ReadAllText((Join-Path $runtime 'ps-ai-foundry.ps1'))) 'Approved refresh updates copied runtime bytes'
     foreach ($name in @('foundry', 'tools')) {
         Assert-Equal ([IO.File]::ReadAllText((Join-Path $root "plugins/ps-ai/bin/lib/$name.ps1"))) ([IO.File]::ReadAllText((Join-Path $runtime "lib/$name.ps1"))) "Refresh updates the $name library in the current runtime layout"

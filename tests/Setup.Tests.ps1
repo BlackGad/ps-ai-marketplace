@@ -82,6 +82,23 @@ try {
     }
 
     $regressions = [ordered]@{
+        R4B4 = {
+            Reset-SetupTest "bound owner's home"
+            Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+            $bin = Join-Path $testHome '.legion/bin'
+            $legion = Join-Path $bin $(if ($IsWindows) { 'legion.cmd' } else { 'legion' })
+            Assert-True ([IO.File]::ReadAllText($legion).Contains('-HomeRoot ')) 'R4 B4 generated command binds its home before execution'
+            $status = @(& $legion status)
+            Assert-True ($status -notcontains 'no ps-ai settings yet') 'R4 B4 generated legion reads the selected home settings'
+            Assert-True ($status -contains 'commands: yes') 'R4 B4 generated legion inspects the selected commands'
+            foreach ($entry in (Get-PsAiOwnerCommands).GetEnumerator()) {
+                $path = Join-Path $bin $entry.Key
+                $text = [IO.File]::ReadAllText($path)
+                Assert-True ($text.Contains('-HomeRoot ' + (ConvertTo-PsAiShellLiteral $testHome))) 'R4 B4 every alternate-home shell command binds its home'
+            }
+            $runner = Join-Path $root 'plugins/ps-ai/bin/legion.ps1'
+            Assert-Equal (Get-PsAiShimText -Script $runner) (Get-PsAiShimText -Script $runner -HomeRoot $HOME) 'R4 B4 default-home shim stays unchanged'
+        }
         R4B3 = {
             foreach ($addStockAccount in @($false, $true)) {
                 Reset-SetupTest "independent-wrapper-$addStockAccount"
@@ -106,7 +123,7 @@ try {
         R4B1 = {
             Reset-SetupTest 'broken-node'
             & {
-                Set-Item function:Test-SetupToolInstalled $realToolInstalled
+                function Test-SetupToolInstalled { param($Tool) & $realToolInstalled -Tool $Tool }
                 . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-install-tool.ps1') -NoRun
                 $probe = @{ Node = $false; Codex = $false; Commands = [Collections.Generic.List[string]]::new() }
                 function node { $global:LASTEXITCODE = if ($probe.Node) { 0 } else { 7 }; 'fixture node' }
@@ -486,9 +503,9 @@ try {
     $bin = Join-Path $testHome '.legion/bin'
     foreach ($entry in (Get-PsAiOwnerCommands).GetEnumerator()) {
         $target = Join-Path $root "plugins/ps-ai/bin/$($entry.Value)"
-        Assert-Equal (Get-PsAiShimText -Script $target) ([IO.File]::ReadAllText((Join-Path $bin $entry.Key))) 'Unix command shim equals shared format'
+        Assert-Equal (Get-PsAiShimText -Script $target -HomeRoot $testHome) ([IO.File]::ReadAllText((Join-Path $bin $entry.Key))) 'Unix command shim equals shared format'
         if ($IsWindows) {
-            Assert-Equal (Get-PsAiShimText -Script $target -Windows) ([IO.File]::ReadAllText((Join-Path $bin "$($entry.Key).cmd"))) 'Windows command shim equals shared format'
+            Assert-Equal (Get-PsAiShimText -Script $target -Windows -HomeRoot $testHome) ([IO.File]::ReadAllText((Join-Path $bin "$($entry.Key).cmd"))) 'Windows command shim equals shared format'
         }
     }
     Assert-Equal $(if ($IsWindows) { 1 } else { 0 }) $pathWrites.Count 'Only Windows writes user PATH'

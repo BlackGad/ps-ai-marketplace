@@ -1,6 +1,7 @@
 param()
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'paths.ps1')
 
 function Get-PsAiOwnerCommands {
     return [ordered]@{
@@ -12,12 +13,23 @@ function Get-PsAiOwnerCommands {
 }
 
 function Get-PsAiShimText {
-    param([string]$Script, [switch]$Windows)
+    param([string]$Script, [switch]$Windows, [string]$HomeRoot)
 
-    if ($Windows) { return '@pwsh -NoProfile -File "' + $Script.Replace('%', '%%') + '" %*' + "`r`n" }
     # Load the existing quoting helper only when generating a shim, so status stays read-only and lean.
-    . (Join-Path $PSScriptRoot '../ps-ai-account.ps1') -NoRun
-    return "#!/bin/sh`n" + 'exec pwsh -NoProfile -File ' + (ConvertTo-PsAiShellLiteral $Script) + ' "$@"' + "`n"
+    . (Join-Path $PSScriptRoot '../ps-ai-account.ps1') -NoRun -HomeRoot $HomeRoot
+    $homeArgument = Get-PsAiShimHomeArgument -HomeRoot $HomeRoot -Windows:$Windows
+    if ($Windows) { return '@pwsh -NoProfile -File "' + $Script.Replace('%', '%%') + '"' + $homeArgument + ' %*' + "`r`n" }
+    return "#!/bin/sh`n" + 'exec pwsh -NoProfile -File ' + (ConvertTo-PsAiShellLiteral $Script) + $homeArgument + ' "$@"' + "`n"
+}
+
+function Get-PsAiShimHomeArgument {
+    param([string]$HomeRoot, [switch]$Windows)
+    if (-not $HomeRoot) { return '' }
+    $selectedHome = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($HomeRoot))
+    $defaultHome = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($HOME))
+    if ((Get-PsAiPathComparer).Equals($selectedHome, $defaultHome)) { return '' }
+    $literal = if ($Windows) { '"' + $selectedHome.Replace('%', '%%') + '"' } else { ConvertTo-PsAiShellLiteral $selectedHome }
+    return ' -HomeRoot ' + $literal
 }
 
 # The whole file is the generated launcher: an optional shebang, then one line
@@ -33,15 +45,16 @@ function Get-PsAiOwnerCommandTarget {
     $match = [regex]::Match($Text, $launcher + $scriptWord)
     if (-not $match.Success) { return $null }
     # Literal arguments may contain spaces. Only the generated forwarding tokens expand.
-    $argument = '(?:"\$@"|\$@|%\*|[\w.=:/\\-]+|''[^''\r\n]*''|"[^"$`\r\n]*")'
+    $argument = '(?<argument>(?:''[^''\r\n]*''|"[^"$`\r\n]*")+|"\$@"|\$@|%\*|[\w.=:/\\-]+)'
     $tail = $Text.Substring($match.Length)
-    if ($tail -notmatch ('\A(?:[ \t]+' + $argument + ')*\s*\z')) { return $null }
+    $tailMatch = [regex]::Match($tail, '\A(?:[ \t]+' + $argument + ')*\s*\z')
+    if (-not $tailMatch.Success) { return $null }
     $word = $match.Groups['target']
     # Drop the shell quotes; the generated form joins quoted pieces such as 'a'"'"'b'.
     $path = [regex]::Replace($word.Value, '''([^'']*)''|"([^"]*)"', { param($piece) $piece.Groups[1].Value + $piece.Groups[2].Value })
     if ($Batch) { $path = $path.Replace('%%', '%') }
     if (-not $path.Replace('\', '/').EndsWith("/bin/$Script", [StringComparison]::Ordinal)) { return $null }
-    return [pscustomobject]@{ Start = $word.Index; Length = $word.Length; Path = $path }
+    return [pscustomobject]@{ Start = $word.Index; Length = $word.Length; Path = $path; Arguments = @($tailMatch.Groups['argument'].Captures.Value) }
 }
 
 function Read-PsAiOwnerCommandTarget {
@@ -71,9 +84,12 @@ function Get-PsAiOwnerCommandState {
 
 # Point an owned command at a new script and keep the owner's own flags.
 function Update-PsAiOwnerCommandText {
-    param([string]$Text, [string]$Script, [string]$Runner, [switch]$Windows)
+    param([string]$Text, [string]$Script, [string]$Runner, [switch]$Windows, [string]$HomeRoot)
 
     $target = Get-PsAiOwnerCommandTarget -Text $Text -Script $Script -Batch:$Windows
     $literal = if ($Windows) { '"' + $Runner.Replace('%', '%%') + '"' } else { ConvertTo-PsAiShellLiteral $Runner }
+    if ($target.Arguments -inotcontains '-HomeRoot') {
+        $literal += Get-PsAiShimHomeArgument -HomeRoot $HomeRoot -Windows:$Windows
+    }
     return $Text.Substring(0, $target.Start) + $literal + $Text.Substring($target.Start + $target.Length)
 }

@@ -20,7 +20,7 @@ foreach ($entry in (Get-PsAiOwnerCommands).GetEnumerator()) {
         $path = Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$($entry.Key)$suffix"
         if (-not (Test-PsAiOwnerCommandFile -Path $path -Script $entry.Value)) { continue }
         $text = [IO.File]::ReadAllText($path)
-        $updated = Update-PsAiOwnerCommandText -Text $text -Script $entry.Value -Runner $runner -Windows:([bool]$suffix)
+        $updated = Update-PsAiOwnerCommandText -Text $text -Script $entry.Value -Runner $runner -Windows:([bool]$suffix) -HomeRoot $HomeRoot
         Write-PsAiGeneratedFile -Path $path -Content $updated -Changes $changes
     }
 }

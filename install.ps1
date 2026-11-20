@@ -448,7 +448,7 @@ function Get-InstallOwnerCommandTarget {
     $match = [regex]::Match($text, $launcher + $scriptWord)
     if (-not $match.Success) { return }
     # Literal arguments may contain spaces. Only the generated forwarding tokens expand.
-    $argument = '(?:"\$@"|\$@|%\*|[\w.=:/\\-]+|''[^''\r\n]*''|"[^"$`\r\n]*")'
+    $argument = '(?<argument>(?:''[^''\r\n]*''|"[^"$`\r\n]*")+|"\$@"|\$@|%\*|[\w.=:/\\-]+)'
     $tail = $text.Substring($match.Length)
     if ($tail -notmatch ('\A(?:[ \t]+' + $argument + ')*\s*\z')) { return }
     $target = $match.Groups['target'].Value -replace '''([^'']*)''|"([^"]*)"', '$1$2'

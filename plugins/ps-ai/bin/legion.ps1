@@ -1,4 +1,10 @@
+param(
+    [Parameter(Position = 0, ValueFromRemainingArguments = $true)][string[]]$Words,
+    [string]$HomeRoot
+)
+
 $ErrorActionPreference = 'Stop'
+$script:LegionHomeRoot = $HomeRoot
 # The folder that holds the scripts legion calls; tests point it at stand-in scripts.
 $script:LegionBin = $PSScriptRoot
 # Output lines of the last script legion ran, kept so the apply flow can read the plan's last line.
@@ -114,7 +120,8 @@ function Invoke-LegionScript {
     # Reset first: a script that ends without `exit` must not report an older failure.
     $global:LASTEXITCODE = 0
     $script:LegionOutput = @()
-    $splat = $Call.Splat
+    $splat = $Call.Splat.Clone()
+    if ($script:LegionHomeRoot -and $Call.Script -ne 'ps-ai-repository.ps1') { $splat.HomeRoot = $script:LegionHomeRoot }
     $scriptPath = Join-Path $script:LegionBin $Call.Script
     try {
         if ($Hold) {
@@ -187,6 +194,6 @@ function Invoke-Legion {
 
 # Dot-sourcing (tests) loads the functions only.
 if ($MyInvocation.InvocationName -ne '.') {
-    Invoke-Legion -Words $args
+    Invoke-Legion -Words $Words
     exit $script:LegionExit
 }

@@ -77,9 +77,9 @@ setup and add show the plan and ask before changing anything; --yes applies with
     $exitFile = Join-Path $scratch 'exit.txt'
     $planFile = Join-Path $scratch 'plan.txt'
     $standInText = @'
-param([string[]]$Add, [string]$Id, [string]$Action, [string]$Repo, [string]$Account, [switch]$Yes, [switch]$NoChannel)
+param([string[]]$Add, [string]$Id, [string]$Action, [string]$Repo, [string]$Account, [string]$HomeRoot, [switch]$Yes, [switch]$NoChannel)
 $scratch = Split-Path $PSScriptRoot -Parent
-$entry = @{ Add = @($Add); Id = $Id; Action = $Action; Repo = $Repo; Account = $Account; Yes = [bool]$Yes; NoChannel = [bool]$NoChannel }
+$entry = @{ Add = @($Add); Id = $Id; Action = $Action; Repo = $Repo; Account = $Account; HomeRoot = $HomeRoot; Yes = [bool]$Yes; NoChannel = [bool]$NoChannel }
 Add-Content -LiteralPath (Join-Path $scratch 'record.json') -Value ($entry | ConvertTo-Json -Compress)
 Get-Content -LiteralPath (Join-Path $scratch 'plan.txt')
 $code = (Get-Content -LiteralPath (Join-Path $scratch 'exit.txt')).Trim()
@@ -107,6 +107,23 @@ if ($code -ne 'none') { exit [int]$code }
     }
 
     # --- Dispatch ---
+    Copy-Item -LiteralPath $legionScript -Destination (Join-Path $standIns 'legion.ps1')
+    $pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+    foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'), @('start', '--no-channel'))) {
+        Reset-StandIns -Exit 'none'
+        & $pwsh -NoProfile -File (Join-Path $standIns 'legion.ps1') -HomeRoot $scratch @words | Out-Null
+        Assert-Equal 0 $LASTEXITCODE 'R4 B4 public legion entry accepts the bound home and verb flags'
+        Assert-Equal $scratch (Get-Records)[0].HomeRoot 'R4 B4 public legion entry forwards the bound home'
+    }
+    & {
+        . $legionScript -HomeRoot $scratch
+        $script:LegionBin = $standIns
+        foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'), @('status'), @('remove', 'codex1'), @('start', '--no-channel'))) {
+            Reset-StandIns -Exit 'none'
+            Invoke-Legion -Words $words | Out-Null
+            Assert-Equal $scratch (Get-Records)[0].HomeRoot 'R4 B4 legion carries the bound home through dispatch'
+        }
+    }
     Reset-StandIns -Exit 'none'
     $global:LASTEXITCODE = 0
     $exit = Invoke-Quiet @('add', 'codex', 'C:\work\a b', '--yes')
