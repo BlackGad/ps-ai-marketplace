@@ -134,7 +134,7 @@ else { 'ps-ai@ps-ai-marketplace installed, enabled' }
     } else {
         foreach ($tool in @('claude','codex','copilot')) {
             $fake = Join-Path $fakeBin $tool
-            "#!/bin/sh`nprintf '%s\n' 'ps-ai@ps-ai-marketplace installed, enabled'" | Set-Content -LiteralPath $fake
+            "#!/bin/sh`nexec pwsh -NoProfile -File '$listingScript' $tool `"`$@`"" | Set-Content -LiteralPath $fake
             & chmod +x $fake
         }
     }

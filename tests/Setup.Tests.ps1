@@ -34,7 +34,7 @@ try {
         [IO.File]::WriteAllText($path, $text)
         if (-not $IsWindows) { & chmod +x $path }
     }
-    $systemBin = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/usr/bin' }
+    $systemBin = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' }
     $fixturePath = @($fakeBin, (Split-Path (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source), $systemBin) -join [IO.Path]::PathSeparator
     $env:PATH = $fixturePath
     $version = (Get-Content (Join-Path $root 'plugins/ps-ai/plugin.json') -Raw | ConvertFrom-Json).version
@@ -375,7 +375,11 @@ try {
             Assert-True (Test-Path -LiteralPath $wrapper) 'B2 finish setup repairs interrupted account wrappers'
             Remove-Item -LiteralPath $wrapper
             if ($IsWindows) { Invoke-Setup -HomeRoot $testHome -Add codex -Id codex1 -Yes | Out-Null }
-            else { Add-PsAiSubscriptionAccount -Id codex1 -Tool codex -Command (Join-Path $fakeBin 'codex') -HomeRoot $testHome -Data $data -Path $settings | Out-Null }
+            else {
+                Add-PsAiSubscriptionAccount -Id codex1 -Tool codex -Command (Join-Path $fakeBin 'codex') -HomeRoot $testHome -Data $data -Path $settings | Out-Null
+                # The Windows run above also installs the plugin for the account; do it here once, so the repeat below has nothing left to do.
+                Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+            }
             Assert-True (Test-Path -LiteralPath $wrapper) 'B2 explicit repeat repairs a missing wrapper half'
             $before = Get-SetupTree $testHome
             Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
@@ -421,7 +425,7 @@ try {
             }
             $script:missingTools = @('node')
             $hint = Get-SetupToolInstallHint -Tool (Get-PsAiTool copilot) -Platform windows
-            Assert-Equal 'winget install --id GitHub.Copilot -e' $hint 'B5 Copilot fallback uses the Windows recipe'
+            Assert-Equal 'winget install --id GitHub.Copilot -e --source winget --accept-source-agreements --accept-package-agreements' $hint 'B5 Copilot fallback uses the Windows recipe'
         }
         B6 = {
             Reset-SetupTest 'case-cache'
@@ -701,6 +705,44 @@ try {
     Assert-Equal 0 $installs.Count 'A missing installer is never invoked'
     Assert-SetupText $output 'install failed: log in with claude1, then finish setup' 'Discovery failure produces first fallback row'
     Assert-SetupText $output 'install failed: log in with codex1, then finish setup' 'Discovery failure still produces next fallback row'
+
+    # -Source reaches the installer call only when given; the plan output stays the same.
+    $fakeInstaller = ${function:Invoke-SetupInstaller}
+    $realProcess = ${function:Invoke-SetupProcess}
+    try {
+        Set-Item function:Invoke-SetupInstaller $realInvokeInstaller
+        function Find-SetupInstaller { return (Join-Path $tempRoot 'inert-installer.ps1') }
+        function Invoke-SetupProcess { param([string[]]$Arguments) $script:processCalls.Add($Arguments); return @{ Code = 0; Output = '' } }
+        $sourceFolder = Join-Path $tempRoot 'work/my-project'
+        $sourceCases = @(
+            @{ Name = 'folder'; Source = $sourceFolder; Expected = $sourceFolder }
+            @{ Name = 'repo'; Source = 'owner/repo'; Expected = 'owner/repo' }
+            @{ Name = 'none'; Source = $null; Expected = $null }
+        )
+        foreach ($case in $sourceCases) {
+            Reset-SetupTest "source-$($case.Name)"
+            $script:processCalls = [Collections.Generic.List[object]]::new()
+            $sourceArguments = @{ HomeRoot = $testHome; Add = 'claude'; Yes = $true }
+            if ($case.Source) { $sourceArguments.Source = $case.Source }
+            Invoke-Setup @sourceArguments | Out-Null
+            Assert-Equal 1 $processCalls.Count "Source $($case.Name): installer runs once"
+            $call = @($processCalls[0])
+            $position = [array]::IndexOf($call, '-Source')
+            if ($case.Expected) {
+                Assert-True ($position -ge 0 -and $call[$position + 1] -ceq $case.Expected) "Source $($case.Name): installer receives -Source unchanged"
+            } else {
+                Assert-Equal -1 $position 'Without -Source the installer arguments have no -Source'
+                Assert-Equal ('-NoProfile -File ' + (Join-Path $tempRoot 'inert-installer.ps1') + ' -Tools claude -ConfigDir ' + (Join-Path $testHome '.legion/agents/claude1') + ' -HomeRoot ' + $testHome + ' -Update -Yes') ($call -join ' ') 'Without -Source the installer arguments are unchanged'
+            }
+        }
+        Reset-SetupTest 'source-plan'
+        $planWithout = @(Invoke-Setup -HomeRoot $testHome -Add claude) -join "`n"
+        $planWith = @(Invoke-Setup -HomeRoot $testHome -Add claude -Source 'owner/repo') -join "`n"
+        Assert-Equal $planWithout $planWith 'The plan output does not change with -Source'
+    } finally {
+        Set-Item function:Invoke-SetupInstaller $fakeInstaller
+        Set-Item function:Invoke-SetupProcess $realProcess
+    }
 
     # Search only in fixture roots, and replace download even while testing the real finder.
     Reset-SetupTest 'search'

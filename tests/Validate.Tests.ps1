@@ -1,6 +1,6 @@
 $root = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $root 'plugins/ps-ai/bin/ps-ai-validate.ps1'
-$tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
     $ownerFile = Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json'

@@ -33,7 +33,7 @@ A settings field exists only if a script reads it. Everything else is a plain-wo
 
 ## Release
 
-CLIs cache plugin copies by version. For each change meant to reach agents, bump `version` in all three `plugins/ps-ai/plugin.json`, `plugins/ps-ai/.claude-plugin/plugin.json` and `plugins/ps-ai/.codex-plugin/plugin.json` files together.
+Versions and the changelog are made by the release workflow. Task branches and pull requests never change `version` in the three `plugin.json` files and never edit `CHANGELOG.md`. The release workflow keeps one release pull request open; the owner merges it to tag `vX.Y.Z` and publish the GitHub Release. The overseer may add a short "What is new" paragraph to that pull request just before the merge.
 
 ## Tests
 
@@ -42,6 +42,8 @@ pwsh -NoProfile -File tests/run.ps1
 ```
 
 The last line must be `<n> passed, 0 failed`. Tests never call real `az`, `claude`, `codex`, `copilot`, winget or the network; use the fakes in `tests/` and replace download functions.
+
+CI runs the same command on Windows, macOS and Linux, and runs the integration suite (`tests/integration/run.ps1`) on every pull request; both are required checks.
 
 ## Not committed
 
@@ -52,3 +54,5 @@ The last line must be `<n> passed, 0 failed`. Tests never call real `az`, `claud
 
 - Work on a feature branch; `main` changes only through a pull request the owner approves.
 - Never force-push or amend.
+- Commit messages and pull request titles are conventional commit subjects (`feat: ...`, `fix(install): ...`, `docs: ...`, `chore: ...`). The squash merge uses the pull request title as the commit on `main`, and the release workflow builds the changelog from it.
+- Add no `Co-Authored-By` trailer for any agent or tool, and no "Generated with" footer in pull request descriptions.

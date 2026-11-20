@@ -2,11 +2,12 @@ $root = Split-Path $PSScriptRoot -Parent
 $accountScript = Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1'
 . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-validate.ps1') -NoRun
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $savedPath = $env:PATH
 $savedAnswers = $env:PS_AI_FAKE_AZ
 $savedLog = $env:PS_AI_FAKE_AZ_LOG
 $savedToolLog = $env:PS_AI_FAKE_TOOL_LOG
-$tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path (Get-TestTempPath) ('ps-ai-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
     $env:PS_AI_FAKE_TOOL_LOG = Join-Path $tempRoot 'tool-log.json'
@@ -55,7 +56,7 @@ try {
         Assert-True (Test-Path (Join-Path $homeRoot ".legion/bin/$name")) "Foundry writes $name"
     }
     # RuntimeSurvivesRelocation: only selected runtime files are bundled.
-    $runtime = Join-Path $homeRoot '.legion/bin/.ps-ai-runtime'
+    $runtime = Join-Path (Get-LongPath $homeRoot) '.legion/bin/.ps-ai-runtime'
     $expectedFiles = @('bin/ps-ai-foundry.ps1','bin/lib/foundry.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','schemas/tool.schema.json','skills/ps-ai-claude/SKILL.md','skills/ps-ai-claude/tool.json','skills/ps-ai-claude/scripts/foundry-launch.ps1','skills/ps-ai-claude/scripts/foundry-config.ps1')
     Assert-Equal (($expectedFiles | Sort-Object) -join '|') ((Get-ChildItem $runtime -File -Recurse | ForEach-Object { [IO.Path]::GetRelativePath($runtime, $_.FullName).Replace('\','/') } | Sort-Object) -join '|') 'Bundle contains only runtime dependencies'
     Assert-True ((Get-Content (Join-Path $homeRoot '.legion/bin/claude-dev') -Raw).Contains((Join-Path $runtime 'bin/ps-ai-foundry.ps1'))) 'Wrapper targets bundled runner'

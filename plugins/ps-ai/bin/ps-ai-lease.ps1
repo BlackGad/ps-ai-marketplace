@@ -48,7 +48,7 @@ if ($Action -eq 'release') {
         if ($lease.State -eq 'free') { 'skip: lease release (already done)'; exit 0 }
         if ($lease.Data -and $processStartedAt -and $lease.Data.host -ieq $hostName -and
             [int]$lease.Data.pid -eq $ProcessId -and $lease.Data.processStartedAt -and
-            ([datetime]$lease.Data.processStartedAt).ToUniversalTime() -eq $ownerProcess.StartTime.ToUniversalTime()) {
+            (Test-PsAiSameStartTime ([datetime]$lease.Data.processStartedAt) $ownerProcess.StartTime)) {
             Remove-Item -LiteralPath $path -Force
             'lease released'
             exit 0

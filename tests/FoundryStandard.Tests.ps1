@@ -136,7 +136,7 @@ try {
     $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
     if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe fixture cleanup' }
     Remove-Item -LiteralPath $sandbox -Recurse -Force
-    if ($fakeRoot -and [IO.Path]::GetFullPath($fakeRoot).StartsWith([IO.Path]::GetFullPath((Join-Path $env:TEMP 'ps-ai-tests')) + [IO.Path]::DirectorySeparatorChar)) {
+    if ($fakeRoot -and [IO.Path]::GetFullPath($fakeRoot).StartsWith([IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetTempPath()) 'ps-ai-tests')) + [IO.Path]::DirectorySeparatorChar)) {
         Remove-Item -LiteralPath $fakeRoot -Recurse -Force
     }
 }

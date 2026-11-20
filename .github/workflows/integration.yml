@@ -1,0 +1,230 @@
+name: integration
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      sha:
+        description: Commit SHA to test; empty tests the triggering commit
+        type: string
+        default: ''
+
+permissions: {}
+
+concurrency:
+  group: integration-${{ github.event_name }}-${{ inputs.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  queue: ${{ github.event_name == 'pull_request' && 'single' || 'max' }}
+
+jobs:
+  run:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - name: Select the npm download cache
+        shell: pwsh
+        run: |
+          "npm_config_cache=$env:RUNNER_TEMP/npm-cache" >> $env:GITHUB_ENV
+      # Only npm's downloaded packages are cached, never installed CLIs or plugins.
+      - if: github.event_name == 'pull_request'
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ env.npm_config_cache }}/_cacache
+          key: integration-npm-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: integration-npm-${{ runner.os }}-
+      - shell: pwsh
+        env:
+          ALLOW_SOURCE_FALLBACK: ${{ github.ref == 'refs/heads/main' && inputs.sha == '' }}
+        run: |
+          $arguments = @('-NoProfile', '-File', 'tests/integration/run.ps1', '-Out', 'results')
+          if ($env:ALLOW_SOURCE_FALLBACK -eq 'true') { $arguments += '-AllowSourceFallback' }
+          & pwsh @arguments
+          exit $LASTEXITCODE
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: integration-${{ runner.os }}
+          path: results
+          retention-days: 90
+          if-no-files-found: warn
+      - if: github.event_name == 'schedule' && github.ref == 'refs/heads/main' && inputs.sha == ''
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ env.npm_config_cache }}/_cacache
+          key: integration-npm-${{ runner.os }}-${{ github.run_id }}
+
+  report:
+    needs: run
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      complete: ${{ steps.merge.outputs.complete }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: integration-*
+          path: results
+      - uses: mikepenz/action-junit-report@a16be3a69023e9bd7e748ede768b3282ea7b30ce # v6.7.1
+        with:
+          report_paths: results/**/*.xml
+          check_name: integration results
+          annotate_only: true
+      - id: merge
+        shell: pwsh
+        run: |
+          . ./tests/lib/benchmark.ps1
+          $paths = @()
+          $complete = $true
+          foreach ($os in 'windows', 'macos', 'linux') {
+            $files = @(Get-ChildItem results -Recurse -Filter "integration-bench-$os.json")
+            if ($files.Count -ne 1) {
+              Write-Warning "missing integration timing file or duplicate for $os"
+              $complete = $false
+            }
+            foreach ($file in $files) { $paths += $file.FullName }
+          }
+          if ($paths.Count -eq 0) {
+            'No integration timings were produced.' >> $env:GITHUB_STEP_SUMMARY
+            exit 0
+          }
+          Merge-BenchmarkFiles -Path $paths -OutFile integration-bench.json
+          if ($complete) { 'complete=true' >> $env:GITHUB_OUTPUT }
+      - if: hashFiles('integration-bench.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: integration-bench
+          path: integration-bench.json
+          retention-days: 90
+          if-no-files-found: error
+      - id: baseline
+        shell: pwsh
+        run: |
+          git ls-remote --exit-code --heads origin refs/heads/gh-pages
+          if ($LASTEXITCODE -eq 0) { 'exists=true' >> $env:GITHUB_OUTPUT }
+          elseif ($LASTEXITCODE -eq 2) { 'No timing baseline yet; the first successful main save creates gh-pages.' >> $env:GITHUB_STEP_SUMMARY }
+          else { throw 'could not check the timing baseline branch' }
+          exit 0
+      - if: steps.baseline.outputs.exists == 'true' && hashFiles('integration-bench.json') != ''
+        uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
+        with:
+          name: integration timings
+          tool: customSmallerIsBetter
+          output-file-path: integration-bench.json
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          ref: ${{ inputs.sha || github.sha }}
+          auto-push: false
+          save-data-file: false
+          comment-on-alert: false
+          summary-always: true
+          alert-threshold: '200%'
+          fail-on-alert: false
+
+  save-trend:
+    needs: [run, report]
+    if: needs.run.result == 'success' && needs.report.result == 'success' && needs.report.outputs.complete == 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && inputs.sha == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pages: write
+    concurrency:
+      group: integration-main-writer
+      cancel-in-progress: false
+      queue: max
+    steps:
+      # This job is never eligible for PRs or a supplied checkout SHA.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: integration-bench
+      - name: Create the timing branch on the first save
+        shell: pwsh
+        run: |
+          git ls-remote --exit-code --heads origin refs/heads/gh-pages
+          if ($LASTEXITCODE -eq 0) {
+            Write-Output 'skip: gh-pages branch (already done)'
+            exit 0
+          }
+          if ($LASTEXITCODE -ne 2) { throw 'could not check gh-pages branch' }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          $tree = $null | git mktree
+          if ($LASTEXITCODE -ne 0) { throw 'could not create empty timing tree' }
+          $commit = git commit-tree $tree -m 'ci: initialize timing history'
+          if ($LASTEXITCODE -ne 0) { throw 'could not create timing branch commit' }
+          git push origin "${commit}:refs/heads/gh-pages"
+          if ($LASTEXITCODE -ne 0) { throw 'could not create gh-pages branch' }
+      - uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
+        with:
+          name: integration timings
+          tool: customSmallerIsBetter
+          output-file-path: integration-bench.json
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          ref: ${{ github.sha }}
+          github-token: ${{ github.token }}
+          auto-push: true
+          save-data-file: true
+          comment-on-alert: true
+          summary-always: true
+          alert-threshold: '200%'
+          fail-on-alert: false
+      - name: Rebuild the Pages chart after the token push
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          $siteJson = gh api "repos/$env:REPOSITORY/pages" 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            if (($siteJson -join "`n") -match 'HTTP 404') {
+              'Timings saved. Enable GitHub Pages from gh-pages, root; later saves explicitly rebuild the chart.' >> $env:GITHUB_STEP_SUMMARY
+              exit 0
+            }
+            throw 'could not read GitHub Pages configuration'
+          }
+          $site = $siteJson | ConvertFrom-Json
+          if ($site.source.branch -ne 'gh-pages' -or $site.source.path -ne '/') { throw 'GitHub Pages must publish gh-pages at the root' }
+          gh api --method POST "repos/$env:REPOSITORY/pages/builds"
+          if ($LASTEXITCODE -ne 0) { throw 'could not request the GitHub Pages build' }
+
+  integration:
+    # Reserve the release PR context for the trusted commit status, even before approval.
+    name: ${{ (inputs.sha != '' || (github.event_name == 'pull_request' && github.event.pull_request.user.login == 'github-actions[bot]' && startsWith(github.head_ref, 'release-please--'))) && 'release PR integration' || 'integration' }}
+    needs: run
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - shell: pwsh
+        env:
+          RUN_RESULT: ${{ needs.run.result }}
+        run: |
+          if ($env:RUN_RESULT -ne 'success') { throw "integration matrix: $env:RUN_RESULT" }

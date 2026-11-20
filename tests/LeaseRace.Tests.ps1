@@ -1,7 +1,7 @@
 $root = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $root 'plugins/ps-ai/bin/ps-ai-lease.ps1'
 . (Join-Path $root 'plugins/ps-ai/bin/lib/common.ps1')
-$tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
 $repo = Join-Path $tempRoot 'repo'
 $leasePath = Join-Path $repo '.legion/temp/overseer.lock'
 New-Item -ItemType Directory -Path (Split-Path $leasePath -Parent) -Force | Out-Null
@@ -25,9 +25,11 @@ $result = $LASTEXITCODE
 Start-Sleep -Seconds 3
 exit $result
 '@ | Set-Content -LiteralPath $runner
+    # -WindowStyle exists only on Windows.
+    $hidden = if ($IsWindows) { @{ WindowStyle = "Hidden" } } else { @{} }
     $processes = 1..5 | ForEach-Object {
         $arguments = @('-NoProfile', '-File', "`"$runner`"", "`"$script`"", "`"$repo`"", "racer$_")
-        Start-Process pwsh -ArgumentList $arguments -PassThru -WindowStyle Hidden `
+        Start-Process pwsh -ArgumentList $arguments -PassThru @hidden `
             -RedirectStandardOutput (Join-Path $tempRoot "racer$_.out") -RedirectStandardError (Join-Path $tempRoot "racer$_.err")
     }
     $processes | Wait-Process

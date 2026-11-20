@@ -209,7 +209,25 @@ function Invoke-ClosedInput {
         $names = if ($Environment -is [Collections.IDictionary]) { $Environment.Keys } else { $Environment.PSObject.Properties.Name }
         foreach ($name in $names) { $info.EnvironmentVariables[$name] = [string]$Environment.$name }
     }
-    $process = [System.Diagnostics.Process]::Start($info)
+    # The stdin pipe must carry nothing, but a UTF-8 console code page makes the pipe send a byte-order mark,
+    # which the CLI reads as one character instead of EOF. PowerShell 5.1 has no StandardInputEncoding, so it
+    # starts the process with a mark-free console input encoding.
+    $noMark = New-Object System.Text.UTF8Encoding -ArgumentList $false
+    $savedInputEncoding = $null
+    $inputEncodingChanged = $false
+    if ($info.PSObject.Properties['StandardInputEncoding']) {
+        $info.StandardInputEncoding = $noMark
+    } else {
+        $savedInputEncoding = [Console]::InputEncoding
+        try {
+            [Console]::InputEncoding = $noMark
+            $inputEncodingChanged = $true
+        } catch {
+            # Without a console, keep the runtime's default input encoding.
+        }
+    }
+    try { $process = [System.Diagnostics.Process]::Start($info) }
+    finally { if ($inputEncodingChanged) { [Console]::InputEncoding = $savedInputEncoding } }
     $process.StandardInput.Close()
     $errorTask = $process.StandardError.ReadToEndAsync()
     $output = $process.StandardOutput.ReadToEnd()
@@ -253,7 +271,15 @@ function Test-InstallStepDone {
             else { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $null }
         }
         $result = Invoke-ClosedInput -Command $list -Environment $entry.plugin.listingEnv
-        if ($result.ExitCode -ne 0) { throw "$($entry.command) listing exited $($result.ExitCode)" }
+        if ($result.ExitCode -ne 0) {
+            $details = @((($result.ErrorOutput -join "`n").Trim()), (($result.Output -join "`n").Trim())) | Where-Object { $_ }
+            # Codex refuses to list an explicit home until its directory exists, even before login.
+            if ($entry.id -eq 'codex' -and $result.ExitCode -eq 1 -and $ConfigDir -and -not (Test-Path -LiteralPath $ConfigDir) -and
+                ($details -join "`n") -match 'failed to resolve CODEX_HOME' -and ($details -join "`n") -match 'but that path does not exist') {
+                return $false
+            }
+            throw (@("$($entry.command) listing exited $($result.ExitCode)") + $details -join "`n")
+        }
         return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output -IncludeDisabled:$IncludeDisabled -RequireRoot:$RequireRoot
     } finally {
         if ($ConfigEnv) { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $previous }
@@ -322,6 +348,9 @@ function Invoke-InstallCommand {
     param([string[]]$Command, [string]$ConfigEnv, [string]$ConfigDir)
     $previous = [Environment]::GetEnvironmentVariable($ConfigEnv, 'Process')
     try {
+        if ($ConfigEnv -eq 'CODEX_HOME' -and $ConfigDir -and -not (Test-Path -LiteralPath $ConfigDir)) {
+            New-Item -ItemType Directory -Path $ConfigDir -Force -ErrorAction Stop | Out-Null
+        }
         if ($ConfigDir) { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $ConfigDir }
         else { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $null }
         $result = Invoke-ClosedInput -Command $Command
@@ -775,6 +804,12 @@ function Invoke-InstallRefresh {
     }
 }
 
+function Get-InstallVersion {
+    param([string]$Text)
+    if ($Text -match '\b(v?\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b') { return $Matches[1] -replace '^v', '' }
+    return ''
+}
+
 function Invoke-InstallRefreshScript {
     param($Entry, [string]$ConfigDir)
     # Resolve after the update: the previous plugin cache can already be obsolete.
@@ -794,9 +829,22 @@ function Invoke-InstallRefreshScript {
             if ($plugin.version) { $installedVersion = [string]$plugin.version }
         }
     } else {
+        $isPsAi = $false
         foreach ($line in $result.Output) {
-            if ($line -notmatch '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' -or $line -match 'not installed') { continue }
-            if ($line -match '\b(v?\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b') { $installedVersion = $Matches[1] -replace '^v', '' }
+            if ($Entry.id -ceq 'copilot' -and $isPsAi -and $line -match '^\s+from (.+?)\s*$') {
+                # Copilot lists a live directory marketplace instead of an installed copy.
+                $marketplaceRoot = $Matches[1]
+                try {
+                    $marketplace = Get-Content -LiteralPath (Join-Path $marketplaceRoot '.claude-plugin/marketplace.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                    foreach ($plugin in $marketplace.plugins) {
+                        if ($plugin.name -ceq 'ps-ai' -and $plugin.source -is [string]) { $paths += Join-Path $marketplaceRoot $plugin.source }
+                    }
+                } catch { }
+            }
+            $isPsAi = $line -match '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' -and $line -notmatch 'not installed'
+            if (-not $isPsAi) { continue }
+            $version = Get-InstallVersion $line
+            if ($version) { $installedVersion = $version }
             if ($line -match '\s((?:[A-Za-z]:[/\\]|/).+?)\s*$') { $paths += $Matches[1] }
         }
     }

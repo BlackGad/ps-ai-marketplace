@@ -1,6 +1,6 @@
 $root = Split-Path $PSScriptRoot -Parent
 $runner = Join-Path $root 'plugins/ps-ai/bin/ps-ai-foundry.ps1'
-$tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
 $saved = @{}
@@ -33,7 +33,7 @@ exit 0
         exit = 0; stdout = (@{ accessToken = 'FAKE-NONCREDENTIAL'; expires_on = $expiresOn.ToUnixTimeSeconds() } | ConvertTo-Json -Compress)
     } }
     $fakeRoot = Split-Path $env:PS_AI_FAKE_AZ -Parent
-    $env:PATH = @($fakeTools, (Join-Path $PSScriptRoot 'fixtures/fake-az'), $PSHOME) -join [IO.Path]::PathSeparator
+    $env:PATH = @($fakeTools, (Join-Path $PSScriptRoot 'fixtures/fake-az'), $PSHOME, $(if ($IsWindows) { $null } else { "/bin:/usr/bin" })) -join [IO.Path]::PathSeparator
     $env:PS_AI_PRIVACY_LOG = Join-Path $tempRoot 'privacy.json'
     $pwshPath = (Get-Process -Id $PID).Path
     $output = @(& $pwshPath -NoProfile -File $runner -Agent copilot-dev -HomeRoot $tempRoot 2>&1)
@@ -77,6 +77,16 @@ exit 0
             Set-Variable IsWindows -Value $savedIsWindows -Force
             $global:LASTEXITCODE = $savedExitCode
         }
+    }
+    # macOS chmod stops reading options at the mode, so "--" must come first; this fake refuses any other order.
+    if (-not $IsWindows) {
+        $fakeChmod = Join-Path $fakeTools 'chmod'
+        "#!/bin/sh`n[ `"`$1`" = `"--`" ] || exit 1`nshift`nexec /bin/chmod `"`$@`"`n" | Set-Content -NoNewline -LiteralPath $fakeChmod
+        [IO.File]::SetUnixFileMode($fakeChmod, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+        . $runner -NoRun
+        $orderedFile = Join-Path $tempRoot 'chmod-order.json'
+        Write-FoundryProviderFile -Path $orderedFile -Json 'FAKE-NONCREDENTIAL'
+        Assert-Equal 'FAKE-NONCREDENTIAL' ([IO.File]::ReadAllText($orderedFile)) 'chmod receives -- before the mode'
     }
 } finally {
     foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }

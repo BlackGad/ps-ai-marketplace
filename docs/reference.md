@@ -56,7 +56,7 @@ To adopt a signed-in account folder, run `legion add codex <existing folder>` or
 
 ### Version checks and catalog revisions
 
-Overseer sessions check for a newer ps-ai version once a day and show a notice when one is available. Say "check ps-ai updates" for a fresh check, or "update ps-ai" to see the update command and approve running it. Checks never install updates. Checks and generated update commands follow `main` in `BlackGad/ps-ai-marketplace`, including after an installation using a tagged installer or catalog. The shared checker is `pwsh -NoProfile -File <plugin>/bin/ps-ai-update.ps1 -Check [-Force]`; `-Force` refreshes `~/.legion/temp/ps-ai-update.json` and reports check failures.
+Overseer sessions check for a newer ps-ai version once a day and show a notice when one is available. Say "check ps-ai updates" for a fresh check, or "update ps-ai" to see the update command and approve running it. Checks never install updates. Release tags exist from `v0.6.0` onward. Update checks read the `plugin.json` on `main`, which changes only when a release pull request is merged, so a notice always means a published release. Checks and generated update commands follow `main` in `BlackGad/ps-ai-marketplace`, including after an installation using a tagged installer or catalog. The shared checker is `pwsh -NoProfile -File <plugin>/bin/ps-ai-update.ps1 -Check [-Force]`; `-Force` refreshes `~/.legion/temp/ps-ai-update.json` and reports check failures.
 
 To run a specific installer and matching catalog revision, replace `<release-tag>` with a published release tag. This does not pin the installed plugin or future updates:
 
@@ -231,6 +231,10 @@ The [repository layout](../plugins/ps-ai/skills/ps-ai-repository/references/layo
 ## Works with method skills
 
 ps-ai decides who does the work, where, and where the record lives. How one piece of work is done (brainstorming, planning, test-driven development, debugging, code review) comes from the method skills you have installed, such as superpowers. The repo rules block that `ps-ai-repository` adds sends tasks to your legion accounts and plans to the repo's configured paths.
+
+## Releases
+
+If you push a commit to the release pull request by hand, run the `release` workflow once through `workflow_dispatch` to post the `gate` and `integration` statuses on the new head.
 
 ## Development
 

@@ -21,7 +21,7 @@ function Get-PsAiLease {
         if ($data.host -ine [System.Net.Dns]::GetHostName()) { return @{ State = 'foreign'; Data = $data } }
         $process = Get-Process -Id ([int]$data.pid) -ErrorAction SilentlyContinue
         if ($process -and
-            $process.StartTime.ToUniversalTime() -eq ([datetime]$data.processStartedAt).ToUniversalTime()) {
+            (Test-PsAiSameStartTime $process.StartTime ([datetime]$data.processStartedAt))) {
             return @{ State = 'held'; Data = $data }
         }
         return @{ State = 'stale'; Data = $data }

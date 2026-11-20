@@ -47,7 +47,7 @@ try {
         $gitRoot = Get-SetupGitRoot $repo $mode
         Set-Content -LiteralPath (Join-Path $repo '.legion/scripts/mine.ps1') -Value 'owner script'
         # An unrelated pending setup file makes the repeat commit something.
-        Remove-Item -LiteralPath (Join-Path $repo '.legion/state/history/.gitkeep')
+        Remove-Item -LiteralPath (Join-Path $repo '.legion/state/history/.gitkeep') -Force
         git -C $gitRoot rm -q --cached -- "$($prefix)state/history/.gitkeep"
         git -C $gitRoot config user.name Owner; git -C $gitRoot config user.email owner@example.invalid; git -C $gitRoot commit -q -m 'Drop gitkeep'
         & $setup -Repo $repo -Mode $mode | Out-Null

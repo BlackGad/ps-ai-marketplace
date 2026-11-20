@@ -77,7 +77,8 @@ function Write-FoundryProviderFile {
     try {
         if (-not $IsWindows) {
             # Restrict the empty file before writing; chmod also overrides a restrictive umask.
-            & chmod 600 -- $Path
+            # "--" comes before the mode: macOS chmod stops reading options at the mode and would treat a later "--" as a file.
+            & chmod -- 600 $Path
             if ($LASTEXITCODE -ne 0) { throw 'could not restrict provider file permissions' }
         }
         $bytes = [Text.UTF8Encoding]::new($false).GetBytes($Json)

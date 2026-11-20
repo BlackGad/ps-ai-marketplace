@@ -1,7 +1,8 @@
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $root = Split-Path $PSScriptRoot -Parent
 $account = Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1'
-$tempRoot = Join-Path $env:TEMP ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path (Get-TestTempPath) ('ps-ai-tests/' + [guid]::NewGuid())
 $previousLog = $env:PS_AI_WRAPPER_LOG
 $previousExpand = $env:PS_AI_WRAPPER_EXPAND
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
@@ -38,7 +39,7 @@ exit /b %result%
         Assert-Equal 'caller-account' (Get-Content $envLog) 'Batch config does not leak into its caller'
         $seen = Get-Content $env:PS_AI_WRAPPER_LOG -Raw | ConvertFrom-Json
         Assert-Equal 'first|two words|semi;literal' ($seen.Args -join '|') 'Batch forwards literal arguments'
-        Assert-Equal (Join-Path $homeRoot '.legion/agents/wrapper-test') $seen.Home 'Batch selects account config'
+        Assert-Equal (Join-Path (Get-LongPath $homeRoot) '.legion/agents/wrapper-test') $seen.Home 'Batch selects account config'
         $fakeBatch = Join-Path $tempRoot 'fake command.cmd'
         '@pwsh -NoProfile -File "' + $fake + '" %*' | Set-Content $fakeBatch
         & $account -Action add -Id wrapper-batch -Tool codex -HomeRoot $homeRoot -Command $fakeBatch | Out-Null
