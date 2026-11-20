@@ -18,7 +18,7 @@ pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Pat
 
 To check from the system temp folder, run `copilot plugin list` with `COPILOT_HOME` set to the account's recorded folder (never guess paths); ps-ai is installed when `ps-ai@ps-ai-marketplace` is listed and enabled.
 
-To adopt a signed-in folder, pass `-ConfigDir <existing folder>` to `add`. Follow the [shared account rules](../../ps-ai-personalisation/references/fields.md#account-setup) for retained logins, installation approval and incomplete work.
+To adopt a signed-in folder, pass `-ConfigDir <existing folder>` to `add`. For an adopted or registered folder, add `-Update` to the installer command: it installs ps-ai if missing and otherwise brings an older copy current, which a plain install reports as already done. Follow the [shared account rules](../../ps-ai-personalisation/references/fields.md#account-setup) for retained logins, installation approval and incomplete work.
 
 Register an existing wrapper with `-Action register -Id <id> -Tool copilot -Command <wrapper> -ConfigDir <dir> -HomeRoot <home>`. Rename with `-Action rename -Id <old> -NewId <new>`, or remove with `-Action remove -Id <id>`, then validate. Exact channel account bindings are updated; the script keeps and reports the config folder. Ask before changing or deleting that folder.
 

@@ -55,6 +55,9 @@ function Get-OverseerLaunch {
     foreach ($arg in @($Arguments) + $channelArgs.ToArray() + @($descriptor.overseerArgs)) {
         if ($null -ne $arg) { $launchArgs.Add([string]$arg) }
     }
+    if ($Tool -eq 'claude' -and $launchArgs.Contains('--channels')) {
+        $launchArgs.Add('--')
+    }
     $launchArgs.Add('continue as the overseer')
     return @{Command=(Get-PsAiWrapperCommand $AccountId $HomeRoot);Args=$launchArgs.ToArray()}
 }

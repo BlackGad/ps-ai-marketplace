@@ -27,7 +27,9 @@ foreach ($tool in @('claude','codex','copilot')) {
     Assert-Equal $expected ($launch.Args -join '|') 'ExplicitAccountAndModel preserve argv'
 }
 $launch = Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -Channel @('main','alerts','main')
-Assert-Equal '--channels|plugin:telegram@claude-plugins-official|continue as the overseer' ($launch.Args -join '|') 'SameKindFlagsPreserveArgv'
+Assert-Equal '--channels|plugin:telegram@claude-plugins-official|--|continue as the overseer' ($launch.Args -join '|') 'SameKindFlagsPreserveArgv'
+$launch = Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -Arguments @('--channels','plugin:telegram@claude-plugins-official')
+Assert-Equal '--channels|plugin:telegram@claude-plugins-official|--|continue as the overseer' ($launch.Args -join '|') 'ExplicitChannelFlagStopsBeforePrompt'
 Assert-Throws { Get-OverseerLaunch -Personalisation $owner -AccountId claude-b -Channel alerts } 'Unbound chosen account fails'
 Assert-Throws { Get-OverseerLaunch -Personalisation $owner -AccountId codex-a -Channel main } 'Unsupported tool fails'
 $owner.channels[1].accounts=@('claude-b')
@@ -47,7 +49,7 @@ catch { Assert-Equal 'selected channels cannot share one launch' $_.Exception.Me
     $copy.channels[1].kind='fixture-channel'
     $copy.channels[1].accounts=@('claude-a')
     $launch = Get-OverseerLaunch -Personalisation $copy -AccountId claude-a -Channel @('main','alerts','alerts')
-    Assert-Equal '--channels|plugin:telegram@claude-plugins-official|--channels|second value||2026-11-19|semi;literal|quote''value|continue as the overseer' ($launch.Args -join '|') 'SameKindFlagsPreserveArgv never deduplicates individual strings'
+    Assert-Equal '--channels|plugin:telegram@claude-plugins-official|--channels|second value||2026-11-19|semi;literal|quote''value|--|continue as the overseer' ($launch.Args -join '|') 'SameKindFlagsPreserveArgv never deduplicates individual strings'
     'different' | Set-Content (Join-Path $fixtureKindFolder 'SKILL.md')
     $missingSkill = Join-Path $plugin 'skills/ps-ai-telegram/SKILL.md'
     Move-Item -LiteralPath $missingSkill -Destination ($missingSkill + '.fixture')
