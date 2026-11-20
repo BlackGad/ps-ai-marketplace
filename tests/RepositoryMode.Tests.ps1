@@ -71,9 +71,9 @@ try {
             Assert-True (-not (Test-Path (Join-Path $legion '.git'))) 'Shared uses the code repository'
             Assert-Equal 'existing/|.legion/temp/|.legion/docs/' ((Get-Content (Join-Path $repo '.gitignore')) -join '|') 'Shared appends narrow ignores'
             Assert-True (-not ((Get-Content $excludePath) -ccontains '.legion/')) 'Shared keeps orchestration visible to code Git'
-            git -C $repo add .gitignore .legion/configuration .legion/scripts .legion/state
-            git -C $repo commit --quiet -m 'Shared setup'
-            Assert-Equal 0 $LASTEXITCODE 'Shared commits belong to the code repository'
+            # Setup itself commits every setup file, including ones that already existed.
+            Assert-Equal 'Set up ps-ai orchestration' (git -C $repo log -1 --format=%s) 'Shared commits belong to the code repository'
+            Assert-True (@(git -C $repo ls-files .legion) -contains '.legion/state/handoff.md') 'Shared commits setup files that already existed'
             Assert-Equal '' ((git -C $repo status --porcelain) -join "`n") 'Shared docs and scratch stay untracked'
         }
         $owningRepo = if ($mode -eq 'Private') { $legion } else { $repo }
