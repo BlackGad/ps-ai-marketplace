@@ -304,11 +304,14 @@ function Get-SetupPathHint {
 
 function Test-SetupToolInstalled {
     param([string]$Tool)
-    # Load the installer's probe in a child scope, keeping its parameters and helpers local.
-    & {
-        . (Join-Path $script:SetupBin 'ps-ai-install-tool.ps1') -NoRun -Tool $Tool
-        return (Test-ToolInstalled -Tool $Tool).Installed
-    }
+    $previousExit = $global:LASTEXITCODE
+    try {
+        # Load the installer's probe in a child scope, keeping its parameters and helpers local.
+        & {
+            . (Join-Path $script:SetupBin 'ps-ai-install-tool.ps1') -NoRun -Tool $Tool
+            return (Test-ToolInstalled -Tool $Tool).Installed
+        }
+    } finally { $global:LASTEXITCODE = $previousExit }
 }
 
 function Get-SetupToolInstallHint {

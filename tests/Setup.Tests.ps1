@@ -135,7 +135,9 @@ try {
                     if ($Command[0] -eq 'brew') { $probe.Node = $true } else { $probe.Codex = $true }
                     return 0
                 }
+                $global:LASTEXITCODE = 0
                 $hint = Get-SetupToolInstallHint -Tool (Get-PsAiTool codex) -Platform macos
+                Assert-Equal 0 $LASTEXITCODE 'R4 B1 prerequisite discovery preserves the caller exit code'
                 Assert-Equal 'brew install node; npm install -g @openai/codex' $hint 'R4 B1 consent includes repair of a broken Node command'
                 Invoke-ToolInstall -Tool codex -Platform macos -Yes | Out-Null
                 Assert-Equal $hint ($probe.Commands -join '; ') 'R4 B1 apply matches consent for broken Node'
