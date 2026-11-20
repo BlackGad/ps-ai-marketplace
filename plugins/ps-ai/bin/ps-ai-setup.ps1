@@ -301,14 +301,15 @@ function Install-SetupTools {
 
 function Add-SetupAccounts {
     param($Plan)
+    $file = Get-PsAiHomePath -HomeRoot $Plan.HomeRoot -Path 'configuration/ps-ai-personalisation.json'
+    $data = Read-PsAiJson -Path $file
     foreach ($row in $Plan.Accounts) {
         if (-not $row.Usable) { continue }
         if ($row.Requested) {
-            $arguments = @{ Action = 'add'; Id = $row.Id; Tool = $row.Tool.id; HomeRoot = $Plan.HomeRoot }
+            $arguments = @{ Id = $row.Id; Tool = $row.Tool.id; HomeRoot = $Plan.HomeRoot; Data = $data; Path = $file }
             if ($row.Adopted) { $arguments.ConfigDir = $row.Folder }
-            # Reuse the account script's validation and wrappers in a child; do not maintain another add implementation.
-            $output = & pwsh -NoProfile -File (Join-Path $script:SetupBin 'ps-ai-account.ps1') @arguments 2>&1
-            if ($LASTEXITCODE -ne 0) { throw (ConvertTo-SetupOneLine ($output -join "`n")) }
+            try { $null = Add-PsAiSubscriptionAccount @arguments }
+            catch { throw (ConvertTo-SetupOneLine $_.Exception.Message) }
             if (-not $row.New) { "skip: account $($row.Id) (already done)" }
         } else { "skip: account $($row.Id) (already done)" }
         if ($row.New -and -not $row.Adopted) { $row.NextStep = "log in: run $($row.Id)" }

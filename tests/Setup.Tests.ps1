@@ -36,7 +36,7 @@ try {
     $env:PATH = $fixturePath
     $version = (Get-Content (Join-Path $root 'plugins/ps-ai/plugin.json') -Raw | ConvertFrom-Json).version
 
-    # All machine, CLI and network seams are inert; account creation still runs the real child script.
+    # All machine, CLI and network seams are inert; account creation still runs the real add path.
     function Test-SetupCommand { param($Name) return ($Name -cnotin $script:missingTools) }
     function Get-SetupUserPath { return $script:userPath }
     function Set-SetupUserPath { param($Value) $script:pathWrites.Add($Value); $script:userPath = $Value }
@@ -107,9 +107,22 @@ try {
     Assert-SetupText $plan '  install  ps-ai into ' 'Plan groups plugin installs'
     Assert-Equal $before (Get-SetupTree $testHome) 'Account plan changes no bytes or timestamps'
     Remove-Item -LiteralPath (Join-Path $fakeBin $(if ($IsWindows) { 'claude1.cmd' } else { 'claude1' }))
+    $realNewWrappers = ${function:New-PsAiWrappers}
+    $script:wrapperCalls = [Collections.Generic.List[string]]::new()
+    function New-PsAiWrappers {
+        param($Id, $Tool, $HomeRoot, $RealCommand, $ConfigDir, [switch]$CheckOnly)
+        $script:wrapperCalls.Add($Id)
+        & $realNewWrappers @PSBoundParameters
+    }
+    $global:LASTEXITCODE = 7
     $applyWatch = [Diagnostics.Stopwatch]::StartNew()
     $apply = @(Invoke-Setup -HomeRoot $testHome -Add @('claude', "codex:$adopt") -Yes)
     $applyWatch.Stop()
+    Set-Item -Path function:New-PsAiWrappers -Value $realNewWrappers
+    Assert-Equal 'claude1|claude1|codex1|codex1' ($wrapperCalls -join '|') 'Each account validates and creates wrappers in this process'
+    Assert-Equal 0 $LASTEXITCODE 'In-process adds ignore a stale native exit code'
+    Assert-True (-not ($apply -join "`n").Contains("Run 'claude1' in a terminal and log in once.")) 'Setup keeps account add guidance out of its output'
+    Assert-True (-not ($apply -join "`n").Contains('Existing account folder kept at')) 'Setup keeps adoption guidance out of its output'
     $agents = (Read-PsAiJson $settings).agents
     Assert-Equal 'claude1|codex1' ($agents.id -join '|') 'Fresh apply records both accounts'
     Assert-Equal 2 $installs.Count 'Installer runs once per account folder'
@@ -155,6 +168,24 @@ try {
     Assert-Equal $before (Get-SetupTree $testHome) 'All bad input is rejected before any change'
     Assert-Equal 0 $pathWrites.Count 'Bad input does not write PATH'
     Assert-Equal 0 $installs.Count 'Bad input does not install'
+
+    Reset-SetupTest 'account-error'
+    $script:wrapperCalls.Clear()
+    function New-PsAiWrappers {
+        param($Id, $Tool, $HomeRoot, $RealCommand, $ConfigDir, [switch]$CheckOnly)
+        $script:wrapperCalls.Add($Id)
+        throw "fixture add failure`r`nsecond line"
+    }
+    $addError = $null
+    try { Invoke-Setup -HomeRoot $testHome -Add @('claude', 'codex') -Yes | Out-Null }
+    catch { $addError = $_.Exception.Message }
+    finally { Set-Item -Path function:New-PsAiWrappers -Value $realNewWrappers }
+    Assert-Equal 'fixture add failure  second line' $addError 'Account add errors stop setup with the same one-line message'
+    Assert-Equal 'claude1' ($wrapperCalls -join '|') 'Account add failure stops before the next account'
+    Assert-Equal 0 (@((Read-PsAiJson $settings).agents).Count) 'Failed wrapper validation records no account'
+    Assert-Equal 0 $installs.Count 'Account add failure stops before plugin installs'
+    Assert-Equal 0 $pathWrites.Count 'Account add failure stops before PATH writes'
+    Assert-True (-not (Test-Path (Join-Path $testHome '.legion/bin/ps-ai-setup'))) 'Account add failure stops before owner commands'
 
     Reset-SetupTest 'partial'
     Invoke-Setup -HomeRoot $testHome -Add claude -Id claude1 -Yes | Out-Null
