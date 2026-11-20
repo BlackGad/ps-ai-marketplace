@@ -52,7 +52,7 @@ For options, use the script-block form in PowerShell. This example selects an ex
 
 Use `-Tools <tool-id>` (or an array of ids) to choose tools, `-Source <owner/repository>` to override the GitHub marketplace source, and `-DryRun` to print the steps without changing anything. The default source is `BlackGad/ps-ai-marketplace`. `-SourceRef` selects its catalog revision (default `main`). A working-tree script uses its sibling `tools.json` unless `-Source` or `-SourceRef` is supplied. Remote dry runs read that metadata once. It does not change the marketplace source passed to the CLI. Install and update dry runs execute read-only listings to detect existing registrations and plugins; displayed add and update commands are previews.
 
-To adopt a signed-in account folder, say “Add my existing Claude account in ~/.claude-account2.” Account setup uses `ps-ai-account.ps1 -Action add -Tool <tool-id> -Id <id> -ConfigDir <existing folder>` to record the folder and create a shortcut for it. The folder must exist; setup preserves its settings and does not run or request a new login. An existing shortcut can instead be recorded with `-Action register -Command <wrapper> -ConfigDir <folder>`. Both flows install ps-ai through this installer after the owner's yes; see the tool account guides below.
+To adopt a signed-in account folder, run `legion add codex <existing folder>` or `ps-ai-setup -Add 'codex:<existing folder>'`. The folder must exist; setup keeps its settings and login, records it and creates a shortcut. Setup installs a missing CLI and ps-ai under the same approval. Only the owner logs in if the CLI asks. An existing shortcut can instead be recorded through the tool's account guide.
 
 ### Version checks and catalog revisions
 
@@ -76,7 +76,7 @@ Use the dedicated tool guides for CLI installation, account setup, plugin comman
 
 ### Manual CLI installation
 
-Run these in the selected account's environment after logging in. The linked tool guides cover account selection and hook approval.
+Run these in the selected account's environment. Setup normally installs ps-ai before login. The linked tool guides cover account selection and hook approval.
 
 Claude Code:
 
@@ -107,20 +107,70 @@ Codex hooks need one-time trust through `/hooks` in the selected account. Reinst
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Uninstall
 ```
 
-Shows the targets and generated files before asking. Use `-Yes` to skip the prompt, `-DryRun` to preview, or `-Tools` and `-ConfigDir` to narrow targets. Removes ps-ai and its marketplace registration, plus its generated account and overseer launchers and copied runtime in `~/.legion/bin` (shared files stay while other account launchers need them). Keeps `~/.legion/configuration` (settings and notes), `~/.legion/agents` (account folders and logins), repositories, and the CLIs themselves. The script prints the kept locations so you can delete data by hand.
+Shows the targets and generated files before asking. Use `-Yes` to skip the prompt, `-DryRun` to preview, or `-Tools` and `-ConfigDir` to narrow targets. Removes ps-ai and its marketplace registration, plus its generated account wrappers and copied runtime. When the last account is uninstalled, it also removes the four owner commands ps-ai created in `~/.legion/bin`: `ps-ai-setup`, `ps-ai-status`, `ps-ai-overseer` and `legion` (including Windows `.cmd` files). Unrelated files stay. Keeps `~/.legion/configuration` (settings and notes), `~/.legion/agents` (account folders and logins), repositories, and the CLIs themselves.
 
 ## First run
 
-Setup has three steps: install ps-ai, add accounts, and start work. After installation, ask any tool to add accounts. The `ps-ai-personalisation` skill asks only which agents to add: the tool, account name, and an existing folder or a new one. One yes approves installing ps-ai into every selected account. It writes:
+After installing ps-ai, ask any tool to add accounts, or run setup from a clone or installed plugin folder:
+
+```powershell
+pwsh -NoProfile -File <plugin>/bin/ps-ai-setup.ps1 -Add claude
+```
+
+This prints a plan and changes nothing. Example Windows output, with the temporary home abbreviated as `~` and path separators shown as `/`:
+
+```text
+Plan (nothing changed yet):
+  create   settings and notes in ~/.legion/configuration
+  add      claude1 (claude) new folder ~/.legion/agents/claude1
+  install  ps-ai into ~/.legion/agents/claude1
+  commands write ps-ai-setup, ps-ai-status, ps-ai-overseer, legion in ~/.legion/bin
+  path     add ~/.legion/bin to your user PATH
+Run again with -Yes to apply.
+```
+
+After approving the plan, run it again with `-Yes`. Setup installs a missing CLI first, then adds the account and installs ps-ai before login. If CLI installation fails or needs a new terminal, that account is not recorded; retry the add after resolving the reported next step. Setup writes:
 
 - `~/.legion/configuration/ps-ai-personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/ps-ai/schemas/personalisation.schema.json`. It never holds tokens.
 - `~/.legion/configuration/ps-ai-notes.md`: free-form preferences and lessons.
 
-Then open a repository and describe the work. Ask to set up orchestration if needed. `ps-ai-repository` offers [Private (default) or Shared](../plugins/ps-ai/skills/ps-ai-repository/SKILL.md#choose-where-notes-live) storage and creates the `.legion/` layout below. Setup asks no questions about models, account purposes, worker or reviewer roles, notification timing, channels, or knowledge. State preferences later; they are saved in notes. Channels are set up only on request, such as “use Telegram”.
+It also writes account wrappers and the four commands below. On Windows it adds `~/.legion/bin` to your user PATH; on macOS and Linux it prints the line to add to your shell profile. It never edits that profile. Open a new terminal if needed.
+
+Run `ps-ai-status` or `legion status` before making changes. Before setup, outside an orchestrated repository, status prints:
+
+```text
+no ps-ai settings yet
+path ~/.legion/bin on PATH: no
+commands: missing ps-ai-setup, ps-ai-status, ps-ai-overseer, legion
+repo none
+```
+
+`ps-ai-setup` without `-Add` finishes setup for recorded accounts. `legion setup` does the same. A completed plan prints `Nothing to do.` Adding the same tool again without an explicit id creates another account.
+
+### Legion commands
+
+`legion help` lists these verbs:
+
+| Command | What it does |
+| --- | --- |
+| `legion setup [--yes]` | Finish setup: settings, commands, ps-ai in every account |
+| `legion add <tool> [<folder>] [--yes]` | Add a claude, codex or copilot account, using a new or existing folder |
+| `legion remove <id>` | Remove an account; keep its folder |
+| `legion status` | Show accounts, commands, channels and this repository |
+| `legion repo` | Set up ps-ai in this repository |
+| `legion start [<account>]` | Start the overseer here, with Telegram if bound |
+| `legion start --no-channel` | Start the overseer without a channel |
+| `legion help` | Show this list |
+
+`setup` and `add` show the plan, then ask `Apply? [Y/n]` in an interactive terminal (Enter accepts). `--yes` applies without asking; redirected input only prints the plan. For example, `legion add claude`, `legion remove claude1` and `legion start codex1`.
+
+Open `my-project` and describe the work. `legion repo` creates Private orchestration by default; ask the tool for [Private or Shared](../plugins/ps-ai/skills/ps-ai-repository/SKILL.md#choose-where-notes-live) storage and a repository check command when needed. State preferences later; they are saved in notes. Channels are set up only on request, such as “use Telegram”.
+
+The console and each connected channel are equal. Owner questions go to all of them; an answer in any one resolves the question, with confirmation in the others. A request arriving through a channel is acknowledged there at once, followed by the real answer. Progress and completion notices go to all connected channels and the console.
 
 Legion and review runs pass no model flag by default. Each CLI uses that account's own default model. A model flag is passed only when owner notes name one, such as “use astra for reviews”. Routing chooses agents without model discovery or model lists. Without owner preferences, the overseer follows [task routing](../plugins/ps-ai/skills/ps-ai-overseer/references/task-loop.md) and chooses a different tool/provider for independent reviews. It says which agent was chosen. Owner preferences always win.
 
-To open an overseer session with all your launch flags (for example a Telegram channel), run `ps-ai-overseer` in a terminal, or say "continue" in a session and accept the offer.
+To open an overseer session, run `legion start` or `ps-ai-overseer`. One eligible account is selected automatically; otherwise choose one, such as `legion start codex1`. A single fitting Telegram binding is used by default. Use `legion start --no-channel` to skip it, or `ps-ai-overseer -Account claude1 -Channel my-telegram` to choose a binding.
 
 Foundry agents use one Azure endpoint per agent, such as `https://<resource>.cognitiveservices.azure.com`, and the owner's `az` login. Setup can adopt an existing folder without changing its provider settings. For an explicit provider configuration request, use the matching account guide with values already supplied by the owner. Model preferences for work remain in notes.
 
@@ -136,7 +186,7 @@ A hook at session start decides the mode:
 | --- | --- | --- |
 | Legion | The overseer started this process with `PS_AI_ROLE=legion` and `PS_AI_TASK` | One task, local commits, a report; no other agents |
 | Overseer | You say continue, progress or next in a repo with `.legion/state/` | Takes the lease, reads the handoff, continues the work |
-| Setup | You ask to set up orchestration | Creates the repo layout and registers the project |
+| Setup | You ask to set up orchestration | Creates the repo layout |
 | Ad hoc | Anything else | Nothing changes; an orchestrated repo shows one hint line |
 
 A session you start yourself is never a legion member.
@@ -154,7 +204,7 @@ To opt out, leave legion unused. To limit its use, route legion only to accounts
 | What | Where | Git history |
 | --- | --- | --- |
 | Personalisation and notes | `~/.legion/configuration/` | no |
-| Launcher and account wrappers | `~/.legion/bin/` | no |
+| Account wrappers and `ps-ai-setup`, `ps-ai-status`, `ps-ai-overseer`, `legion` | `~/.legion/bin/` | no |
 | New account config folders (adopted folders keep their names) | `~/.legion/agents/<id>/` | no |
 | Portable prerequisite tools | `~/.legion/tools/<tool>/` | no |
 | Cross-project knowledge wiki (optional, llm-wiki) | `~/.legion/knowledge/` | no |
@@ -164,7 +214,7 @@ To opt out, leave legion unused. To limit its use, route legion only to accounts
 | Local specs and plans | `<repo>/.legion/docs/specs/`, `plans/` | no |
 | Agent scratch files | `<repo>/.legion/temp/` | no |
 
-The [repository layout](../plugins/ps-ai/skills/ps-ai-repository/references/layout.md) defines ignores and Git ownership. Private is identified by a `.legion/.git` folder. Its outer ignore is local to Git and shared across worktrees. Shared uses the code repo's `.gitignore` and rules file. Setup uses `pwsh -NoProfile -File <plugin>/bin/ps-ai-repository.ps1 -Repo <repo> [-Mode Private|Shared]` after the setup files are authored and validated. Handoff, history, and roadmap commits use the Git repository that owns `.legion/state`.
+The [repository layout](../plugins/ps-ai/skills/ps-ai-repository/references/layout.md) defines ignores and Git ownership. Private is identified by a `.legion/.git` folder. Its outer ignore is local to Git and shared across worktrees. Shared uses the code repo's `.gitignore` and rules file. `legion repo` creates the setup files; for explicit choices use `pwsh -NoProfile -File <plugin>/bin/ps-ai-repository.ps1 -Repo <repo> [-Mode Private|Shared] [-Gate '<check command>']`. Handoff, history, and roadmap commits use the Git repository that owns `.legion/state`.
 
 ## Skills
 
