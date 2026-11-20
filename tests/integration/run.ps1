@@ -372,16 +372,22 @@ function Invoke-CliInstallScript {
 
 function Get-IntegrationToolVersion {
     param([string]$Tool)
+    # Load the standalone installer's parser in this scope, without running the installer.
+    . (Join-Path $PSScriptRoot '../../install.ps1') -NoRun
     $command = Resolve-IntegrationCommand (Get-IntegrationToolInfo $Tool).command
-    $version = @(& $command --version 2>&1 | ForEach-Object { "$_" })
+    $output = @(& $command --version 2>&1 | ForEach-Object { "$_" }) -join "`n"
     Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "$Tool --version exited $LASTEXITCODE"
-    return $version -join ' '
+    $version = Get-InstallVersion $output
+    Assert-IntegrationTrue ([bool]$version) "$Tool --version has no version token:`n$output"
+    return @{ Version = $version; Command = $command }
 }
 
 function Invoke-CliInstallFirst {
     param([string]$Tool)
     $lines = Invoke-CliInstallScript $Tool
-    $script:Ctx.Versions[$Tool] = Get-IntegrationToolVersion $Tool
+    $installed = Get-IntegrationToolVersion $Tool
+    $script:Ctx.Versions[$Tool] = $installed.Version
+    $script:Ctx.Commands[$Tool] = $installed.Command
     return $lines
 }
 
@@ -389,7 +395,9 @@ function Invoke-CliInstallRepeat {
     param([string]$Tool)
     $lines = Invoke-CliInstallScript $Tool
     Assert-IntegrationText $lines 'skip:'
-    Assert-IntegrationTrue ((Get-IntegrationToolVersion $Tool) -eq $script:Ctx.Versions[$Tool]) "$Tool version changed on the repeat run"
+    $installed = Get-IntegrationToolVersion $Tool
+    Assert-IntegrationTrue ($installed.Version -ceq $script:Ctx.Versions[$Tool]) "$Tool version changed on the repeat run`nfirst version:`n$($script:Ctx.Versions[$Tool])`nrepeat version:`n$($installed.Version)"
+    Assert-IntegrationTrue ($installed.Command -ceq $script:Ctx.Commands[$Tool]) "$Tool executable changed on the repeat run`nfirst executable:`n$($script:Ctx.Commands[$Tool])`nrepeat executable:`n$($installed.Command)"
     return $lines
 }
 
@@ -696,7 +704,7 @@ function Get-IntegrationSteps {
     param([string]$HomeRoot, [string]$Checkout, [string]$Work, [string]$Os, [switch]$AllowFallback)
     $script:Ctx = @{
         HomeRoot = $HomeRoot; Checkout = $Checkout; Work = $Work; Os = $Os; AllowFallback = [bool]$AllowFallback
-        Versions = [ordered]@{}; Targets = @{}; NotTested = [ordered]@{}
+        Versions = [ordered]@{}; Commands = @{}; Targets = @{}; NotTested = [ordered]@{}
     }
     $steps = @()
     foreach ($tool in $script:IntegrationTools) {

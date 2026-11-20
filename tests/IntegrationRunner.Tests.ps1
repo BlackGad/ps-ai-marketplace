@@ -261,6 +261,37 @@ try {
     Invoke-CliInstallScript 'claude' | Out-Null
     Assert-True ((@($calls[0]) -join ' ') -notlike '*-Method*') 'a working winget keeps the default method'
 
+    # CLI repeats compare the version token and executable independently of notices.
+    foreach ($tool in 'claude', 'codex', 'copilot') {
+        . Reset-Runner
+        $script:fakeCommand = Join-Path $fakeWork "version-$tool.ps1"
+        $firstCommand = $script:fakeCommand
+        function Resolve-IntegrationCommand { return $script:fakeCommand }
+        function Invoke-CliInstallScript { return @('skip: CLI (already done)') }
+        Set-Content -LiteralPath $firstCommand -Value @(
+            "Write-Output 'first-run notice'"
+            "Write-Error 'stderr notice' -ErrorAction Continue"
+            "Write-Output 'cli v1.2.3-beta.1'"
+            '$global:LASTEXITCODE = 0'
+        )
+        Invoke-CliInstallFirst $tool | Out-Null
+        Set-Content -LiteralPath $firstCommand -Value @("Write-Output 'cli 1.2.3-beta.1'", '$global:LASTEXITCODE = 0')
+        $result = Invoke-IntegrationBlock { Invoke-CliInstallRepeat $tool }
+        Assert-Equal 'passed' $result.Result "$tool repeat ignores first-call stdout and stderr notices"
+        Assert-Equal '1.2.3-beta.1' $script:Ctx.Versions[$tool] "$tool stores the parsed version token"
+
+        Set-Content -LiteralPath $firstCommand -Value @("Write-Output 'cli 1.2.4'", '$global:LASTEXITCODE = 0')
+        $result = Invoke-IntegrationBlock { Invoke-CliInstallRepeat $tool }
+        Assert-Equal 'failed' $result.Result "$tool repeat rejects a real version change"
+        Assert-True ($result.Message.Contains("first version:`n1.2.3-beta.1`nrepeat version:`n1.2.4")) "$tool failure prints both versions verbatim"
+
+        $script:fakeCommand = Join-Path $fakeWork "other-version-$tool.ps1"
+        Set-Content -LiteralPath $script:fakeCommand -Value @("Write-Output 'cli 1.2.3-beta.1'", '$global:LASTEXITCODE = 0')
+        $result = Invoke-IntegrationBlock { Invoke-CliInstallRepeat $tool }
+        Assert-Equal 'failed' $result.Result "$tool repeat rejects a different executable with the same version"
+        Assert-True ($result.Message.Contains("first executable:`n$firstCommand`nrepeat executable:`n$script:fakeCommand")) "$tool failure prints both executable paths verbatim"
+    }
+
     # Step 2 with fakes: nothing real runs; the behaviour block decides what each install.ps1 call does.
     $refusal = "install.ps1 exited 1`ncodex exited 1`nlocal folder marketplace is not supported"
     function Install-Fakes {

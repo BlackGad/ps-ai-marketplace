@@ -798,6 +798,12 @@ function Invoke-InstallRefresh {
     }
 }
 
+function Get-InstallVersion {
+    param([string]$Text)
+    if ($Text -match '\b(v?\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b') { return $Matches[1] -replace '^v', '' }
+    return ''
+}
+
 function Invoke-InstallRefreshScript {
     param($Entry, [string]$ConfigDir)
     # Resolve after the update: the previous plugin cache can already be obsolete.
@@ -831,7 +837,8 @@ function Invoke-InstallRefreshScript {
             }
             $isPsAi = $line -match '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' -and $line -notmatch 'not installed'
             if (-not $isPsAi) { continue }
-            if ($line -match '\b(v?\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b') { $installedVersion = $Matches[1] -replace '^v', '' }
+            $version = Get-InstallVersion $line
+            if ($version) { $installedVersion = $version }
             if ($line -match '\s((?:[A-Za-z]:[/\\]|/).+?)\s*$') { $paths += $Matches[1] }
         }
     }
