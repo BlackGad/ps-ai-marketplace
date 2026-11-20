@@ -5,6 +5,7 @@ param(
     [string[]]$Arguments,
     [string]$Repo = (Get-Location).Path,
     [string]$HomeRoot = $HOME,
+    [switch]$NoChannel,
     [switch]$DryRun,
     [switch]$NoRun
 )
@@ -16,13 +17,37 @@ $launcherNoRun = $NoRun
 . (Join-Path $PSScriptRoot 'lib/channels.ps1')
 
 function Select-OverseerAccount {
-    param($Personalisation, [string]$Account, [string]$Tool)
-    if (-not $Account) { throw 'an explicit account is required' }
+    param($Personalisation, [string]$Account, [string]$Tool, [string[]]$Channel)
+    if (-not $Account) { return Select-OnlyOverseerAccount $Personalisation $Tool $Channel }
     $matches = @($Personalisation.agents | Where-Object id -CEQ $Account)
     if ($matches.Count -ne 1) { throw "unknown account '$Account'" }
     $selected = $matches[0]
     if ($Tool -and $selected.tool -cne $Tool) { throw "account '$Account' is a $($selected.tool) account, not $Tool" }
     return $selected
+}
+
+# Without -Account, the choice is automatic only when exactly one account is eligible.
+function Select-OnlyOverseerAccount {
+    param($Personalisation, [string]$Tool, [string[]]$Channel)
+    $eligible = @($Personalisation.agents)
+    if ($Tool) { $eligible = @($eligible | Where-Object tool -CEQ $Tool) }
+    foreach ($id in $Channel) {
+        $bound = @(@($Personalisation.channels | Where-Object id -CEQ $id).accounts)
+        $eligible = @($eligible | Where-Object { $_.id -cin $bound })
+    }
+    if ($eligible.Count -eq 1) { return $eligible[0] }
+    if ($eligible.Count -eq 0) { throw 'no account fits; run ps-ai-setup first' }
+    throw ('Choose an account: -Account ' + (@($eligible.id) -join ' | '))
+}
+
+# A binding fits when it is bound to the account and its kind can launch the tool.
+# The default channel is used only when exactly one binding fits.
+function Get-OverseerDefaultChannel {
+    param($Personalisation, [string]$AccountId, [string]$Tool)
+    $kinds = @(Get-PsAiChannels | Where-Object { $Tool -cin $_.launch.PSObject.Properties.Name })
+    $fitting = @($Personalisation.channels | Where-Object { $AccountId -cin $_.accounts -and $_.kind -cin $kinds.id })
+    if ($fitting.Count -eq 1) { return $fitting[0].id }
+    return $null
 }
 
 function Get-OverseerLaunch {
@@ -91,8 +116,8 @@ function Start-OverseerLaunch {
     }
 }
 
-if (-not $launcherNoRun) {
-    if (-not $Account) { 'Usage: ps-ai-overseer -Account <id> [-Tool <tool>] [-Channel <id[]>] [-Arguments <string[]>] [-Repo <path>]'; return }
+function Invoke-Overseer {
+    param([string]$Repo, [string]$HomeRoot, [string]$Account, [string]$Tool, [string[]]$Channel, [string[]]$Arguments, [switch]$NoChannel, [switch]$DryRun)
     $projectFile = Get-PsAiRepoPath -Repo $Repo -Path 'configuration/project.json'
     if (-not (Test-Path -LiteralPath $projectFile)) {
         throw "no .legion/configuration/project.json in $Repo; run setup first"
@@ -103,8 +128,23 @@ if (-not $launcherNoRun) {
         if ($issues.Count) { throw ($issues -join '; ') }
     }
     $personalisation = Read-PsAiJson -Path $ownerFile
-    $selected = Select-OverseerAccount -Personalisation $personalisation -Account $Account -Tool $Tool
+    $selected = Select-OverseerAccount -Personalisation $personalisation -Account $Account -Tool $Tool -Channel $Channel
     if (-not $Tool) { $Tool = $selected.tool }
+    # An explicit -Channel wins; -NoChannel skips only the default.
+    if (-not $Channel.Count -and -not $NoChannel) {
+        $default = Get-OverseerDefaultChannel -Personalisation $personalisation -AccountId $selected.id -Tool $Tool
+        if ($default) { $Channel = @($default) }
+    }
     $launch = Get-OverseerLaunch -Personalisation $personalisation -AccountId $selected.id -Tool $Tool -Channel $Channel -Arguments $Arguments -HomeRoot $HomeRoot
     Start-OverseerLaunch -Repo $Repo -Launch $launch -DryRun:$DryRun
+    # Reached only when the launch did not throw.
+    if (-not $DryRun) {
+        $message = "launched $($selected.id) ($Tool) in $Repo"
+        foreach ($id in $Channel) { $message += " channel $id" }
+        $message
+    }
+}
+
+if (-not $launcherNoRun) {
+    Invoke-Overseer -Repo $Repo -HomeRoot $HomeRoot -Account $Account -Tool $Tool -Channel $Channel -Arguments $Arguments -NoChannel:$NoChannel -DryRun:$DryRun
 }
