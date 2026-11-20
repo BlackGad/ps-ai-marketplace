@@ -232,6 +232,10 @@ The [repository layout](../plugins/ps-ai/skills/ps-ai-repository/references/layo
 
 ps-ai decides who does the work, where, and where the record lives. How one piece of work is done (brainstorming, planning, test-driven development, debugging, code review) comes from the method skills you have installed, such as superpowers. The repo rules block that `ps-ai-repository` adds sends tasks to your legion accounts and plans to the repo's configured paths.
 
+## Releases
+
+If you push a commit to the release pull request by hand, run the `release` workflow once through `workflow_dispatch` to post the `gate` and `integration` statuses on the new head.
+
 ## Development
 
 CLIs cache plugin copies by version. For changes shipped to agents, bump the version together in `plugins/ps-ai/plugin.json`, `plugins/ps-ai/.claude-plugin/plugin.json` and `plugins/ps-ai/.codex-plugin/plugin.json`. Restart Claude Code and Copilot CLI sessions after updating; resume the Codex session to load its refreshed copy.
