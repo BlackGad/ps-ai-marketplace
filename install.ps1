@@ -265,7 +265,15 @@ function Test-InstallStepDone {
             else { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $null }
         }
         $result = Invoke-ClosedInput -Command $list -Environment $entry.plugin.listingEnv
-        if ($result.ExitCode -ne 0) { throw "$($entry.command) listing exited $($result.ExitCode)" }
+        if ($result.ExitCode -ne 0) {
+            $details = @((($result.ErrorOutput -join "`n").Trim()), (($result.Output -join "`n").Trim())) | Where-Object { $_ }
+            # Codex refuses to list an explicit home until its directory exists, even before login.
+            if ($entry.id -eq 'codex' -and $result.ExitCode -eq 1 -and $ConfigDir -and -not (Test-Path -LiteralPath $ConfigDir) -and
+                ($details -join "`n") -match 'failed to resolve CODEX_HOME' -and ($details -join "`n") -match 'but that path does not exist') {
+                return $false
+            }
+            throw (@("$($entry.command) listing exited $($result.ExitCode)") + $details -join "`n")
+        }
         return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output -IncludeDisabled:$IncludeDisabled -RequireRoot:$RequireRoot
     } finally {
         if ($ConfigEnv) { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $previous }
@@ -334,6 +342,9 @@ function Invoke-InstallCommand {
     param([string[]]$Command, [string]$ConfigEnv, [string]$ConfigDir)
     $previous = [Environment]::GetEnvironmentVariable($ConfigEnv, 'Process')
     try {
+        if ($ConfigEnv -eq 'CODEX_HOME' -and $ConfigDir -and -not (Test-Path -LiteralPath $ConfigDir)) {
+            New-Item -ItemType Directory -Path $ConfigDir -Force -ErrorAction Stop | Out-Null
+        }
         if ($ConfigDir) { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $ConfigDir }
         else { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $null }
         $result = Invoke-ClosedInput -Command $Command
