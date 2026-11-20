@@ -188,7 +188,7 @@ function New-SetupAccountRow {
         Id = $Agent.id; Tool = $Tool; Folder = $folder
         Requested = [bool]$Requested; New = [bool]$New; Adopted = [bool]$Adopted
         Version = (Get-PsAiInstalledVersion -ConfigDir $folder -Tool $Tool)
-        NextStep = $nextStep; Usable = $true; InstallComplete = $false
+        NextStep = $nextStep; Usable = $true
         MissingWrappers = $missingWrappers; Provider = $Agent.provider
     }
 }
@@ -269,25 +269,12 @@ function Get-SetupPlan {
     $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
     $path = if ($IsWindows) { Get-SetupUserPath } else { $env:PATH }
     $version = (Read-PsAiJson (Join-Path $script:SetupPluginRoot 'plugin.json')).version
-    $receiptFile = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'temp/setup-installations.json'
-    $receipts = @()
-    if (Test-Path -LiteralPath $receiptFile) {
-        try { $receipts = @(Read-PsAiJson $receiptFile) } catch { $receipts = @() }
-    }
-    $comparer = Get-PsAiPathComparer
-    foreach ($row in $accounts) {
-        $row.InstallComplete = $row.Version -ceq $version
-        foreach ($receipt in $receipts) {
-            if ($row.Version -and $receipt.tool -ceq $row.Tool.id -and $comparer.Equals($receipt.folder, $row.Folder) -and
-                $receipt.requestedVersion -ceq $version -and $receipt.installedVersion -ceq $row.Version) { $row.InstallComplete = $true }
-        }
-    }
     return @{
         HomeRoot = $HomeRoot; Settings = $settings; Data = $data; Accounts = $accounts; MissingTools = $missing
         Notes = (Join-Path (Split-Path $settings) 'ps-ai-notes.md'); Bin = $bin
         Commands = @(Get-SetupCommands -HomeRoot $HomeRoot); NeedsPath = (-not (Test-PsAiPathEntry -Path $path -Folder $bin))
-        Version = $version; InstallReceipts = $receipts; ReceiptFile = $receiptFile
-        DownloadInstaller = (@($accounts | Where-Object { -not $_.InstallComplete }).Count -gt 0 -and -not (Find-SetupLocalInstaller -HomeRoot $HomeRoot))
+        Version = $version
+        DownloadInstaller = (@($accounts | Where-Object { -not $_.Version }).Count -gt 0 -and -not (Find-SetupLocalInstaller -HomeRoot $HomeRoot))
     }
 }
 
@@ -322,7 +309,7 @@ function Write-SetupPlan {
     }
     $repairs = @($Plan.Accounts | Where-Object { -not $_.New -and $_.MissingWrappers } | Select-Object -ExpandProperty Id)
     if ($repairs.Count) { $lines.Add("  wrappers repair $($repairs -join ', ')") }
-    $folders = @($Plan.Accounts | Where-Object { -not $_.InstallComplete } | Select-Object -ExpandProperty Folder -Unique)
+    $folders = @($Plan.Accounts | Where-Object { -not $_.Version } | Select-Object -ExpandProperty Folder -Unique)
     if ($Plan.DownloadInstaller) { $lines.Add('  download ps-ai installer from https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1') }
     if ($folders.Count) { $lines.Add("  install  ps-ai into $($folders -join ', ')") }
     $commands = @($Plan.Commands | Where-Object State -EQ missing | Select-Object -ExpandProperty Name -Unique)
@@ -428,7 +415,8 @@ function Install-SetupPlugins {
     $results = [Collections.Generic.Dictionary[string,int]]::new((Get-PsAiPathComparer))
     foreach ($row in $Plan.Accounts) {
         if (-not $row.Usable) { continue }
-        if ($row.InstallComplete -or $row.Version -ceq $Plan.Version) { "skip: ps-ai in $($row.Folder) (already done)"; continue }
+        # Setup installs ps-ai only where it is missing; moving versions is the update flow's job.
+        if ($row.Version) { "skip: ps-ai in $($row.Folder) (already done)"; continue }
         $key = "$($row.Tool.id):$($row.Folder)"
         if (-not $results.ContainsKey($key)) {
             try {
@@ -438,14 +426,6 @@ function Install-SetupPlugins {
         }
         if ($results[$key] -ne 0) { $row.NextStep = "install failed: log in with $($row.Id), then finish setup" }
         $row.Version = Get-PsAiInstalledVersion -ConfigDir $row.Folder -Tool $row.Tool
-        if ($results[$key] -eq 0 -and $row.Version -and $row.Version -cne $Plan.Version) {
-            # Remember what a successful installer delivered; cached and remote versions can differ.
-            $comparer = Get-PsAiPathComparer
-            $Plan.InstallReceipts = @($Plan.InstallReceipts | Where-Object { $_.tool -cne $row.Tool.id -or -not $comparer.Equals($_.folder, $row.Folder) })
-            $Plan.InstallReceipts += [pscustomobject]@{ tool = $row.Tool.id; folder = $row.Folder; requestedVersion = $Plan.Version; installedVersion = $row.Version }
-            $json = ConvertTo-Json -InputObject @($Plan.InstallReceipts) -Depth 5
-            Write-PsAiGeneratedFile -Path $Plan.ReceiptFile -Content ($json + "`n")
-        }
     }
 }
 

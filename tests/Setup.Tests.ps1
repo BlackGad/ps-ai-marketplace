@@ -185,24 +185,20 @@ try {
             Assert-Equal 2 $installs.Count 'B6 case-sensitive folders install separately and exact duplicates install once'
         }
         B7 = {
+            # Setup installs only where ps-ai is missing; a different version is the update flow's job.
             foreach ($delivered in @('0.5.0', '9.0.0')) {
                 Reset-SetupTest ("version-" + $delivered)
                 $currentVersion = $version
                 $version = $delivered
-                # The fake install can deliver a version different from the running plugin.
                 Invoke-Setup -HomeRoot $testHome -Add codex -Yes | Out-Null
                 $version = $currentVersion
                 $before = Get-SetupTree $testHome
-                Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
-                Assert-Equal 1 $installs.Count 'B7 successful differing installer version does not loop'
-                Assert-Equal $before (Get-SetupTree $testHome) 'B7 differing-version repeat preserves files and timestamps'
+                $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
+                Assert-Equal 1 $installs.Count "B7 folder with version $delivered is not installed again"
+                Assert-SetupText $output 'skip: ps-ai in' "B7 repeat with version $delivered prints skip"
+                Assert-Equal $before (Get-SetupTree $testHome) "B7 repeat with version $delivered changes nothing"
                 $plan = @(Invoke-Setup -HomeRoot $testHome)
-                Assert-True (-not (($plan -join "`n") -match 'install  ps-ai')) 'B7 plan agrees with completed differing-version install'
-                $receiptFile = Join-Path $testHome '.legion/temp/setup-installations.json'
-                $receipts = @(Read-PsAiJson $receiptFile)
-                $receipts[0].requestedVersion = '0.0.0'
-                ConvertTo-Json -InputObject $receipts | Set-Content -LiteralPath $receiptFile
-                Assert-Equal $false (Get-SetupPlan -HomeRoot $testHome).Accounts[0].InstallComplete 'B7 a different requested version invalidates the successful-install receipt'
+                Assert-True (-not (($plan -join "`n") -match 'install  ps-ai')) "B7 plan skips folder with version $delivered"
             }
         }
         B7Download = {
@@ -403,7 +399,6 @@ try {
     Assert-SetupText $output 'install failed: log in with claude1, then finish setup' 'Plugin failure gives login fallback'
     Assert-Equal 2 $installs.Count 'Next folder installs after plugin failure'
     Assert-Equal 0 $LASTEXITCODE 'Plugin failure is a recoverable table row'
-    Assert-Equal $false (Test-Path -LiteralPath (Join-Path $testHome '.legion/temp/setup-installations.json')) 'B7 a failed install never records success'
 
     Reset-SetupTest 'commands'
     $bin = Join-Path $testHome '.legion/bin'
