@@ -33,6 +33,7 @@ function Write-StatusCommands {
     $missing = @()
     $blocked = @()
     $stale = @()
+    $permissions = @()
     foreach ($name in $commands.Keys) {
         $files = @($name)
         if ($IsWindows) { $files += "$name.cmd" }
@@ -40,11 +41,13 @@ function Write-StatusCommands {
         if ($states -contains 'blocked') { $blocked += $name }
         elseif ($states -contains 'missing') { $missing += $name }
         elseif ($states -contains 'stale') { $stale += $name }
+        elseif (@($files | Where-Object { -not (Test-PsAiLauncherExecutable -Path (Join-Path $Bin $_)) }).Count) { $permissions += $name }
     }
     if ($blocked.Count) { 'commands: blocked ' + ($blocked -join ', ') }
     if ($missing.Count) { 'commands: missing ' + ($missing -join ', ') }
     if ($stale.Count) { 'commands: stale ' + ($stale -join ', ') }
-    if (-not $blocked.Count -and -not $missing.Count -and -not $stale.Count) { 'commands: yes' }
+    if ($permissions.Count) { 'commands: not executable ' + ($permissions -join ', ') }
+    if (-not $blocked.Count -and -not $missing.Count -and -not $stale.Count -and -not $permissions.Count) { 'commands: yes' }
 }
 
 function Write-StatusRepository {

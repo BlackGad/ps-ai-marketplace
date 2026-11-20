@@ -18,6 +18,28 @@ try {
 
     . $statusScript -NoRun -HomeRoot $fixtureHome -Repo $repo
     $bin = Join-Path $fixtureHome '.legion/bin'
+    if (-not $Finding -or $Finding -eq 'R4B5') {
+        & {
+            $permissionBin = Join-Path $scratch 'permission-bin'
+            New-Item -ItemType Directory -Path $permissionBin -Force | Out-Null
+            foreach ($entry in (Get-PsAiOwnerCommands).GetEnumerator()) {
+                foreach ($suffix in $(if ($IsWindows) { @('', '.cmd') } else { @('') })) {
+                    Get-PsAiShimText -Script (Join-Path $root "plugins/ps-ai/bin/$($entry.Value)") -Windows:([bool]$suffix) |
+                        Set-Content -LiteralPath (Join-Path $permissionBin "$($entry.Key)$suffix")
+                    if (-not $IsWindows -and $entry.Key -ne 'legion') {
+                        $path = Join-Path $permissionBin $entry.Key
+                        [IO.File]::SetUnixFileMode($path, ([IO.File]::GetUnixFileMode($path) -bor [IO.UnixFileMode]::UserExecute))
+                    }
+                }
+            }
+            if ($IsWindows) {
+                function Test-PsAiLauncherExecutable { param($Path) return ((Split-Path $Path -Leaf) -ne 'legion') }
+            }
+            $lines = @(Write-StatusCommands -Bin $permissionBin)
+            Assert-True ($lines -contains 'commands: not executable legion') 'R4 B5 status names a command needing execute permission'
+            Assert-True ($lines -notcontains 'commands: yes') 'R4 B5 nonexecutable commands are not ready'
+        }
+    }
     if (-not $Finding -or $Finding -eq 'G3') {
         & {
             $originalWindows = $IsWindows
@@ -102,6 +124,10 @@ try {
     foreach ($name in $commands.Keys) {
         (Get-PsAiShimText -Script (Join-Path $root "plugins/ps-ai/bin/$($commands[$name])")) |
             Set-Content -LiteralPath (Join-Path $bin $name)
+        if (-not $IsWindows) {
+            $path = Join-Path $bin $name
+            [IO.File]::SetUnixFileMode($path, ([IO.File]::GetUnixFileMode($path) -bor [IO.UnixFileMode]::UserExecute))
+        }
         if ($IsWindows) {
             (Get-PsAiShimText -Script (Join-Path $root "plugins/ps-ai/bin/$($commands[$name])") -Windows) |
                 Set-Content -LiteralPath (Join-Path $bin "$name.cmd")

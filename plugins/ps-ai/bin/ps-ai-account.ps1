@@ -110,13 +110,6 @@ function Write-PsAiGeneratedFile {
     if (-not $same -and $null -ne $Changes) { $Changes.Add($Path) }
 }
 
-function Test-PsAiLauncherExecutable {
-    param([string]$Path)
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
-    if ($IsWindows) { return $true }
-    return ([IO.File]::GetUnixFileMode($Path) -band [IO.UnixFileMode]::UserExecute) -ne 0
-}
-
 function Get-PsAiShellWrapperTarget {
     param([string]$Path, [string]$Tool, [string]$ConfigDir)
     $prefix = (Get-PsAiTool $Tool).configEnv + '=' + (ConvertTo-PsAiShellLiteral $ConfigDir) + ' exec '

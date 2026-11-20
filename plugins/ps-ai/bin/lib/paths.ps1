@@ -13,6 +13,13 @@ function Get-PsAiPathComparer {
     return [StringComparer]::Ordinal
 }
 
+function Test-PsAiLauncherExecutable {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    if ($IsWindows) { return $true }
+    return ([IO.File]::GetUnixFileMode($Path) -band [IO.UnixFileMode]::UserExecute) -ne 0
+}
+
 function Test-PsAiPathEntry {
     param([string]$Path, [string]$Folder)
     $comparer = Get-PsAiPathComparer
