@@ -91,6 +91,13 @@ $percentScript = Join-Path $percentFolder 'bin/legion.ps1'
 New-Item -ItemType Directory -Path (Split-Path $percentScript) -Force | Out-Null
 '' | Set-Content -LiteralPath $percentScript
 $batchPath = Join-Path $scratch 'legion.cmd'
+$dollarArgument = ' -Repo "\\server\team$\work folder"'
+$dollarText = $windows.Replace(' %*', $dollarArgument + ' %*')
+[IO.File]::WriteAllText($batchPath, $dollarText)
+Assert-True (Test-PsAiOwnerCommandFile -Path $batchPath -Script legion.ps1) 'R5 B2 batch launcher accepts a quoted dollar path'
+$updated = Update-PsAiOwnerCommandText -Text $dollarText -Script legion.ps1 -Runner 'C:\new\bin\legion.ps1' -Windows
+Assert-True ($updated.Contains('"C:\new\bin\legion.ps1"') -and $updated.Contains($dollarArgument)) 'R5 B2 batch retarget preserves the literal dollar path'
+Assert-Equal $null (Get-PsAiOwnerCommandTarget -Text $dollarText -Script legion.ps1) 'R5 B2 shell matcher still rejects dollar expansion in double quotes'
 [IO.File]::WriteAllText($batchPath, (Get-PsAiShimText -Script $percentScript -Windows))
 Assert-Equal 'owned' (Get-PsAiOwnerCommandState -Path $batchPath -Script legion.ps1) 'A batch shim target with a percent sign resolves to its real file'
 Assert-Equal $percentScript (Get-PsAiOwnerCommandTarget -Text (Get-PsAiShimText -Script $percentScript -Windows) -Script legion.ps1 -Batch).Path 'Batch quoting is decoded'

@@ -447,8 +447,9 @@ function Get-InstallOwnerCommandTarget {
     $scriptWord = '(?<target>(?:''[^''\r\n]*''|"[^"\r\n]*"|[^\s''"]+)+)'
     $match = [regex]::Match($text, $launcher + $scriptWord)
     if (-not $match.Success) { return }
-    # Literal arguments may contain spaces. Only the generated forwarding tokens expand.
+    # Batch double quotes keep dollar signs literal; shell double quotes expand them.
     $argument = '(?<argument>(?:''[^''\r\n]*''|"[^"$`\r\n]*")+|"\$@"|\$@|%\*|[\w.=:/\\-]+)'
+    if ([IO.Path]::GetExtension($Path) -ieq '.cmd') { $argument = '(?<argument>"[^"\r\n]*"|%\*|[\w.=:/\\-]+)' }
     $tail = $text.Substring($match.Length)
     if ($tail -notmatch ('\A(?:[ \t]+' + $argument + ')*\s*\z')) { return }
     $target = $match.Groups['target'].Value -replace '''([^'']*)''|"([^"]*)"', '$1$2'

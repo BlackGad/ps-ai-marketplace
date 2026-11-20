@@ -47,6 +47,13 @@ try {
         New-Item -ItemType Directory -Path (Split-Path $percentScript) -Force | Out-Null
         '' | Set-Content -LiteralPath $percentScript
         $batchPath = Join-Path $scratch 'legion.cmd'
+        $dollarText = (Get-PsAiShimText -Script 'C:\old\bin\legion.ps1' -Windows).Replace(' %*', ' -Repo "\\server\team$\work folder" %*')
+        [IO.File]::WriteAllText($batchPath, $dollarText)
+        Assert-True (Test-InstallOwnerCommandFile -Path $batchPath -Script legion.ps1) 'R5 B2 installer accepts a quoted batch dollar path'
+        Assert-Equal (Read-PsAiOwnerCommandTarget -Path $batchPath -Script legion.ps1).Path (Get-InstallOwnerCommandTarget -Path $batchPath -Script legion.ps1) 'R5 B2 batch dollar path matcher parity'
+        [IO.File]::WriteAllText($path, $dollarText)
+        Assert-Equal $false (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R5 B2 installer shell matcher rejects dollar expansion'
+        Assert-Equal (Test-PsAiOwnerCommandFile -Path $path -Script legion.ps1) (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R5 B2 shell dollar path matcher parity'
         [IO.File]::WriteAllText($batchPath, (Get-PsAiShimText -Script $percentScript -Windows))
         Assert-Equal $percentScript (Get-InstallOwnerCommandTarget -Path $batchPath -Script legion.ps1) 'The installer decodes batch quoting'
 

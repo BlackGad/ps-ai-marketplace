@@ -44,8 +44,9 @@ function Get-PsAiOwnerCommandTarget {
     $scriptWord = '(?<target>(?:''[^''\r\n]*''|"[^"\r\n]*"|[^\s''"]+)+)'
     $match = [regex]::Match($Text, $launcher + $scriptWord)
     if (-not $match.Success) { return $null }
-    # Literal arguments may contain spaces. Only the generated forwarding tokens expand.
+    # Batch double quotes keep dollar signs literal; shell double quotes expand them.
     $argument = '(?<argument>(?:''[^''\r\n]*''|"[^"$`\r\n]*")+|"\$@"|\$@|%\*|[\w.=:/\\-]+)'
+    if ($Batch) { $argument = '(?<argument>"[^"\r\n]*"|%\*|[\w.=:/\\-]+)' }
     $tail = $Text.Substring($match.Length)
     $tailMatch = [regex]::Match($tail, '\A(?:[ \t]+' + $argument + ')*\s*\z')
     if (-not $tailMatch.Success) { return $null }

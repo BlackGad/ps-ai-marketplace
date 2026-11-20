@@ -82,6 +82,64 @@ try {
     }
 
     $regressions = [ordered]@{
+        R5B4 = {
+            Reset-SetupTest "unbound owner's home"
+            Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+            $originals = [ordered]@{}
+            foreach ($entry in (Get-PsAiOwnerCommands).GetEnumerator()) {
+                $live = Join-Path $testHome "other cache/bin/$($entry.Value)"
+                New-Item -ItemType Directory -Path (Split-Path $live) -Force | Out-Null
+                '# inert live script' | Set-Content -LiteralPath $live
+                foreach ($suffix in $(if ($IsWindows) { @('', '.cmd') } else { @('') })) {
+                    $windows = $suffix -eq '.cmd'
+                    $path = Join-Path $testHome ".legion/bin/$($entry.Key)$suffix"
+                    $flags = if ($windows) { ' -Repo "\\server\team$\work folder" %*' } else { ' -Repo ''work folder'' "$@"' }
+                    $forward = if ($windows) { ' %*' } else { ' "$@"' }
+                    $text = (Get-PsAiShimText -Script $live -Windows:$windows).Replace($forward, $flags)
+                    [IO.File]::WriteAllText($path, $text)
+                    $originals[$path] = @{ Text = $text; Windows = $windows; Flags = $flags }
+                }
+            }
+            $before = Get-SetupTree $testHome
+            $plan = @(Invoke-Setup -HomeRoot $testHome)
+            Assert-SetupText $plan 'commands bind' 'R5 B4 plan names live commands missing the alternate home'
+            Assert-Equal $before (Get-SetupTree $testHome) 'R5 B4 binding plan writes nothing'
+            Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+            foreach ($path in $originals.Keys) {
+                $original = $originals[$path]
+                $text = [IO.File]::ReadAllText($path)
+                $homeArgument = Get-PsAiShimHomeArgument -HomeRoot $testHome -Windows:$original.Windows
+                Assert-Equal ($original.Text.Replace($original.Flags, $homeArgument + $original.Flags)) $text 'R5 B4 setup adds only the home binding and keeps the live target and owner flags'
+            }
+            $before = Get-SetupTree $testHome
+            Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+            Assert-Equal $before (Get-SetupTree $testHome) 'R5 B4 bound repeat preserves bytes and timestamps'
+        }
+        R5B3 = {
+            foreach ($kind in @('stock', 'custom')) {
+                Reset-SetupTest "missing-$kind-target"
+                Initialize-SetupFiles -Plan (Get-SetupPlan -HomeRoot $testHome) | Out-Null
+                $targetName = if ($kind -eq 'stock') { if ($IsWindows) { 'codex.cmd' } else { 'codex' } } else { 'custom command.ps1' }
+                $target = Join-Path $testHome $targetName
+                '# inert target' | Set-Content -LiteralPath $target
+                $data = Read-PsAiJson $settings
+                Add-PsAiSubscriptionAccount -Id recover-a -Tool codex -Command $target -HomeRoot $testHome -Data $data -Path $settings | Out-Null
+                $wrapper = Join-Path $testHome '.legion/bin/recover-a'
+                $repairPath = $wrapper
+                if ($IsWindows) { $repairPath = "$wrapper.cmd"; Remove-Item -LiteralPath $repairPath }
+                else { [IO.File]::SetUnixFileMode($wrapper, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite) }
+                Remove-Item -LiteralPath $target
+                $script:missingTools = @('codex')
+                $before = Get-SetupTree $testHome
+                $plan = @(Invoke-Setup -HomeRoot $testHome)
+                Assert-SetupText $plan 'target needed: recover-a' "R5 B3 missing $kind target needs owner repair in the plan"
+                Assert-Equal $before (Get-SetupTree $testHome) 'R5 B3 missing-target plan writes nothing'
+                $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
+                Assert-SetupText $output 'target needed: recover-a' "R5 B3 missing $kind target needs owner repair on apply"
+                Assert-Equal $false (Test-PsAiLauncherExecutable $repairPath) 'R5 B3 setup never repairs a wrapper toward a missing executable'
+                Assert-Equal 0 $installs.Count 'R5 B3 missing target never reaches plugin installation'
+            }
+        }
         R4B4 = {
             Reset-SetupTest "bound owner's home"
             Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
@@ -619,7 +677,7 @@ try {
     $liveScript = Join-Path $testHome 'cache/bin/ps-ai-status.ps1'
     New-Item -ItemType Directory -Path (Split-Path $liveScript) -Force | Out-Null
     '' | Set-Content -LiteralPath $liveScript
-    $oldText = Get-PsAiShimText -Script $liveScript
+    $oldText = (Get-PsAiShimText -Script $liveScript).Replace(' "$@"', ' --owner-flag "$@"')
     [IO.File]::WriteAllText($owned, $oldText)
     $staleText = (Get-PsAiShimText -Script '/gone/cache/bin/ps-ai-setup.ps1').Replace(' "$@"', ' --keep "$@"')
     [IO.File]::WriteAllText((Join-Path $bin 'ps-ai-setup'), $staleText)
@@ -627,11 +685,12 @@ try {
     $plan = @(Invoke-Setup -HomeRoot $testHome)
     Assert-SetupText $plan 'commands rewrite ps-ai-setup' 'C-2: the plan names a stale command'
     $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
-    Assert-Equal $oldText ([IO.File]::ReadAllText($owned)) 'Existing owned command with a live script is kept for refresh'
+    Assert-Equal ($oldText.Replace(' --owner-flag', (Get-PsAiShimHomeArgument -HomeRoot $testHome) + ' --owner-flag')) ([IO.File]::ReadAllText($owned)) 'R5 B4 existing live command gains its home binding and keeps its target and flags'
     $rewritten = [IO.File]::ReadAllText((Join-Path $bin 'ps-ai-setup'))
     Assert-True ($rewritten.Contains((Join-Path $root 'plugins/ps-ai/bin/ps-ai-setup.ps1')) -and $rewritten.Contains('--keep')) 'C-2: a stale command is retargeted and keeps owner flags'
     Assert-Equal 'owner command' ([IO.File]::ReadAllText((Join-Path $bin 'legion'))) 'Unrelated command stays unchanged'
-    Assert-SetupText $output 'skip: command ps-ai-status (already done)' 'Existing owned command reports skip'
+    $repeat = @(Invoke-Setup -HomeRoot $testHome -Yes)
+    Assert-SetupText $repeat 'skip: command ps-ai-status (already done)' 'R5 B4 bound live command reports skip on repeat'
     Assert-SetupText $output 'Blocked commands: legion' 'Blocked command is listed after table'
     Assert-Equal 1 @($output | Where-Object { $_ -like '*legion*another file*' -or $_ -like 'Blocked commands:*' }).Count 'N3 a blocked command is reported once on apply'
     Reset-SetupTest 'finder-failure'

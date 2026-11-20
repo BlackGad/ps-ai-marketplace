@@ -33,7 +33,7 @@ try {
 exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/ps-ai-overseer.ps1' -Account chosen "$@"
 '@ | Set-Content $shim
     $cmdShim = Join-Path $bin 'ps-ai-overseer.cmd'
-    '@pwsh -NoProfile -File "C:\old\cache\bin\ps-ai-overseer.ps1" -Account chosen %*' | Set-Content $cmdShim
+    '@pwsh -NoProfile -File "C:\old\cache\bin\ps-ai-overseer.ps1" -Account chosen -Repo "\\server\team$\work folder" %*' | Set-Content $cmdShim
     foreach ($name in @('legion', 'ps-ai-setup', 'ps-ai-status')) {
         "#!/bin/sh`nexec pwsh -NoProfile -File '/old/cache/bin/$name.ps1' -OwnerFlag keep `"`$@`"" | Set-Content (Join-Path $bin $name)
         "@pwsh -NoProfile -File `"C:\old\cache\bin\$name.ps1`" -OwnerFlag keep %*" | Set-Content (Join-Path $bin "$name.cmd")
@@ -61,6 +61,7 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/ps-ai-overseer.ps1' -Acco
         Assert-True ($text.Contains((Join-Path $root 'plugins/ps-ai/bin/ps-ai-overseer.ps1'))) 'Refresh retargets existing overseer shim'
         Assert-True ($text.Contains('-Account chosen')) 'Refresh preserves shim arguments'
     }
+    Assert-True ((Get-Content $cmdShim -Raw).Contains('-Repo "\\server\team$\work folder"')) 'R5 B2 refresh preserves the quoted batch dollar path'
     Assert-Equal $ownerBytes ([IO.File]::ReadAllText($file)) 'Refresh preserves owner settings bytes'
     Assert-Equal 'custom wrapper' (Get-Content (Join-Path $bin 'external')) 'External command remains untouched'
     foreach ($name in @('legion', 'ps-ai-setup', 'ps-ai-status')) {

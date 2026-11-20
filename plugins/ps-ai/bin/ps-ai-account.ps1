@@ -141,7 +141,7 @@ function Get-PsAiWrapperTarget {
     if (-not $candidates.Count) { return $null }
     $target = $candidates[0]
     foreach ($candidate in $candidates) { if (-not (Get-PsAiPathComparer).Equals($target, $candidate)) { return $null } }
-    # Regenerate in check-only mode to reject edited or conflicting surviving wrappers.
+    # Check the executable and reject edited or conflicting surviving wrappers before recovery.
     try { New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -ConfigDir $ConfigDir -RealCommand $target -CheckOnly }
     catch { return $null }
     return $target
@@ -155,6 +155,7 @@ function Get-PsAiNewAccountDir {
 function New-PsAiWrappers {
     param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$RealCommand, [string]$ConfigDir, [switch]$CheckOnly)
     Assert-PsAiId $Id
+    if (-not (Test-Path -LiteralPath $RealCommand -PathType Leaf)) { throw "target needed: $Id; ask the owner for an existing executable" }
     $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
     $folder = if ($ConfigDir) { $ConfigDir } else { Get-PsAiNewAccountDir -Id $Id -HomeRoot $HomeRoot }
     if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }

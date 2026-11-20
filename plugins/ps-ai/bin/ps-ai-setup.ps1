@@ -266,6 +266,10 @@ function Get-SetupCommands {
         foreach ($suffix in $suffixes) {
             $path = Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$($entry.Key)$suffix"
             $state = Get-PsAiOwnerCommandState -Path $path -Script $entry.Value
+            if ($state -eq 'owned' -and (Get-PsAiShimHomeArgument -HomeRoot $HomeRoot -Windows:($suffix -eq '.cmd'))) {
+                $target = Read-PsAiOwnerCommandTarget -Path $path -Script $entry.Value
+                if ($target.Arguments -inotcontains '-HomeRoot') { $state = 'unbound' }
+            }
             if ($state -eq 'owned' -and -not (Test-PsAiLauncherExecutable -Path $path)) { $state = 'permission' }
             [pscustomobject]@{ Name = $entry.Key; Script = $entry.Value; Path = $path; Windows = ($suffix -eq '.cmd'); State = $state }
         }
@@ -342,6 +346,8 @@ function Write-SetupPlan {
     if ($commands.Count) { $lines.Add("  commands write $($commands -join ', ') in $($Plan.Bin)") }
     $stale = @($Plan.Commands | Where-Object State -EQ stale | Select-Object -ExpandProperty Name -Unique)
     if ($stale.Count) { $lines.Add("  commands rewrite $($stale -join ', ') (their script is gone)") }
+    $unbound = @($Plan.Commands | Where-Object State -EQ unbound | Select-Object -ExpandProperty Name -Unique)
+    if ($unbound.Count) { $lines.Add("  commands bind $($unbound -join ', ') to home $($Plan.HomeRoot)") }
     $permissions = @($Plan.Commands | Where-Object State -EQ permission | Select-Object -ExpandProperty Name -Unique)
     if ($permissions.Count) { $lines.Add("  commands restore execute permission for $($permissions -join ', ')") }
     if ($Plan.NeedsPath) {
@@ -417,10 +423,11 @@ function Write-SetupCommands {
                 Write-PsAiGeneratedFile -Path $file.Path -Content ([IO.File]::ReadAllText($file.Path)) -Executable
                 continue
             }
-            if ($file.State -notin @('missing', 'stale')) { continue }
+            if ($file.State -notin @('missing', 'stale', 'unbound')) { continue }
             $runner = Join-Path $script:SetupBin $file.Script
-            # A stale command keeps the owner's own flags; a missing one is generated whole.
-            $text = if ($file.State -eq 'stale') { Update-PsAiOwnerCommandText -Text ([IO.File]::ReadAllText($file.Path)) -Script $file.Script -Runner $runner -Windows:$file.Windows -HomeRoot $Plan.HomeRoot }
+            if ($file.State -eq 'unbound') { $runner = (Read-PsAiOwnerCommandTarget -Path $file.Path -Script $file.Script).Path }
+            # Existing commands keep owner flags, and live commands keep their target.
+            $text = if ($file.State -in @('stale', 'unbound')) { Update-PsAiOwnerCommandText -Text ([IO.File]::ReadAllText($file.Path)) -Script $file.Script -Runner $runner -Windows:$file.Windows -HomeRoot $Plan.HomeRoot }
                 else { Get-PsAiShimText -Script $runner -Windows:$file.Windows -HomeRoot $Plan.HomeRoot }
             Write-PsAiGeneratedFile -Path $file.Path -Content $text -Executable
         }

@@ -32,6 +32,20 @@ try {
     $folder = Get-PsAiNewAccountDir custom-a $scratch
     Assert-Equal $custom (Get-PsAiWrapperTarget -Id custom-a -Tool codex -HomeRoot $scratch -ConfigDir $folder) 'K8 direct account repair recovers its custom target'
     $wrapper = Join-Path $scratch '.legion/bin/custom-a'
+    $before = [IO.File]::ReadAllText($settings)
+    Remove-Item -LiteralPath $custom
+    Assert-Equal $null (Get-PsAiWrapperTarget -Id custom-a -Tool codex -HomeRoot $scratch -ConfigDir $folder) 'R5 B3 recovery rejects a missing custom executable'
+    try {
+        Add-PsAiSubscriptionAccount -Id custom-a -Tool codex -HomeRoot $scratch -Data $data -Path $settings
+        throw 'Expected target needed'
+    } catch {
+        Assert-True ($_.Exception.Message.StartsWith('target needed: custom-a')) 'R5 B3 direct repeat names the unavailable custom target'
+    }
+    Assert-Throws { New-PsAiWrappers -Id missing-a -Tool codex -HomeRoot $scratch -RealCommand $custom } 'R5 B3 explicit missing target cannot create wrappers'
+    Assert-Equal $false (Test-Path (Join-Path $scratch '.legion/bin/missing-a')) 'R5 B3 missing target creates no shell wrapper'
+    Assert-Equal $false (Test-Path (Join-Path $scratch '.legion/bin/missing-a.cmd')) 'R5 B3 missing target creates no batch wrapper'
+    Assert-Equal $before ([IO.File]::ReadAllText($settings)) 'R5 B3 missing target preserves settings'
+    '# inert' | Set-Content $custom
     if ($IsWindows) {
         Remove-Item "$wrapper.cmd"
         Add-PsAiSubscriptionAccount -Id custom-a -Tool codex -HomeRoot $scratch -Data $data -Path $settings | Out-Null
