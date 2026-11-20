@@ -136,8 +136,11 @@ function Invoke-Overseer {
         if ($default) { $Channel = @($default) }
     }
     $launch = Get-OverseerLaunch -Personalisation $personalisation -AccountId $selected.id -Tool $Tool -Channel $Channel -Arguments $Arguments -HomeRoot $HomeRoot
+    # Reset first: a stale code must not look like a failed launch.
+    $global:LASTEXITCODE = 0
     Start-OverseerLaunch -Repo $Repo -Launch $launch -DryRun:$DryRun
-    # Reached only when the launch did not throw.
+    if (-not $DryRun -and $LASTEXITCODE -ne 0) { throw "the launch failed with exit code $LASTEXITCODE" }
+    # Reached only when the launch did not fail.
     if (-not $DryRun) {
         $message = "launched $($selected.id) ($Tool) in $Repo"
         foreach ($id in $Channel) { $message += " channel $id" }

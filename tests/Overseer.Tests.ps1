@@ -138,4 +138,15 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     try { $text = @(Invoke-Overseer @run -Account claude1 -Channel @()); throw 'Expected launch failure' }
     catch { Assert-Equal 'terminal failed' $_.Exception.Message 'A failed launch raises the error' }
     Assert-True (-not ($text -match 'launched')) 'A failed launch prints no launched line'
+
+    # A wrapper or terminal that exits nonzero is a failed launch, not a launched one.
+    $state.Fail = $false
+    function Start-OverseerLaunch {
+        param([string]$Repo, $Launch, [switch]$DryRun)
+        $global:LASTEXITCODE = 5
+    }
+    $text = @()
+    try { $text = @(Invoke-Overseer @run -Account claude1 -Channel @()); throw 'Expected launch failure' }
+    catch { Assert-True ($_.Exception.Message -like '*exit code 5*') 'A nonzero exit raises an error naming the code' }
+    Assert-True (-not ($text -match 'launched')) 'A nonzero exit prints no launched line'
 }
