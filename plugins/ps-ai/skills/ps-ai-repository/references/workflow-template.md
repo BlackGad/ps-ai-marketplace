@@ -20,4 +20,4 @@ Name indexed scripts here and describe when each runs. Fixed steps are scripts, 
 
 ## Repository choices
 
-Record the rules file, spec and plan paths, indexed task/milestone gates, account routing, notification destinations and neutral knowledge label here. Keep scripts/index and handoff conventions. Record only agreed choices.
+Record the rules file, spec and plan paths, indexed task/milestone gates, repository preferences (account routing, models, workflow choices), notification destinations and neutral knowledge label here. Keep scripts/index and handoff conventions. Record only agreed choices.
