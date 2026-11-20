@@ -20,28 +20,38 @@ function Get-PsAiShimText {
     return "#!/bin/sh`n" + 'exec pwsh -NoProfile -File ' + (ConvertTo-PsAiShellLiteral $Script) + ' "$@"' + "`n"
 }
 
-# One launcher line: [exec |@]pwsh <options> -File <script path> <owner flags>. install.ps1 keeps its own copy of this rule.
-$script:OwnerLauncherPattern = '(?m)^[ \t]*(?:exec[ \t]+|@)?pwsh[ \t]+(?:-\S+[ \t]+)*?-File[ \t]+(?<target>(?:''[^'']*''|"[^"]*"|[^\s''"]+)+)(?=\s|$)'
+# The whole file is the generated launcher: an optional shebang, then one line
+# [exec |@]pwsh <options> -File <script path> <owner flags>. Any other code makes it the owner's file.
+# Owner flags are plain words, quoted words, "$@" and %*. install.ps1 keeps its own copy of this rule.
+$script:OwnerLauncherPattern = '\A(?:#![^\r\n]*\r?\n)?(?:[ \t]*\r?\n)*[ \t]*(?:exec[ \t]+|@)?pwsh[ \t]+(?:-\S+[ \t]+)*?-File[ \t]+(?<target>(?:''[^'']*''|"[^"]*"|[^\s''"]+)+)' +
+    '(?:[ \t]+(?:"\$@"|\$@|%\*|[\w.=:/\\-]+|''[^'']*''))*\s*\z'
 
+# -Batch: a .cmd file writes % as %%, so decode it before looking for the file.
 function Get-PsAiOwnerCommandTarget {
-    param([string]$Text, [string]$Script)
+    param([string]$Text, [string]$Script, [switch]$Batch)
 
-    foreach ($match in [regex]::Matches($Text, $script:OwnerLauncherPattern)) {
-        $word = $match.Groups['target']
-        # Drop the shell quotes; the generated form joins quoted pieces such as 'a'"'"'b'.
-        $path = [regex]::Replace($word.Value, '''([^'']*)''|"([^"]*)"', { param($piece) $piece.Groups[1].Value + $piece.Groups[2].Value })
-        if ($path.Replace('\', '/').EndsWith("/bin/$Script", [StringComparison]::Ordinal)) {
-            return [pscustomobject]@{ Start = $word.Index; Length = $word.Length; Path = $path }
-        }
-    }
-    return $null
+    $match = [regex]::Match($Text, $script:OwnerLauncherPattern)
+    if (-not $match.Success) { return $null }
+    $word = $match.Groups['target']
+    # Drop the shell quotes; the generated form joins quoted pieces such as 'a'"'"'b'.
+    $path = [regex]::Replace($word.Value, '''([^'']*)''|"([^"]*)"', { param($piece) $piece.Groups[1].Value + $piece.Groups[2].Value })
+    if ($Batch) { $path = $path.Replace('%%', '%') }
+    if (-not $path.Replace('\', '/').EndsWith("/bin/$Script", [StringComparison]::Ordinal)) { return $null }
+    return [pscustomobject]@{ Start = $word.Index; Length = $word.Length; Path = $path }
+}
+
+function Read-PsAiOwnerCommandTarget {
+    param([string]$Path, [string]$Script)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    $batch = [IO.Path]::GetExtension($Path) -ieq '.cmd'
+    return Get-PsAiOwnerCommandTarget -Text ([IO.File]::ReadAllText($Path)) -Script $Script -Batch:$batch
 }
 
 function Test-PsAiOwnerCommandFile {
     param([string]$Path, [string]$Script)
 
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
-    return [bool](Get-PsAiOwnerCommandTarget -Text ([IO.File]::ReadAllText($Path)) -Script $Script)
+    return [bool](Read-PsAiOwnerCommandTarget -Path $Path -Script $Script)
 }
 
 # missing: no file; blocked: someone else's file; stale: ours, but its script is gone; owned: ours and working.
@@ -49,8 +59,8 @@ function Get-PsAiOwnerCommandState {
     param([string]$Path, [string]$Script)
 
     if (-not (Test-Path -LiteralPath $Path)) { return 'missing' }
-    if (-not (Test-PsAiOwnerCommandFile -Path $Path -Script $Script)) { return 'blocked' }
-    $target = Get-PsAiOwnerCommandTarget -Text ([IO.File]::ReadAllText($Path)) -Script $Script
+    $target = Read-PsAiOwnerCommandTarget -Path $Path -Script $Script
+    if (-not $target) { return 'blocked' }
     if (-not (Test-Path -LiteralPath $target.Path -PathType Leaf)) { return 'stale' }
     return 'owned'
 }
@@ -59,7 +69,7 @@ function Get-PsAiOwnerCommandState {
 function Update-PsAiOwnerCommandText {
     param([string]$Text, [string]$Script, [string]$Runner, [switch]$Windows)
 
-    $target = Get-PsAiOwnerCommandTarget -Text $Text -Script $Script
+    $target = Get-PsAiOwnerCommandTarget -Text $Text -Script $Script -Batch:$Windows
     $literal = if ($Windows) { '"' + $Runner.Replace('%', '%%') + '"' } else { ConvertTo-PsAiShellLiteral $Runner }
     return $Text.Substring(0, $target.Start) + $literal + $Text.Substring($target.Start + $target.Length)
 }

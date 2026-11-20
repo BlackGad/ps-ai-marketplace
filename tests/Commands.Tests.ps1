@@ -60,3 +60,31 @@ New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
 Assert-Equal 'owned' (Get-PsAiOwnerCommandState -Path $path -Script legion.ps1) 'Owned command with an existing script is owned'
 $moved = Update-PsAiOwnerCommandText -Text ($unix.Replace(' "$@"', ' --extra "$@"')) -Script legion.ps1 -Runner '/new/bin/legion.ps1'
 Assert-Equal ($unix.Replace((ConvertTo-PsAiShellLiteral $target), "'/new/bin/legion.ps1'").Replace(' "$@"', ' --extra "$@"')) $moved 'Retarget keeps the owner flags'
+
+# K3: the whole file must be the generated launcher; a custom launcher that runs its own code first is not ours.
+$customLaunchers = @(
+    "#!/bin/sh`necho before`nexec pwsh -NoProfile -File '/plugin/bin/legion.ps1' `"`$@`"`n",
+    "#!/bin/sh`nexec pwsh -NoProfile -File '/plugin/bin/legion.ps1' `"`$@`"`necho after`n",
+    "#!/bin/sh`nexport OWNER_SETTING=1`nexec pwsh -NoProfile -File '/plugin/bin/legion.ps1' `"`$@`"`n",
+    "@echo off`r`nset OWNER_SETTING=1`r`n@pwsh -NoProfile -File `"C:\pluginin\legion.ps1`" %*`r`n",
+    "#!/bin/sh`nexec pwsh -NoProfile -File '/plugin/bin/legion.ps1' `"`$@`"; rm -rf /tmp/mine`n",
+    "#!/bin/sh`nexec pwsh -NoProfile -File '/plugin/bin/legion.ps1' `"`$@`" && echo done`n")
+foreach ($text in $customLaunchers) {
+    [IO.File]::WriteAllText($path, $text)
+    Assert-Equal $false (Test-PsAiOwnerCommandFile -Path $path -Script legion.ps1) "A launcher with other code is kept: $text"
+    Assert-Equal 'blocked' (Get-PsAiOwnerCommandState -Path $path -Script legion.ps1) 'A launcher with other code is blocked'
+}
+foreach ($text in @($unix.TrimEnd("`n"), ($unix + "`n`n"), $unix.Replace(' "$@"', ' -- --extra=1 "$@"'))) {
+    [IO.File]::WriteAllText($path, $text)
+    Assert-True (Test-PsAiOwnerCommandFile -Path $path -Script legion.ps1) 'The generated launcher with blank lines or trailing flags is still ours'
+}
+
+# G2: a batch shim writes % as %%, so a target under a folder with % must still be found.
+$percentFolder = Join-Path $scratch 'plugin 100%'
+$percentScript = Join-Path $percentFolder 'bin/legion.ps1'
+New-Item -ItemType Directory -Path (Split-Path $percentScript) -Force | Out-Null
+'' | Set-Content -LiteralPath $percentScript
+$batchPath = Join-Path $scratch 'legion.cmd'
+[IO.File]::WriteAllText($batchPath, (Get-PsAiShimText -Script $percentScript -Windows))
+Assert-Equal 'owned' (Get-PsAiOwnerCommandState -Path $batchPath -Script legion.ps1) 'A batch shim target with a percent sign resolves to its real file'
+Assert-Equal $percentScript (Get-PsAiOwnerCommandTarget -Text (Get-PsAiShimText -Script $percentScript -Windows) -Script legion.ps1 -Batch).Path 'Batch quoting is decoded'

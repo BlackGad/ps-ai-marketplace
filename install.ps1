@@ -436,16 +436,19 @@ function Get-InstallOwnerCommands {
     return [ordered]@{ 'ps-ai-setup' = 'ps-ai-setup.ps1'; 'ps-ai-status' = 'ps-ai-status.ps1'; 'ps-ai-overseer' = 'ps-ai-overseer.ps1'; 'legion' = 'legion.ps1' }
 }
 
-# Same rule as lib/commands.ps1 (this file is standalone): one launcher line whose -File argument is the script.
+# Same rule as lib/commands.ps1 (this file is standalone): the whole file is the generated launcher,
+# one line whose -File argument is the script, and a .cmd file writes % as %%.
 # Returns the script path the command calls, or nothing when the file is not a ps-ai command.
 function Get-InstallOwnerCommandTarget {
     param([string]$Path, [string]$Script)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
-    $pattern = '(?m)^[ \t]*(?:exec[ \t]+|@)?pwsh[ \t]+(?:-\S+[ \t]+)*?-File[ \t]+(?<target>(?:''[^'']*''|"[^"]*"|[^\s''"]+)+)(?=\s|$)'
-    foreach ($match in [regex]::Matches([IO.File]::ReadAllText($Path), $pattern)) {
-        $target = $match.Groups['target'].Value -replace '''([^'']*)''|"([^"]*)"', '$1$2'
-        if ($target.Replace('\', '/').EndsWith("/bin/$Script", [StringComparison]::Ordinal)) { return $target }
-    }
+    $pattern = '\A(?:#![^\r\n]*\r?\n)?(?:[ \t]*\r?\n)*[ \t]*(?:exec[ \t]+|@)?pwsh[ \t]+(?:-\S+[ \t]+)*?-File[ \t]+(?<target>(?:''[^'']*''|"[^"]*"|[^\s''"]+)+)' +
+        '(?:[ \t]+(?:"\$@"|\$@|%\*|[\w.=:/\\-]+|''[^'']*''))*\s*\z'
+    $match = [regex]::Match([IO.File]::ReadAllText($Path), $pattern)
+    if (-not $match.Success) { return }
+    $target = $match.Groups['target'].Value -replace '''([^'']*)''|"([^"]*)"', '$1$2'
+    if ([IO.Path]::GetExtension($Path) -ieq '.cmd') { $target = $target.Replace('%%', '%') }
+    if ($target.Replace('\', '/').EndsWith("/bin/$Script", [StringComparison]::Ordinal)) { return $target }
 }
 
 function Test-InstallOwnerCommandFile {

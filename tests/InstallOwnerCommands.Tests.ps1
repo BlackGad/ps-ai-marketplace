@@ -19,7 +19,9 @@ try {
             'pwsh -NoProfile -File /mine/custom.ps1 /plugin/bin/legion.ps1',
             'echo ok # pwsh -NoProfile -File /plugin/bin/legion.ps1',
             'pwsh -NoProfile -File "/plugin/legion.ps1"',
-            'unrelated command')
+            'unrelated command',
+            "#!/bin/sh`necho before`nexec pwsh -NoProfile -File '/plugin/bin/legion.ps1' `"`$@`"",
+            "#!/bin/sh`nexec pwsh -NoProfile -File '/plugin/bin/legion.ps1' `"`$@`"; echo after")
         $path = Join-Path $scratch 'sample'
         foreach ($text in $samples) {
             [IO.File]::WriteAllText($path, $text)
@@ -29,6 +31,14 @@ try {
         }
         [IO.File]::WriteAllText($path, $samples[5])
         Assert-Equal $false (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'A comment naming the script is not ours to delete'
+
+        # G2: the standalone copy decodes batch quoting too.
+        $percentScript = Join-Path $scratch 'plugin 100%/bin/legion.ps1'
+        New-Item -ItemType Directory -Path (Split-Path $percentScript) -Force | Out-Null
+        '' | Set-Content -LiteralPath $percentScript
+        $batchPath = Join-Path $scratch 'legion.cmd'
+        [IO.File]::WriteAllText($batchPath, (Get-PsAiShimText -Script $percentScript -Windows))
+        Assert-Equal $percentScript (Get-InstallOwnerCommandTarget -Path $batchPath -Script legion.ps1) 'The installer decodes batch quoting'
 
         # C-2: after an uninstall, commands whose script is gone move to a surviving install, or go away.
         $homeRoot = Join-Path $scratch 'home'
