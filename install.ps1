@@ -817,8 +817,20 @@ function Invoke-InstallRefreshScript {
             if ($plugin.version) { $installedVersion = [string]$plugin.version }
         }
     } else {
+        $isPsAi = $false
         foreach ($line in $result.Output) {
-            if ($line -notmatch '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' -or $line -match 'not installed') { continue }
+            if ($Entry.id -ceq 'copilot' -and $isPsAi -and $line -match '^\s+from (.+?)\s*$') {
+                # Copilot lists a live directory marketplace instead of an installed copy.
+                $marketplaceRoot = $Matches[1]
+                try {
+                    $marketplace = Get-Content -LiteralPath (Join-Path $marketplaceRoot '.claude-plugin/marketplace.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                    foreach ($plugin in $marketplace.plugins) {
+                        if ($plugin.name -ceq 'ps-ai' -and $plugin.source -is [string]) { $paths += Join-Path $marketplaceRoot $plugin.source }
+                    }
+                } catch { }
+            }
+            $isPsAi = $line -match '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' -and $line -notmatch 'not installed'
+            if (-not $isPsAi) { continue }
             if ($line -match '\b(v?\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b') { $installedVersion = $Matches[1] -replace '^v', '' }
             if ($line -match '\s((?:[A-Za-z]:[/\\]|/).+?)\s*$') { $paths += $Matches[1] }
         }

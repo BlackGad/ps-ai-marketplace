@@ -95,6 +95,25 @@ $repo = Split-Path $PSScriptRoot -Parent
         Copy-Item -LiteralPath (Join-Path $configRoot 'installed-plugins/arbitrary-layout/0.3.0') -Destination $other -Recurse
         Assert-Throws { Invoke-InstallRefresh -Entry (Get-InstallTool copilot) -ConfigDir $configRoot } 'Ambiguous installed copies require an explicit path'
         Assert-Equal 1 $calls.Count 'Ambiguous cache never launches a guessed refresh script'
+
+        # A directory marketplace is loaded live; Copilot lists its root on the next line.
+        $marketplace = Join-Path $sandbox 'live-marketplace'
+        $livePlugin = Join-Path $marketplace 'extensions/orchestration'
+        New-Item -ItemType Directory -Path (Join-Path $marketplace '.claude-plugin'), (Join-Path $livePlugin 'bin') -Force | Out-Null
+        '{"plugins":[{"name":"ps-ai","source":"./extensions/orchestration"}]}' | Set-Content -LiteralPath (Join-Path $marketplace '.claude-plugin/marketplace.json')
+        '{"name":"ps-ai","version":"0.6.0"}' | Set-Content -LiteralPath (Join-Path $livePlugin 'plugin.json')
+        '# inert live refresh fixture' | Set-Content -LiteralPath (Join-Path $livePlugin 'bin/ps-ai-refresh.ps1')
+        function Invoke-ClosedInput {
+            param($Command)
+            if ($Command[0] -eq 'copilot') {
+                return @{ ExitCode = 0; Output = @('Live Plugins (loaded from a local marketplace directory, never copied):', '  • ps-ai@ps-ai-marketplace (v0.6.0) (enabled)', "      from $marketplace") }
+            }
+            $calls.Add($Command)
+            return @{ ExitCode = 0; Output = @() }
+        }
+        $null = Invoke-InstallRefresh -Entry (Get-InstallTool copilot) -ConfigDir (Join-Path $sandbox 'fresh-account')
+        Assert-Equal 2 $calls.Count 'Live Copilot update refreshes without a copied plugin cache'
+        Assert-Equal ([IO.Path]::GetFullPath((Join-Path $livePlugin 'bin/ps-ai-refresh.ps1'))) ([IO.Path]::GetFullPath($calls[1][3])) 'Live refresh follows the marketplace plugin source'
     } finally {
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
         if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe installed cache cleanup' }

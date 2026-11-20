@@ -73,6 +73,30 @@ try {
     Invoke-IntegrationSteps -Steps $logged -LogFolder $logs | Out-Null
     Assert-True ((Get-Content -LiteralPath (Join-Path $logs 'talk.log') -Raw) -like '*hello log*') 'step output is logged'
 
+    $partial = Invoke-IntegrationBlock { 'before assertion'; throw 'assertion failed' }
+    Assert-True ($partial.Log -like '*before assertion*assertion failed*') 'output before a throwing assertion is retained'
+
+    # Child output must survive buffering by a caller, on both successful and failed steps.
+    $installer = Join-Path $tempRoot 'installer.ps1'
+    Set-Content -LiteralPath $installer -Value @('Write-Output "installer stdout"', 'Write-Output "installer stdout"', 'Write-Host "installer host output"', '[Console]::Error.WriteLine("installer stderr")')
+    $installerSteps = @(
+        @{ Name = 'installer-pass'; DependsOn = @(); First = { $null = Invoke-IntegrationScript $installer }; Repeat = { $null = Invoke-IntegrationScript $installer } }
+        @{ Name = 'installer-assert'; DependsOn = @(); First = { $buffer = Invoke-IntegrationScript $installer; throw 'version assertion' }; Repeat = { } }
+    )
+    $null = Invoke-IntegrationSteps -Steps $installerSteps -LogFolder $logs
+    foreach ($name in 'installer-pass', 'installer-pass-repeat', 'installer-assert') {
+        $log = Get-Content -LiteralPath (Join-Path $logs "$name.log") -Raw
+        foreach ($text in 'installer stdout', 'installer host output', 'installer stderr') {
+            Assert-True ($log.Contains($text)) "$name keeps $text"
+        }
+        Assert-Equal 2 ([regex]::Matches($log, 'installer stdout').Count) "$name retains repeated lines without duplicating returned output"
+    }
+    Set-Content -LiteralPath $installer -Value @('Write-Output "before installer failure"', 'exit 7')
+    $failedInstaller = Invoke-IntegrationBlock { $buffer = Invoke-IntegrationScript $installer }
+    Assert-Equal 'failed' $failedInstaller.Result 'a failed child script still fails the step'
+    Assert-True ($failedInstaller.Log -like '*before installer failure*') 'failed child output is retained'
+    Assert-True ($failedInstaller.Message -like '*exited 7*') 'failed child exit code is retained'
+
     # The probe never adds a case and never fails, even when it throws.
     $probe = (Get-IntegrationProbe -Checks ([ordered]@{ good = { 'v1' }; bad = { throw 'no such tool' } })) -join "`n"
     Assert-True ($probe -like '*good*v1*') 'probe records a version'

@@ -16,6 +16,7 @@ $env:NO_COLOR = '1'
 . (Join-Path $PSScriptRoot '../lib/junit.ps1')
 . (Join-Path $PSScriptRoot '../lib/benchmark.ps1')
 . (Join-Path $PSScriptRoot '../../plugins/ps-ai/bin/lib/installed.ps1')
+$script:IntegrationScriptLog = $null
 
 function Get-IntegrationOs {
     if ($IsWindows) { return 'windows' }
@@ -30,17 +31,24 @@ function Invoke-IntegrationBlock {
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $result = 'passed'
     $message = ''
-    $output = @()
+    $output = [Collections.Generic.List[object]]::new()
+    $scriptOutput = [Collections.Generic.List[string]]::new()
+    $previousLog = $script:IntegrationScriptLog
+    $script:IntegrationScriptLog = $scriptOutput
     try {
-        $output = @(& $Block)
+        & $Block | ForEach-Object { $output.Add($_) }
         $skip = @($output | Where-Object { $_ -is [hashtable] -and $_.ContainsKey('Skipped') })
         if ($skip.Count) { $result = 'skipped'; $message = [string]$skip[0].Skipped }
     } catch {
         $result = 'failed'
         $message = $_.Exception.Message
+    } finally {
+        $script:IntegrationScriptLog = $previousLog
     }
     $watch.Stop()
-    $text = (@($output | Where-Object { $_ -isnot [hashtable] } | ForEach-Object { "$_" }) + @($message | Where-Object { $_ })) -join "`n"
+    # Script output is recorded before callers can buffer it or throw an assertion.
+    $stepOutput = @($output | Where-Object { $_ -isnot [hashtable] -and $scriptOutput -cnotcontains "$_" } | ForEach-Object { "$_" })
+    $text = (@($scriptOutput) + $stepOutput + @($message | Where-Object { $_ })) -join "`n"
     return @{ Seconds = $watch.Elapsed.TotalSeconds; Result = $result; Message = $message; Log = $text }
 }
 
@@ -176,6 +184,7 @@ function Invoke-IntegrationScript {
     }
     $command = "& $(& $quote $Script) $($words -join ' '); exit `$LASTEXITCODE"
     $lines = @(& pwsh -NoProfile -Command $command 2>&1 | ForEach-Object { "$_" })
+    if ($null -ne $script:IntegrationScriptLog) { $script:IntegrationScriptLog.AddRange([string[]]$lines) }
     if ($LASTEXITCODE -ne 0) { throw "$(Split-Path $Script -Leaf) exited $LASTEXITCODE`n$($lines -join "`n")" }
     return $lines
 }
