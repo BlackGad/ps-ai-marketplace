@@ -6,16 +6,17 @@ Legion and review runs omit model flags so the CLI uses that account's own defau
 Derive `<command>` from account ID as `<home>/.legion/bin/<id>` on Unix or `<home>/.legion/bin/<id>.cmd` on Windows. Read the task prompt from the overseer's file. For legion, the prompt, report, and logs must be inside the assigned repository or worktree, under `.legion/temp/` for scratch files. Start there and inherit the owner's environment, including user PATH and installed tools. Never invent a path directly under the system temp folder. When only showing commands and no report path was supplied, retain the `<report>` placeholder and ask the overseer to provide it. Use the worker profile below. In the task repo, legion prompt mode is:
 
 ```sh
-<command> -p "<prompt text>" -s --allow-all-tools --deny-tool='shell(git push)' > "<report>"
+<command> -p "Read and follow the task in <prompt path>; the report goes to stdout." -s --allow-all-tools --deny-tool='shell(git push)' > "<report>"
 ```
 
-PowerShell 7: set `$command`, `$promptText`, `$repoPath` and `$report` from the assigned task. Keep the same process environment and capture stdout as the report where needed.
+PowerShell 7: set `$command`, `$promptPath`, `$repoPath` and `$report` from the assigned task. Keep the same process environment and capture stdout as the report where needed.
 
 ```powershell
+$promptText = "Read and follow the task in $promptPath; the report goes to stdout."
 & $command -p $promptText -s --allow-all-tools '--deny-tool=shell(git push)'
 ```
 
-For implementation legion work, set `PS_AI_ROLE=legion` and `PS_AI_TASK=<prompt path>` on this process only. `copilot --help` confirms `-p` is non-interactive and `--allow-all-tools` permits tools to run automatically without confirmation, including editing, checks, and local commits. Legion uses this profile without a CLI sandbox to see the real machine setup; stop if it cannot be applied and do not provision tools. `--deny-tool='shell(git push)'` takes precedence and blocks that push command, using the exact quoted syntax in help; the legion contract forbids all pushing. `-s` makes stdout the concise report. Load the prompt file as one argument (PowerShell 7: `Get-Content -Raw -LiteralPath <prompt path>`); preserve its newlines and keep paths with spaces as single arguments. From a script, close stdin; a process left waiting on stdin may hang. For long work, launch in the background, capture stdout/stderr separately, and wait for completion.
+For implementation legion work, set `PS_AI_ROLE=legion` and `PS_AI_TASK=<prompt path>` on this process only. `copilot --help` confirms `-p` is non-interactive and `--allow-all-tools` permits tools to run automatically without confirmation, including editing, checks, and local commits. Legion uses this profile without a CLI sandbox to see the real machine setup; stop if it cannot be applied and do not provision tools. `--deny-tool='shell(git push)'` takes precedence and blocks that push command, using the exact quoted syntax in help; the legion contract forbids all pushing. `-s` makes stdout the concise report. Pass a one-line prompt naming the prompt file, with the whole argument quoted so paths with spaces stay intact; a `.cmd` wrapper cuts a multi-line argument at the first line break. The agent reads every line from the named file. From a script, close stdin; a process left waiting on stdin may hang. For long work, launch in the background, capture stdout/stderr separately, and wait for completion.
 
 For a **read-only reviewer** append `--allow-all-tools --deny-tool=write --deny-tool=shell`. Give the frozen repo path and report instructions in the prompt; capture stdout as the report because write is denied. Do not set legion mode for a reviewer. If the CLI cannot enforce the denials, stop rather than run the review.
 

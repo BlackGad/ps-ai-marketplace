@@ -30,7 +30,7 @@ function Assert-PsAiNewId {
     param([string]$Id, $Data)
     Assert-PsAiId -Id $Id
     if (@($Data.agents | Where-Object { $_.id -ceq $Id }).Count) { throw "account '$Id' already exists" }
-    if (Get-Command $Id -ErrorAction SilentlyContinue) { throw "'$Id' is already a command" }
+    if (Get-Command $Id -CommandType Application -ErrorAction SilentlyContinue) { throw "'$Id' is already a command" }
 }
 
 function Update-PsAiChannelAccounts {
