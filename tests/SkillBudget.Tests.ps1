@@ -55,6 +55,9 @@ $owned = @(
     'ps-ai-overseer/references/communication.md'
 )
 $text = ($owned | ForEach-Object { Get-SkillText $_ }) -join "`n"
+$create = Get-SkillText 'ps-ai-personalisation/references/create.md'
+Assert-True ($create.Contains('unrecorded account') -and $create.Contains('without `-Add`')) 'K10 retries distinguish unrecorded accounts from plugin install failures'
+Assert-True (-not $create.Contains('For `install failed` or `installed: open a new terminal`')) 'K10 plugin failures never repeat an unnamed add'
 foreach ($gone in @('registered in owner personalisation', 'Validate afterward', "use the installer only after the owner's login step")) {
     Assert-True (-not $text.Contains($gone)) "'$gone' is gone"
 }

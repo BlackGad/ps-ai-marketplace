@@ -12,7 +12,7 @@ pwsh -NoProfile -File <plugin>/bin/ps-ai-setup.ps1 [-Add @('claude','codex:<exis
 
    Setup creates missing settings and notes, installs a missing CLI, adds accounts, writes the owner commands and installs ps-ai into every account. A repeat prints `skip:` lines. Finish an earlier setup the same way, without `-Add`.
 
-4. Read the table's last column. `log in: run <id>` is the owner's job: only the owner logs in. For `install failed` or `installed: open a new terminal`, tell the owner, then repeat step 3 later. Mention once that `legion help` lists the same steps as short commands.
+4. Read the table's last column. `log in: run <id>` is the owner's job: only the owner logs in. For a CLI failure or `installed: open a new terminal`, repeat the add later only for an unrecorded account. For a ps-ai `install failed`, the account is recorded: finish setup without `-Add`. Mention once that `legion help` lists the same steps as short commands.
 
 5. Remove an account with `pwsh -NoProfile -File <plugin>/bin/ps-ai-account.ps1 -Action remove -Id <id>`; its folder is kept. Renaming, registering a shortcut and Foundry use the tool's account guide.
 
