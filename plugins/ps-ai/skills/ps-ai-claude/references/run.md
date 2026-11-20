@@ -25,4 +25,4 @@ For interactive overseer launches with explicit account/model/argument choices a
 
 ## Keep the session responsive
 
-Claude Code offers background shell commands: start long steps (test gates, legion runs, waiting for a limit reset) in the background and read the output when the completion notice arrives. Never poll in a loop; keep foreground steps short so owner messages are answered meanwhile.
+Claude Code offers background shell commands: start long steps in the background and read the output when the completion notice arrives. Why and the blocking notice: [Keep the main session responsive](../../ps-ai-overseer/SKILL.md#identity-and-hard-rules).

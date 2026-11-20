@@ -25,4 +25,4 @@ For interactive overseer launches with explicit account/model/argument choices a
 
 ## Keep the session responsive
 
-If this tool supports background commands, start long steps (test gates, legion runs, waiting for a limit reset) in the background and read the result when it finishes. Never poll in a loop; keep foreground steps short so owner messages are answered meanwhile. If it does not, tell the owner before a long step.
+If this tool supports background commands, start long steps in the background and read the result when it finishes. Why and the blocking notice: [Keep the main session responsive](../../ps-ai-overseer/SKILL.md#identity-and-hard-rules).

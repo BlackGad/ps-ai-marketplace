@@ -67,6 +67,7 @@ $personalisation = Get-SkillText 'ps-ai-personalisation/SKILL.md'
 foreach ($rule in @('exactly one question per message', 'Save preferences, rulings and lessons that must persist in shared ps-ai files', 'independent channels with the same priority', 'first acknowledge it there at once')) {
     Assert-True $personalisation.Contains($rule) "personalisation keeps '$rule'"
 }
+Assert-True ((Get-SkillText 'ps-ai-overseer/SKILL.md').Contains('will not respond for a while')) 'overseer announces unresponsive periods'
 Assert-True ((Get-SkillText 'ps-ai-overseer/SKILL.md').Contains('Keep the main session responsive')) 'overseer keeps the responsive-session rule'
 Assert-True ((Get-SkillText 'ps-ai-personalisation/references/fields.md').Contains('Only the owner logs in')) 'fields.md keeps owner-only login'
 foreach ($tool in @('claude', 'codex', 'copilot')) {
