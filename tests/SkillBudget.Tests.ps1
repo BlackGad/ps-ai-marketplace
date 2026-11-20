@@ -30,9 +30,9 @@ foreach ($file in $caps.Keys) {
 # Personalisation SKILL.md loads before every flow, so it is not counted per flow.
 $flows = [ordered]@{
     'first setup' = @(90, @('ps-ai-personalisation/references/create.md', 'ps-ai-personalisation/references/fields.md'))
-    'add claude account' = @(90, @('ps-ai-personalisation/references/create.md', 'ps-ai-claude/SKILL.md', 'ps-ai-claude/references/accounts.md'))
-    'add codex account' = @(90, @('ps-ai-personalisation/references/create.md', 'ps-ai-codex/SKILL.md', 'ps-ai-codex/references/accounts.md'))
-    'add copilot account' = @(90, @('ps-ai-personalisation/references/create.md', 'ps-ai-copilot/SKILL.md', 'ps-ai-copilot/references/accounts.md'))
+    'add claude account' = @(130, @('ps-ai-personalisation/references/create.md', 'ps-ai-personalisation/references/fields.md', 'ps-ai-claude/SKILL.md', 'ps-ai-claude/references/accounts.md'))
+    'add codex account' = @(130, @('ps-ai-personalisation/references/create.md', 'ps-ai-personalisation/references/fields.md', 'ps-ai-codex/SKILL.md', 'ps-ai-codex/references/accounts.md'))
+    'add copilot account' = @(130, @('ps-ai-personalisation/references/create.md', 'ps-ai-personalisation/references/fields.md', 'ps-ai-copilot/SKILL.md', 'ps-ai-copilot/references/accounts.md'))
     'remove account' = @(60, @('ps-ai-personalisation/references/create.md'))
     'repository' = @(80, @('ps-ai-repository/SKILL.md', 'ps-ai-repository/references/setup.md'))
     'launch' = @(60, @('ps-ai-personalisation/references/launcher.md'))
