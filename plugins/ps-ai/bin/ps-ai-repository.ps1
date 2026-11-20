@@ -83,7 +83,8 @@ function Assert-NoLinkInPath {
 function Get-GitPathStatus {
     param([string]$GitRoot, [string]$Path)
     # A path in a folder that does not exist yet makes git warn on stderr; only the exit code matters.
-    $entry = git --literal-pathspecs -C $GitRoot status --porcelain -z -- $Path 2>$null | Select-Object -First 1
+    # Untracked files are requested because the owner's Git setting may hide them.
+    $entry = git --literal-pathspecs -C $GitRoot status --porcelain -z --untracked-files=all -- $Path 2>$null | Select-Object -First 1
     if ($LASTEXITCODE -ne 0) { throw "Cannot read the Git status of $Path" }
     if (-not $entry) { return '' }
     return $entry.Substring(0, 2)
@@ -277,10 +278,23 @@ $rulesPath = if ($rulesName) { Join-Path $repoRoot $rulesName } else { '' }
 $ignorePath = if ($Mode -eq 'Shared') { Join-Path $repoRoot '.gitignore' } else { Join-Path $legion '.gitignore' }
 $generatedPaths = @($generatedFiles | ForEach-Object { Join-Path $legion $_ })
 
+# Private setup also writes the outer repository's exclude file, wherever Git keeps it.
+$excludePath = ''
+if ($Mode -eq 'Private') {
+    $excludePath = @(git -C $repoRoot rev-parse --git-path info/exclude)[0]
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot find the repository exclude file' }
+    $excludePath = [IO.Path]::GetFullPath([IO.Path]::Combine($repoRoot, $excludePath))
+}
+
 # Check every write destination, and each folder above it, before the first write.
 $destinations = @($legion, $ignorePath, $rulesPath) + $generatedPaths + @($scaffoldFolders | ForEach-Object { Join-Path $legion $_ })
 foreach ($destination in $destinations | Where-Object { $_ }) {
     Assert-NoLinkInPath -RepoRoot $repoRoot -Path $destination
+}
+# The exclude file may sit outside the working tree (linked worktree); check only inside the Git folder.
+if ($excludePath) {
+    $gitFolder = Split-Path (Split-Path $excludePath -Parent) -Parent
+    Assert-NoLinkInPath -RepoRoot $gitFolder -Path $excludePath
 }
 
 # Refuse before any change when a file this run would edit has uncommitted work.
@@ -313,10 +327,7 @@ if ($Mode -eq 'Shared') {
         $prepared = $true
     }
 } else {
-    $exclude = @(git -C $repoRoot rev-parse --git-path info/exclude)[0]
-    if ($LASTEXITCODE -ne 0) { throw 'Cannot find the repository exclude file' }
-    $exclude = [IO.Path]::GetFullPath([IO.Path]::Combine($repoRoot, $exclude))
-    if (Add-PsAiIgnoreLines -Path $exclude -Lines @('.legion/')) { $prepared = $true }
+    if (Add-PsAiIgnoreLines -Path $excludePath -Lines @('.legion/')) { $prepared = $true }
     if (Add-PsAiIgnoreLines -Path $ignorePath -Lines @('temp/', 'docs/')) { $changedPaths += $ignorePath }
     if (-not (Test-Path -LiteralPath $innerGit)) {
         git init --quiet $legion

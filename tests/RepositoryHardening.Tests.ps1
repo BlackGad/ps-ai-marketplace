@@ -105,6 +105,29 @@ try {
         Assert-True (@(Get-ChildItem -LiteralPath $outside).Count -eq 1) "A3 $($case.Name): nothing is created outside"
     }
 
+    # A1: a Git setting that hides untracked files does not hide the new scaffold from the commit.
+    $repo = New-HardeningRepo 'a1-hidden-untracked'
+    git -C $repo config status.showUntrackedFiles no
+    & $setup -Repo $repo -Mode Shared | Out-Null
+    Assert-True (@(git -C $repo ls-files) -ccontains '.legion/state/handoff.md') 'A1: showUntrackedFiles=no still commits the new scaffold'
+
+    # A3: a link at the Private exclude file, or its folder, is refused before anything is written.
+    $excludeCases = @(
+        @{ Name = 'exclude file'; Link = '.git/info/exclude'; Type = 'SymbolicLink'; Target = (Join-Path $outside 'ignore-target') },
+        @{ Name = 'exclude folder'; Link = '.git/info'; Type = $folderType; Target = $outside }
+    )
+    foreach ($case in $excludeCases) {
+        $repo = New-HardeningRepo "a3-$($case.Name -replace ' ', '-')"
+        $linkPath = Join-Path $repo $case.Link
+        Remove-Item -LiteralPath $linkPath -Recurse -Force -ErrorAction SilentlyContinue
+        try { New-Item -ItemType $case.Type -Path $linkPath -Target $case.Target -ErrorAction Stop | Out-Null }
+        catch { Write-Host "skip A3 $($case.Name): cannot create a link here"; continue }
+        $message = Get-ThrownMessage { & $setup -Repo $repo -Mode Private }
+        Assert-True ($message -like '*link*') "A3 $($case.Name): refused ($message)"
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $repo '.legion/configuration'))) "A3 $($case.Name): nothing is written"
+        Assert-Equal 'outside' ([IO.File]::ReadAllText((Join-Path $outside 'ignore-target'))) "A3 $($case.Name): the linked exclude target is untouched"
+    }
+
     # A4: an edited gate script stays in a rebuilt index with a generic description.
     $repo = New-HardeningRepo 'a4-edited-gate'
     & $setup -Repo $repo -Mode Shared -Gate 'echo first' | Out-Null
