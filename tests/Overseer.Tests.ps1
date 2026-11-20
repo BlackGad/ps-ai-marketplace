@@ -89,5 +89,6 @@ New-Item -ItemType Directory $repoPath -Force | Out-Null
             $encoded = $state.Arguments[-1]
             $decoded = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
             Assert-True ($decoded.Contains("& 'fixture.cmd' 'two words' 'apostrophe''argument'")) 'Terminal transport preserves literal values'
+            Assert-True ($decoded.StartsWith('Remove-Item Env:NO_COLOR, Env:TERM -ErrorAction Ignore; ')) 'New terminal tab drops inherited no-color settings'
         }
     }

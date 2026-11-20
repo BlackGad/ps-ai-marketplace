@@ -78,7 +78,8 @@ function Start-OverseerLaunch {
     }
     if ($terminal) {
         $literals = @($Launch.Command) + $Launch.Args | ForEach-Object { "'" + $_.Replace("'", "''") + "'" }
-        $commandText = '& ' + ($literals -join ' ') + '; exit $LASTEXITCODE'
+        # An agent shell that starts the tab sets NO_COLOR and TERM=dumb; the new interactive tab needs colors.
+        $commandText = 'Remove-Item Env:NO_COLOR, Env:TERM -ErrorAction Ignore; & ' + ($literals -join ' ') + '; exit $LASTEXITCODE'
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($commandText))
         $terminalArgs = @('new-tab', '-d', $Repo, (Get-Process -Id $PID).Path, '-NoProfile', '-EncodedCommand', $encoded)
         if ($DryRun) { @('wt') + $terminalArgs }
