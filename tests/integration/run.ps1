@@ -101,11 +101,11 @@ function Get-IntegrationProbe {
 }
 
 function Get-IntegrationProbeChecks {
-    $tool = { param($Command, $Argument) (& (Get-Command $Command -ErrorAction Stop).Source $Argument 2>&1 | Select-Object -First 1) }
+    $tool = { param($Command, [string[]]$Argument) (& (Get-Command $Command -ErrorAction Stop).Source @Argument 2>&1 | Select-Object -First 1) }
     return [ordered]@{
         winget     = { & $tool 'winget' '--version' }.GetNewClosure()
         pwsh       = { $PSVersionTable.PSVersion.ToString() }
-        powershell = { & $tool 'powershell' '-Version' }.GetNewClosure()
+        powershell = { & $tool 'powershell' @('-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()') }.GetNewClosure()
         node       = { & $tool 'node' '--version' }.GetNewClosure()
         git        = { & $tool 'git' '--version' }.GetNewClosure()
     }

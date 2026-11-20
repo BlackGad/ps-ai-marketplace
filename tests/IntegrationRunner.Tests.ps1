@@ -103,6 +103,18 @@ try {
     Assert-True ($probe -like '*bad*not found*') 'probe records a missing tool without throwing'
     Assert-Equal 0 @(Invoke-IntegrationSteps -Steps @()).Count 'no steps, no cases'
 
+    # The legacy version probe passes a command, not the CLI's version-selection flag.
+    $legacyProbe = Join-Path $tempRoot 'legacy-probe.ps1'
+    Set-Content -LiteralPath $legacyProbe -Value @'
+if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToString()') { throw 'unexpected legacy probe arguments' }
+'5.1.0'
+'@
+    & {
+        function Get-Command { [pscustomobject]@{ Source = $legacyProbe } }
+        $checks = Get-IntegrationProbeChecks
+        Assert-Equal 'powershell: 5.1.0' (Get-IntegrationProbe -Checks ([ordered]@{ powershell = $checks.powershell })) 'legacy probe records the Windows PowerShell version'
+    }
+
     # The report: XML, benchmark JSON and summary.md; summary appended to GITHUB_STEP_SUMMARY.
     $out = Join-Path $tempRoot 'results'
     $env:GITHUB_STEP_SUMMARY = Join-Path $tempRoot 'step-summary.md'
