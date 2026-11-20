@@ -214,14 +214,20 @@ function Invoke-ClosedInput {
     # starts the process with a mark-free console input encoding.
     $noMark = New-Object System.Text.UTF8Encoding -ArgumentList $false
     $savedInputEncoding = $null
+    $inputEncodingChanged = $false
     if ($info.PSObject.Properties['StandardInputEncoding']) {
         $info.StandardInputEncoding = $noMark
     } else {
         $savedInputEncoding = [Console]::InputEncoding
-        [Console]::InputEncoding = $noMark
+        try {
+            [Console]::InputEncoding = $noMark
+            $inputEncodingChanged = $true
+        } catch {
+            # Without a console, keep the runtime's default input encoding.
+        }
     }
     try { $process = [System.Diagnostics.Process]::Start($info) }
-    finally { if ($savedInputEncoding) { [Console]::InputEncoding = $savedInputEncoding } }
+    finally { if ($inputEncodingChanged) { [Console]::InputEncoding = $savedInputEncoding } }
     $process.StandardInput.Close()
     $errorTask = $process.StandardError.ReadToEndAsync()
     $output = $process.StandardOutput.ReadToEnd()
