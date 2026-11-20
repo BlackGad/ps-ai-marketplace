@@ -25,9 +25,11 @@ $result = $LASTEXITCODE
 Start-Sleep -Seconds 3
 exit $result
 '@ | Set-Content -LiteralPath $runner
+    # -WindowStyle exists only on Windows.
+    $hidden = if ($IsWindows) { @{ WindowStyle = "Hidden" } } else { @{} }
     $processes = 1..5 | ForEach-Object {
         $arguments = @('-NoProfile', '-File', "`"$runner`"", "`"$script`"", "`"$repo`"", "racer$_")
-        Start-Process pwsh -ArgumentList $arguments -PassThru -WindowStyle Hidden `
+        Start-Process pwsh -ArgumentList $arguments -PassThru @hidden `
             -RedirectStandardOutput (Join-Path $tempRoot "racer$_.out") -RedirectStandardError (Join-Path $tempRoot "racer$_.err")
     }
     $processes | Wait-Process

@@ -106,14 +106,16 @@ try {
     $inertText = if ($IsWindows) { '@exit /b 99' } else { "#!/bin/sh`nexit 99`n" }
     [IO.File]::WriteAllText($repairCommand, $inertText)
     if (-not $IsWindows) { & chmod +x $repairCommand }
-    $env:PATH = $repairBin + [IO.Path]::PathSeparator + $(if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/usr/bin' })
+    $env:PATH = $repairBin + [IO.Path]::PathSeparator + $(if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' })
     & $accountScript -Action add -Id codex-repair -Tool codex -HomeRoot $homeRoot | Out-Null
     $before = [IO.File]::ReadAllText($file)
     $settingsTicks = (Get-Item -LiteralPath $file).LastWriteTimeUtc.Ticks
+    # On Unix the removed wrapper is the only one, so nothing records the target and the owner names it.
+    $repairTarget = if ($IsWindows) { @{} } else { @{ Command = $repairCommand } }
     foreach ($suffix in $(if ($IsWindows) { @('', '.cmd') } else { @('') })) {
         $missing = Join-Path $homeRoot ".legion/bin/codex-repair$suffix"
         Remove-Item -LiteralPath $missing
-        & $accountScript -Action add -Id codex-repair -Tool codex -HomeRoot $homeRoot | Out-Null
+        & $accountScript -Action add -Id codex-repair -Tool codex -HomeRoot $homeRoot @repairTarget | Out-Null
         Assert-True (Test-Path -LiteralPath $missing) 'B2 direct add repairs either missing wrapper'
         Assert-Equal $before ([IO.File]::ReadAllText($file)) 'B2 wrapper repair preserves recorded settings'
         Assert-Equal $settingsTicks (Get-Item -LiteralPath $file).LastWriteTimeUtc.Ticks 'B2 wrapper repair preserves settings timestamp'

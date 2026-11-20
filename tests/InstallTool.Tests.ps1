@@ -217,7 +217,8 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
         $savedTestRoot = $env:PS_AI_INSTALL_TEST_ROOT
         try {
             $env:PS_AI_INSTALL_TEST_ROOT = $sandbox
-            $userPathState.Value = '%PS_AI_INSTALL_TEST_ROOT%\tools\az\bin\'
+            $separator = [IO.Path]::DirectorySeparatorChar
+            $userPathState.Value = "%PS_AI_INSTALL_TEST_ROOT%${separator}tools${separator}az${separator}bin${separator}"
             Install-ToolZip -Tool az -Archive $archive -PathFolder bin | Out-Null
             Assert-Equal 2 $pathWrites.Count 'Expanded equivalent PATH entry is not duplicated'
         } finally { $env:PS_AI_INSTALL_TEST_ROOT = $savedTestRoot }
@@ -282,7 +283,8 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
         Assert-Equal 4 $commands.Count 'Claude and Codex invoke official scripts for both methods'
         Assert-True (($commands[0] -join ' ').Contains('-File')) 'Vendor script runs through pwsh'
         Assert-True (-not (($commands | ForEach-Object { $_ -join ' ' }) -join "`n").Contains('winget')) 'Explicit methods do not invoke winget'
-        & {
+        # The persisted user PATH exists only on Windows.
+        if ($IsWindows) {
             Set-Item Function:Test-ToolInstalled $realInstalledCheck
             function Test-ToolCommandAvailable { param($Name) $false }
             function Get-UserPath { Join-Path $PSScriptRoot 'fixtures/install/path-only' }

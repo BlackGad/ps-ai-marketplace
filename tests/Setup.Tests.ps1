@@ -34,7 +34,7 @@ try {
         [IO.File]::WriteAllText($path, $text)
         if (-not $IsWindows) { & chmod +x $path }
     }
-    $systemBin = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/usr/bin' }
+    $systemBin = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' }
     $fixturePath = @($fakeBin, (Split-Path (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source), $systemBin) -join [IO.Path]::PathSeparator
     $env:PATH = $fixturePath
     $version = (Get-Content (Join-Path $root 'plugins/ps-ai/plugin.json') -Raw | ConvertFrom-Json).version
@@ -375,7 +375,11 @@ try {
             Assert-True (Test-Path -LiteralPath $wrapper) 'B2 finish setup repairs interrupted account wrappers'
             Remove-Item -LiteralPath $wrapper
             if ($IsWindows) { Invoke-Setup -HomeRoot $testHome -Add codex -Id codex1 -Yes | Out-Null }
-            else { Add-PsAiSubscriptionAccount -Id codex1 -Tool codex -Command (Join-Path $fakeBin 'codex') -HomeRoot $testHome -Data $data -Path $settings | Out-Null }
+            else {
+                Add-PsAiSubscriptionAccount -Id codex1 -Tool codex -Command (Join-Path $fakeBin 'codex') -HomeRoot $testHome -Data $data -Path $settings | Out-Null
+                # The Windows run above also installs the plugin for the account; do it here once, so the repeat below has nothing left to do.
+                Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+            }
             Assert-True (Test-Path -LiteralPath $wrapper) 'B2 explicit repeat repairs a missing wrapper half'
             $before = Get-SetupTree $testHome
             Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
