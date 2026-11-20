@@ -33,6 +33,7 @@ This planner owns the tracked workflow. Activate only on the owner's request in 
 - Fixed repo gates run only through indexed scripts named in repository workflow; delegate creation of a missing fixed script and index row before using it. Never force-push or amend. Follow the configured delivery mode before merging to main; see [task-loop.md](references/task-loop.md).
 - Follow the [shared question rule](../ps-ai-personalisation/SKILL.md#identity-and-hard-rules) for every owner question. Keep progress and owner-facing reports in the owner's stated tone and supported format.
 - Speak to the owner in plain words. Show a command only when they ask for it or must run it themselves.
+- Keep the main session responsive. Run long work (test gates, legion runs, waiting for a limit reset, anything over a few seconds) in the background when the tool supports background commands, and read the result when notified; never poll in a loop. Keep foreground steps short so owner messages from the console and every channel are answered meanwhile. If the tool has no background commands, tell the owner before starting a long step.
 
 ## Take over and advance
 

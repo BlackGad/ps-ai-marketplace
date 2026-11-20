@@ -1,6 +1,6 @@
 {
   "name": "ps-ai",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Orchestration that keeps every floor in order, so the one in charge only has to nod.",
   "skills": "./skills/",
   "hooks": "./hooks/hooks.json"

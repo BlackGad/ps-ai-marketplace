@@ -23,3 +23,7 @@ For a **read-only reviewer** append `--allow-all-tools --deny-tool=write --deny-
 For a legion follow-up after a question, use `--resume=<session-id> -p "<follow-up>" -s --allow-all-tools --deny-tool='shell(git push)'` on the same account and folder. Use the latest-session shortcut only when certain it is the task session. Keep the task environment for legion resumes. Reviewer follow-ups keep the read-only denials above.
 
 For interactive overseer launches with explicit account/model/argument choices and selected channels, use [launcher.md](launcher.md). Install and account login steps stay in [accounts.md](accounts.md).
+
+## Keep the session responsive
+
+If this tool supports background commands, start long steps (test gates, legion runs, waiting for a limit reset) in the background and read the result when it finishes. Never poll in a loop; keep foreground steps short so owner messages are answered meanwhile. If it does not, tell the owner before a long step.
