@@ -125,7 +125,7 @@ function Invoke-LegionScript {
         $script:LegionExit = $global:LASTEXITCODE
     } catch {
         Write-Host $_.Exception.Message
-        $script:LegionExit = 1
+        $script:LegionExit = if ($_.Exception.Data.Contains('PsAiLaunchExitCode')) { [int]$_.Exception.Data['PsAiLaunchExitCode'] } else { 1 }
     }
 }
 

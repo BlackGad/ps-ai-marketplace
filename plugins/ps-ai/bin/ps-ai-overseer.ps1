@@ -139,7 +139,11 @@ function Invoke-Overseer {
     # Reset first: a stale code must not look like a failed launch.
     $global:LASTEXITCODE = 0
     Start-OverseerLaunch -Repo $Repo -Launch $launch -DryRun:$DryRun
-    if (-not $DryRun -and $LASTEXITCODE -ne 0) { throw "the launch failed with exit code $LASTEXITCODE" }
+    if (-not $DryRun -and $LASTEXITCODE -ne 0) {
+        $failure = [Exception]::new("the launch failed with exit code $LASTEXITCODE")
+        $failure.Data['PsAiLaunchExitCode'] = [int]$LASTEXITCODE
+        throw $failure
+    }
     # Reached only when the launch did not fail.
     if (-not $DryRun) {
         $message = "launched $($selected.id) ($Tool) in $Repo"
@@ -149,5 +153,10 @@ function Invoke-Overseer {
 }
 
 if (-not $launcherNoRun) {
-    Invoke-Overseer -Repo $Repo -HomeRoot $HomeRoot -Account $Account -Tool $Tool -Channel $Channel -Arguments $Arguments -NoChannel:$NoChannel -DryRun:$DryRun
+    try { Invoke-Overseer -Repo $Repo -HomeRoot $HomeRoot -Account $Account -Tool $Tool -Channel $Channel -Arguments $Arguments -NoChannel:$NoChannel -DryRun:$DryRun }
+    catch {
+        if (-not $_.Exception.Data.Contains('PsAiLaunchExitCode')) { throw }
+        Write-Host $_.Exception.Message
+        exit ([int]$_.Exception.Data['PsAiLaunchExitCode'])
+    }
 }
