@@ -3,12 +3,13 @@ param(
     [string]$Id,
     [switch]$Yes,
     [string]$HomeRoot = $HOME,
+    [string]$Source,
     [switch]$NoRun
 )
 
 $ErrorActionPreference = 'Stop'
 # The account script has its own parameters; keep this script's arguments across dot-sourcing.
-$setupArguments = @{ Add = $Add; Id = $Id; Yes = $Yes; HomeRoot = $HomeRoot }
+$setupArguments = @{ Add = $Add; Id = $Id; Yes = $Yes; HomeRoot = $HomeRoot; Source = $Source }
 $setupNoRun = $NoRun
 $script:SetupBin = $PSScriptRoot
 $script:SetupPluginRoot = Split-Path $PSScriptRoot -Parent
@@ -163,7 +164,9 @@ function Find-SetupInstaller {
 
 function Invoke-SetupInstaller {
     param([string]$Installer, [string]$Tool, [string]$ConfigDir)
-    $result = Invoke-SetupProcess -Arguments @('-NoProfile', '-File', $Installer, '-Tools', $Tool, '-ConfigDir', $ConfigDir, '-HomeRoot', $script:SetupHomeRoot, '-Update', '-Yes')
+    $arguments = @('-NoProfile', '-File', $Installer, '-Tools', $Tool, '-ConfigDir', $ConfigDir, '-HomeRoot', $script:SetupHomeRoot, '-Update', '-Yes')
+    if ($script:SetupSource) { $arguments += @('-Source', $script:SetupSource) }
+    $result = Invoke-SetupProcess -Arguments $arguments
     $log = Get-PsAiHomePath -HomeRoot $script:SetupHomeRoot -Path "temp/setup-install-$Tool.log"
     New-Item -ItemType Directory -Path (Split-Path $log) -Force | Out-Null
     [IO.File]::WriteAllText($log, $result.Output)
@@ -486,8 +489,9 @@ function Write-SetupTable {
 }
 
 function Invoke-Setup {
-    param([string[]]$Add, [string]$Id, [switch]$Yes, [string]$HomeRoot = $HOME)
+    param([string[]]$Add, [string]$Id, [switch]$Yes, [string]$HomeRoot = $HOME, [string]$Source)
     $script:SetupHomeRoot = $HomeRoot
+    $script:SetupSource = $Source
     $script:SetupDownloadedInstaller = $null
     $plan = Get-SetupPlan -Add $Add -Id $Id -HomeRoot $HomeRoot
     if (-not $Yes) { Write-SetupPlan -Plan $plan; return }

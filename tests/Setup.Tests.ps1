@@ -702,6 +702,44 @@ try {
     Assert-SetupText $output 'install failed: log in with claude1, then finish setup' 'Discovery failure produces first fallback row'
     Assert-SetupText $output 'install failed: log in with codex1, then finish setup' 'Discovery failure still produces next fallback row'
 
+    # -Source reaches the installer call only when given; the plan output stays the same.
+    $fakeInstaller = ${function:Invoke-SetupInstaller}
+    $realProcess = ${function:Invoke-SetupProcess}
+    try {
+        Set-Item function:Invoke-SetupInstaller $realInvokeInstaller
+        function Find-SetupInstaller { return (Join-Path $tempRoot 'inert-installer.ps1') }
+        function Invoke-SetupProcess { param([string[]]$Arguments) $script:processCalls.Add($Arguments); return @{ Code = 0; Output = '' } }
+        $sourceFolder = Join-Path $tempRoot 'work/my-project'
+        $sourceCases = @(
+            @{ Name = 'folder'; Source = $sourceFolder; Expected = $sourceFolder }
+            @{ Name = 'repo'; Source = 'owner/repo'; Expected = 'owner/repo' }
+            @{ Name = 'none'; Source = $null; Expected = $null }
+        )
+        foreach ($case in $sourceCases) {
+            Reset-SetupTest "source-$($case.Name)"
+            $script:processCalls = [Collections.Generic.List[object]]::new()
+            $sourceArguments = @{ HomeRoot = $testHome; Add = 'claude'; Yes = $true }
+            if ($case.Source) { $sourceArguments.Source = $case.Source }
+            Invoke-Setup @sourceArguments | Out-Null
+            Assert-Equal 1 $processCalls.Count "Source $($case.Name): installer runs once"
+            $call = @($processCalls[0])
+            $position = [array]::IndexOf($call, '-Source')
+            if ($case.Expected) {
+                Assert-True ($position -ge 0 -and $call[$position + 1] -ceq $case.Expected) "Source $($case.Name): installer receives -Source unchanged"
+            } else {
+                Assert-Equal -1 $position 'Without -Source the installer arguments have no -Source'
+                Assert-Equal ('-NoProfile -File ' + (Join-Path $tempRoot 'inert-installer.ps1') + ' -Tools claude -ConfigDir ' + (Join-Path $testHome '.legion/agents/claude1') + ' -HomeRoot ' + $testHome + ' -Update -Yes') ($call -join ' ') 'Without -Source the installer arguments are unchanged'
+            }
+        }
+        Reset-SetupTest 'source-plan'
+        $planWithout = @(Invoke-Setup -HomeRoot $testHome -Add claude) -join "`n"
+        $planWith = @(Invoke-Setup -HomeRoot $testHome -Add claude -Source 'owner/repo') -join "`n"
+        Assert-Equal $planWithout $planWith 'The plan output does not change with -Source'
+    } finally {
+        Set-Item function:Invoke-SetupInstaller $fakeInstaller
+        Set-Item function:Invoke-SetupProcess $realProcess
+    }
+
     # Search only in fixture roots, and replace download even while testing the real finder.
     Reset-SetupTest 'search'
     $script:SetupHomeRoot = $testHome
