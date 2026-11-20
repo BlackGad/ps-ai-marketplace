@@ -30,18 +30,45 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  test-release-pr:
+  resolve-release-pr:
     needs: release-please
     if: needs.release-please.outputs.pr != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      sha: ${{ steps.head.outputs.sha }}
+    steps:
+      - id: head
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ fromJSON(needs.release-please.outputs.pr).number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if ($env:PR_NUMBER -notmatch '^[1-9][0-9]*$') { throw 'missing or invalid release PR number' }
+          $prJson = gh api "repos/$env:REPOSITORY/pulls/$env:PR_NUMBER"
+          if ($LASTEXITCODE -ne 0) { throw 'could not resolve release PR head SHA' }
+          $pr = $prJson | ConvertFrom-Json
+          if ($pr.state -ne 'open' -or $pr.number -ne [int]$env:PR_NUMBER) { throw 'release PR is not open or has the wrong number' }
+          if ($pr.head.repo.full_name -ne $env:REPOSITORY) { throw 'release PR head must belong to this repository' }
+          $sha = [string]$pr.head.sha
+          if ($sha -notmatch '^[0-9a-f]{40}$') { throw 'missing or invalid release PR head SHA' }
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+
+  test-release-pr:
+    needs: resolve-release-pr
+    if: needs.resolve-release-pr.outputs.sha != ''
     permissions:
       contents: read
     uses: ./.github/workflows/tests.yml
     with:
-      ref: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
+      sha: ${{ needs.resolve-release-pr.outputs.sha }}
 
   mark-release-pr:
-    needs: test-release-pr
-    if: always() && needs.test-release-pr.result != 'skipped'
+    needs: [resolve-release-pr, test-release-pr]
+    if: always() && needs.resolve-release-pr.result != 'skipped'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -50,10 +77,11 @@ jobs:
       - shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ needs.test-release-pr.outputs.sha }}
+          SHA: ${{ needs.resolve-release-pr.outputs.sha }}
           RESULT: ${{ needs.test-release-pr.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          if (-not $env:SHA) { Write-Error 'no tested commit to mark'; exit 1 }
+          if ($env:SHA -notmatch '^[0-9a-f]{40}$') { throw 'missing or invalid release PR head SHA; cannot publish gate status' }
           $state = if ($env:RESULT -eq 'success') { 'success' } else { 'failure' }
-          gh api "repos/${{ github.repository }}/statuses/$env:SHA" -f state=$state -f context=gate -f target_url=$env:RUN_URL -f description="unit tests on the release branch: $state"
+          gh api "repos/${{ github.repository }}/statuses/$env:SHA" -f state=$state -f context=gate -f target_url=$env:RUN_URL -f description="unit tests on the release PR commit: $state"
+          if ($LASTEXITCODE -ne 0) { throw 'could not publish gate status on the release PR head SHA' }

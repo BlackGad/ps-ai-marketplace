@@ -10,9 +10,12 @@ function Get-WorkflowJobBlocks {
         if (-not $inJobs) { continue }
         if ($line -match '^\S' -and $line -notmatch '^#') { $inJobs = $false; continue }
         if ($line -match '^  ([A-Za-z0-9_-]+):\s*$') {
-            $blocks += [pscustomobject]@{ Id = $Matches[1]; Lines = @() }
+            $blocks += [pscustomobject]@{ Id = $Matches[1]; Name = $Matches[1]; Lines = @() }
         } elseif ($blocks.Count -gt 0) {
             $blocks[-1].Lines += $line
+            if ($line -match '^    name:\s*(.+?)\s*$') {
+                $blocks[-1].Name = $Matches[1].Trim("'" + '"')
+            }
         }
     }
     $blocks
