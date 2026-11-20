@@ -1,6 +1,6 @@
 # Integration suite: install, setup and uninstall on a clean runner with the real CLIs and no login.
 # CI only. Without -NoRun the script refuses to start unless CI is "true", so a local run never touches a real home.
-# -AllowSourceFallback is set by the workflow for a direct push to main; it lets a CLI that refuses the checkout use the published source at the tested revision.
+# -AllowSourceFallback is set by the workflow for runs on main; it lets a CLI that refuses the checkout use the published source at the tested revision.
 # Steps are data: @{ Name; DependsOn = @(<names>); First = { }; Repeat = { } }. A block throws to fail and may return @{ Skipped = '<reason>' }.
 param(
     [string]$Out,

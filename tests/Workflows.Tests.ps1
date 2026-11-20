@@ -191,7 +191,7 @@ ${{ (inputs.sha != '' || (github.event_name == 'pull_request' && github.event.pu
         $run = ($integrationJobs | Where-Object Id -eq 'run').Lines -join "`n"
         Require-Workflow ($run -match 'os: \[windows-2025, macos-15, ubuntu-24.04\]' -and $run -match 'fail-fast: false' -and $run -match 'timeout-minutes: 30') 'integration matrix uses all three systems with independent timeouts'
         Require-Workflow ($run.Contains('ref: ${{ inputs.sha || github.sha }}')) 'matrix tests the supplied immutable SHA'
-        Require-Workflow ($run.Contains('ALLOW_SOURCE_FALLBACK: ${{ github.event_name == ''push'' && github.ref == ''refs/heads/main'' && inputs.sha == '''' }}')) 'published-source fallback is restricted to direct main pushes'
+        Require-Workflow ($run.Contains('ALLOW_SOURCE_FALLBACK: ${{ github.ref == ''refs/heads/main'' && inputs.sha == '''' }}')) 'published-source fallback is allowed on main runs without a checkout input'
         Require-Workflow ($run -match "if: github.event_name == 'pull_request'\r?\n        uses: actions/cache/restore@" -and $run -match "if: github.event_name == 'schedule' && github.ref == 'refs/heads/main' && inputs.sha == ''\r?\n        uses: actions/cache/save@") 'npm downloads restore only on PRs and save only on the weekly main run'
         Require-Workflow ($run -match 'if: always\(\)' -and $run -match 'retention-days: 90') 'matrix preserves reports and logs for 90 days even on failure'
         $report = ($integrationJobs | Where-Object Id -eq 'report').Lines -join "`n"

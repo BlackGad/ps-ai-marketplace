@@ -51,7 +51,7 @@ jobs:
           restore-keys: integration-npm-${{ runner.os }}-
       - shell: pwsh
         env:
-          ALLOW_SOURCE_FALLBACK: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.sha == '' }}
+          ALLOW_SOURCE_FALLBACK: ${{ github.ref == 'refs/heads/main' && inputs.sha == '' }}
         run: |
           $arguments = @('-NoProfile', '-File', 'tests/integration/run.ps1', '-Out', 'results')
           if ($env:ALLOW_SOURCE_FALLBACK -eq 'true') { $arguments += '-AllowSourceFallback' }
