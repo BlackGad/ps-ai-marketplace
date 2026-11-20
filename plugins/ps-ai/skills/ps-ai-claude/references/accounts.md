@@ -18,7 +18,7 @@ pwsh -NoProfile -File <plugin>/bin/ps-ai-validate.ps1 -Kind personalisation -Pat
 
 To check from the system temp folder, run `claude plugin list --json` with `CLAUDE_CONFIG_DIR` set to the account's recorded folder (never guess paths); ps-ai is installed when `ps-ai@ps-ai-marketplace` is listed and enabled.
 
-To adopt a signed-in folder, pass `-ConfigDir <existing folder>` to `add`. Follow the [shared account rules](../../ps-ai-personalisation/references/fields.md#account-setup) for retained logins, installation approval and incomplete work.
+To adopt a signed-in folder, pass `-ConfigDir <existing folder>` to `add`. For an adopted or registered folder, add `-Update` to the installer command: it installs ps-ai if missing and otherwise brings an older copy current, which a plain install reports as already done. Follow the [shared account rules](../../ps-ai-personalisation/references/fields.md#account-setup) for retained logins, installation approval and incomplete work.
 
 For an existing wrapper, use `-Action register -Id <id> -Tool claude -Command <wrapper> -ConfigDir <dir> -HomeRoot <home>`; do not recreate its login. Rename with `-Action rename -Id <old> -NewId <new>`, or remove with `-Action remove -Id <id>`, then validate. The script updates exact channel account bindings, keeps the config folder, and prints its location. Do not rename or delete that folder without the owner's explicit choice.
 

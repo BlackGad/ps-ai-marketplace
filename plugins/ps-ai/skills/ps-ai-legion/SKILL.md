@@ -16,7 +16,7 @@ You are one working agent for one task. Activate only when the hook declares leg
 - Never download or install an SDK, runtime, package manager, or tool. If one is missing or the wrong version, stop and report it so the overseer can ask the owner; see [task.md](references/task.md).
 - Tests come first; use the installed test-driven-development skill when present. Run the prescribed checks and record each command and result.
 - Commit completed work locally with the task's message and required co-author. Never push, amend, rebase, or rewrite commits.
-- Never edit the tracked handoff; only the overseer owns it. Never launch agents: **A summoned unit cannot summon.**
+- Never edit the tracked handoff; only the overseer owns it. Report learned preferences to the overseer for saving under the [shared memory rule](../ps-ai-personalisation/SKILL.md#identity-and-hard-rules); never edit shared files outside the assigned scope. Never launch agents: **A summoned unit cannot summon.**
 - Never read, print, or log credential files. A fixed repo gate runs through its indexed script; see [task.md](references/task.md).
 - Speak to the owner in plain words. Show commands only when asked or when they must run them themselves; keep exact checks in the task report.
 

@@ -10,4 +10,4 @@ Any owner-started session may take the lease on request without a channel. Follo
 
 Read the selected tool skill's `references/launcher.md` for explicit account/model/argument examples and channel routing.
 
-On Windows the launcher uses Terminal when available, invoking the selected command through PowerShell so batch wrappers work. It uses the current terminal if Terminal is missing or an argument or path contains a literal semicolon. Approved plugin updates refresh ps-ai-owned runtime copies and retarget existing launcher shims while preserving account settings and shim arguments.
+On Windows the launcher uses Terminal when available, invoking the selected command through PowerShell so batch wrappers work. The new tab clears `NO_COLOR` and `TERM` inherited from the agent shell that started it, so the session keeps its colors; always launch through this script rather than a hand-built terminal command. It uses the current terminal if Terminal is missing or an argument or path contains a literal semicolon. Approved plugin updates refresh ps-ai-owned runtime copies and retarget existing launcher shims while preserving account settings and shim arguments.
