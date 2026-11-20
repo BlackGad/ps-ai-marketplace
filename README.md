@@ -1,5 +1,9 @@
 # ps-ai
 
+[![tests](https://github.com/BlackGad/ps-ai-marketplace/actions/workflows/tests.yml/badge.svg?branch=main&event=push)](https://github.com/BlackGad/ps-ai-marketplace/actions/workflows/tests.yml)
+[![integration](https://github.com/BlackGad/ps-ai-marketplace/actions/workflows/integration.yml/badge.svg?branch=main&event=push)](https://github.com/BlackGad/ps-ai-marketplace/actions/workflows/integration.yml)
+[![release](https://img.shields.io/github/v/release/BlackGad/ps-ai-marketplace)](https://github.com/BlackGad/ps-ai-marketplace/releases)
+
 Long work stalls when one AI session loses context or hits its usage limit. It has no independent reviewer, while your other subscriptions and accounts sit unused. Starting another session means explaining the work again.
 
 ps-ai connects **Claude Code, Codex CLI and Copilot CLI** into a team. An **overseer** session plans and tracks work in your repository, dispatches tasks to **legion members** on other accounts and CLIs, reviews their reports, and records progress in a handoff file. The next session continues from that handoff. You drive the work by talking to your AI tool: answer its questions and approve its proposals.
