@@ -20,7 +20,7 @@ This context provider grounds every ps-ai mode. Read both the owner's settings a
 - Leave legion access consent to the overseer's [first dispatch](../ps-ai-overseer/references/task-loop.md#first-legion-dispatch). Setup asks only which agents to add and for one yes to install ps-ai into them.
 - Validate settings after every change using [fields.md](references/fields.md).
 - Use unique account names that do not conflict with installed commands. Add new accounts, adopt existing account folders, and register existing shortcuts through the matching tool skill; see [fields.md](references/fields.md) for naming rules. When the owner gives an existing folder, keep its settings and login and create a shortcut for that folder. Do not ask them to log in again.
-- Every account ps-ai knows needs ps-ai installed. Explain that account setup includes installing ps-ai into that account and get the owner's yes before installation; use the matching tool's account guide. Use approval already given in the conversation. One update then covers all known accounts.
+- Every account ps-ai knows needs ps-ai installed. Explain that account setup includes installing ps-ai into that account and get the owner's yes before installation; `ps-ai-setup.ps1` does it, as [create.md](references/create.md) says. Use approval already given in the conversation. One update then covers all known accounts.
 - Never install a tool, launch an agent, or open an overseer window without authorization. The session launcher offer asks first; direct launcher invocation is itself a request to launch.
 
 ## Use the owner's settings
