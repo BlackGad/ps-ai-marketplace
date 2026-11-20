@@ -12,6 +12,12 @@ $ErrorActionPreference = 'Stop'
 $references = Join-Path $PSScriptRoot '../skills/ps-ai-repository/references'
 $rulesHeading = '## ps-ai orchestration'
 $commitMessage = 'Set up ps-ai orchestration'
+# Every file and folder setup writes inside .legion, relative to it.
+$generatedFiles = @(
+    'configuration/project.json', 'configuration/workflow.md', 'scripts/index.md',
+    'scripts/check-task.ps1', 'state/handoff.md', 'state/history/.gitkeep'
+)
+$scaffoldFolders = @('docs/specs', 'docs/plans', 'temp')
 
 function Read-Text {
     param([string]$Path)
@@ -62,14 +68,25 @@ function Resolve-RulesFileName {
     throw 'choose -RulesFile: AGENTS.md, CLAUDE.md'
 }
 
-# A link in the rules file path would send the write outside the repository.
+# A link in a write path would send the write outside the repository.
 function Assert-NoLinkInPath {
     param([string]$RepoRoot, [string]$Path)
     for ($current = $Path; $current.Length -gt $RepoRoot.Length; $current = Split-Path $current -Parent) {
         if ([IO.FileInfo]::new($current).LinkTarget) {
-            throw "$([IO.Path]::GetRelativePath($RepoRoot, $current)) is a link; choose a rules file that is not linked"
+            throw "$([IO.Path]::GetRelativePath($RepoRoot, $current)) is a link; setup does not write through links"
         }
     }
+}
+
+# The two status letters of one path (staged, then unstaged); empty when the path is clean.
+# One literal path needs no parsing of file names, so quoted or non-ASCII names are safe.
+function Get-GitPathStatus {
+    param([string]$GitRoot, [string]$Path)
+    # A path in a folder that does not exist yet makes git warn on stderr; only the exit code matters.
+    $entry = git --literal-pathspecs -C $GitRoot status --porcelain -z -- $Path 2>$null | Select-Object -First 1
+    if ($LASTEXITCODE -ne 0) { throw "Cannot read the Git status of $Path" }
+    if (-not $entry) { return '' }
+    return $entry.Substring(0, 2)
 }
 
 function Test-RulesBlock {
@@ -82,7 +99,7 @@ function Assert-NoUncommittedEdits {
     param([string]$GitRoot, [string[]]$Paths)
     foreach ($path in $Paths) {
         # A missing path counts too: a tracked file the owner deleted is an edit.
-        if (git -C $GitRoot status --porcelain -- $path) {
+        if (Get-GitPathStatus -GitRoot $GitRoot -Path $path) {
             $name = [IO.Path]::GetRelativePath($GitRoot, $path)
             throw "$name has uncommitted edits; commit or stash them before setup"
         }
@@ -92,11 +109,11 @@ function Assert-NoUncommittedEdits {
 # Recreating a tracked setup file the owner deleted or renamed away would hide the pending change.
 function Assert-NoDeletedSetupFiles {
     param([string]$GitRoot, [string[]]$Paths)
-    $deleted = @(git -C $GitRoot status --porcelain -- $Paths | Where-Object { $_ -match '^(D.|.D|R.) ' })
-    if ($deleted.Count) {
-        # A rename line reads "source -> target"; the source side is the file setup would recreate.
-        $source = ($deleted[0].Substring(3) -split ' -> ')[0]
-        throw "$source was deleted and the deletion is not committed; commit or restore it before setup"
+    foreach ($path in $Paths) {
+        if ((Get-GitPathStatus -GitRoot $GitRoot -Path $path) -match '^(D.|.D|R.)') {
+            $name = [IO.Path]::GetRelativePath($GitRoot, $path)
+            throw "$name was deleted and the deletion is not committed; commit or restore it before setup"
+        }
     }
 }
 
@@ -127,12 +144,14 @@ function Get-WorkflowText {
 }
 
 function Get-IndexText {
-    param([string]$GateCommand)
+    param([bool]$HasGate, [string]$GateCommand)
     $text = Read-Reference 'scripts-index-template.md'
     $example = ($text -split '\r?\n') | Where-Object { $_.StartsWith('| `check-task.ps1` |') } | Select-Object -First 1
     # Without a gate the example row would advertise a script that does not exist.
-    if (-not $GateCommand) { return (($text -split '\r?\n') | Where-Object { $_ -ne $example }) -join "`n" }
-    $row = '| `check-task.ps1` | after each task | Runs `' + $GateCommand + '` | none | exit code of the command |'
+    if (-not $HasGate) { return (($text -split '\r?\n') | Where-Object { $_ -ne $example }) -join "`n" }
+    # An edited gate script has no command to quote.
+    $runs = if ($GateCommand) { 'Runs `' + $GateCommand + '`' } else { 'Runs the gate script' }
+    $row = '| `check-task.ps1` | after each task | ' + $runs + ' | none | exit code of the command |'
     return $text.Replace($example, $row)
 }
 
@@ -162,13 +181,14 @@ function New-OrchestrationFiles {
     } elseif (Test-Path -LiteralPath $gatePath) {
         $script:keptPaths += 'scripts/check-task.ps1'
     }
+    $hasGate = Test-Path -LiteralPath $gatePath
     $gateCommand = Get-ExistingGateCommand $gatePath
     New-SetupFile 'configuration/project.json' (Read-Reference 'project-template.json')
-    New-SetupFile 'configuration/workflow.md' (Get-WorkflowText $RulesName ([bool]$gateCommand))
-    New-SetupFile 'scripts/index.md' (Get-IndexText $gateCommand)
+    New-SetupFile 'configuration/workflow.md' (Get-WorkflowText $RulesName $hasGate)
+    New-SetupFile 'scripts/index.md' (Get-IndexText -HasGate $hasGate -GateCommand $gateCommand)
     New-SetupFile 'state/handoff.md' (Read-Reference 'handoff-template.md')
     New-SetupFile 'state/history/.gitkeep' ''
-    foreach ($folder in @('docs/specs', 'docs/plans', 'temp')) {
+    foreach ($folder in $scaffoldFolders) {
         New-Item -ItemType Directory -Path (Join-Path $legion $folder) -Force | Out-Null
     }
     # Only a partial setup names the kept files; a full repeat prints its one line at the end.
@@ -192,26 +212,34 @@ function Assert-ValidProject {
     if ($issues.Count) { throw "project.json is not valid: $($issues -join '; ')" }
 }
 
-# Setup files to commit, never the owner's other edits:
-#   - untracked files (new, or left by an earlier failed run)
-#   - files already staged (left by an earlier failed commit)
-#   - files this run wrote, in $WrittenPaths
+# Setup files to commit: the exact paths in $Paths, never the owner's other files.
+# A path is committed when it is
+#   - untracked (new, or left by an earlier failed run)
+#   - staged (left by an earlier failed commit)
+#   - in $WrittenPaths (written by this run)
 # A modified tracked file that is none of these is the owner's work and stays out.
+# A path with both staged and unstaged changes is refused: the commit would take both.
 function Get-SetupCommitPaths {
     param([string]$GitRoot, [string[]]$Paths, [string[]]$WrittenPaths)
     $commitPaths = @()
-    foreach ($line in @(git -C $GitRoot status --porcelain --untracked-files=all -- $Paths)) {
-        if ($line.StartsWith('??') -or $line[0] -ne ' ') { $commitPaths += $line.Substring(3) }
+    foreach ($path in $Paths) {
+        $status = Get-GitPathStatus -GitRoot $GitRoot -Path $path
+        if (-not $status) { continue }
+        $isUntracked = $status -ceq '??'
+        $isStaged = -not $isUntracked -and $status[0] -ne ' '
+        $isChanged = -not $isUntracked -and $status[1] -ne ' '
+        if ($isStaged -and $isChanged) {
+            $name = [IO.Path]::GetRelativePath($GitRoot, $path)
+            throw "$name has staged and unstaged changes; stage all of it or none before setup"
+        }
+        if ($isUntracked -or $isStaged -or $WrittenPaths -contains $path) { $commitPaths += $path }
     }
-    foreach ($written in $WrittenPaths) {
-        if (git -C $GitRoot status --porcelain -- $written) { $commitPaths += $written }
-    }
-    return @($commitPaths | Select-Object -Unique)
+    return $commitPaths
 }
 
 function Save-SetupCommit {
     param([string]$GitRoot, [string]$IdentityRepo, [string[]]$Paths)
-    git -C $GitRoot add -- $Paths
+    git --literal-pathspecs -C $GitRoot add -- $Paths
     if ($LASTEXITCODE -ne 0) { throw 'Cannot stage setup files' }
     $identity = @()
     foreach ($key in @('user.name', 'user.email')) {
@@ -219,7 +247,7 @@ function Save-SetupCommit {
         if ($LASTEXITCODE -eq 0 -and $value) { $identity += @('-c', "$key=$value") }
     }
     # A path-limited commit keeps anything else already staged out of this commit.
-    git -C $GitRoot @identity commit --quiet -m $commitMessage -- $Paths
+    git --literal-pathspecs -C $GitRoot @identity commit --quiet -m $commitMessage -- $Paths
     if ($LASTEXITCODE -ne 0) { throw 'Cannot commit setup files' }
 }
 
@@ -246,34 +274,39 @@ if ($Mode -eq 'Shared') {
 $rulesName = Resolve-RulesFileName -RepoRoot $repoRoot -Requested $RulesFile
 if ($Mode -eq 'Shared' -and -not $rulesName) { throw 'Shared needs a rules file: choose -RulesFile <file>' }
 $rulesPath = if ($rulesName) { Join-Path $repoRoot $rulesName } else { '' }
-if ($rulesPath) { Assert-NoLinkInPath -RepoRoot $repoRoot -Path $rulesPath }
+$ignorePath = if ($Mode -eq 'Shared') { Join-Path $repoRoot '.gitignore' } else { Join-Path $legion '.gitignore' }
+$generatedPaths = @($generatedFiles | ForEach-Object { Join-Path $legion $_ })
+
+# Check every write destination, and each folder above it, before the first write.
+$destinations = @($legion, $ignorePath, $rulesPath) + $generatedPaths + @($scaffoldFolders | ForEach-Object { Join-Path $legion $_ })
+foreach ($destination in $destinations | Where-Object { $_ }) {
+    Assert-NoLinkInPath -RepoRoot $repoRoot -Path $destination
+}
 
 # Refuse before any change when a file this run would edit has uncommitted work.
 if ($Mode -eq 'Shared') {
-    $outerIgnore = Join-Path $repoRoot '.gitignore'
-    if (Get-MissingIgnoreLines -Path $outerIgnore -Lines @('.legion/temp/', '.legion/docs/')) {
-        Assert-NoUncommittedEdits -GitRoot $repoRoot -Paths @($outerIgnore)
+    if (Get-MissingIgnoreLines -Path $ignorePath -Lines @('.legion/temp/', '.legion/docs/')) {
+        Assert-NoUncommittedEdits -GitRoot $repoRoot -Paths @($ignorePath)
     }
     if (-not (Test-RulesBlock $rulesPath)) { Assert-NoUncommittedEdits -GitRoot $repoRoot -Paths @($rulesPath) }
-    Assert-NoDeletedSetupFiles -GitRoot $repoRoot -Paths @('.legion/configuration', '.legion/scripts', '.legion/state')
+    Assert-NoDeletedSetupFiles -GitRoot $repoRoot -Paths $generatedPaths
 } elseif (Test-Path -LiteralPath $innerGit) {
-    $innerIgnore = Join-Path $legion '.gitignore'
-    if (Get-MissingIgnoreLines -Path $innerIgnore -Lines @('temp/', 'docs/')) {
-        Assert-NoUncommittedEdits -GitRoot $legion -Paths @($innerIgnore)
+    if (Get-MissingIgnoreLines -Path $ignorePath -Lines @('temp/', 'docs/')) {
+        Assert-NoUncommittedEdits -GitRoot $legion -Paths @($ignorePath)
     }
-    Assert-NoDeletedSetupFiles -GitRoot $legion -Paths @('configuration', 'scripts', 'state')
+    Assert-NoDeletedSetupFiles -GitRoot $legion -Paths $generatedPaths
 }
 
 New-OrchestrationFiles -RulesName $rulesName
 Assert-ValidProject
 
 if ($Mode -eq 'Shared') {
-    if (Add-PsAiIgnoreLines -Path $outerIgnore -Lines @('.legion/temp/', '.legion/docs/')) { $changedPaths += $outerIgnore }
+    if (Add-PsAiIgnoreLines -Path $ignorePath -Lines @('.legion/temp/', '.legion/docs/')) { $changedPaths += $ignorePath }
     if (-not (Test-RulesBlock $rulesPath)) {
         Add-RulesBlock $rulesPath
         $changedPaths += $rulesPath
     }
-    $setupPaths = @('.legion/configuration', '.legion/scripts', '.legion/state', $outerIgnore, $rulesPath) | Where-Object { $_ }
+    $setupPaths = @($generatedPaths + $ignorePath + $rulesPath) | Where-Object { $_ }
     $pending = Get-SetupCommitPaths -GitRoot $repoRoot -Paths $setupPaths -WrittenPaths $changedPaths
     if ($pending.Count) {
         Save-SetupCommit -GitRoot $repoRoot -IdentityRepo $repoRoot -Paths $pending
@@ -284,15 +317,14 @@ if ($Mode -eq 'Shared') {
     if ($LASTEXITCODE -ne 0) { throw 'Cannot find the repository exclude file' }
     $exclude = [IO.Path]::GetFullPath([IO.Path]::Combine($repoRoot, $exclude))
     if (Add-PsAiIgnoreLines -Path $exclude -Lines @('.legion/')) { $prepared = $true }
-    $innerIgnore = Join-Path $legion '.gitignore'
-    if (Add-PsAiIgnoreLines -Path $innerIgnore -Lines @('temp/', 'docs/')) { $changedPaths += $innerIgnore }
+    if (Add-PsAiIgnoreLines -Path $ignorePath -Lines @('temp/', 'docs/')) { $changedPaths += $ignorePath }
     if (-not (Test-Path -LiteralPath $innerGit)) {
         git init --quiet $legion
         if ($LASTEXITCODE -ne 0) { throw 'Cannot initialize Private history' }
         $prepared = $true
     }
     # The first commit also takes setup files that already existed: they are untracked.
-    $pending = Get-SetupCommitPaths -GitRoot $legion -Paths @('.gitignore', 'configuration', 'scripts', 'state') -WrittenPaths $changedPaths
+    $pending = Get-SetupCommitPaths -GitRoot $legion -Paths @($generatedPaths + $ignorePath) -WrittenPaths $changedPaths
     if ($pending.Count) {
         Save-SetupCommit -GitRoot $legion -IdentityRepo $repoRoot -Paths $pending
         $prepared = $true
