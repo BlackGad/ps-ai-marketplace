@@ -435,6 +435,13 @@ function Resolve-InstallConfigDir {
     return $Path
 }
 
+function Test-InstallRealProfile {
+    $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    $selected = [IO.Path]::GetFullPath((Get-InstallHome)).TrimEnd('\', '/')
+    $profileHome = [IO.Path]::GetFullPath([Environment]::GetFolderPath('UserProfile')).TrimEnd('\', '/')
+    return [string]::Equals($selected, $profileHome, $comparison)
+}
+
 function Get-UpdateConfigDirs {
     param([string]$Tool, [string]$ConfigDir)
     if ($ConfigDir) { return ,@($ConfigDir) }
@@ -457,7 +464,8 @@ function Get-UpdateConfigDirs {
     $defaultListed = if ($env:OS -eq 'Windows_NT') { $folders -contains $defaultFolder } else { $folders -ccontains $defaultFolder }
     if (-not $defaultListed) {
         # Keep the CLI's implicit default only when no recorded account selects it.
-        $target = if ($override) { $defaultFolder } else { '' }
+        # A home other than the real profile has its own default folder; never hand the CLI its real default.
+        $target = if ($override -or -not (Test-InstallRealProfile)) { $defaultFolder } else { '' }
         $folders = @($target) + $folders
     }
     return ,$folders
@@ -481,9 +489,10 @@ function Get-InstallOwnerCommandTarget {
     if (-not $match.Success) { return }
     # Batch double quotes keep dollar signs literal; shell double quotes expand them.
     $argument = '(?<argument>(?:''[^''\r\n]*''|"[^"$`\r\n]*")+|"\$@"|\$@|%\*|[\w.=:/\\-]+)'
-    if ([IO.Path]::GetExtension($Path) -ieq '.cmd') { $argument = '(?<argument>"[^"\r\n]*"|%\*|[\w.=:/\\-]+)' }
+    $batchExit = ''
+    if ([IO.Path]::GetExtension($Path) -ieq '.cmd') { $argument = '(?<argument>"[^"\r\n]*"|%\*|[\w.=:/\\-]+)'; $batchExit = '(?:[ \t]+&[ \t]+\(goto\)[ \t]+2>nul[ \t]+&[ \t]+exit[ \t]+/b)?' }
     $tail = $text.Substring($match.Length)
-    if ($tail -notmatch ('\A(?:[ \t]+' + $argument + ')*\s*\z')) { return }
+    if ($tail -notmatch ('\A(?:[ \t]+' + $argument + ')*' + $batchExit + '\s*\z')) { return }
     $word = $match.Groups['target']
     $target = $word.Value -replace '''([^'']*)''|"([^"]*)"', '$1$2'
     if ([IO.Path]::GetExtension($Path) -ieq '.cmd') { $target = $target.Replace('%%', '%') }
@@ -716,6 +725,9 @@ function Invoke-PsAiUninstall {
         if (-not (Test-InstallCommandAvailable -Name $entry.command)) { "skip: $tool (not installed)"; continue }
         foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
             $label = if ($folder) { $folder } else { 'default config' }
+            # In a chosen home the tool's default folder may not exist; then nothing is installed there.
+            $isHomeDefault = $folder -and (Get-InstallFolderKey -Entry $entry -Folder $folder) -ceq (Get-InstallFolderKey -Entry $entry)
+            if ($isHomeDefault -and -not (Test-InstallRealProfile) -and -not (Test-Path -LiteralPath $folder)) { "skip: $tool plugin in $label (not installed)"; continue }
             $steps = @()
             foreach ($kind in @('plugin', 'marketplace')) {
                 $check = if ($kind -eq 'plugin') { @($entry.command) + $entry.plugin.install }

@@ -34,8 +34,9 @@ try {
         [IO.File]::WriteAllText($path, $samples[7])
         Assert-Equal $false (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'A comment naming the script is not ours to delete'
         foreach ($text in $samples[0..1]) {
-            [IO.File]::WriteAllText($path, $text)
-            Assert-True (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R4 B2 installer accepts literal quoted owner arguments'
+            $quotedPath = if ($text.StartsWith('@')) { "$path.cmd" } else { $path }
+            [IO.File]::WriteAllText($quotedPath, $text)
+            Assert-True (Test-InstallOwnerCommandFile -Path $quotedPath -Script legion.ps1) 'R4 B2 installer accepts literal quoted owner arguments'
         }
         $bound = Get-PsAiShimText -Script $target -HomeRoot (Join-Path $scratch "owner's home")
         [IO.File]::WriteAllText($path, $bound)

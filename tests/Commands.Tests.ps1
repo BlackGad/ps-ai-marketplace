@@ -15,11 +15,12 @@ $unix = Get-PsAiShimText -Script $target
 $expected = "#!/bin/sh`n" + 'exec pwsh -NoProfile -File ' + (ConvertTo-PsAiShellLiteral $target) + ' "$@"' + "`n"
 Assert-Equal $expected $unix 'Unix shim quotes spaces and apostrophes with the shared shell literal'
 $windows = Get-PsAiShimText -Script 'C:\plugin folder\bin\legion.ps1' -Windows
-Assert-Equal "@pwsh -NoProfile -File `"C:\plugin folder\bin\legion.ps1`" %*`r`n" $windows 'Windows shim quotes the target'
+Assert-Equal "@pwsh -NoProfile -File `"C:\plugin folder\bin\legion.ps1`" %* & (goto) 2>nul & exit /b`r`n" $windows 'Windows shim quotes the target'
 foreach ($text in @($windows.Replace(' %*', ' -Repo "C:\work folder" %*'), $unix.Replace(' "$@"', ' -Repo "work folder" "$@"'))) {
-    $match = Get-PsAiOwnerCommandTarget -Text $text -Script legion.ps1
+    $isBatch = $text.StartsWith('@')
+    $match = Get-PsAiOwnerCommandTarget -Text $text -Script legion.ps1 -Batch:$isBatch
     Assert-True ([bool]$match) 'R4 B2 literal quoted owner arguments are recognized'
-    $updated = Update-PsAiOwnerCommandText -Text $text -Script legion.ps1 -Runner '/new/bin/legion.ps1'
+    $updated = Update-PsAiOwnerCommandText -Text $text -Script legion.ps1 -Runner '/new/bin/legion.ps1' -Windows:$isBatch
     Assert-True ($updated.Contains('work folder"')) 'R4 B2 retarget preserves the quoted owner argument'
 }
 
@@ -27,9 +28,10 @@ $path = Join-Path $scratch 'legion'
 Assert-Equal $false (Test-PsAiOwnerCommandFile -Path $path -Script legion.ps1) 'Missing command is not owned'
 foreach ($text in @($unix, $windows, $unix.Replace(' "$@"', ' --extra "$@"'), $windows.Replace(' %*', ' --extra %*'),
     'pwsh -NoProfile -File /plugin/bin/legion.ps1', '@pwsh -NoProfile -File C:\plugin\bin\legion.ps1')) {
-    [IO.File]::WriteAllText($path, $text)
-    Assert-True (Test-PsAiOwnerCommandFile -Path $path -Script legion.ps1) 'Generated and owner-extended shims are recognized'
-    Assert-Equal $false (Test-PsAiOwnerCommandFile -Path $path -Script ps-ai-status.ps1) 'Another owner command target does not match'
+    $samplePath = if ($text.StartsWith('@')) { "$path.cmd" } else { $path }
+    [IO.File]::WriteAllText($samplePath, $text)
+    Assert-True (Test-PsAiOwnerCommandFile -Path $samplePath -Script legion.ps1) 'Generated and owner-extended shims are recognized'
+    Assert-Equal $false (Test-PsAiOwnerCommandFile -Path $samplePath -Script ps-ai-status.ps1) 'Another owner command target does not match'
 }
 foreach ($text in @('unrelated command', 'pwsh -NoProfile -File "/plugin/legion.ps1"', 'echo "/plugin/bin/legion.ps1"', 'python -File "/plugin/bin/legion.ps1"')) {
     [IO.File]::WriteAllText($path, $text)

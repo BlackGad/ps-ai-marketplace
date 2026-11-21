@@ -12,6 +12,8 @@ $repo = Split-Path $PSScriptRoot -Parent
     $writes = [Collections.Generic.List[string]]::new()
     $state = @{ Missing=$false; FailList=$false; FailRemove=$false; Answer='n'; Prompts=0; OnlyMissing=$false }
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
+    # The sandbox is not the real profile, so each tool's default folder lives in it and exists when installed.
+    foreach ($tool in $catalog.tools) { New-Item -ItemType Directory -Path (Join-Path $sandbox $tool.plugin.defaultConfigDir.Substring(2)) -Force | Out-Null }
     function Ensure-InstallPowerShell { throw 'Uninstall must not install prerequisites' }
     # Retargeting dead commands through a surviving install is covered in InstallOwnerCommands; here it only must not run a real refresh.
     function Invoke-InstallRefresh { param($Entry, [string]$ConfigDir) }
