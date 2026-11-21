@@ -11,7 +11,7 @@ Follow [owner notes](../ps-ai-personalisation/references/fields.md) before choos
 
 Use this tool skill for Copilot CLI operations only. Load `ps-ai-personalisation` and its notes first. Use the account's CLI default model unless notes name a model or allow a tier for this run; follow the overseer's [model guidance](../ps-ai-overseer/references/task-loop.md#model-tiers). Respect any paid-account approval in notes. The overseer owns account and task selection and the handoff. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
 
-- Mark only a legion process as a legion task using [run.md](references/run.md).
+- Set `LEGION_ROLE=member` and `LEGION_TASK` only for a member task using [run.md](references/run.md).
 - Legion runs without a sandbox, with full user rights, so it can use the owner's installed tools; follow the legion safeguards.
 - Read-only reviewers require explicit write and shell tool denials. Never let a review modify the frozen checkout.
 - Resume only on the same account and folder. Never read credentials.

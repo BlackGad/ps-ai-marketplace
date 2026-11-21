@@ -197,7 +197,7 @@ A hook at session start decides the mode:
 
 | Mode | When | What happens |
 | --- | --- | --- |
-| Legion | The overseer started this process with `PS_AI_ROLE=legion` and `PS_AI_TASK` | One task, local commits, a report; no other agents |
+| Member | The overseer started this process with `LEGION_ROLE=member` and `LEGION_TASK` | One task, local commits, a report; no other agents |
 | Overseer | You say continue, progress or next in a repo with `.legion/state/` | Takes the lease, reads the handoff, continues the work |
 | Setup | You ask to set up orchestration | Creates the repo layout |
 | Ad hoc | Anything else | Nothing changes; an orchestrated repo shows one hint line |

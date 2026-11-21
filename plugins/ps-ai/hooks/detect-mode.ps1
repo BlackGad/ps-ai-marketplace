@@ -21,19 +21,19 @@ function Find-LegionRepoRoot {
 function Get-LegionMode {
     param([string]$Repo, [hashtable]$Environment)
     if ($null -eq $Environment) {
-        $Environment = @{ PS_AI_ROLE = $env:PS_AI_ROLE; PS_AI_TASK = $env:PS_AI_TASK }
+        $Environment = @{ LEGION_ROLE = $env:LEGION_ROLE; LEGION_TASK = $env:LEGION_TASK }
     }
-    if ($Environment.PS_AI_ROLE -eq 'legion') {
-        if (-not $Environment.PS_AI_TASK) {
+    if ($Environment.LEGION_ROLE -eq 'member') {
+        if (-not $Environment.LEGION_TASK) {
             return [pscustomobject]@{
                 Mode = 'none'; Task = $null; Lease = 'free'
-                Text = 'ps-ai: PS_AI_ROLE=legion without PS_AI_TASK; ignored.'
+                Text = 'ps-ai: LEGION_ROLE=member without LEGION_TASK; ignored.'
             }
         }
-        $task = [string]$Environment.PS_AI_TASK
-        $message = 'ps-ai: you are a legion member. Load the ps-ai-legion skill to read your task from PS_AI_TASK and follow it. '
+        $task = [string]$Environment.LEGION_TASK
+        $message = 'ps-ai: you are a legion member. Load the ps-ai-legion skill to read your task from LEGION_TASK and follow it. '
         $message += 'Do not load ps-ai-overseer. A summoned unit cannot summon: never start other agents.'
-        return [pscustomobject]@{ Mode = 'legion'; Task = $task; Lease = 'free'; Text = $message }
+        return [pscustomobject]@{ Mode = 'member'; Task = $task; Lease = 'free'; Text = $message }
     }
     $Repo = Find-LegionRepoRoot -Path $Repo
     $handoff = Get-LegionRepoPath -Repo $Repo -Path 'state/handoff.md'

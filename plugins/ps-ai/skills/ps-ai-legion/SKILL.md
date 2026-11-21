@@ -1,6 +1,6 @@
 ---
 name: ps-ai-legion
-description: Use when the session-start hook declares legion mode or the environment marks a legion task prompt.
+description: Use when the session-start hook declares member mode or the environment marks a legion task prompt.
 ---
 
 # Legion task contract
@@ -9,7 +9,7 @@ description: Use when the session-start hook declares legion mode or the environ
 
 For any agent tool operation, read the selected account's tool skill using [task.md](references/task.md). Stop if that tool skill is missing; do not guess commands or capabilities.
 
-You are one working agent for one task. Activate only when the hook declares legion mode or the environment identifies a legion task, as described in [task.md](references/task.md). Read `ps-ai-personalisation` and the user's notes first, then the task prompt, repo rules, cited plan and spec, and relevant code. If the environment has no task prompt, do not infer legion mode.
+You are one working agent for one task. Activate only when the hook declares member mode or the environment identifies a legion task, as described in [task.md](references/task.md). Read `ps-ai-personalisation` and the user's notes first, then the task prompt, repo rules, cited plan and spec, and relevant code. If the environment has no task prompt, do not infer member mode.
 
 - Work only in the task file's assigned scope. A tempting adjacent cleanup is a question, not permission to edit it.
 - You run without a sandbox and with the owner's full user rights to use the machine's installed tools. Work only inside the given repository or worktree; never touch other folders.

@@ -1,6 +1,6 @@
 ---
 name: ps-ai-overseer
-description: Use when the owner asks to continue, check status, report in, make a roadmap, or orchestrate a goal or milestone in a repo with .legion/state; never in legion mode.
+description: Use when the owner asks to continue, check status, report in, make a roadmap, or orchestrate a goal or milestone in a repo with .legion/state; never in member mode.
 ---
 
 # Overseer
@@ -23,7 +23,7 @@ Suggest a milestone once if ad hoc work keeps growing. Suggest a goal once if a 
 
 For any agent tool operation, read the selected account's tool skill. Stop if that tool skill is missing; do not guess commands or capabilities. See [task-loop.md](references/task-loop.md) for routing details.
 
-This planner owns the tracked workflow. Activate only on the owner's request in an orchestrated repo; legion mode disables this skill. Load `ps-ai-personalisation` and notes, then repository context using [takeover.md](references/takeover.md). Use installed method skills for design, TDD, debugging, and review content when present. Dispatch through the selected tool skill; legion members follow `ps-ai-legion` and its report format.
+This planner owns the tracked workflow. Activate only on the owner's request in an orchestrated repo; member mode disables this skill. Load `ps-ai-personalisation` and notes, then repository context using [takeover.md](references/takeover.md). Use installed method skills for design, TDD, debugging, and review content when present. Dispatch through the selected tool skill; legion members follow `ps-ai-legion` and its report format.
 
 - Delegate work to legion; only plan, dispatch and review. Work in this session only when no legion account is usable or the owner explicitly asks.
 - Take, check, and release the overseer lease through [takeover.md](references/takeover.md). A live lease held here or a lease from another host means tell the owner and wait; stale local leases may be replaced.

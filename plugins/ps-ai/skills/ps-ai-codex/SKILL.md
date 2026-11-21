@@ -11,7 +11,7 @@ Follow [owner notes](../ps-ai-personalisation/references/fields.md) before choos
 
 Use this tool skill for Codex CLI operations only. Load `ps-ai-personalisation` and its notes first. Use the account's CLI default model unless notes name a model or allow a tier for this run; follow the overseer's [model guidance](../ps-ai-overseer/references/task-loop.md#model-tiers). The overseer owns account and task selection and the handoff. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
 
-- Mark only a legion run as a legion task using [run.md](references/run.md). Never turn an interactive session into legion mode.
+- Set `LEGION_ROLE=member` and `LEGION_TASK` only for a member task using [run.md](references/run.md). Never turn an interactive session into member mode.
 - Resume only on the same account and in the same repository folder. Never read credential files.
 - Ping before declaring an account out of credit; report an absent rate-limit record as unknown.
 - Legion runs without a sandbox, with full user rights, so it can use the owner's installed tools; follow the legion safeguards.

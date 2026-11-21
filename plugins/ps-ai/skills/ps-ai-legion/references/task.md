@@ -2,7 +2,7 @@
 
 For tool operations, read `skills/ps-ai-<agent.tool>/SKILL.md` using the selected account's `agent.tool`; stop if it is missing.
 
-Activate only when the hook declares legion mode or `PS_AI_ROLE=legion` and `PS_AI_TASK` names the prompt file. If `PS_AI_TASK` is missing, do not infer legion mode. Read the task at `PS_AI_TASK`; it names `{REPORT_FILE}` and the owned files, output, and stop points.
+Activate only when the hook declares member mode or `LEGION_ROLE=member` and `LEGION_TASK` names the prompt file. If `LEGION_TASK` is missing, do not infer member mode. Read the task at `LEGION_TASK`; it names `{REPORT_FILE}` and the owned files, output, and stop points.
 
 ## Machine and folder safeguards
 

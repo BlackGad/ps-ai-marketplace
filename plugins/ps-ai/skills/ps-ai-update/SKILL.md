@@ -1,11 +1,11 @@
 ---
 name: ps-ai-update
-description: Use when the owner asks about ps-ai updates or wants to update ps-ai, or the session notice says a newer ps-ai is available; never in legion mode.
+description: Use when the owner asks about ps-ai updates or wants to update ps-ai, or the session notice says a newer ps-ai is available; never in member mode.
 ---
 
 # Update ps-ai
 
-Never use this skill in legion mode. It does not need repository setup or an overseer lease. A session notice only offers an update; it does not authorize one.
+Never use this skill in member mode. It does not need repository setup or an overseer lease. A session notice only offers an update; it does not authorize one.
 
 Speak to the owner in plain words. Show a command only when they ask for it or must run it themselves.
 
