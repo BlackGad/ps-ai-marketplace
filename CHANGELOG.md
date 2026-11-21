@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/BlackGad/ps-ai-marketplace/compare/v0.7.0...v0.8.0) (2026-11-21)
+
+
+### Features
+
+* easy install, update, uninstall and overseer restore ([#24](https://github.com/BlackGad/ps-ai-marketplace/issues/24)) ([1fb9fcd](https://github.com/BlackGad/ps-ai-marketplace/commit/1fb9fcd7129b53b10026fe5c1691b2d5c0364176))
+
+
+### Documentation
+
+* add release summary to the GitHub Release, not the release pull request ([#22](https://github.com/BlackGad/ps-ai-marketplace/issues/22)) ([ede19d2](https://github.com/BlackGad/ps-ai-marketplace/commit/ede19d2ab4640d26d27d9ca5c694003463986a92))
+
 ## [0.7.0](https://github.com/BlackGad/ps-ai-marketplace/compare/v0.6.0...v0.7.0) (2026-11-20)
 
 
