@@ -7,6 +7,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $file = Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json'
     New-Item -ItemType Directory -Path (Split-Path $file) -Force | Out-Null
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
+    $fixturePlugin = New-InstallFixturePlugin -Path (Join-Path $sandbox 'installed')
     $calls = New-Object 'Collections.Generic.List[string]'
     function Invoke-ClosedInput {
         param([string[]]$Command)
@@ -17,8 +18,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         $output = if ($Command -contains 'marketplace') {
             Get-FixtureMarketplaceListing -Tool $entry.id -Source 'BlackGad/ps-ai-marketplace'
         } elseif ($entry.plugin.listing.format -eq 'json') {
-            '[{"id":"ps-ai@ps-ai-marketplace","enabled":true}]'
-        } else { 'ps-ai@ps-ai-marketplace enabled' }
+            ConvertTo-Json -InputObject @(@{id='ps-ai@ps-ai-marketplace';enabled=$true;installPath=$fixturePlugin}) -Compress
+        } else { "ps-ai@ps-ai-marketplace enabled $fixturePlugin" }
         return @{ExitCode=0;Output=@($output)}
     }
     $saved = @{}

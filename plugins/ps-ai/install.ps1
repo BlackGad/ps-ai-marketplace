@@ -762,49 +762,50 @@ function Invoke-PsAiUninstall {
 }
 
 function Invoke-PsAiUpdateSteps {
-    param($Entry, [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, [string]$Source = 'BlackGad/ps-ai-marketplace', [ValidateSet('release','main')][string]$Ref = 'release')
+    param($Entry, [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, [string]$Source = 'BlackGad/ps-ai-marketplace', [ValidateSet('release','main')][string]$Ref = 'release', [string]$PluginRoot)
     $configEnv = $Entry.configEnv
     $previous = [Environment]::GetEnvironmentVariable($configEnv, 'Process')
     try {
         if ($ConfigDir) { Set-InstallConfigEnvironment -Name $configEnv -Value $ConfigDir }
         else { Set-InstallConfigEnvironment -Name $configEnv -Value $null }
-        $list = @($Entry.command) + $Entry.plugin.list
-        Format-InstallCommand -Command $list -ConfigEnv $configEnv -ConfigDir $ConfigDir
-        $install = @($Entry.command) + $Entry.plugin.install
-        if (-not (Test-InstallStepDone -Command $install -Kind plugin -ConfigEnv $configEnv -ConfigDir $ConfigDir -IncludeDisabled)) {
-            # A missing plugin means a fresh install, which needs consent even though -Update skips the question.
-            $label = if ($ConfigDir) { $ConfigDir } else { 'default config' }
-            if (-not $DryRun -and -not (Confirm-InstallChange -Yes:$Yes -Question "ps-ai is not installed for $($Entry.id) in $label. Install it now? [y/N]")) {
-                "skip: $($Entry.id) ps-ai in $label (not installed)"
-                return
-            }
+        if (-not $PSBoundParameters.ContainsKey('PluginRoot')) { $PluginRoot = Get-InstallPluginRoot -Entry $Entry -ConfigDir $ConfigDir }
+        $before = if ($PluginRoot) { (Get-Content -LiteralPath (Join-Path $PluginRoot 'plugin.json') -Raw | ConvertFrom-Json).version } else { 'not installed' }
+        if (-not $PluginRoot) {
             Invoke-PsAiInstallSteps -Tool $Entry.id -Source $Source -ConfigEnv $configEnv -ConfigDir $ConfigDir -DryRun:$DryRun -Ref $Ref
-            if (-not $DryRun) { Invoke-InstallRefresh -Entry $Entry -ConfigDir $ConfigDir }
-            return
+        } else {
+            foreach ($arguments in @($Entry.plugin.marketplaceUpdate, $Entry.plugin.update)) {
+                if (-not $arguments.Count) { continue }
+                $command = @($Entry.command) + $arguments
+                Format-InstallCommand -Command $command -ConfigEnv $configEnv -ConfigDir $ConfigDir
+                if (-not $DryRun) { Invoke-InstallCommand -Command $command -ConfigEnv $configEnv -ConfigDir $ConfigDir }
+            }
         }
-        foreach ($arguments in @($Entry.plugin.marketplaceUpdate, $Entry.plugin.update)) {
-            if (-not $arguments.Count) { continue }
-            $command = @($Entry.command) + $arguments
-            Format-InstallCommand -Command $command -ConfigEnv $configEnv -ConfigDir $ConfigDir
-            if (-not $DryRun) { Invoke-InstallCommand -Command $command -ConfigEnv $configEnv -ConfigDir $ConfigDir }
+        if (-not $DryRun) {
+            # The update may replace the cache path, so resolve the installed copy again.
+            $root = Get-InstallPluginRoot -Entry $Entry -ConfigDir $ConfigDir
+            if (-not $root) { throw "$($Entry.id) ps-ai is absent from the post-update listing; generated artifacts were not refreshed." }
+            $after = (Get-Content -LiteralPath (Join-Path $root 'plugin.json') -Raw | ConvertFrom-Json).version
+            Invoke-InstallRefresh -Entry $Entry -ConfigDir $ConfigDir -PluginRoot $root
+            if ($before -ceq $after) { "skip: ps-ai $after (already up to date)" }
+            else { "ps-ai $before -> $after" }
         }
-        if (-not $DryRun) { Invoke-InstallRefresh -Entry $Entry -ConfigDir $ConfigDir }
     } finally {
         Set-InstallConfigEnvironment -Name $configEnv -Value $previous
     }
 }
 
 function Invoke-InstallRefresh {
-    param($Entry, [string]$ConfigDir)
-    # The listing that finds the installed script must see the same install the caller means.
-    $previous = [Environment]::GetEnvironmentVariable($Entry.configEnv, 'Process')
-    try {
-        if ($ConfigDir) { Set-InstallConfigEnvironment -Name $Entry.configEnv -Value $ConfigDir }
-        else { Set-InstallConfigEnvironment -Name $Entry.configEnv -Value $null }
-        Invoke-InstallRefreshScript -Entry $Entry -ConfigDir $ConfigDir
-    } finally {
-        Set-InstallConfigEnvironment -Name $Entry.configEnv -Value $previous
-    }
+    param($Entry, [string]$ConfigDir, [string]$PluginRoot)
+    if (-not $PluginRoot) { $PluginRoot = Get-InstallPluginRoot -Entry $Entry -ConfigDir $ConfigDir }
+    if (-not $PluginRoot) { throw "$($Entry.id) ps-ai is absent from the post-update listing; generated artifacts were not refreshed." }
+    $refresh = Join-Path $PluginRoot 'bin/ps-ai-refresh.ps1'
+    if (-not (Test-Path -LiteralPath $refresh -PathType Leaf)) { throw "$($Entry.id) installed ps-ai refresh script is missing." }
+    $powerShell = Get-InstallPowerShellCommand
+    if (-not $powerShell) { throw 'PowerShell 7 is required to refresh generated ps-ai artifacts.' }
+    $result = Invoke-ClosedInput -Command @($powerShell.Source, '-NoProfile', '-File', $refresh, '-HomeRoot', (Get-InstallHome))
+    $result.Output
+    $result.ErrorOutput
+    if ($result.ExitCode -ne 0) { throw "ps-ai artifact refresh exited $($result.ExitCode)" }
 }
 
 function Get-InstallVersion {
@@ -813,73 +814,79 @@ function Get-InstallVersion {
     return ''
 }
 
-function Invoke-InstallRefreshScript {
+function Get-InstallPluginRoot {
     param($Entry, [string]$ConfigDir)
-    # Resolve after the update: the previous plugin cache can already be obsolete.
-    $result = Invoke-ClosedInput -Command (@($Entry.command) + $Entry.plugin.list) -Environment $Entry.plugin.listingEnv
-    if ($result.ExitCode -ne 0) { throw "$($Entry.command) post-update listing exited $($result.ExitCode)" }
-    if (-not (Test-InstallListing -Kind plugin -Tool $Entry.id -Lines $result.Output -IncludeDisabled)) {
-        throw "$($Entry.id) ps-ai is absent from the post-update listing; generated artifacts were not refreshed."
-    }
-    $paths = @()
-    $installedVersion = ''
-    if ($Entry.plugin.listing.format -eq 'json') {
-        $listing = $Entry.plugin.listing
-        $plugins = @((($result.Output -join "`n") | ConvertFrom-Json -ErrorAction Stop))
-        foreach ($plugin in $plugins) {
-            if ($plugin.($listing.idField) -cne 'ps-ai@ps-ai-marketplace') { continue }
-            if ($plugin.installPath) { $paths += [string]$plugin.installPath }
-            if ($plugin.version) { $installedVersion = [string]$plugin.version }
+    $previous = [Environment]::GetEnvironmentVariable($Entry.configEnv, 'Process')
+    try {
+        if ($ConfigDir) { Set-InstallConfigEnvironment -Name $Entry.configEnv -Value $ConfigDir }
+        else { Set-InstallConfigEnvironment -Name $Entry.configEnv -Value $null }
+        $result = Invoke-ClosedInput -Command (@($Entry.command) + $Entry.plugin.list) -Environment $Entry.plugin.listingEnv
+        if ($result.ExitCode -ne 0) {
+            $details = @($result.ErrorOutput) + @($result.Output) -join "`n"
+            # Codex cannot list a selected home until that folder exists.
+            if ($Entry.id -eq 'codex' -and $result.ExitCode -eq 1 -and $ConfigDir -and -not (Test-Path -LiteralPath $ConfigDir) -and
+                $details -match 'failed to resolve CODEX_HOME' -and $details -match 'but that path does not exist') { return $null }
+            throw "$($Entry.command) plugin listing exited $($result.ExitCode)`n$details"
         }
-    } else {
-        $isPsAi = $false
-        foreach ($line in $result.Output) {
-            if ($Entry.id -ceq 'copilot' -and $isPsAi -and $line -match '^\s+from (.+?)\s*$') {
-                # Copilot lists a live directory marketplace instead of an installed copy.
-                $marketplaceRoot = $Matches[1]
-                try {
-                    $marketplace = Get-Content -LiteralPath (Join-Path $marketplaceRoot '.claude-plugin/marketplace.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-                    foreach ($plugin in $marketplace.plugins) {
-                        if ($plugin.name -ceq 'ps-ai' -and $plugin.source -is [string]) { $paths += Join-Path $marketplaceRoot $plugin.source }
-                    }
-                } catch { }
+        if (-not (Test-InstallListing -Kind plugin -Tool $Entry.id -Lines $result.Output -IncludeDisabled)) {
+            return $null
+        }
+        $paths = @()
+        $installedVersion = ''
+        if ($Entry.plugin.listing.format -eq 'json') {
+            $listing = $Entry.plugin.listing
+            $plugins = @((($result.Output -join "`n") | ConvertFrom-Json -ErrorAction Stop))
+            foreach ($plugin in $plugins) {
+                if ($plugin.($listing.idField) -cne 'ps-ai@ps-ai-marketplace') { continue }
+                if ($plugin.installPath) { $paths += [string]$plugin.installPath }
+                if ($plugin.version) { $installedVersion = [string]$plugin.version }
             }
-            $isPsAi = $line -match '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' -and $line -notmatch 'not installed'
-            if (-not $isPsAi) { continue }
-            $version = Get-InstallVersion $line
-            if ($version) { $installedVersion = $version }
-            if ($line -match '\s((?:[A-Za-z]:[/\\]|/).+?)\s*$') { $paths += $Matches[1] }
+        } else {
+            $isPsAi = $false
+            foreach ($line in $result.Output) {
+                if ($Entry.id -ceq 'copilot' -and $isPsAi -and $line -match '^\s+from (.+?)\s*$') {
+                    # Copilot lists a live directory marketplace instead of an installed copy.
+                    $marketplaceRoot = $Matches[1]
+                    try {
+                        $marketplace = Get-Content -LiteralPath (Join-Path $marketplaceRoot '.claude-plugin/marketplace.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                        foreach ($plugin in $marketplace.plugins) {
+                            if ($plugin.name -ceq 'ps-ai' -and $plugin.source -is [string]) { $paths += Join-Path $marketplaceRoot $plugin.source }
+                        }
+                    } catch { }
+                }
+                $isPsAi = $line -match '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' -and $line -notmatch 'not installed'
+                if (-not $isPsAi) { continue }
+                $version = Get-InstallVersion $line
+                if ($version) { $installedVersion = $version }
+                if ($line -match '\s((?:[A-Za-z]:[/\\]|/).+?)\s*$') { $paths += $Matches[1] }
+            }
         }
-    }
-    if (-not $paths.Count) {
-        $homeRoot = Get-InstallHome
-        if (-not $Entry.plugin.installedRoot) { throw "$($Entry.id) plugin descriptor needs installedRoot to locate its installed refresh script." }
-        if (-not $ConfigDir -and -not $Entry.plugin.defaultConfigDir) { throw "$($Entry.id) plugin descriptor needs defaultConfigDir to locate its installed refresh script." }
-        $configRoot = if ($ConfigDir) { $ConfigDir } else { $Entry.plugin.defaultConfigDir }
-        if ($configRoot -match '^~[/\\]') { $configRoot = Join-Path $homeRoot $configRoot.Substring(2) }
-        $cacheRoot = Join-Path $configRoot $Entry.plugin.installedRoot
-        if (Test-Path -LiteralPath $cacheRoot -PathType Container) {
-            $paths = @(Get-ChildItem -LiteralPath $cacheRoot -Filter plugin.json -File -Recurse -ErrorAction Stop | ForEach-Object { $_.DirectoryName })
+        if (-not $paths.Count) {
+            $homeRoot = Get-InstallHome
+            if (-not $Entry.plugin.installedRoot) { throw "$($Entry.id) plugin descriptor needs installedRoot to locate its installed refresh script." }
+            if (-not $ConfigDir -and -not $Entry.plugin.defaultConfigDir) { throw "$($Entry.id) plugin descriptor needs defaultConfigDir to locate its installed refresh script." }
+            $configRoot = if ($ConfigDir) { $ConfigDir } else { $Entry.plugin.defaultConfigDir }
+            if ($configRoot -match '^~[/\\]') { $configRoot = Join-Path $homeRoot $configRoot.Substring(2) }
+            $cacheRoot = Join-Path $configRoot $Entry.plugin.installedRoot
+            if (Test-Path -LiteralPath $cacheRoot -PathType Container) {
+                $paths = @(Get-ChildItem -LiteralPath $cacheRoot -Filter plugin.json -File -Recurse -ErrorAction Stop | ForEach-Object { $_.DirectoryName })
+            }
         }
+        $roots = @()
+        foreach ($path in ($paths | Select-Object -Unique)) {
+            try {
+                $manifest = Get-Content -LiteralPath (Join-Path $path 'plugin.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                if ($manifest.name -cne 'ps-ai' -or ($installedVersion -and $manifest.version -cne $installedVersion)) { continue }
+                $roots += $path
+            } catch { continue }
+        }
+        if ($roots.Count -ne 1) {
+            throw "$($Entry.id) installed ps-ai folder could not be identified uniquely."
+        }
+        return $roots[0]
+    } finally {
+        Set-InstallConfigEnvironment -Name $Entry.configEnv -Value $previous
     }
-    $scripts = @()
-    foreach ($path in ($paths | Select-Object -Unique)) {
-        try {
-            $manifest = Get-Content -LiteralPath (Join-Path $path 'plugin.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-            if ($manifest.name -cne 'ps-ai' -or ($installedVersion -and $manifest.version -cne $installedVersion)) { continue }
-            $script = Join-Path $path 'bin/ps-ai-refresh.ps1'
-            if (Test-Path -LiteralPath $script -PathType Leaf) { $scripts += $script }
-        } catch { continue }
-    }
-    if ($scripts.Count -ne 1) {
-        throw "$($Entry.id) updated, but its installed ps-ai refresh script could not be identified uniquely; generated artifacts still need refreshing."
-    }
-    $powerShell = Get-InstallPowerShellCommand
-    if (-not $powerShell) { throw 'PowerShell 7 is required to refresh generated ps-ai artifacts.' }
-    $result = Invoke-ClosedInput -Command @($powerShell.Source, '-NoProfile', '-File', $scripts[0], '-HomeRoot', (Get-InstallHome))
-    $result.Output
-    $result.ErrorOutput
-    if ($result.ExitCode -ne 0) { throw "ps-ai artifact refresh exited $($result.ExitCode)" }
 }
 
 function Test-InstallCommandAvailable {
@@ -1060,26 +1067,43 @@ function Invoke-PsAiInstaller {
         foreach ($entry in $script:installCatalog.tools) { if ($entry.installHint) { $entry.installHint } }
         return
     }
-    if (-not $Update -and -not $DryRun -and -not (Confirm-InstallChange -Yes:$Yes -Question "Install ps-ai for $($Tools -join ', ') now? [y/N]")) { return }
-    $results = @()
-    $Source = Resolve-InstallSource -Source $Source
-    foreach ($tool in $Tools) {
-        $entry = Get-InstallTool -Tool $tool
-        if ($Update) {
+    if ($Update) {
+        $targets = @()
+        foreach ($tool in $Tools) {
+            $entry = Get-InstallTool -Tool $tool
             if (-not (Test-InstallCommandAvailable -Name $entry.command)) {
                 "skip: $tool (not installed)"
                 continue
             }
-        }
-        $configEnv = $entry.configEnv
-        foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
-            if ($Update) {
-                Invoke-PsAiUpdateSteps -Entry $entry -ConfigDir $folder -DryRun:$DryRun -Yes:$Yes -Source $Source -Ref $Ref
-            } else {
-                Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $folder -DryRun:$DryRun -Ref $Ref
+            foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
+                $root = Get-InstallPluginRoot -Entry $entry -ConfigDir $folder
+                $targets += @{ Entry=$entry; Folder=$folder; Root=$root }
+                $version = if ($root) { (Get-Content -LiteralPath (Join-Path $root 'plugin.json') -Raw | ConvertFrom-Json).version } else { 'not installed' }
+                $label = if ($folder) { $folder } else { 'default config' }
+                "Update ps-ai for $tool in $label ($version)"
             }
         }
-        if ($Update) { continue }
+        if (-not $targets.Count) { return }
+        if (-not $DryRun -and -not (Confirm-InstallChange -Yes:$Yes -Question 'Update ps-ai? [y/N]')) {
+            'Nothing changed. Run again with -Yes to apply.'
+            return
+        }
+        $Source = Resolve-InstallSource -Source $Source
+        foreach ($target in $targets) {
+            Invoke-PsAiUpdateSteps -Entry $target.Entry -ConfigDir $target.Folder -PluginRoot $target.Root -Source $Source -Ref $Ref -DryRun:$DryRun -Yes
+        }
+        if (-not $DryRun) { 'done: restart your sessions; run legion in the repository' }
+        return
+    }
+    if (-not $DryRun -and -not (Confirm-InstallChange -Yes:$Yes -Question "Install ps-ai for $($Tools -join ', ') now? [y/N]")) { return }
+    $results = @()
+    $Source = Resolve-InstallSource -Source $Source
+    foreach ($tool in $Tools) {
+        $entry = Get-InstallTool -Tool $tool
+        $configEnv = $entry.configEnv
+        foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
+            Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $folder -DryRun:$DryRun -Ref $Ref
+        }
         if (-not $DryRun) {
             $version = (& $entry.command --version 2>$null | Select-Object -First 1)
             $hooks = $entry.hooks.status
@@ -1087,7 +1111,7 @@ function Invoke-PsAiInstaller {
         }
         if ($entry.hooks.hint) { $entry.hooks.hint }
     }
-    if (-not $DryRun -and -not $Update) { $results | Format-Table Tool, Version, Plugin, Hooks -AutoSize }
+    if (-not $DryRun) { $results | Format-Table Tool, Version, Plugin, Hooks -AutoSize }
 }
 
 if (-not $NoRun) {

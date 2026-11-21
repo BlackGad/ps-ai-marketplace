@@ -8,6 +8,7 @@ $fixtureHome = Split-Path $Catalog
 $states = @{}
 foreach ($entry in $entries) { $states[$entry.command] = @{Added=$false; Refreshed=$false; Installed=$false} }
 . (Join-Path $PSScriptRoot 'InstallerSandbox.ps1') -InstallFixtureHome ($fixtureHome)
+$fixturePlugin = New-InstallFixturePlugin -Path (Join-Path $fixtureHome 'installed')
 function Get-InstallSourceText {
     param($Url)
     if ($Url -ne 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/stable/plugins/ps-ai/tools.json') { throw 'Unexpected catalog URL' }
@@ -40,7 +41,10 @@ function Invoke-ClosedInput {
   }
 ]
 '@ -split "`r?`n"
-            } else { $output = @('ps-ai@ps-ai-marketplace installed, enabled') }
+                $plugins = ($output -join "`n") | ConvertFrom-Json
+                $plugins[0] | Add-Member installPath $fixturePlugin
+                $output = @(ConvertTo-Json -InputObject @($plugins) -Depth 10)
+            } else { $output = @("ps-ai@ps-ai-marketplace installed, enabled $fixturePlugin") }
         } elseif ($entry.id -eq 'claude') { $output = @('[]') }
         return @{ExitCode=0; Output=$output}
     }

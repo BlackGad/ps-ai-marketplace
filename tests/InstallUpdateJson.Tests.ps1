@@ -1,7 +1,9 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
     . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
-    . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome (Join-Path $repo ('.agents/temp/unused-installer-' + [guid]::NewGuid().ToString('N')))
+    $sandbox = Join-Path $repo ('.agents/temp/update-json-' + [guid]::NewGuid().ToString('N'))
+    . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome $sandbox
+    $fixturePlugin = New-InstallFixturePlugin -Path (Join-Path $sandbox 'installed')
     $catalog = Get-InstallCatalog -Source $repo
     $lines = @'
 [
@@ -13,6 +15,9 @@ $repo = Split-Path $PSScriptRoot -Parent
   }
 ]
 '@ -split "`r?`n"
+    $plugins = ($lines -join "`n") | ConvertFrom-Json
+    $plugins[0] | Add-Member installPath $fixturePlugin
+    $lines = ConvertTo-Json -InputObject @($plugins) -Depth 10
     $calls = [Collections.Generic.List[string]]::new()
     function Test-InstallCommandAvailable { param($Name) $Name -eq 'claude' }
     function Invoke-InstallRefresh { }
@@ -25,19 +30,25 @@ $repo = Split-Path $PSScriptRoot -Parent
     $script:installCatalog = $catalog
     Assert-True (Test-InstallStepDone -Command @('claude','plugin','install','ps-ai@ps-ai-marketplace')) 'Install detects exact multiline Claude JSON'
     $calls.Clear()
-    $output = @(Invoke-PsAiInstaller -Tools claude -ConfigDir selected -Source $repo -Catalog $catalog -Update)
-    Assert-Equal 3 $calls.Count 'Update detects exact multiline Claude JSON and runs both refresh commands'
-    Assert-True ($calls -contains 'claude|plugin|update|ps-ai@ps-ai-marketplace') 'Installed Claude plugin updates'
-    Assert-True (-not (($output -join "`n").Contains('(not installed)'))) 'Installed Claude plugin is never reported missing'
+    try {
+        $output = @(Invoke-PsAiInstaller -Tools claude -ConfigDir selected -Source $repo -Catalog $catalog -Update -Yes)
+        Assert-Equal 4 $calls.Count 'Update detects multiline Claude JSON before and after both refresh commands'
+        Assert-True ($calls -contains 'claude|plugin|update|ps-ai@ps-ai-marketplace') 'Installed Claude plugin updates'
+        Assert-True (-not (($output -join "`n").Contains('(not installed)'))) 'Installed Claude plugin is never reported missing'
 
-    # Both flows must use the same detection boundary, including config scoping.
-    $realDetection = ${function:Test-InstallStepDone}
-    $checks = [Collections.Generic.List[string]]::new()
-    function Test-InstallStepDone {
-        param($Command, $ConfigEnv, $ConfigDir, [switch]$IncludeDisabled)
-        $checks.Add("$ConfigEnv|$ConfigDir|$IncludeDisabled")
-        & $realDetection -Command $Command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir
+        # The shared listing parser must retain disabled plugins and config scoping.
+        $realDetection = ${function:Test-InstallListing}
+        $checks = [Collections.Generic.List[string]]::new()
+        function Test-InstallListing {
+            param($Kind, $Tool, $Lines, [switch]$IncludeDisabled)
+            $checks.Add("$env:CLAUDE_CONFIG_DIR|$IncludeDisabled")
+            & $realDetection -Kind $Kind -Tool $Tool -Lines $Lines -IncludeDisabled:$IncludeDisabled
+        }
+        $null = Invoke-PsAiInstaller -Tools claude -ConfigDir selected -Source $repo -Catalog $catalog -Update -Yes
+        Assert-Equal 'selected|True,selected|True' ($checks -join ',') 'Both version lookups use the shared parser and selected config, including disabled copies'
+    } finally {
+        $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
+        if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe JSON fixture cleanup' }
+        Remove-Item -LiteralPath $sandbox -Recurse -Force
     }
-    $null = Invoke-PsAiInstaller -Tools claude -ConfigDir selected -Source $repo -Catalog $catalog -Update
-    Assert-Equal 'CLAUDE_CONFIG_DIR|selected|True' ($checks -join '') 'Update uses install detection for multiline JSON, including disabled installed copies'
 }

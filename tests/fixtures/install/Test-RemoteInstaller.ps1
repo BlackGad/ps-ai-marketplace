@@ -153,7 +153,7 @@ param($Tool)
 if ($args -contains 'marketplace') {
     if ($Tool -eq 'codex') { '{"marketplaces":[]}' } else { '[]' }
 } elseif ($Tool -eq 'claude') { '[]' }
-else { 'ps-ai@ps-ai-marketplace installed, enabled' }
+else { 'ps-ai@ps-ai-marketplace installed, enabled ' + (Join-Path (Split-Path $PSScriptRoot -Parent) 'installed-update') }
 '@ | Set-Content -LiteralPath $listingScript
     if ($env:OS -eq 'Windows_NT') {
         foreach ($tool in @('claude','codex','copilot')) {
@@ -227,6 +227,9 @@ function Get-InstallHome { $fixtureHome }
 function Invoke-InstallRefresh { } # Dedicated refresh tests exercise the installed script process.
 function Ensure-InstallPowerShell { throw 'Update attempted prerequisite installation' }
 function Test-InstallCommandAvailable { param($Name) $Name -eq 'codex' }
+$fixturePlugin = Join-Path $fixtureHome 'installed-update'
+New-Item -ItemType Directory -Path $fixturePlugin -Force | Out-Null
+'{"name":"ps-ai","version":"0.3.0"}' | Set-Content -LiteralPath (Join-Path $fixturePlugin 'plugin.json')
 $state = @{ Calls=0; Default=0; Account=0 }
 function Invoke-ClosedInput {
     param($Command)
@@ -235,11 +238,11 @@ function Invoke-ClosedInput {
     elseif ($env:CODEX_HOME -eq (Join-Path $fixtureHome '.legion/agents/codex-a')) { $state.Account++ }
     else { throw 'Incorrect config target' }
     if ($Command[2] -eq 'remove') { throw 'Update removed plugin approval' }
-    return @{ ExitCode=0; Output=@('ps-ai@ps-ai-marketplace installed, enabled') }
+    return @{ ExitCode=0; Output=@("ps-ai@ps-ai-marketplace installed, enabled $fixturePlugin") }
 }
 $env:CODEX_HOME = 'inherited-account'
-$null = Invoke-PsAiInstaller -Source $fixtureHome -Tools codex -Update
-if ($state.Calls -ne 6 -or $state.Default -ne 3 -or $state.Account -ne 3) { throw 'Incorrect update target count' }
+$null = Invoke-PsAiInstaller -Source $fixtureHome -Tools codex -Update -Yes
+if ($state.Calls -ne 8 -or $state.Default -ne 4 -or $state.Account -ne 4) { throw 'Incorrect update target count' }
 if ($env:CODEX_HOME -ne 'inherited-account') { throw 'Caller config environment changed' }
 'standalone update passed'
 '@ | Set-Content -LiteralPath $runner
@@ -254,7 +257,7 @@ if ($env:CODEX_HOME -ne 'inherited-account') { throw 'Caller config environment 
         @('@echo off', ('"' + $fixturePwshExe + '" -NoProfile -File "%~dp0listing.ps1" codex %*')) |
             Set-Content -LiteralPath (Join-Path $fakeBin 'codex.cmd')
     } else {
-        "#!/bin/sh`nprintf '%s\n' 'ps-ai@ps-ai-marketplace installed, enabled'" | Set-Content -LiteralPath (Join-Path $fakeBin 'codex')
+        "#!/bin/sh`nexec pwsh -NoProfile -File '$listingScript' codex `"`$@`"" | Set-Content -LiteralPath (Join-Path $fakeBin 'codex')
     }
     'param($Installer); & ([scriptblock]::Create((Get-Content -Raw $Installer))) -Update -DryRun -Tools codex -ConfigDir selected -Source (Split-Path $Installer)' |
         Set-Content -LiteralPath $runner

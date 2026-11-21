@@ -12,6 +12,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         @{tool='codex';configDir='~/.codex-account2'}
     )} | ConvertTo-Json | Set-Content -LiteralPath $file
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
+    $fixturePlugin = New-InstallFixturePlugin -Path (Join-Path $sandbox 'installed')
     function Test-InstallCommandAvailable { param($Name) $Name -in @('claude', 'codex') }
     function Invoke-InstallRefresh { }
     $calls = [Collections.Generic.List[string]]::new()
@@ -30,8 +31,8 @@ $repo = Split-Path $PSScriptRoot -Parent
                 return @{ExitCode=0;Output=@(Get-FixtureMarketplaceListing -Tool $entry.id -Source $source)}
             }
             $output = if ($installed[$key]) {
-                if ($entry.id -eq 'claude') { '[{"id":"ps-ai@ps-ai-marketplace","enabled":true}]' }
-                else { 'ps-ai@ps-ai-marketplace enabled' }
+                if ($entry.id -eq 'claude') { ConvertTo-Json -InputObject @(@{id='ps-ai@ps-ai-marketplace';enabled=$true;installPath=$fixturePlugin}) -Compress }
+                else { "ps-ai@ps-ai-marketplace enabled $fixturePlugin" }
             } elseif ($entry.id -eq 'claude') { '[]' } else { '' }
             return @{ExitCode=0;Output=@($output)}
         }
