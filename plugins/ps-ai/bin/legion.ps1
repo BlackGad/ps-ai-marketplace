@@ -22,7 +22,7 @@ function Get-LegionHelp {
         '  legion remove <id>                   remove an account (its folder is kept)'
         '  legion status                        show accounts, commands, channels and this repository'
         '  legion repo                          set up ps-ai in this repository'
-        '  legion start [<account>]             start the overseer here, with Telegram if bound'
+        '  legion start [<account>]             start the overseer here; no account starts the last one with its settings'
         '  legion start --no-channel            start the overseer without a channel'
         '  legion help                          show this list'
         ''
@@ -100,10 +100,12 @@ function Get-LegionCall {
             return @{ Script = 'ps-ai-repository.ps1'; Splat = @{ Repo = $repo }; AsksToApply = $false }
         }
         'start' {
-            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags @('--no-channel', '-NoChannel') -MinArguments 0 -MaxArguments 1
+            # -Account <id> is accepted too: the launcher's own message names it that way.
+            $noChannelFlags = @('--no-channel', '-NoChannel')
+            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags ($noChannelFlags + @('--account', '-Account')) -MinArguments 0 -MaxArguments 1
             $splat = @{ Repo = $repo }
             if ($arguments.Count -eq 1) { $splat.Account = $arguments[0] }
-            if ($parts.Flags.Count -gt 0) { $splat.NoChannel = $true }
+            if ($parts.Flags | Where-Object { $noChannelFlags -contains $_ }) { $splat.NoChannel = $true }
             return @{ Script = 'ps-ai-overseer.ps1'; Splat = $splat; AsksToApply = $false }
         }
         default { throw "legion: unknown command '$verb'" }

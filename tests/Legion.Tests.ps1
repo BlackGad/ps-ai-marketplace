@@ -44,6 +44,9 @@ try {
     $call = Get-LegionCall -Words @('start', 'codex1')
     Assert-Equal 'codex1' $call.Splat.Account 'start account'
     Assert-True (-not $call.Splat.ContainsKey('NoChannel')) 'start without flag has no NoChannel'
+    $call = Get-LegionCall -Words @('start', '-Account', 'claude1')
+    Assert-Equal 'claude1' $call.Splat.Account 'start -Account names the account'
+    Assert-True (-not $call.Splat.ContainsKey('NoChannel')) 'start -Account keeps the channel'
 
     $call = Get-LegionCall -Words @('status')
     Assert-Equal 'ps-ai-status.ps1' $call.Script 'status script'
@@ -64,7 +67,7 @@ legion - ps-ai commands
   legion remove <id>                   remove an account (its folder is kept)
   legion status                        show accounts, commands, channels and this repository
   legion repo                          set up ps-ai in this repository
-  legion start [<account>]             start the overseer here, with Telegram if bound
+  legion start [<account>]             start the overseer here; no account starts the last one with its settings
   legion start --no-channel            start the overseer without a channel
   legion help                          show this list
 

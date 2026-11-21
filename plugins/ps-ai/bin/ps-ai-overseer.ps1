@@ -50,6 +50,37 @@ function Get-OverseerDefaultChannel {
     return $null
 }
 
+# The last overseer launch per repository, so a bare start brings back the same minion with
+# the same channels and arguments, whichever tool ran in between.
+function Get-OverseerLastLaunchFile {
+    param([string]$HomeRoot)
+    return Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'state/overseer-launches.json'
+}
+
+function Get-OverseerRepoKey {
+    param([string]$Repo)
+    $key = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Repo))
+    if ($IsWindows) { $key = $key.ToLowerInvariant() }
+    return $key
+}
+
+function Get-OverseerLastLaunch {
+    param([string]$Repo, [string]$HomeRoot)
+    $file = Get-OverseerLastLaunchFile -HomeRoot $HomeRoot
+    if (-not (Test-Path -LiteralPath $file)) { return $null }
+    return (Read-PsAiJson -Path $file).(Get-OverseerRepoKey $Repo)
+}
+
+function Save-OverseerLastLaunch {
+    param([string]$Repo, [string]$HomeRoot, [string]$Account, [string[]]$Channel, [string[]]$Arguments)
+    $file = Get-OverseerLastLaunchFile -HomeRoot $HomeRoot
+    $saved = if (Test-Path -LiteralPath $file) { Read-PsAiJson -Path $file } else { [pscustomobject]@{} }
+    $launch = [ordered]@{ account = $Account; channels = @($Channel | Where-Object { $_ }); arguments = @($Arguments | Where-Object { $null -ne $_ }) }
+    $saved | Add-Member -NotePropertyName (Get-OverseerRepoKey $Repo) -NotePropertyValue $launch -Force
+    New-Item -ItemType Directory -Path (Split-Path $file) -Force | Out-Null
+    $saved | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $file -Encoding utf8NoBOM
+}
+
 function Get-OverseerLaunch {
     param($Personalisation, [string]$AccountId, [string]$Tool, [string[]]$Channel, [string[]]$Arguments, [string]$HomeRoot = $HOME)
     $selected = Select-OverseerAccount $Personalisation $AccountId $Tool
@@ -87,11 +118,30 @@ function Get-OverseerLaunch {
     return @{Command=(Get-PsAiWrapperCommand $AccountId $HomeRoot);Args=$launchArgs.ToArray()}
 }
 
+# A Claude Code session marks the shells it starts as its own children. A CLI started with these
+# variables joins that session as a child and is not saved as a session of its own,
+# so the overseer could never be resumed. An agent shell also sets NO_COLOR and TERM=dumb.
+function Get-OverseerParentVariables {
+    return @(
+        'NO_COLOR', 'TERM', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_CODE_ENTRYPOINT',
+        'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_CHILD_NOTES_DIR', 'CLAUDE_CODE_SESSION_ID',
+        'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_SSE_PORT'
+    )
+}
+
 function Invoke-OverseerInRepo {
     param([string]$Repo, [string]$Command, [string[]]$Arguments)
+    $saved = @{}
+    foreach ($name in Get-OverseerParentVariables) {
+        $saved[$name] = [Environment]::GetEnvironmentVariable($name)
+        [Environment]::SetEnvironmentVariable($name, $null)
+    }
     Push-Location -LiteralPath $Repo
     try { & $Command @Arguments }
-    finally { Pop-Location }
+    finally {
+        Pop-Location
+        foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
+    }
 }
 
 function Start-OverseerLaunch {
@@ -103,8 +153,8 @@ function Start-OverseerLaunch {
     }
     if ($terminal) {
         $literals = @($Launch.Command) + $Launch.Args | ForEach-Object { "'" + $_.Replace("'", "''") + "'" }
-        # An agent shell that starts the tab sets NO_COLOR and TERM=dumb; the new interactive tab needs colors.
-        $commandText = 'Remove-Item Env:NO_COLOR, Env:TERM -ErrorAction Ignore; & ' + ($literals -join ' ') + '; exit $LASTEXITCODE'
+        $cleared = (Get-OverseerParentVariables | ForEach-Object { "Env:$_" }) -join ', '
+        $commandText = "Remove-Item $cleared -ErrorAction Ignore; & " + ($literals -join ' ') + '; exit $LASTEXITCODE'
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($commandText))
         $terminalArgs = @('new-tab', '-d', $Repo, (Get-Process -Id $PID).Path, '-NoProfile', '-EncodedCommand', $encoded)
         if ($DryRun) { @('wt') + $terminalArgs }
@@ -128,6 +178,20 @@ function Invoke-Overseer {
         if ($issues.Count) { throw ($issues -join '; ') }
     }
     $personalisation = Read-PsAiJson -Path $ownerFile
+    # A bare start repeats the last launch here while its account still exists.
+    # Without one, the account that last held the overseer lease here starts with its default channel.
+    $bare = -not ($Account -or $Tool -or $Channel.Count -or $Arguments.Count -or $NoChannel)
+    $known = @($personalisation.agents.id)
+    $last = if ($bare) { Get-OverseerLastLaunch -Repo $Repo -HomeRoot $HomeRoot }
+    if ($last -and $last.account -cin $known) {
+        $Account = $last.account
+        $Channel = @($last.channels)
+        $Arguments = @($last.arguments)
+        $NoChannel = -not $Channel.Count
+    } elseif ($bare) {
+        $leaseAccount = (Get-PsAiLease -Repo $Repo).Data.account
+        if ($leaseAccount -cin $known) { $Account = $leaseAccount }
+    }
     $selected = Select-OverseerAccount -Personalisation $personalisation -Account $Account -Tool $Tool -Channel $Channel
     if (-not $Tool) { $Tool = $selected.tool }
     # An explicit -Channel wins; -NoChannel skips only the default.
@@ -136,6 +200,7 @@ function Invoke-Overseer {
         if ($default) { $Channel = @($default) }
     }
     $launch = Get-OverseerLaunch -Personalisation $personalisation -AccountId $selected.id -Tool $Tool -Channel $Channel -Arguments $Arguments -HomeRoot $HomeRoot
+    if (-not $DryRun) { Save-OverseerLastLaunch -Repo $Repo -HomeRoot $HomeRoot -Account $selected.id -Channel $Channel -Arguments $Arguments }
     # Reset first: a stale code must not look like a failed launch.
     $global:LASTEXITCODE = 0
     Start-OverseerLaunch -Repo $Repo -Launch $launch -DryRun:$DryRun

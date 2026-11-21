@@ -59,10 +59,14 @@ $repoPath = Join-Path $tempRoot 'My Projects'
 New-Item -ItemType Directory $repoPath -Force | Out-Null
     $probe = Join-Path $tempRoot 'cwd-probe.ps1'
     $resultFile = Join-Path $tempRoot 'cwd.txt'
-    'param($ResultFile) [System.IO.File]::WriteAllText($ResultFile, (Get-Location).Path)' | Set-Content -LiteralPath $probe
+    'param($ResultFile) [System.IO.File]::WriteAllText($ResultFile, (Get-Location).Path + "|$env:CLAUDECODE|$env:CLAUDE_CODE_CHILD_SESSION")' | Set-Content -LiteralPath $probe
     $beforeLocation = (Get-Location).Path
+    $savedParent = @($env:CLAUDECODE, $env:CLAUDE_CODE_CHILD_SESSION)
+    $env:CLAUDECODE = '1'; $env:CLAUDE_CODE_CHILD_SESSION = '1'
     Invoke-OverseerInRepo -Repo $repoPath -Command $probe -Arguments @($resultFile)
-    Assert-Equal $repoPath ([System.IO.File]::ReadAllText($resultFile)) 'Unix launch runs in repo'
+    Assert-Equal "$repoPath||" ([System.IO.File]::ReadAllText($resultFile)) 'Unix launch runs in repo, outside the parent Claude session'
+    Assert-Equal '1|1' "$env:CLAUDECODE|$env:CLAUDE_CODE_CHILD_SESSION" 'Unix launch restores the caller environment'
+    $env:CLAUDECODE, $env:CLAUDE_CODE_CHILD_SESSION = $savedParent
     Assert-Equal $beforeLocation (Get-Location).Path 'Unix launch restores caller location'
     & {
         function Get-Command { param($Name, $CommandType, $ErrorAction) if ($Name -eq 'wt') { return $null }; throw 'Unexpected discovery' }
@@ -89,7 +93,8 @@ New-Item -ItemType Directory $repoPath -Force | Out-Null
             $encoded = $state.Arguments[-1]
             $decoded = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
             Assert-True ($decoded.Contains("& 'fixture.cmd' 'two words' 'apostrophe''argument'")) 'Terminal transport preserves literal values'
-            Assert-True ($decoded.StartsWith('Remove-Item Env:NO_COLOR, Env:TERM -ErrorAction Ignore; ')) 'New terminal tab drops inherited no-color settings'
+            Assert-True ($decoded.StartsWith('Remove-Item Env:NO_COLOR, Env:TERM, Env:CLAUDECODE, ')) 'New terminal tab drops inherited no-color settings'
+            Assert-True ($decoded.Contains('Env:CLAUDE_CODE_CHILD_SESSION') -and $decoded.Contains('Env:CLAUDE_CODE_SESSION_ID')) 'New terminal tab is not a child of the calling Claude session'
         }
     }
 
@@ -133,6 +138,29 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     Assert-True ($state.Launch.Args -cnotcontains '--channels') 'NoChannel adds no channel arguments'
     $text = @(Invoke-Overseer @run -Account '' -Channel @() -Tool claude)
     Assert-True ($text -contains ('launched claude1 (claude) in ' + $runRepo + ' channel my-telegram')) 'The only claude account is picked without -Account'
+    # Without a last launch, a bare start uses the account that last held the lease, with its channel.
+    $leaseFile = Join-Path $runRepo '.legion/temp/overseer.lock'
+    New-Item -ItemType Directory (Split-Path $leaseFile) -Force | Out-Null
+    '{"tool":"claude","account":"claude1","host":"other-host","pid":1,"processStartedAt":"2026-01-01T00:00:00Z"}' | Set-Content $leaseFile
+    $lastFile = Join-Path $runHome '.legion/state/overseer-launches.json'
+    Remove-Item -LiteralPath $lastFile -ErrorAction Ignore
+    $text = @(Invoke-Overseer @run -Account '' -Channel @())
+    Assert-Equal ('launched claude1 (claude) in ' + $runRepo + ' channel my-telegram') ($text -join '|') 'Bare start falls back to the lease account'
+    Remove-Item -LiteralPath $leaseFile
+    # A bare start brings back the last minion with its settings, whatever ran in between.
+    $null = Invoke-Overseer @run -Account claude1 -Channel @() -NoChannel -Arguments @('--model', 'chosen', '')
+    $text = @(Invoke-Overseer @run -Account '' -Channel @())
+    Assert-Equal ('launched claude1 (claude) in ' + $runRepo) ($text -join '|') 'Bare start repeats the last account without a channel'
+    Assert-Equal '--model|chosen||continue as the overseer' ($state.Launch.Args -join '|') 'Bare start repeats the last arguments'
+    $null = Invoke-Overseer @run -Account codex1 -Channel @()
+    $null = Invoke-Overseer @run -Account claude1 -Channel @()
+    $text = @(Invoke-Overseer @run -Account '' -Channel @())
+    Assert-Equal ('launched claude1 (claude) in ' + $runRepo + ' channel my-telegram') ($text -join '|') 'Bare start repeats the last account with its Telegram channel'
+    $text = @(Invoke-Overseer @run -Account codex1 -Channel @())
+    Assert-Equal ('launched codex1 (codex) in ' + $runRepo) ($text -join '|') 'An explicit account still wins'
+    $text = @(Invoke-Overseer @run -Account '' -Channel @())
+    Assert-Equal ('launched codex1 (codex) in ' + $runRepo) ($text -join '|') 'The explicit account becomes the last one'
+    $null = Invoke-Overseer @run -Account claude1 -Channel @()
     $state.Fail = $true
     $text = @()
     try { $text = @(Invoke-Overseer @run -Account claude1 -Channel @()); throw 'Expected launch failure' }
