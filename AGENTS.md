@@ -33,7 +33,7 @@ A settings field exists only if a script reads it. Everything else is a plain-wo
 
 ## Release
 
-Versions and the changelog are made by the release workflow. Task branches and pull requests never change `version` in the three `plugin.json` files and never edit `CHANGELOG.md`. The release workflow keeps one release pull request open; the owner merges it to tag `vX.Y.Z` and publish the GitHub Release. The overseer may add a short "What is new" paragraph to that pull request just before the merge.
+Versions and the changelog are made by the release workflow. Task branches and pull requests never change `version` in the three `plugin.json` files and never edit `CHANGELOG.md`. The release workflow keeps one release pull request open; the owner merges it to tag `vX.Y.Z` and publish the GitHub Release. The overseer may add a short "What is new" summary to the GitHub Release notes after the tag is published, and never edits the release pull request body.
 
 ## Tests
 
