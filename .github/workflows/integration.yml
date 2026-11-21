@@ -51,7 +51,7 @@ jobs:
           restore-keys: integration-npm-${{ runner.os }}-
       - shell: pwsh
         env:
-          ALLOW_SOURCE_FALLBACK: ${{ github.ref == 'refs/heads/main' && inputs.sha == '' }}
+          ALLOW_SOURCE_FALLBACK: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.sha == '' }}
         run: |
           $arguments = @('-NoProfile', '-File', 'tests/integration/run.ps1', '-Out', 'results')
           if ($env:ALLOW_SOURCE_FALLBACK -eq 'true') { $arguments += '-AllowSourceFallback' }
@@ -196,7 +196,7 @@ jobs:
           summary-always: true
           alert-threshold: '200%'
           fail-on-alert: false
-      - name: Rebuild the Pages chart after the token push
+      - name: Request a Pages chart rebuild
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
