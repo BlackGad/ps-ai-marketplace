@@ -80,6 +80,36 @@ try {
     }
 
     $regressions = [ordered]@{
+        AllowRule = {
+            $rule = 'Bash(LEGION_ROLE=member *)'
+            Reset-SetupTest 'allow-rule'
+            $codexFolder = Join-Path $testHome '.legion/agents/codex1'
+            $copilotFolder = Join-Path $testHome '.legion/agents/copilot1'
+            # An adopted Claude folder keeps its other settings and allow entries.
+            $adopted = Join-Path $testHome 'adopted-claude'
+            New-Item -ItemType Directory -Path $adopted | Out-Null
+            @{ model = 'opus'; permissions = @{ allow = @('Bash(git status)'); deny = @('Bash(rm *)') } } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $adopted 'settings.json')
+            $plan = @(Invoke-Setup -HomeRoot $testHome -Add @('claude', "claude:$adopted", 'codex', 'copilot'))
+            Assert-SetupText $plan 'permission' 'allow rule: plan shows the permission step'
+            Assert-True (-not (Test-Path -LiteralPath $settings)) 'allow rule: plan writes nothing'
+            Invoke-Setup -HomeRoot $testHome -Add @('claude', "claude:$adopted", 'codex', 'copilot') -Yes | Out-Null
+            # The fake bin already has a claude1 command, so the new account gets another id; find it in the settings.
+            $newClaude = @((Read-LegionJson $settings).agents | Where-Object { $_.tool -ceq 'claude' -and $_.configDir -notlike '*adopted-claude' })[0]
+            $created = Read-LegionJson (Join-Path $newClaude.configDir 'settings.json')
+            Assert-Equal $rule (@($created.permissions.allow) -join "|") 'allow rule: created settings hold the rule'
+            $kept = Read-LegionJson (Join-Path $adopted 'settings.json')
+            Assert-Equal "Bash(git status)|$rule" (@($kept.permissions.allow) -join '|') 'allow rule: existing allow entries stay and the rule is added'
+            Assert-Equal 'opus' $kept.model 'allow rule: other settings stay'
+            Assert-Equal 'Bash(rm *)' (@($kept.permissions.deny) -join '|') 'allow rule: other permission keys stay'
+            foreach ($other in @($codexFolder, $copilotFolder)) {
+                Assert-True (-not (Test-Path -LiteralPath (Join-Path $other 'settings.json'))) "allow rule: $(Split-Path $other -Leaf) gets no settings.json"
+            }
+            $before = Get-SetupTree $testHome
+            $repeat = @(Invoke-Setup -HomeRoot $testHome -Yes)
+            Assert-SetupText $repeat 'skip: permission' 'allow rule: repeat prints a skip'
+            Assert-Equal $before (Get-SetupTree $testHome) 'allow rule: repeat changes nothing'
+            Assert-Equal 1 @((Read-LegionJson (Join-Path $adopted 'settings.json')).permissions.allow | Where-Object { $_ -ceq $rule }).Count 'allow rule: never duplicated'
+        }
         R5B4 = {
             Reset-SetupTest "unbound owner's home"
             Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
