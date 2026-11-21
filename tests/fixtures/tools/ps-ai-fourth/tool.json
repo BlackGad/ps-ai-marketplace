@@ -19,6 +19,7 @@
     "marketplaceRemove": ["plugin", "marketplace", "unregister", "ps-ai-marketplace"],
     "marketplaceUpdate": ["plugin", "marketplace", "refresh", "ps-ai-marketplace"],
     "update": ["plugin", "refresh", "ps-ai@ps-ai-marketplace"],
+    "marketplaceAddRef": ["plugin", "marketplace", "add", "{source}#{ref}"],
     "marketplaceAdd": [
       "plugin",
       "marketplace",

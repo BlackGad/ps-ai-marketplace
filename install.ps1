@@ -5,7 +5,7 @@ param(
     [switch]$DryRun,
     [switch]$Yes,
     [switch]$NoRun,
-    [string]$SourceRef = 'main',
+    [ValidateSet('release','main')][string]$Ref = 'release',
     [switch]$Update,
     [switch]$Uninstall,
     [string]$HomeRoot
@@ -21,5 +21,11 @@ if ($PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'plugins
             (Invoke-WebRequest -Uri $Url -UseBasicParsing -ErrorAction Stop).Content
         }
     }
-    & ([scriptblock]::Create((Get-InstallSourceText -Url 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/install.ps1'))) @PSBoundParameters
+    $branch = if ($Ref -eq 'main') { 'main' } else { 'stable' }
+    try { $installer = Get-InstallSourceText -Url "https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/$branch/plugins/ps-ai/install.ps1" }
+    catch {
+        if ($Ref -eq 'release') { throw 'could not find the latest release; try again or run with main' }
+        throw
+    }
+    & ([scriptblock]::Create($installer)) @PSBoundParameters
 }

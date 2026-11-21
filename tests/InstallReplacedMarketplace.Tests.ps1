@@ -23,7 +23,7 @@ $repo = Split-Path $PSScriptRoot -Parent
                 return @{ExitCode=0; Output=$output}
             }
             $writes.Add($line)
-            if ($Command -contains 'example/new-source') { $state.Added=$true }
+            if ($Command -contains 'example/new-source' -or $Command -contains 'example/new-source#stable') { $state.Added=$true }
             return @{ExitCode=0; Output=@()}
         }
         $null = Invoke-PsAiInstallSteps -Tool $entry.id -Source 'example/new-source' -ConfigEnv $entry.configEnv -ConfigDir 'selected account'

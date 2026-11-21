@@ -120,5 +120,5 @@ try {
     $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
     $fourth.plugin.marketplaceAdd = @('register','{source}','prefix-{source}')
     $script:installCatalog.tools += $fourth
-    Assert-Equal 'fourth-cli|register|local source|prefix-{source}' ((Get-InstallCommands -Tool fourth -Source 'local source')[0] -join '|') 'Only entire source arguments are substituted'
+    Assert-Equal 'fourth-cli|register|local source|prefix-local source' ((Get-InstallCommands -Tool fourth -Source 'local source')[0] -join '|') 'Source tokens are replaced within arguments'
 }

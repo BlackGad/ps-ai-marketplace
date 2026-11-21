@@ -14,7 +14,7 @@ $repo = Split-Path $PSScriptRoot -Parent
             @{ExitCode=0; Output=$lines; ErrorOutput=@('unrelated warning')}
         }
         $command = (Get-InstallCommands -Tool $tool -Source 'example/requested-source')[0]
-        Assert-True (Test-InstallStepDone -Command $command) "$tool existing registration is reused regardless of source"
+        Assert-True (Test-InstallStepDone -Command $command -Kind marketplace) "$tool existing registration is reused regardless of source"
     }
     foreach ($invalid in @(@{'bad-name'='1'}, @{FIXTURE_FLAG=$true})) {
         $catalog = Get-InstallCatalog -Source $repo

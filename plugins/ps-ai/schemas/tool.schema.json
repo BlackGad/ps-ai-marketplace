@@ -23,7 +23,7 @@
     "plugin": {
       "type": "object", "additionalProperties": false,
       "required": [
-        "marketplaceAdd", "marketplaceRemove", "install", "uninstall", "marketplaceUpdate",
+        "marketplaceAdd", "marketplaceAddRef", "marketplaceRemove", "install", "uninstall", "marketplaceUpdate",
         "update", "marketplaceList", "marketplaceListing", "list", "listing"
       ],
       "properties": {
@@ -31,6 +31,7 @@
         "installedRoot": {"type": "string", "pattern": "^(?![/\\\\]|[A-Za-z]:|~[/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"},
         "cacheDir": {"type": "string", "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$"},
         "marketplaceAdd": {"$ref": "#/$defs/arguments"},
+        "marketplaceAddRef": {"$ref": "#/$defs/arguments"},
         "marketplaceRemove": {"$ref": "#/$defs/arguments"},
         "install": {"$ref": "#/$defs/arguments"},
         "uninstall": {"$ref": "#/$defs/arguments"},

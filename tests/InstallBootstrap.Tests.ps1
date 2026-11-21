@@ -35,6 +35,17 @@ Assert-Equal $signatures[1] $signatures[0] 'BootstrapParamsMatchInstaller: names
         $legacy = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($legacy) { $runtimes += $legacy.Source }
         foreach ($runtime in $runtimes) {
+            foreach ($branch in @('stable','main')) {
+                $extra = @()
+                if ($branch -eq 'main') { $extra = @('-Ref','main') }
+                $result = Invoke-ClosedInput -Command (@($runtime, '-NoProfile', '-File', $runner, '-Installer', $bootstrap, '-Plugin', $plugin, '-Fixture', $scratch, '-CliPath', $fakeBin) + $extra)
+                Assert-Equal 0 $result.ExitCode "BootstrapReleaseUrl: $($result.ErrorOutput -join ' ')"
+                Assert-True ($result.Output -contains "download=https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/$branch/plugins/ps-ai/install.ps1") "BootstrapReleaseUrl: $branch code is downloaded"
+            }
+            $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', $bootstrap, '-Plugin', $plugin, '-Fixture', $scratch, '-CliPath', $fakeBin, '-NoRelease')
+            Assert-True ($result.ExitCode -ne 0) 'BootstrapNoRelease: failed release stops'
+            Assert-True (($result.ErrorOutput -join ' ').Contains('could not find the latest release; try again or run with main')) 'BootstrapNoRelease: useful failure'
+            Assert-Equal 1 @($result.Output | Where-Object { $_ -like 'download=*' }).Count 'BootstrapNoRelease: no fallback download'
             foreach ($case in @(
                 @{ Name='BootstrapRunsPluginInstaller'; Installer=$bootstrap; Mode='text'; Downloads='downloads=1' }
                 @{ Name='BootstrapCheckoutRunsOwnCopy'; Installer=$bootstrap; Mode='file'; Downloads='downloads=0' }
@@ -52,9 +63,9 @@ Assert-Equal $signatures[1] $signatures[0] 'BootstrapParamsMatchInstaller: names
             $catalog = Get-Content (Join-Path $repo 'plugins/ps-ai/tools.json') -Raw | ConvertFrom-Json
             $catalog.tools[0].installHint = 'sibling catalog selected'
             $catalog | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $copy 'tools.json')
-            $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', (Join-Path $copy 'install.ps1'), '-Plugin', $plugin, '-Fixture', $scratch, '-Mode', 'catalog')
+            $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', (Join-Path $copy 'install.ps1'), '-Plugin', $plugin, '-Fixture', $scratch, '-Mode', 'catalog', '-Ref', 'main')
             Assert-Equal 0 $result.ExitCode "InstalledCopyCatalog: $($result.Output -join ' ') $($result.ErrorOutput -join ' ')"
-            Assert-True (($result.Output -join "`n").Contains('sibling catalog selected')) 'InstalledCopyCatalog: installed file uses its sibling catalog offline'
+            Assert-True (($result.Output -join "`n").Contains('sibling catalog selected')) 'RefKeepsSiblingCatalog: installed file uses its sibling catalog offline with main'
             Assert-True ($result.Output -contains 'downloads=0') 'InstalledCopyCatalog: no download'
             Write-Output "PASS InstalledCopyCatalog ($runtime)"
         }

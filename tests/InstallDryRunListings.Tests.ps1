@@ -30,7 +30,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     Assert-True ($preview -contains 'claude plugin update ps-ai@ps-ai-marketplace') 'Update DryRun detects captured Claude user plugin'
     function Invoke-ClosedInput { @{ExitCode=0; Output=@('[]'); ErrorOutput=@()} }
     $preview = @(Invoke-PsAiInstaller -Tools claude -Catalog $catalog -Update -DryRun)
-    Assert-True ($preview -contains 'claude plugin marketplace add BlackGad/ps-ai-marketplace') 'Update DryRun proposes registering missing marketplace'
+    Assert-True ($preview -contains 'claude plugin marketplace add BlackGad/ps-ai-marketplace#stable') 'Update DryRun proposes registering missing marketplace'
     Assert-True ($preview -contains 'claude plugin install ps-ai@ps-ai-marketplace') 'Update DryRun proposes installing absent plugin'
     Assert-True (-not ($preview -contains 'claude plugin update ps-ai@ps-ai-marketplace')) 'Update DryRun never proposes updating absent plugin'
 }

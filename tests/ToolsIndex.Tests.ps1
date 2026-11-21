@@ -167,9 +167,10 @@
     function Ensure-InstallPowerShell { $state.Bootstrap++; return $true }
     Assert-Equal 3 @( (Get-InstallCatalog -Source 'example/market' -Catalog $catalog).tools ).Count 'Injected catalog is accepted'
     Assert-Equal 0 $state.Reads 'Injected catalog bypasses reads'
-    foreach ($ref in @('main','v1.2.3','abc123','feature/tool-skills')) {
-        $null = Get-InstallCatalog -Source 'example/market' -SourceRef $ref
-        Assert-Equal "https://raw.githubusercontent.com/example/market/$ref/plugins/ps-ai/tools.json" $state.Url 'Remote ref remains literal'
+    foreach ($ref in @('release','main')) {
+        $null = Get-InstallCatalog -Source 'example/market' -Ref $ref
+        $branch = if ($ref -eq 'release') { 'stable' } else { 'main' }
+        Assert-Equal "https://raw.githubusercontent.com/example/market/$branch/plugins/ps-ai/tools.json" $state.Url 'Remote ref selects the install branch'
     }
     $withString = $fixtureText | ConvertFrom-Json
     $withString.tools[0].plugin.install += '2026-11-18T00:00:00Z'

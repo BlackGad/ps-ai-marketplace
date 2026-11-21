@@ -3,19 +3,22 @@ param([string]$Installer, [string]$Repo, [switch]$NoRun)
 function New-InstallTextRunner {
     param([string]$Path)
     @'
-param($Installer, $Plugin, $Fixture, $Mode = 'text', $Tool = 'claude', $CliPath)
+param($Installer, $Plugin, $Fixture, $Mode = 'text', $Tool = 'claude', $CliPath, $Ref, [switch]$NoRelease)
 $ErrorActionPreference = 'Stop'
 if ($CliPath) { $env:PATH = $CliPath }
 foreach ($name in @('CLAUDE_CONFIG_DIR','CODEX_HOME','COPILOT_HOME')) { Remove-Item "Env:$name" -ErrorAction Ignore }
 $script:downloads = 0
 function Get-InstallSourceText {
     param($Url)
-    if ($Url -ne 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/install.ps1') { throw "Unexpected URL: $Url" }
+    if ($Url -notin @('https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/stable/plugins/ps-ai/install.ps1', 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/install.ps1')) { throw "Unexpected URL: $Url" }
     $script:downloads++
+    Write-Host "download=$Url"
+    if ($NoRelease) { throw 'Fixture release unavailable' }
     Get-Content -LiteralPath $Plugin -Raw
 }
 function Invoke-WebRequest { throw 'Unexpected network access' }
 $arguments = @{ DryRun = $true; HomeRoot = $Fixture }
+if ($Ref) { $arguments.Ref = $Ref }
 if ($Mode -ne 'catalog') { $arguments.Tools = @($Tool); $arguments.Source = $Fixture }
 else { $env:PATH = '' }
 if ($Mode -eq 'text') { & ([scriptblock]::Create((Get-Content -LiteralPath $Installer -Raw))) @arguments }

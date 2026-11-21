@@ -405,7 +405,7 @@ function Invoke-CliInstallRepeat {
 function Invoke-PsAiInstall {
     param([string]$Tool, $Target)
     $arguments = @('-Source', $Target.Source, '-Tools', $Tool, '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
-    if ($Target.SourceRef) { $arguments += @('-SourceRef', $Target.SourceRef) }
+    if ($Target.Ref) { $arguments += @('-Ref', $Target.Ref) }
     return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/install.ps1') $arguments
 }
 
@@ -425,7 +425,7 @@ function Get-IntegrationRemoteMain {
 
 function Install-IntegrationTool {
     param([string]$Tool)
-    $checkout = @{ Source = $script:Ctx.Checkout; SourceRef = '' }
+    $checkout = @{ Source = $script:Ctx.Checkout; Ref = '' }
     try {
         $lines = Invoke-PsAiInstall $Tool $checkout
         $script:Ctx.Targets[$Tool] = $checkout
@@ -442,8 +442,10 @@ function Install-IntegrationTool {
     $revision = Get-IntegrationRevision
     $remote = Get-IntegrationRemoteMain
     if ($remote -ne $revision) { throw "$Tool needs the published source, but main is $remote and the tested revision is $revision" }
-    $fallback = @{ Source = $script:MarketplaceRepo; SourceRef = $revision }
+    $fallback = @{ Source = $script:MarketplaceRepo; Ref = 'main' }
     $lines = Invoke-PsAiInstall $Tool $fallback
+    $remote = Get-IntegrationRemoteMain
+    if ($remote -ne $revision) { throw "$Tool installed the published source, but main moved to $remote and the tested revision is $revision" }
     $script:Ctx.Targets[$Tool] = $fallback
     return $lines
 }

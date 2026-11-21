@@ -12,7 +12,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         switch ($line) {
             'claude|plugin|marketplace|list|--json' { return @{ExitCode=0; Output=@('[]')} }
             'claude|plugin|list|--json' { return @{ExitCode=0; Output=@('[]')} }
-            'claude|plugin|marketplace|add|BlackGad/ps-ai-marketplace' { $state.Added=$true }
+            'claude|plugin|marketplace|add|BlackGad/ps-ai-marketplace#stable' { $state.Added=$true }
             'claude|plugin|marketplace|update|ps-ai-marketplace' {
                 Assert-True $state.Added 'Refresh follows marketplace add'
                 if ($state.FailRefresh) { return @{ExitCode=2; Output=@('fixture refresh failed')} }
