@@ -48,13 +48,20 @@ try {
     '# inert' | Set-Content $custom
     if ($IsWindows) {
         Remove-Item "$wrapper.cmd"
-        Add-PsAiSubscriptionAccount -Id custom-a -Tool codex -HomeRoot $scratch -Data $data -Path $settings | Out-Null
+        $repair = @(Add-PsAiSubscriptionAccount -Id custom-a -Tool codex -HomeRoot $scratch -Data $data -Path $settings)
+        Assert-True ($repair -contains "wrote: launcher $wrapper.cmd") 'Repair reports the batch launcher it wrote'
+        Assert-Equal 0 @($repair -match '^skip: account').Count 'Repair does not claim the account was unchanged'
         Assert-True ([IO.File]::ReadAllText("$wrapper.cmd").Contains($custom)) 'K8 direct add repairs the custom target without a stock CLI'
         Remove-Item "$wrapper.cmd"
     }
     Remove-Item $wrapper
     Assert-Throws { Add-PsAiSubscriptionAccount -Id custom-a -Tool codex -HomeRoot $scratch -Data $data -Path $settings } 'K8 direct repair needs an explicit target when both wrappers are absent'
     Assert-Equal $false (Test-Path $wrapper) 'K8 ambiguous direct repair creates no stock wrapper'
+    $repair = @(Add-PsAiSubscriptionAccount -Id custom-a -Tool codex -Command $custom -HomeRoot $scratch -Data $data -Path $settings)
+    Assert-True ($repair -contains "wrote: launcher $wrapper") 'Explicit repair reports the shell launcher it wrote'
+    Assert-Equal 0 @($repair -match '^skip: account').Count 'Explicit repair does not report skip'
+    $repeat = @(Add-PsAiSubscriptionAccount -Id custom-a -Tool codex -HomeRoot $scratch -Data $data -Path $settings)
+    Assert-Equal 'skip: account custom-a (already done)' ($repeat -join '') 'Unchanged account reports skip'
 } finally {
     $env:PATH = $savedPath
     if (-not ([IO.Path]::GetFullPath($scratch).StartsWith([IO.Path]::GetFullPath((Join-Path $root '.agents/temp/'))))) { throw 'fixture cleanup escaped the worktree' }

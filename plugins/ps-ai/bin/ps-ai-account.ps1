@@ -99,6 +99,7 @@ function ConvertTo-PsAiShellLiteral {
 function Write-PsAiGeneratedFile {
     param([string]$Path, [string]$Content, [Collections.Generic.List[string]]$Changes, [switch]$Executable)
     $same = (Test-Path -LiteralPath $Path) -and [IO.File]::ReadAllText($Path) -ceq $Content
+    $changed = -not $same
     if (-not $same) {
         New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
         [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
@@ -106,8 +107,9 @@ function Write-PsAiGeneratedFile {
     if ($Executable -and -not $IsWindows -and -not (Test-PsAiLauncherExecutable -Path $Path)) {
         & chmod +x $Path
         if ($LASTEXITCODE -ne 0) { throw 'could not make the generated wrapper executable' }
+        $changed = $true
     }
-    if (-not $same -and $null -ne $Changes) { $Changes.Add($Path) }
+    if ($changed -and $null -ne $Changes) { $Changes.Add($Path) }
 }
 
 function Get-PsAiShellWrapperTarget {
@@ -138,7 +140,13 @@ function Get-PsAiWrapperTarget {
         $line = [IO.File]::ReadAllLines($cmd) | Select-Object -Skip 3 -First 1
         if ($line -cmatch '^@(?:pwsh -NoProfile -File |call )?"([^"]+)" %\*$') { $candidates.Add($Matches[1].Replace('%%', '%')) }
     }
-    if (-not $candidates.Count) { return $null }
+    if (-not $candidates.Count) {
+        # With no launcher left, recover from the same stock command used for a new account.
+        if ((Test-Path -LiteralPath $sh) -or (Test-Path -LiteralPath $cmd)) { return $null }
+        $stock = Get-Command (Get-PsAiTool $Tool).command -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $stock) { return $null }
+        $candidates.Add($stock.Source)
+    }
     $target = $candidates[0]
     foreach ($candidate in $candidates) { if (-not (Get-PsAiPathComparer).Equals($target, $candidate)) { return $null } }
     # Check the executable and reject edited or conflicting surviving wrappers before recovery.
@@ -153,7 +161,7 @@ function Get-PsAiNewAccountDir {
 }
 
 function New-PsAiWrappers {
-    param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$RealCommand, [string]$ConfigDir, [switch]$CheckOnly)
+    param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$RealCommand, [string]$ConfigDir, [switch]$CheckOnly, [Collections.Generic.List[string]]$Changes)
     Assert-PsAiId $Id
     if (-not (Test-Path -LiteralPath $RealCommand -PathType Leaf)) { throw "target needed: $Id; ask the owner for an existing executable" }
     $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
@@ -182,8 +190,8 @@ function New-PsAiWrappers {
     }
     if ($CheckOnly) { return }
     New-Item -ItemType Directory -Path $bin, $folder -Force | Out-Null
-    Write-PsAiGeneratedFile -Path $shFile -Content $sh -Executable
-    if ($IsWindows) { Write-PsAiGeneratedFile -Path $cmdFile -Content $cmd }
+    Write-PsAiGeneratedFile -Path $shFile -Content $sh -Executable -Changes $Changes
+    if ($IsWindows) { Write-PsAiGeneratedFile -Path $cmdFile -Content $cmd -Changes $Changes }
 }
 
 function Write-FoundryToolConfig {
@@ -403,8 +411,10 @@ function Add-PsAiSubscriptionAccount {
     if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and (Get-PsAiPathComparer).Equals($existingDir, $accountDir)) {
         if (-not $Command) { $Command = Get-PsAiWrapperTarget -Id $Id -Tool $Tool -HomeRoot $HomeRoot -ConfigDir $accountDir }
         if (-not $Command) { throw "target needed: $Id; ask the owner for the registered executable" }
-        New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $Command -ConfigDir $accountDir
-        "skip: account $Id (already done)"
+        $changes = [Collections.Generic.List[string]]::new()
+        New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $Command -ConfigDir $accountDir -Changes $changes
+        if ($changes.Count) { foreach ($launcher in $changes) { "wrote: launcher $launcher" } }
+        else { "skip: account $Id (already done)" }
         return
     }
     Assert-PsAiNewId -Id $Id -Data $Data

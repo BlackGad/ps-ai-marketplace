@@ -57,7 +57,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $saved = @{}
     foreach ($entry in $catalog.tools) {
         $saved[$entry.configEnv] = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
-        [Environment]::SetEnvironmentVariable($entry.configEnv, 'inherited-account', 'Process')
+        [Environment]::SetEnvironmentVariable($entry.configEnv, (Join-Path $sandbox 'inherited-account'), 'Process')
     }
     try {
         New-Item -ItemType Directory -Path $bin, (Split-Path $personalisation), $account, $secondAccount -Force | Out-Null
@@ -97,16 +97,16 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
         $savedOS = $env:OS
         try {
             $env:OS = 'fixture-unix'
-            Assert-Equal 2 @(Get-UninstallFiles -Owner $caseOwner -ConfigDir (Join-Path $sandbox 'case-account')).Count 'Unix filters preserve case-distinct account launchers'
+            Assert-True ((@(Get-UninstallFiles -Owner $caseOwner -ConfigDir (Join-Path $sandbox 'case-account'))) -notcontains (Join-Path $bin 'codex-a')) 'Unix selection keeps account launchers'
         } finally { $env:OS = $savedOS }
-        Assert-Equal 2 @(Get-UninstallFiles -Owner ([pscustomobject]@{agents=$agents}) -ConfigDir ($account + [IO.Path]::DirectorySeparatorChar)).Count 'Directory filters match a trailing separator'
+        Assert-True ((@(Get-UninstallFiles -Owner ([pscustomobject]@{agents=$agents}) -ConfigDir ($account + [IO.Path]::DirectorySeparatorChar))) -notcontains (Join-Path $bin 'codex-a.cmd')) 'Directory selection keeps account launchers'
         $preview = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -DryRun)
         Assert-True ($calls.Count -gt 0) 'Dry run checks installed state'
         Assert-Equal 0 $writes.Count 'Dry run never changes any CLI'
         Assert-Equal 0 $state.Prompts 'Dry run never asks'
         Assert-True (($preview -join "`n").Contains('copilot plugin marketplace remove ps-ai-marketplace --force')) 'Preview includes force from metadata'
         Assert-True (($preview -join "`n").Contains($account)) 'Preview includes recorded targets'
-        Assert-True (($preview -join "`n").Contains((Join-Path $bin 'codex-a.cmd'))) 'Preview includes generated file removals'
+        Assert-True (-not (($preview -join "`n").Contains("Remove file: $(Join-Path $bin 'codex-a.cmd')"))) 'Preview excludes account launcher removals'
         Assert-True (Test-Path (Join-Path $runtime 'bin/ps-ai-foundry.ps1')) 'Preview preserves runtime'
 
         $declined = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall)
@@ -119,7 +119,7 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
         Assert-Equal 2 $writes.Count 'Filters remove exactly one target'
         Assert-Equal 'codex|plugin|remove|ps-ai@ps-ai-marketplace' $writes[0] 'Disabled plugin uninstalls before marketplace'
         Assert-True ($calls[0].StartsWith("codex:$account|")) 'Explicit config scopes listing'
-        Assert-True (-not (Test-Path (Join-Path $bin 'codex-a.cmd'))) 'Selected account wrappers removed'
+        Assert-True (Test-Path (Join-Path $bin 'codex-a.cmd')) 'Selected account launchers kept'
         Assert-True (Test-Path (Join-Path $bin 'codex-b')) 'Other account launcher kept by filters'
         Assert-True (Test-Path (Join-Path $runtime 'bin/ps-ai-foundry.ps1')) 'Shared runtime stays while another owned launcher remains'
         $writes.Clear(); $calls.Clear()
@@ -127,13 +127,15 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
         $output = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -Yes)
         Assert-Equal 12 $writes.Count 'Three defaults plus three unique account targets removed'
         foreach ($entry in $catalog.tools) {
-            $inherited = [IO.Path]::GetFullPath('inherited-account')
+            $inherited = Join-Path $sandbox 'inherited-account'
             Assert-True ($calls -contains "$($entry.id):$inherited|$($entry.command)|plugin|list$(if ($entry.id -eq 'claude') { '|--json' })") 'Default honors inherited config override'
-            Assert-Equal 'inherited-account' ([Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')) 'Caller environment restored'
+            Assert-Equal $inherited ([Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')) 'Caller environment restored'
         }
-        foreach ($name in @('codex-a','codex-a.cmd','codex-b','codex-b.cmd','ps-ai-overseer')) {
-            Assert-True (-not (Test-Path (Join-Path $bin $name))) 'Generated launcher removed'
+        foreach ($name in @('codex-a','codex-a.cmd','codex-b','codex-b.cmd')) {
+            Assert-True (Test-Path (Join-Path $bin $name)) 'Account launcher kept'
         }
+        Assert-True (-not (Test-Path (Join-Path $bin 'ps-ai-overseer'))) 'Owner command removed when no install remains'
+        Assert-True ($output -contains "Kept account launchers: $bin") 'Summary names the retained account launchers'
         foreach ($name in @('external','external.cmd','unrelated','ps-ai-overseer.cmd','.ps-ai-runtime/owner.txt','.ps-ai-runtime/skills/ps-ai-codex/scripts/foundry-custom.ps1')) {
             Assert-True (Test-Path (Join-Path $bin $name)) 'Unowned files preserved'
         }
@@ -153,8 +155,8 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
         $state.Missing=$false
         foreach ($failure in @('FailList','FailRemove')) {
             $state[$failure]=$true
-            Assert-Throws { Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools codex -ConfigDir selected -Uninstall -Yes } "$failure propagates"
-            Assert-Equal 'inherited-account' $env:CODEX_HOME 'Failure restores config env'
+            Assert-Throws { Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools codex -ConfigDir (Join-Path $sandbox 'selected') -Uninstall -Yes } "$failure propagates"
+            Assert-Equal (Join-Path $sandbox 'inherited-account') $env:CODEX_HOME 'Failure restores config env'
             $state[$failure]=$false
         }
         $calls.Clear()

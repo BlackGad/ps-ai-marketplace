@@ -10,7 +10,7 @@
 pwsh -NoProfile -File <plugin>/bin/ps-ai-setup.ps1 [-Add @('claude','codex:<existing folder>')] [-Id <name>] [-Yes] [-HomeRoot <home>]
 ```
 
-   Setup creates missing settings and notes, installs a missing CLI, adds accounts, writes the owner commands and installs ps-ai into every account. A repeat prints `skip:` lines. Finish an earlier setup the same way, without `-Add`.
+   Setup creates missing settings and notes, installs a missing CLI, adds accounts, writes the owner commands and installs ps-ai into every account. For a recorded subscription account whose launchers are both gone, setup uses the stock CLI on PATH to restore them. If that CLI is also missing, the table says `target needed`. A repeat prints `skip:` lines. Finish an earlier setup the same way, without `-Add`.
 
 4. Read the table's last column. `log in: run <id>` is the owner's job: only the owner logs in. For a CLI failure or `installed: open a new terminal`, repeat the add later only for an unrecorded account. For a ps-ai `install failed`, the account is recorded: finish setup without `-Add`. Mention once that `legion help` lists the same steps as short commands.
 

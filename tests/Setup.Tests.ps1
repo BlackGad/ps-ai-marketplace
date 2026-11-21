@@ -254,10 +254,18 @@ try {
             }
             Remove-Item $sh
             $plan = @(Invoke-Setup -HomeRoot $testHome)
-            Assert-SetupText $plan 'target needed: custom-a' 'K8 absent wrappers ask for the target in the plan'
+            Assert-SetupText $plan 'wrappers repair custom-a' 'Absent wrappers use the stock CLI in the plan'
             $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
-            Assert-SetupText $output 'target needed' 'K8 ambiguous repair reports next step'
-            Assert-Equal $false (Test-Path $sh) 'K8 ambiguous repair never substitutes the stock command'
+            Assert-True (Test-Path $sh) 'Setup restores an account whose launchers are gone'
+            Assert-SetupText $output "wrote: launcher $sh" 'Setup reports the launcher it repaired'
+            Assert-True (-not ($output -contains 'skip: account custom-a (already done)')) 'Setup does not report a repaired account as unchanged'
+            $stock = Join-Path $fakeBin $(if ($IsWindows) { 'codex.cmd' } else { 'codex' })
+            Assert-Equal $stock (Get-PsAiWrapperTarget -Id custom-a -Tool codex -HomeRoot $testHome -ConfigDir $folder) 'Absent launchers fall back to the stock CLI'
+            Remove-Item $sh
+            if ($IsWindows) { Remove-Item $cmd }
+            $env:PATH = $systemBin
+            $plan = @(Invoke-Setup -HomeRoot $testHome)
+            Assert-SetupText $plan 'target needed: custom-a' 'Setup still asks for a target when the stock CLI is absent'
         }
         G1 = {
             Reset-SetupTest 'interrupted-chmod'
@@ -344,10 +352,10 @@ try {
             finally { Set-Item function:New-PsAiWrappers $realWrappers }
             Assert-Equal 1 (@((Read-PsAiJson $settings).agents).Count) 'B2 interruption leaves a recorded account'
             $plan = @(Invoke-Setup -HomeRoot $testHome)
-            Assert-SetupText $plan 'target needed: codex1' 'B2 plan names missing account wrapper target'
+            Assert-SetupText $plan 'wrappers repair codex1' 'B2 plan repairs the account with the stock CLI'
             $wrapper = Get-PsAiWrapperCommand codex1 $testHome
             $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
-            Assert-SetupText $output 'target needed: codex1' 'B2 interruption before either wrapper leaves target recovery to the owner'
+            Assert-True (Test-Path -LiteralPath $wrapper) 'B2 setup recovers after interruption before either launcher was written'
             $data = Read-PsAiJson $settings
             Add-PsAiSubscriptionAccount -Id codex1 -Tool codex -Command (Join-Path $fakeBin $(if ($IsWindows) { 'codex.cmd' } else { 'codex' })) -HomeRoot $testHome -Data $data -Path $settings | Out-Null
             Assert-True (Test-Path -LiteralPath $wrapper) 'B2 finish setup repairs interrupted account wrappers'

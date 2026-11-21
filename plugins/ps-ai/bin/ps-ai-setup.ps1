@@ -367,9 +367,9 @@ function Add-SetupAccounts {
             if ($row.Adopted -or -not (Get-PsAiPathComparer).Equals($row.Folder, $managed)) { $arguments.ConfigDir = $row.Folder }
             if ($row.New) { $arguments.Command = Find-SetupCommand -Name $row.Tool.command }
             elseif ($row.MissingWrappers) { $arguments.Command = $row.WrapperTarget }
-            try { $null = Add-PsAiSubscriptionAccount @arguments }
+            try { $result = @(Add-PsAiSubscriptionAccount @arguments) }
             catch { throw (ConvertTo-SetupOneLine $_.Exception.Message) }
-            if (-not $row.New) { "skip: account $($row.Id) (already done)" }
+            if (-not $row.New) { $result }
         } else { "skip: account $($row.Id) (already done)" }
         if ($row.New -and -not $row.Adopted) { $row.NextStep = "log in: run $($row.Id)" }
     }
