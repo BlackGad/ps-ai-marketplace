@@ -687,11 +687,99 @@ function Invoke-UninstallFirst {
         & $command --version | Out-Null
         Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "$tool is no longer installed"
     }
-    $bin = Join-Path $script:Ctx.HomeRoot '.legion/bin'
-    Assert-IntegrationTrue (@(Get-ChildItem -LiteralPath $bin -File -ErrorAction SilentlyContinue).Count -eq 0) 'owner commands are still in .legion/bin'
+    # The owner commands go; every account launcher stays, so a later install is an upgrade.
+    foreach ($name in Get-IntegrationOwnerCommandNames) {
+        foreach ($path in Get-IntegrationLauncherPaths $name) {
+            Assert-IntegrationTrue (-not (Test-Path -LiteralPath $path)) "owner command $name is still in .legion/bin"
+        }
+    }
+    Assert-IntegrationLaunchersExist
     foreach ($kept in 'configuration', 'agents') {
         Assert-IntegrationTrue (Test-Path -LiteralPath (Join-Path $script:Ctx.HomeRoot ".legion/$kept") -PathType Container) ".legion/$kept was removed"
     }
+    return $lines
+}
+
+# The installer's own list of owner commands, loaded in a child scope so its helpers stay out of this script.
+function Get-IntegrationOwnerCommandNames {
+    return @(& {
+        . (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/install.ps1') -NoRun
+        (Get-InstallOwnerCommands).Keys
+    })
+}
+
+# A launcher is one file on macOS and Linux, and a file plus a .cmd file on Windows.
+function Get-IntegrationLauncherPaths {
+    param([string]$Name)
+    $path = Join-Path $script:Ctx.HomeRoot ".legion/bin/$Name"
+    if ($IsWindows) { return @($path, "$path.cmd") }
+    return @($path)
+}
+
+function Get-IntegrationAccountIds {
+    $active = Get-IntegrationActiveTools
+    return @((Get-IntegrationSettings).Data.agents | Where-Object { $_.tool -in $active } | ForEach-Object id)
+}
+
+function Assert-IntegrationLaunchersExist {
+    foreach ($id in Get-IntegrationAccountIds) {
+        foreach ($path in Get-IntegrationLauncherPaths $id) {
+            Assert-IntegrationTrue (Test-Path -LiteralPath $path -PathType Leaf) "launcher $id is missing: $path"
+        }
+    }
+}
+
+# The launcher starts the account's own CLI; --version proves it without a login.
+function Assert-IntegrationLaunchersRun {
+    foreach ($id in Get-IntegrationAccountIds) {
+        $launcher = @(Get-IntegrationLauncherPaths $id)[-1]
+        & $launcher --version 2>&1 | Out-Null
+        Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "launcher $id --version exited $LASTEXITCODE"
+    }
+}
+
+# Steps 9 and 10: the owner's scenario, uninstall then install again.
+function Invoke-PsAiInstallAgain {
+    $lines = @()
+    foreach ($tool in (Get-IntegrationActiveTools)) { $lines += Invoke-PsAiInstall $tool $script:Ctx.Targets[$tool] }
+    return $lines
+}
+
+function Invoke-ReinstallFirst {
+    $lines = Invoke-PsAiInstallAgain
+    $expected = Get-CheckoutVersion
+    foreach ($target in (Get-IntegrationUninstallTargets)) {
+        $found = Get-IntegrationPluginVersion $target.Tool $target.Folder
+        Assert-IntegrationTrue ($found -eq $expected) "$($target.Tool) has ps-ai $found in $($target.Folder), expected $expected"
+    }
+    Assert-IntegrationLaunchersExist
+    Assert-IntegrationLaunchersRun
+    $script:Ctx.HomeSnapshot = Get-IntegrationHomeSnapshot
+    return $lines
+}
+
+function Invoke-ReinstallRepeat {
+    $lines = Invoke-PsAiInstallAgain
+    Assert-IntegrationText $lines 'skip:'
+    Assert-TreeUnchanged $script:Ctx.HomeSnapshot (Get-IntegrationHomeSnapshot)
+    return $lines
+}
+
+function Invoke-RestoreLaunchersFirst {
+    foreach ($id in Get-IntegrationAccountIds) {
+        foreach ($path in Get-IntegrationLauncherPaths $id) { Remove-Item -LiteralPath $path -Force }
+    }
+    $lines = Invoke-PsAiInstallAgain
+    Assert-IntegrationLaunchersExist
+    Assert-IntegrationLaunchersRun
+    $script:Ctx.HomeSnapshot = Get-IntegrationHomeSnapshot
+    return $lines
+}
+
+function Invoke-RestoreLaunchersRepeat {
+    $lines = Invoke-PsAiInstallAgain
+    Assert-IntegrationText $lines 'skip:'
+    Assert-TreeUnchanged $script:Ctx.HomeSnapshot (Get-IntegrationHomeSnapshot)
     return $lines
 }
 
@@ -724,6 +812,8 @@ function Get-IntegrationSteps {
     $steps += @{ Name = 'repo-private'; DependsOn = @(); First = { Invoke-RepoPrivateFirst }; Repeat = { Invoke-RepoPrivateRepeat } }
     $steps += @{ Name = 'repo-shared'; DependsOn = @(); First = { Invoke-RepoSharedFirst }; Repeat = { Invoke-RepoSharedRepeat } }
     $steps += @{ Name = 'uninstall'; DependsOn = @('setup'); First = { Invoke-UninstallFirst }; Repeat = { Invoke-UninstallRepeat } }
+    $steps += @{ Name = 'reinstall'; DependsOn = @('uninstall'); First = { Invoke-ReinstallFirst }; Repeat = { Invoke-ReinstallRepeat } }
+    $steps += @{ Name = 'restore-launchers'; DependsOn = @('reinstall'); First = { Invoke-RestoreLaunchersFirst }; Repeat = { Invoke-RestoreLaunchersRepeat } }
     return $steps
 }
 
