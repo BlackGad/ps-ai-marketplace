@@ -429,6 +429,28 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     $repoA = New-IntegrationRepo 'repo-a'
     Assert-True (@(git -C $repoA ls-files 'AGENTS.md').Count -eq 0) 'the plain fixture has no AGENTS.md'
 
+    # Check Shared rules assertions with the bundled block and fake setup, without real CLIs.
+    & {
+        . Reset-Runner
+        $sharedRepo = New-IntegrationRepo 'rules-check' -WithRules
+        $rulesBlock = Get-Content -LiteralPath (Join-Path $root 'plugins/ps-ai/skills/legion-repository/references/rules-file-lines.md') -Raw
+        $rulesCopies = 1
+        function New-IntegrationRepo { return $sharedRepo }
+        function Assert-LegionItems { }
+        function Invoke-RepositoryScript {
+            Set-Content -LiteralPath (Join-Path $sharedRepo 'AGENTS.md') -Value ($rulesBlock * $rulesCopies)
+            git -C $sharedRepo add AGENTS.md
+            git -C $sharedRepo commit --quiet -m 'Set up ps-ai orchestration'
+            return @('prepared: Shared orchestration')
+        }
+        Invoke-RepoSharedFirst | Out-Null
+        foreach ($rulesCopies in 0, 2) {
+            $message = ''
+            try { Invoke-RepoSharedFirst | Out-Null } catch { $message = $_.Exception.Message }
+            Assert-Equal "AGENTS.md has the rules block $rulesCopies times" $message 'Shared rejects missing and duplicated rules blocks'
+        }
+    }
+
     # Listing: the catalog's arguments and parser; a disabled entry is not installed.
     . Reset-Runner
     function Invoke-IntegrationCli { param($Tool, $Arguments, $Folder) $script:calls += , @($Arguments | ForEach-Object { $_ }); return @{ ExitCode = 0; Lines = @($script:listing) } }

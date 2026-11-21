@@ -634,7 +634,8 @@ function Invoke-RepoSharedFirst {
     $repo = New-IntegrationRepo 'repo-b' -WithRules
     $lines = Invoke-RepositoryScript $repo 'Shared'
     Assert-LegionItems $repo
-    $rules = [regex]::Matches((Get-Content -LiteralPath (Join-Path $repo 'AGENTS.md') -Raw), '(?m)^## ps-ai orchestration').Count
+    $heading = Get-Content -LiteralPath (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/skills/legion-repository/references/rules-file-lines.md') -TotalCount 1
+    $rules = [regex]::Matches((Get-Content -LiteralPath (Join-Path $repo 'AGENTS.md') -Raw), ('(?m)^' + [regex]::Escape($heading) + '\r?$')).Count
     Assert-IntegrationTrue ($rules -eq 1) "AGENTS.md has the rules block $rules times"
     Assert-IntegrationTrue ((Get-CommitCount $repo) -eq 2) 'expected exactly one new commit'
     Assert-IntegrationTrue ((git -C $repo log -1 --format=%s) -eq 'Set up ps-ai orchestration') 'unexpected commit subject'

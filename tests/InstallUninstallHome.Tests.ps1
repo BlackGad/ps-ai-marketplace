@@ -1,8 +1,12 @@
 $repo = Split-Path $PSScriptRoot -Parent
+$profileHome = $env:HOME
 & {
     . (Join-Path $PSScriptRoot 'fixtures/install/UninstallSandbox.ps1')
+    # Unix resolves UserProfile from HOME; keep the profile separate from the chosen home.
+    $env:HOME = $profileHome
     try {
         # A home that is not the real profile never reaches the real default tool folders.
+        Assert-True (-not (Test-InstallRealProfile)) 'The chosen home is not the process profile'
         $codexFolder = Join-Path $sandbox '.codex'
         $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -DryRun) -join "`n"
         Assert-True ($preview -notmatch 'default config') 'A non-default home never plans the CLI default folder'
