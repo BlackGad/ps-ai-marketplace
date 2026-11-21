@@ -27,7 +27,7 @@ try {
     $custom = Join-Path $scratch 'custom target.ps1'
     '# inert' | Set-Content $custom
     $data = '{"schemaVersion":1,"agents":[],"channels":[]}' | ConvertFrom-Json
-    $settings = Join-Path $scratch '.legion/configuration/ps-ai-personalisation.json'
+    $settings = Join-Path $scratch '.legion/configuration/personalisation.json'
     Add-LegionSubscriptionAccount -Id custom-a -Tool codex -Command $custom -HomeRoot $scratch -Data $data -Path $settings | Out-Null
     $folder = Get-LegionNewAccountDir custom-a $scratch
     Assert-Equal $custom (Get-LegionWrapperTarget -Id custom-a -Tool codex -HomeRoot $scratch -ConfigDir $folder) 'K8 direct account repair recovers its custom target'

@@ -10,7 +10,7 @@ try {
     Copy-Item (Join-Path $root 'plugins/ps-ai') $plugin -Recurse
     git init --quiet $repo 2>&1 | Out-Null
     New-Item -ItemType Directory (Join-Path $fixtureHome '.legion/configuration'), (Join-Path $repo '.legion/configuration') -Force | Out-Null
-    '{"schemaVersion":1,"agents":[{"id":"codex-a","tool":"codex","configDir":"~/.codex"}],"channels":[]}' | Set-Content (Join-Path $fixtureHome '.legion/configuration/ps-ai-personalisation.json')
+    '{"schemaVersion":1,"agents":[{"id":"codex-a","tool":"codex","configDir":"~/.codex"}],"channels":[]}' | Set-Content (Join-Path $fixtureHome '.legion/configuration/personalisation.json')
     '{"schemaVersion":1}' | Set-Content (Join-Path $repo '.legion/configuration/project.json')
     $overseer = Join-Path $plugin 'bin/legion-overseer.ps1'
     $text = [IO.File]::ReadAllText($overseer)

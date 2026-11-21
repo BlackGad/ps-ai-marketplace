@@ -190,7 +190,7 @@ function Get-IntegrationHomeSnapshot {
     $folders = @(foreach ($tool in $script:IntegrationTools) {
         @{ Tool = $tool; Folder = Get-IntegrationToolFolder $tool }
     })
-    $settings = Join-Path $script:Ctx.HomeRoot '.legion/configuration/ps-ai-personalisation.json'
+    $settings = Join-Path $script:Ctx.HomeRoot '.legion/configuration/personalisation.json'
     if (Test-Path -LiteralPath $settings) {
         foreach ($agent in (Get-IntegrationSettings).Data.agents) {
             $folders += @{ Tool = $agent.tool; Folder = Resolve-IntegrationFolder $agent.configDir }
@@ -357,7 +357,7 @@ function Assert-IntegrationControlFolder {
 }
 
 function Get-IntegrationSettings {
-    $path = Join-Path $script:Ctx.HomeRoot '.legion/configuration/ps-ai-personalisation.json'
+    $path = Join-Path $script:Ctx.HomeRoot '.legion/configuration/personalisation.json'
     return @{ Path = $path; Data = (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json) }
 }
 
@@ -497,7 +497,7 @@ function Invoke-SetupFirst {
     $lines = Invoke-SetupAccounts
     $settings = Get-IntegrationSettings
     Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-validate.ps1') @('-Kind', 'personalisation', '-Path', $settings.Path) | Out-Null
-    Assert-IntegrationTrue (Test-Path -LiteralPath (Join-Path (Split-Path $settings.Path) 'ps-ai-notes.md')) 'ps-ai-notes.md is missing'
+    Assert-IntegrationTrue (Test-Path -LiteralPath (Join-Path (Split-Path $settings.Path) 'notes.md')) 'notes.md is missing'
     $ids = @($settings.Data.agents | ForEach-Object id)
     foreach ($tool in (Get-IntegrationActiveTools)) {
         Assert-IntegrationTrue ($ids -contains "${tool}1") "account ${tool}1 is missing"

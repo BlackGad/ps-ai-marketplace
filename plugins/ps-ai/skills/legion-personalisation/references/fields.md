@@ -1,6 +1,6 @@
 # Settings fields
 
-Save preferences using the [shared memory rule](../SKILL.md#identity-and-hard-rules). Personal, cross-repository preferences belong in `~/.legion/configuration/ps-ai-notes.md`. Read notes before selecting accounts, dispatching, communicating or knowledge work. Follow stated models, exclusions, account purposes, reviewer and worker order, careful-use choices and paid-use approval. Omit model flags unless notes name a model or allow a tier for the run; follow [model tiers](../../legion-overseer/references/task-loop.md#model-tiers). Discover models only for Foundry agents through [Foundry model mapping](foundry-models.md). Save new owner preferences as plain sentences when stated; ask model questions during setup only for Foundry mapping. Re-read after edits. Current owner instructions win. Scripts never parse notes.
+Save preferences using the [shared memory rule](../SKILL.md#identity-and-hard-rules). Personal, cross-repository preferences belong in `~/.legion/configuration/notes.md`. Read notes before selecting accounts, dispatching, communicating or knowledge work. Follow stated models, exclusions, account purposes, reviewer and worker order, careful-use choices and paid-use approval. Omit model flags unless notes name a model or allow a tier for the run; follow [model tiers](../../legion-overseer/references/task-loop.md#model-tiers). Discover models only for Foundry agents through [Foundry model mapping](foundry-models.md). Save new owner preferences as plain sentences when stated; ask model questions during setup only for Foundry mapping. Re-read after edits. Current owner instructions win. Scripts never parse notes.
 
 Route channel operations through `skills/legion-<kind>/SKILL.md`; stop if missing. Any chosen session may oversee without channels.
 
@@ -27,11 +27,11 @@ Validate every edit with the bundled schema:
 
 ```text
 
-pwsh -NoProfile -File <plugin>/bin/legion-validate.ps1 -Kind personalisation -Path <home>/.legion/configuration/ps-ai-personalisation.json
+pwsh -NoProfile -File <plugin>/bin/legion-validate.ps1 -Kind personalisation -Path <home>/.legion/configuration/personalisation.json
 
 ```
 
-Use the stable editor URL `https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/schemas/personalisation.schema.json` or omit `$schema`. Unknown fields require setup. Do not invent defaults or copy sample preferences. Use [create.md](create.md) for setup and [notes-template.md](notes-template.md) for headings. Record stated models, exclusions, purposes, careful/paid-use choices, notifications, format, knowledge location and durable lessons. Put unfinished requested work and “Finish my ps-ai setup” under Finish later. Add no consent or status properties. The agent repairs prose references after account/channel changes and reports unresolved wording.
+Use the stable editor URL `https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/legion/schemas/personalisation.schema.json` or omit `$schema`. Unknown fields require setup. Do not invent defaults or copy sample preferences. Use [create.md](create.md) for setup and [notes-template.md](notes-template.md) for headings. Record stated models, exclusions, purposes, careful/paid-use choices, notifications, format, knowledge location and durable lessons. Put unfinished requested work and “Finish my ps-ai setup” under Finish later. Add no consent or status properties. The agent repairs prose references after account/channel changes and reports unresolved wording.
 
 For tool operations read `skills/legion-<agent.tool>/SKILL.md`; stop if missing.
 

@@ -30,7 +30,7 @@ By default, the script installs ps-ai for every installed coding CLI, using the 
 Plain install and `-Update` select the same targets:
 
 - Without `-Tools`, select the CLIs found on PATH from `tools.json`. `-Tools` selects the named descriptors instead; update skips a selected CLI if its executable is missing.
-- For each selected CLI, the default folder is the one named by the CLI's account environment variable when it is set (for example `CLAUDE_CONFIG_DIR`). When it is not set, the CLI's own default runs with that variable cleared. Then add each matching `agents[].configDir` in `~/.legion/configuration/ps-ai-personalisation.json`; a recorded folder equal to the default folder is not run twice. Blank or missing `configDir` values are ignored; a leading `~/` or `~\` expands against the owner home and recorded paths become full paths. Repeated recorded paths run once (case insensitive on Windows, case sensitive elsewhere).
+- For each selected CLI, the default folder is the one named by the CLI's account environment variable when it is set (for example `CLAUDE_CONFIG_DIR`). When it is not set, the CLI's own default runs with that variable cleared. Then add each matching `agents[].configDir` in `~/.legion/configuration/personalisation.json`; a recorded folder equal to the default folder is not run twice. Blank or missing `configDir` values are ignored; a leading `~/` or `~\` expands against the owner home and recorded paths become full paths. Repeated recorded paths run once (case insensitive on Windows, case sensitive elsewhere).
 - `-ConfigDir` replaces that folder list with only the supplied folder for each selected CLI. `-Tools` and `-ConfigDir` can be combined.
 - Plain install skips completed steps. Update refreshes installed copies, including disabled ones; if ps-ai is missing in a folder, update asks `ps-ai is not installed for <tool> in <folder>. Install it now? [y/N]` before a fresh install. `-Yes` skips that question; `-DryRun` only previews. After a yes it uses the same marketplace registration and plugin installation steps as plain install; a no prints a `skip:` line for that folder. Missing recorded folders can be created by installation. `-DryRun` reads listings and previews mutations.
 
@@ -56,7 +56,7 @@ To adopt a signed-in account folder, run `legion add codex <existing folder>`. T
 
 ### Version checks and catalog revisions
 
-Overseer sessions check for a newer ps-ai version once a day and show a notice when one is available. Say "check ps-ai updates" for a fresh check, or "update ps-ai" to see the update command and approve running it. Checks never install updates. Release tags exist from `v0.6.0` onward. Update checks read the `plugin.json` on the `stable` branch, which moves only when a release is published, so a notice always means a published release. The notice names `legion update`. The shared checker is `pwsh -NoProfile -File <plugin>/bin/legion-update.ps1 -Check [-Force]`; `-Force` refreshes `~/.legion/temp/ps-ai-update.json` and reports check failures.
+Overseer sessions check for a newer ps-ai version once a day and show a notice when one is available. Say "check ps-ai updates" for a fresh check, or "update ps-ai" to see the update command and approve running it. Checks never install updates. Release tags exist from `v0.6.0` onward. Update checks read the `plugin.json` on the `stable` branch, which moves only when a release is published, so a notice always means a published release. The notice names `legion update`. The shared checker is `pwsh -NoProfile -File <plugin>/bin/legion-update.ps1 -Check [-Force]`; `-Force` refreshes `~/.legion/temp/update.json` and reports check failures.
 
 To follow `main` instead of releases, add `-Ref main` to the install line. To switch between release and main later, uninstall, then install:
 
@@ -123,6 +123,8 @@ Codex hook approvals for folders ps-ai no longer knows cannot be identified and 
 
 ## First run
 
+Owner files use `~/.legion/configuration/personalisation.json` and `configuration/notes.md`; the update cache is `temp/update.json`, installer scratch uses `temp/install-<guid>`, and Foundry launchers use `bin/.runtime/`. Setup, refresh and install move the older prefixed settings and notes, preserving bytes except the settings schema URL. Conflicting copies stop migration with one manual step; identical old copies are removed. The old settings name remains readable before migration. Refresh replaces generated launcher headers and known runtime files while preserving unrelated files.
+
 After installing ps-ai, ask any tool to add accounts, or run setup from a clone or installed plugin folder:
 
 ```powershell
@@ -143,8 +145,8 @@ Run again with -Yes to apply.
 
 After approving the plan, run it again with `-Yes`. Setup installs a missing CLI first, then adds the account and installs ps-ai before login. If CLI installation fails or needs a new terminal, that account is not recorded; retry the add after resolving the reported next step. Setup writes:
 
-- `~/.legion/configuration/ps-ai-personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/ps-ai/schemas/personalisation.schema.json`. It never holds tokens.
-- `~/.legion/configuration/ps-ai-notes.md`: free-form preferences and lessons.
+- `~/.legion/configuration/personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/ps-ai/schemas/personalisation.schema.json`. It never holds tokens.
+- `~/.legion/configuration/notes.md`: free-form preferences and lessons.
 
 It also writes account wrappers and the four commands below. On Windows it adds `~/.legion/bin` to your user PATH; on macOS and Linux it prints the line to add to your shell profile. It never edits that profile. Open a new terminal if needed.
 

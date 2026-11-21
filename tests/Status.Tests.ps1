@@ -119,7 +119,7 @@ try {
             @{ id = 'codex-a'; tool = 'codex'; configDir = '~/.codex-work' }
         )
         channels = @(@{ id = 'my-telegram'; kind = 'telegram'; target = '123'; accounts = @('claude-a') })
-    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $config 'ps-ai-personalisation.json')
+    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $config 'personalisation.json')
     $commands = Get-LegionOwnerCommands
     foreach ($name in $commands.Keys) {
         (Get-LegionShimText -Script (Join-Path $root "plugins/ps-ai/bin/$($commands[$name])")) |

@@ -1,7 +1,7 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
     $sandbox = Join-Path $repo ('.agents/temp/adopt-account-' + [guid]::NewGuid().ToString('N'))
-    $file = Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json'
+    $file = Join-Path $sandbox '.legion/configuration/personalisation.json'
     $folder = Join-Path $sandbox 'existing account'
     New-Item -ItemType Directory -Path (Split-Path $file -Parent), $folder -Force | Out-Null
     @{schemaVersion=1;agents=@();channels=@()} |

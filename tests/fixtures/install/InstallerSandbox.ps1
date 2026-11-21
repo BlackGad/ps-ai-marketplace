@@ -1,4 +1,10 @@
 param([string]$InstallFixtureHome)
+$env:HOME = $InstallFixtureHome
+$env:USERPROFILE = $InstallFixtureHome
+$fixtureCatalog = Get-Content (Join-Path $PSScriptRoot '../../../plugins/ps-ai/tools.json') -Raw | ConvertFrom-Json
+foreach ($fixtureTool in $fixtureCatalog.tools) {
+    [Environment]::SetEnvironmentVariable($fixtureTool.configEnv, (Join-Path $InstallFixtureHome $fixtureTool.plugin.defaultConfigDir.Substring(2)), 'Process')
+}
 function Get-InstallHome { $InstallFixtureHome }
 function Get-InstallSourceText { throw 'No network in tests' }
 function Ensure-InstallPowerShell { $true }

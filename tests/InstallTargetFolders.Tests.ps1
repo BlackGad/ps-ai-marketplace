@@ -4,7 +4,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
     $catalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/install-targets-' + [guid]::NewGuid().ToString('N'))
-    $file = Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json'
+    $file = Join-Path $sandbox '.legion/configuration/personalisation.json'
     New-Item -ItemType Directory -Path (Split-Path $file) -Force | Out-Null
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
     # The sandbox is not the real profile, so each tool's default folder lives in it and exists when installed.

@@ -176,7 +176,7 @@ else { 'ps-ai@ps-ai-marketplace installed, enabled ' + (Join-Path (Split-Path $P
     $runner = Join-Path $sandbox 'invoke-text.ps1'
     # The child reads the fixture home's accounts, never the real personalisation file.
     New-Item -ItemType Directory -Path (Join-Path $sandbox '.legion/configuration') -Force | Out-Null
-    '{"agents":[{"id":"codex-fixture","tool":"codex","configDir":"~/.legion/agents/codex-fixture"}]}' | Set-Content -LiteralPath (Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json')
+    '{"agents":[{"id":"codex-fixture","tool":"codex","configDir":"~/.legion/agents/codex-fixture"}]}' | Set-Content -LiteralPath (Join-Path $sandbox '.legion/configuration/personalisation.json')
     New-InstallTextRunner -Path $runner
     $result = Invoke-ClosedInput -Command @($fixturePwshExe, '-NoProfile', '-File', $runner, '-Installer', $standalone, '-Fixture', $sandbox, '-Tool', 'codex')
     $output = $result.Output
@@ -222,7 +222,7 @@ $fixtureHome = Split-Path $Installer
 $configFolder = Join-Path $fixtureHome '.legion/configuration'
 New-Item -ItemType Directory -Path $configFolder -Force | Out-Null
 '{"agents":[{"tool":"codex","configDir":"~/.legion/agents/codex-a"}]}' |
-    Set-Content -LiteralPath (Join-Path $configFolder 'ps-ai-personalisation.json')
+    Set-Content -LiteralPath (Join-Path $configFolder 'personalisation.json')
 function Get-InstallHome { $fixtureHome }
 function Invoke-InstallRefresh { } # Dedicated refresh tests exercise the installed script process.
 function Ensure-InstallPowerShell { throw 'Update attempted prerequisite installation' }

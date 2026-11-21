@@ -5,7 +5,7 @@ New-Item -ItemType Directory $homeRoot -Force | Out-Null
 try {
     $fake = Join-Path $homeRoot 'external.ps1'
     'throw "Account setup must not run the tool"' | Set-Content $fake
-    $file = Join-Path $homeRoot '.legion/configuration/ps-ai-personalisation.json'
+    $file = Join-Path $homeRoot '.legion/configuration/personalisation.json'
     # Invalid first adds must not create empty settings or settings folders.
     foreach ($action in @('add', 'register')) {
         foreach ($invalid in @(@{Id='Bad id';Tool='codex'}, @{Id='codex-a';Tool='unknown-tool'})) {
@@ -44,7 +44,7 @@ function Get-FoundryDeployments {
     Assert-Equal 0 @($data.channels).Count 'Created settings have no channels'
     $registerHome = Join-Path $homeRoot 'registered'
     & $accountScript -Action register -Id codex-registered -Tool codex -Command $fake -ConfigDir $homeRoot -HomeRoot $registerHome | Out-Null
-    $registered = Get-Content (Join-Path $registerHome '.legion/configuration/ps-ai-personalisation.json') -Raw | ConvertFrom-Json
+    $registered = Get-Content (Join-Path $registerHome '.legion/configuration/personalisation.json') -Raw | ConvertFrom-Json
     Assert-Equal 'codex-registered' $registered.agents[0].id 'First register saves the agent'
     Assert-Equal $homeRoot $registered.agents[0].configDir 'First register keeps the existing tool folder'
     Assert-Equal 1 $registered.schemaVersion 'First register uses format 1'

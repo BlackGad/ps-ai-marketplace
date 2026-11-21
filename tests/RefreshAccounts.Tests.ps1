@@ -19,7 +19,7 @@ try {
         if (-not $IsWindows) { & chmod +x $cli }
         $agents += @{ id = "$($descriptor.id)-a"; tool = $descriptor.id; configDir = "~/.legion/agents/$($descriptor.id)-a" }
     }
-    $settings = Join-Path $scratch '.legion/configuration/ps-ai-personalisation.json'
+    $settings = Join-Path $scratch '.legion/configuration/personalisation.json'
     Write-LegionPersonalisation -Data ([pscustomobject]@{ schemaVersion = 1; agents = $agents; channels = @() }) -Path $settings
     $original = [IO.File]::ReadAllText($settings)
     $first = @(& $refresh -HomeRoot $scratch)

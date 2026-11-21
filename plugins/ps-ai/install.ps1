@@ -448,6 +448,106 @@ function Get-InstallLegionPath {
     return Join-Path (Join-Path (Get-InstallHome) '.legion') $Path
 }
 
+# Owner-file names live here; standalone install.ps1 carries the same small helpers.
+function Get-InstallOwnerPath {
+    param([ValidateSet('Settings', 'Notes', 'Update', 'Runtime', 'Install')][string]$Name,
+        [string]$HomeRoot = (Get-InstallHome), [switch]$Existing, [switch]$Legacy)
+    $names = @{
+        Settings = @('configuration/personalisation.json', 'configuration/ps-ai-personalisation.json')
+        Notes = @('configuration/notes.md', 'configuration/ps-ai-notes.md')
+        Update = @('temp/update.json', 'temp/ps-ai-update.json')
+        Runtime = @('bin/.runtime', 'bin/.ps-ai-runtime')
+        Install = @('temp/install-', 'temp/ps-ai-install-')
+    }
+    $new = Get-InstallLegionPath $names[$Name][0]
+    $old = Get-InstallLegionPath $names[$Name][1]
+    if ($Legacy -or ($Existing -and -not (Test-Path -LiteralPath $new) -and (Test-Path -LiteralPath $old))) { return $old }
+    return $new
+}
+
+function Set-InstallTextPreservingEncoding {
+    param([string]$Path, [string]$Text)
+    $reader = [IO.StreamReader]::new($Path, $true)
+    try {
+        $original = $reader.ReadToEnd()
+        $encoding = $reader.CurrentEncoding
+    } finally { $reader.Dispose() }
+    if ($original -ceq $Text) { return }
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    $preamble = $encoding.GetPreamble()
+    $hasPreamble = $preamble.Length -gt 0 -and $bytes.Length -ge $preamble.Length
+    for ($i = 0; $hasPreamble -and $i -lt $preamble.Length; $i++) { $hasPreamble = $bytes[$i] -eq $preamble[$i] }
+    $updated = $encoding.GetBytes($Text)
+    $roundTrip = $encoding.GetBytes($original)
+    if ($hasPreamble) {
+        $updated = [byte[]]($preamble + $updated)
+        $roundTrip = [byte[]]($preamble + $roundTrip)
+    }
+    if ([Convert]::ToBase64String($bytes) -cne [Convert]::ToBase64String($roundTrip)) { throw 'File encoding is not lossless; resolve it manually before editing' }
+    [IO.File]::WriteAllBytes($Path, $updated)
+}
+
+function Test-InstallOwnerPathSafe {
+    param([string]$Path)
+    $current = [IO.Path]::GetFullPath($Path)
+    while ($current) {
+        if ((Test-Path -LiteralPath $current) -and ((Get-Item -LiteralPath $current -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { return $false }
+        $current = Split-Path $current -Parent
+    }
+    return $true
+}
+
+function Move-InstallOwnerFiles {
+    param([string]$HomeRoot = (Get-InstallHome))
+    $messages = @()
+    # Check both pairs before moving either; a conflict must leave the whole setup alone.
+    foreach ($name in @('Settings', 'Notes')) {
+        $old = Get-InstallOwnerPath -HomeRoot $HomeRoot -Name $name -Legacy
+        $new = Get-InstallOwnerPath -HomeRoot $HomeRoot -Name $name
+        foreach ($path in @($old, $new)) {
+            if (-not (Test-InstallOwnerPathSafe -Path $path)) {
+                return @{ Blocked = $true; Messages = @('Manual step: owner files contain linked paths; resolve them before migrating.') }
+            }
+        }
+        if ((Test-Path -LiteralPath $old) -and (Test-Path -LiteralPath $new) -and
+            (Get-FileHash -LiteralPath $old).Hash -cne (Get-FileHash -LiteralPath $new).Hash) {
+            return @{ Blocked = $true; Messages = @('Manual step: old and new owner files differ; reconcile them before migrating. Nothing changed.') }
+        }
+    }
+    foreach ($name in @('Settings', 'Notes')) {
+        $old = Get-InstallOwnerPath -HomeRoot $HomeRoot -Name $name -Legacy
+        $new = Get-InstallOwnerPath -HomeRoot $HomeRoot -Name $name
+        if (-not (Test-Path -LiteralPath $old)) { continue }
+        if (Test-Path -LiteralPath $new) { Remove-Item -LiteralPath $old -Force }
+        else { Move-Item -LiteralPath $old -Destination $new }
+        $messages += "migrated: owner $name"
+        if ($name -eq 'Settings') {
+            $text = [IO.File]::ReadAllText($new)
+            $text = [regex]::Replace($text, '("\$schema"\s*:\s*")[^"]*(")', '${1}https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/legion/schemas/personalisation.schema.json${2}')
+            Set-InstallTextPreservingEncoding -Path $new -Text $text
+        }
+    }
+    $temp = Get-InstallLegionPath 'temp'
+    $oldUpdate = Split-Path (Get-InstallOwnerPath -HomeRoot $HomeRoot -Name Update -Legacy) -Leaf
+    $oldInstallPrefix = [regex]::Escape((Split-Path (Get-InstallOwnerPath -HomeRoot $HomeRoot -Name Install -Legacy) -Leaf))
+    if (Test-Path -LiteralPath $temp -PathType Container) {
+        foreach ($item in Get-ChildItem -LiteralPath $temp -Force) {
+            if ($item.Name -cne $oldUpdate -and $item.Name -cnotmatch ('^' + $oldInstallPrefix + '[a-fA-F0-9]{32}$')) { continue }
+            $current = $item.FullName
+            $linked = $false
+            while ($current) {
+                if ((Get-Item -LiteralPath $current -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { $linked = $true; break }
+                $current = Split-Path $current -Parent
+            }
+            if ($linked -or ($item.PSIsContainer -and @(Get-ChildItem -LiteralPath $item.FullName -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count)) { continue }
+            Remove-Item -LiteralPath $item.FullName -Recurse -Force
+            $messages += 'removed: old installer temporary files'
+        }
+    }
+    if (-not $messages.Count) { $messages = @('skip: owner file migration (already done)') }
+    return @{ Blocked = $false; Messages = $messages }
+}
+
 function Resolve-InstallConfigDir {
     param([string]$Path)
     $Path = $Path.Replace('\', '/')
@@ -474,7 +574,7 @@ function Get-UpdateConfigDirs {
     if ($defaultFolder) { $defaultFolder = Resolve-InstallConfigDir $defaultFolder }
     $folders = @()
     $homeRoot = Get-InstallHome
-    $file = Get-InstallLegionPath 'configuration/ps-ai-personalisation.json'
+    $file = Get-InstallOwnerPath -Name Settings -Existing
     if (Test-Path -LiteralPath $file -PathType Leaf) {
         $data = Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         foreach ($agent in $data.agents) {
@@ -654,7 +754,7 @@ function Get-UninstallFiles {
             $path = Join-Path $bin "$($agent.id)$suffix"
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
             $header = if ($suffix) { "@rem Generated by ps-ai: account $($agent.id)" } else { "# Generated by ps-ai: account $($agent.id)" }
-            if ([IO.File]::ReadAllLines($path) -cnotcontains $header) { continue }
+            if (-not @([IO.File]::ReadAllLines($path) | Where-Object { $_ -ceq $header -or $_ -ceq $header.Replace('Generated by ps-ai:', 'Generated by legion:') }).Count) { continue }
             # Launchers survive uninstall; an unselected account still needs the shared runtime.
             if (-not $selected) { $unselectedLauncher = $true }
         }
@@ -662,13 +762,14 @@ function Get-UninstallFiles {
     if (-not $unselectedLauncher) {
         if (-not $KeepOwnerCommands) { $paths += Get-InstallOwnerCommandPaths -Bin $bin }
         # Exact files published by Sync-LegionFoundryRuntime; never remove the directory tree.
-        $runtime = Join-Path $bin '.ps-ai-runtime'
-        foreach ($name in @('bin/lib/tools.ps1', 'bin/lib/foundry.ps1', 'bin/lib/paths.ps1', 'bin/legion-foundry.ps1', 'schemas/tool.schema.json')) {
-            $paths += Join-Path $runtime $name
-        }
-        foreach ($entry in $script:installCatalog.tools) {
-            foreach ($name in @('SKILL.md', 'tool.json', 'scripts/foundry-config.ps1', 'scripts/foundry-launch.ps1')) {
-                $paths += Join-Path $runtime "skills/legion-$($entry.id)/$name"
+        foreach ($runtime in @((Get-InstallOwnerPath -Name Runtime), (Get-InstallOwnerPath -Name Runtime -Legacy))) {
+            foreach ($name in @('bin/lib/tools.ps1', 'bin/lib/foundry.ps1', 'bin/lib/paths.ps1', 'bin/legion-foundry.ps1', 'bin/ps-ai-foundry.ps1', 'schemas/tool.schema.json')) {
+                $paths += Join-Path $runtime $name
+            }
+            foreach ($entry in $script:installCatalog.tools) {
+                foreach ($name in @('SKILL.md', 'tool.json', 'scripts/foundry-config.ps1', 'scripts/foundry-launch.ps1')) {
+                    foreach ($prefix in @('legion', 'ps-ai')) { $paths += Join-Path $runtime "skills/$prefix-$($entry.id)/$name" }
+                }
             }
         }
     }
@@ -1073,7 +1174,7 @@ function Invoke-LegionUninstall {
     param([string[]]$Tools, [string]$ConfigDir, [switch]$DryRun, [switch]$Yes)
     $homeRoot = Get-InstallHome
     $script:installUninstallDeclined = $false
-    $file = Get-InstallLegionPath 'configuration/ps-ai-personalisation.json'
+    $file = Get-InstallOwnerPath -Name Settings -Existing
     $owner = $null
     if (Test-Path -LiteralPath $file -PathType Leaf) {
         $owner = Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
@@ -1404,7 +1505,7 @@ function Invoke-InstallWinget {
 }
 
 function Install-PowerShellZip {
-    $temporary = Get-InstallLegionPath ('temp/ps-ai-install-' + [guid]::NewGuid().ToString('N'))
+    $temporary = ((Get-InstallOwnerPath -Name Install) + [guid]::NewGuid().ToString('N'))
     $metadata = Join-Path $temporary 'release.json'
     $archive = Join-Path $temporary 'pwsh.zip'
     try {
@@ -1490,6 +1591,11 @@ function Invoke-LegionInstaller {
         if ($Purge -and -not $script:installUninstallDeclined) { Invoke-LegionPurge -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes }
         return
     }
+    if (-not $DryRun -and $Yes) {
+        $migration = Move-InstallOwnerFiles
+        $migration.Messages
+        if ($migration.Blocked) { return }
+    }
     if (-not $Tools -or $Tools.Count -eq 0) {
         $Tools = @($script:installCatalog.tools | Where-Object { Test-InstallCommandAvailable -Name $_.command } | ForEach-Object { $_.id })
     }
@@ -1519,6 +1625,11 @@ function Invoke-LegionInstaller {
             'Nothing changed. Run again with -Yes to apply.'
             return
         }
+        if (-not $DryRun -and -not $Yes) {
+            $migration = Move-InstallOwnerFiles
+            $migration.Messages
+            if ($migration.Blocked) { return }
+        }
         $Source = Resolve-InstallSource -Source $Source
         foreach ($target in $targets) {
             Invoke-LegionUpdateSteps -Entry $target.Entry -ConfigDir $target.Folder -PluginRoot $target.Root -Source $Source -Ref $Ref -DryRun:$DryRun -Yes
@@ -1539,6 +1650,11 @@ function Invoke-LegionInstaller {
         if (-not (Confirm-InstallChange -Yes:$Yes -Question "Install ps-ai for $($Tools -join ', ') now${pathQuestion}? [y/N]")) {
             'Nothing changed. Run again with -Yes to apply.'
             return
+        }
+        if (-not $Yes) {
+            $migration = Move-InstallOwnerFiles
+            $migration.Messages
+            if ($migration.Blocked) { return }
         }
         if (-not (Ensure-InstallPowerShell -Yes)) { return }
         if ($onWindows) {

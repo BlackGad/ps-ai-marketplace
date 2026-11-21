@@ -10,7 +10,7 @@ try {
     $homeRoot = Join-Path $tempRoot 'owner $(printf expanded) & quoted '' fixture'
     $config = Join-Path $homeRoot '.legion/configuration'
     New-Item -ItemType Directory -Path $config -Force | Out-Null
-    Copy-Item (Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json') (Join-Path $config 'ps-ai-personalisation.json')
+    Copy-Item (Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json') (Join-Path $config 'personalisation.json')
     $fake = Join-Path $tempRoot 'fake command.ps1'
     @'
 [IO.File]::WriteAllText($env:LEGION_WRAPPER_LOG, (@{ Args=@($args); Home=$env:CODEX_HOME } | ConvertTo-Json))
@@ -19,7 +19,7 @@ exit 37
     $env:LEGION_WRAPPER_LOG = Join-Path $tempRoot 'log.json'
     & $account -Action add -Id wrapper-test -Tool codex -HomeRoot $homeRoot -Command $fake | Out-Null
     $bin = Join-Path $homeRoot '.legion/bin'
-    $owner = Get-Content (Join-Path $config 'ps-ai-personalisation.json') -Raw | ConvertFrom-Json
+    $owner = Get-Content (Join-Path $config 'personalisation.json') -Raw | ConvertFrom-Json
     $entry = $owner.agents | Where-Object id -eq wrapper-test
     $expected = if ($IsWindows) { '~/.legion/bin/wrapper-test.cmd' } else { '~/.legion/bin/wrapper-test' }
     Assert-True (-not $entry.PSObject.Properties['command']) 'Canonical command is derived'

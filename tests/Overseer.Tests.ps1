@@ -12,7 +12,7 @@ Assert-True (-not (($lines -join "`n").Contains('not set up'))) 'Fresh home asks
 Assert-True (-not (Test-Path -LiteralPath (Join-Path $tempRoot '.legion'))) 'Fresh home writes nothing'
 Assert-True (-not ($lines -match 'Usage:')) 'Bare launcher prints no usage line'
 New-Item -ItemType Directory (Join-Path $tempRoot '.legion/configuration') -Force | Out-Null
-'{"schemaVersion":1,"agents":[{"id":"claude-a","tool":"claude","configDir":"~/a"}],"channels":[]}' | Set-Content (Join-Path $tempRoot '.legion/configuration/ps-ai-personalisation.json')
+'{"schemaVersion":1,"agents":[{"id":"claude-a","tool":"claude","configDir":"~/a"}],"channels":[]}' | Set-Content (Join-Path $tempRoot '.legion/configuration/personalisation.json')
 $lines = @('' | & pwsh -NoProfile -File $script -HomeRoot $tempRoot -Repo $tempRoot 2>&1)
 Assert-True ($LASTEXITCODE -ne 0) 'Bare launcher in an unset-up repository fails'
 Assert-True (($lines -join "`n").Contains('This repository is not set up. Set it up (private)? [Y/n]')) 'Redirected not-set-up launcher prints the question'
@@ -188,7 +188,7 @@ $runHome = Join-Path $tempRoot 'run-home'
 $runRepo = Join-Path $tempRoot 'run-repo'
 New-Item -ItemType Directory (Join-Path $runHome '.legion/configuration'), (Join-Path $runRepo '.legion/configuration') -Force | Out-Null
 '{"schemaVersion":1}' | Set-Content (Join-Path $runRepo '.legion/configuration/project.json')
-$two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
+$two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/personalisation.json')
 & {
     $state = @{Launch=$null; Fail=$false; NoGit=$false; Interactive=$false; Yes=$true; Answer=''; Events=@(); Asked=@(); ChoiceArgs=$null; LaunchRepo=$null; ExitCode=0; Launches=0; InPlace=$null}
     $uuid = '11111111-2222-3333-4444-555555555555'
@@ -259,10 +259,10 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     Assert-Equal (Get-LegionWrapperCommand claude1 $runHome) $state.Launch.Command 'A stale lease can supply the last account'
     Remove-Item -LiteralPath $lastFile, $leaseFile
     $single = [pscustomobject]@{schemaVersion=1;agents=@($two.agents[1]);channels=@()}
-    $single | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
+    $single | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/personalisation.json')
     $null = Invoke-Overseer @run
     Assert-Equal (Get-LegionWrapperCommand codex1 $runHome) $state.Launch.Command 'One eligible account starts when no history exists'
-    $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
+    $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/personalisation.json')
     # A bare start brings back the last minion with its settings, whatever ran in between.
     $null = Invoke-Overseer @run -Account claude1 -Channel @() -NoChannel -Arguments @('--model', 'chosen', '')
     $text = @(Invoke-Overseer @run -Account '' -Channel @())
@@ -344,10 +344,10 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     Assert-Equal 'setup|choose|launch' ($state.Events -join '|') 'NotSetUpAsks yes sets up once, asks for the account, then launches'
     Assert-Equal ('launched codex1 (codex) in ' + $freshRepo) ($text -join '|') 'NotSetUpAsks yes launches the chosen account'
 
-    '{"schemaVersion":1,"agents":[],"channels":[]}' | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
+    '{"schemaVersion":1,"agents":[],"channels":[]}' | Set-Content (Join-Path $runHome '.legion/configuration/personalisation.json')
     try { Invoke-Overseer @run; throw 'Expected a no-accounts failure' }
     catch { Assert-Equal 'No accounts yet. Add one: legion add claude' $_.Exception.Message 'NoAccounts says how to add one' }
-    $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
+    $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/personalisation.json')
 
     Remove-Item -LiteralPath $lastFile, $leaseFile -ErrorAction Ignore
     $state.Answer = 'claude1'
@@ -428,12 +428,12 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
 
     $copilot = $two | ConvertTo-Json -Depth 100 | ConvertFrom-Json
     $copilot.agents = @($copilot.agents) + [pscustomobject]@{id='copilot1';tool='copilot';configDir='~/d'}
-    $copilot | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
+    $copilot | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/personalisation.json')
     & $saveLast copilot1 'last'
     $null = Invoke-Overseer @run
     Assert-Equal '-i|continue as the overseer' ($state.Launch.Args -join '|') 'CopilotFresh never resumes'
     Assert-Equal '' (Get-OverseerLastLaunch -Repo $runRepo -HomeRoot $runHome).session 'CopilotFresh saves an empty session'
-    $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
+    $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/personalisation.json')
 
     # A failed launch marks the entry fresh and is not retried.
     & $saveLast codex1 'last'

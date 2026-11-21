@@ -200,7 +200,7 @@ $agentData = Get-Content -LiteralPath $AgentPath -Raw | ConvertFrom-Json
         $fourthCopy = Join-Path $pluginCopy 'skills/legion-fourth'
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') -Destination $fourthCopy -Recurse
         $homeCopy = Join-Path $configRoot 'delegation home'
-        $personalisation = Join-Path $homeCopy '.legion/configuration/ps-ai-personalisation.json'
+        $personalisation = Join-Path $homeCopy '.legion/configuration/personalisation.json'
         New-Item -ItemType Directory -Path (Split-Path $personalisation -Parent) -Force | Out-Null
         [IO.File]::WriteAllText($personalisation, '{"schemaVersion":1,"agents":[]}')
         & {

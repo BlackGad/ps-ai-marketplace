@@ -76,7 +76,7 @@ function Test-PurgeScenario {
 
 Test-PurgeScenario {
     $login = New-PurgeFile '.legion/agents/codex-a/auth.json' 'fake login'
-    $notes = New-PurgeFile '.legion/configuration/ps-ai-notes.md' 'notes'
+    $notes = New-PurgeFile '.legion/configuration/notes.md' 'notes'
     $repoFile = New-PurgeFile 'repositories/my-project/.legion/configuration/project.json' 'repository data'
     $settings = New-PurgeFile 'override-copilot/settings.json' '{"enabledPlugins":{"other@else":true,"ps-ai@ps-ai-marketplace":false},"theme":"dark"}'
     $cache = New-PurgeFile '.claude/plugins/cache/ps-ai-marketplace/ps-ai/1.0/plugin.json'
@@ -111,6 +111,8 @@ Test-PurgeScenario {
 Test-PurgeScenario {
     $state.Missing=$true
     $null = New-PurgeFile '.legion/configuration/ps-ai-personalisation.json' '{"agents":[{"tool":"claude","configDir":"~/custom-claude"},{"tool":"codex","configDir":"~/custom-codex"}]}'
+    $null = New-PurgeFile '.legion/configuration/ps-ai-notes.md' 'legacy notes'
+    $null = New-PurgeFile '.legion/configuration/notes.md' 'current notes'
     $claude = New-PurgeFile 'custom-claude/plugins/installed_plugins.json' '{"version":2,"plugins":{"ps-ai@ps-ai-marketplace":[{"scope":"user"}],"other@else":[{"scope":"user"}]}}'
     $market = New-PurgeFile '.claude/plugins/known_marketplaces.json' '{"ps-ai-marketplace":{"source":{"source":"github"}},"other":{"keep":1}}'
     $copilot = New-PurgeFile 'override-copilot/config.json' '{"installedPlugins":[{"name":"ps-ai","marketplace":"ps-ai-marketplace","cache_path":"unused"},{"name":"other","marketplace":"else"}],"other":123}'
@@ -122,6 +124,7 @@ Test-PurgeScenario {
     Assert-Equal '{"installedPlugins":[{"name":"other","marketplace":"else"}],"other":123}' ([IO.File]::ReadAllText($copilot)) 'Copilot internal plugin record removed without rewriting unrelated state'
     $expected = "# keep`r`nmodel = 'keep'`r`n[plugins.`"other@else`"]`r`nenabled = true`r`n[hooks.state.'other@else:hooks/hooks.json:session_start:0:0']`r`ntrusted_hash = 'keep'`r`n"
     Assert-Equal $expected ([IO.File]::ReadAllText($toml)) 'Only ps-ai TOML tables removed, keeping CRLF'
+    Assert-True (-not (Test-Path (Join-Path $fixtureHome '.legion'))) 'Purge footprint includes both old and new owner filenames'
 }
 
 Test-PurgeScenario {
@@ -160,7 +163,7 @@ Test-PurgeScenario {
     $state.UserPath="keep-first;$bin;keep-middle;$portable;keep-last;"
     $separator = [string][IO.Path]::PathSeparator
     $env:PATH = @('keep-first', $bin, 'keep-middle', $portable, 'keep-last') -join $separator
-    $null = New-PurgeFile '.legion/configuration/ps-ai-notes.md' 'notes'
+    $null = New-PurgeFile '.legion/configuration/notes.md' 'notes'
     $preview = @(Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -DryRun) -join "`n"
     Assert-True ($preview.IndexOf("Remove user PATH entry: $bin") -lt $preview.IndexOf('Remove folder:')) 'PATH entries listed before folder removal'
     Assert-True ($preview.Contains("Remove process PATH entry: $bin")) 'Process PATH changes listed'

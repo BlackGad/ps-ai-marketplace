@@ -2,7 +2,9 @@ param(
     [string]$Repo = (Get-Location).Path,
     [ValidateSet('Private', 'Shared')][string]$Mode = 'Private',
     [string]$Gate,
-    [string]$RulesFile
+    [string]$RulesFile,
+    [switch]$Migrate,
+    [switch]$Yes
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,7 +12,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'legion-validate.ps1') -NoRun
 
 $references = Join-Path $PSScriptRoot '../skills/legion-repository/references'
-$rulesHeading = '## ps-ai orchestration'
+$rulesHeading = '## legion orchestration'
 $commitMessage = 'Set up ps-ai orchestration'
 # Every file and folder setup writes inside .legion, relative to it.
 $generatedFiles = @(
@@ -255,6 +257,49 @@ function Save-SetupCommit {
 $repoRoot = Get-LegionCodeRoot -Path $Repo
 if (-not $repoRoot) { throw 'Repository setup needs a Git working tree' }
 $legion = Get-LegionRepoPath -Repo $repoRoot -Path ''
+if ($Migrate) {
+    $edits = @()
+    $rulesName = Resolve-RulesFileName -RepoRoot $repoRoot -Requested $RulesFile
+    $targets = @((Join-Path $legion 'configuration/workflow.md'))
+    if ($rulesName) { $targets += Join-Path $repoRoot $rulesName }
+    foreach ($path in $targets) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        if (-not (Test-LegionOwnerPathSafe $path)) { throw 'Repository migration will not edit linked files' }
+        $before = Read-Text $path
+        $after = [regex]::Replace($before, '(?ms)^## (?:ps-ai|legion) orchestration\b.*?(?=^## |\z)', {
+            param($match)
+            $match.Value.Replace('## ps-ai orchestration', '## legion orchestration').Replace('PS_AI_ROLE=legion', 'LEGION_ROLE=member').Replace('PS_AI_ROLE', 'LEGION_ROLE').Replace('PS_AI_TASK', 'LEGION_TASK').Replace('ps-ai plugin', 'legion plugin').Replace('ps-ai personalisation', 'legion personalisation')
+        })
+        if ($before -cne $after) { $edits += @{ Path = $path; Before = $before; After = $after } }
+    }
+    $path = Join-Path $legion 'configuration/project.json'
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        if (-not (Test-LegionOwnerPathSafe $path)) { throw 'Repository migration will not edit linked files' }
+        $before = Read-Text $path
+        $after = [regex]::Replace($before, '("\$schema"\s*:\s*")[^"]*(")', {
+            param($match)
+            $match.Value.Replace('/plugins/ps-ai/schemas/project.schema.json', '/plugins/legion/schemas/project.schema.json')
+        })
+        if ($before -cne $after) { $edits += @{ Path = $path; Before = $before; After = $after } }
+    }
+    if (-not $edits.Count) { 'skip: repository names (already done)'; return }
+    foreach ($edit in $edits) {
+        if (-not $Yes) {
+            "Proposed name update: $($edit.Path)"
+            $beforeLines = $edit.Before -split '\r?\n'
+            $afterLines = $edit.After -split '\r?\n'
+            for ($i = 0; $i -lt $beforeLines.Count; $i++) {
+                if ($beforeLines[$i] -cne $afterLines[$i]) { '- ' + $beforeLines[$i]; '+ ' + $afterLines[$i] }
+            }
+        } else {
+            if ((Read-Text $edit.Path) -cne $edit.Before) { throw 'Repository file changed during migration; review again' }
+            Set-LegionTextPreservingEncoding -Path $edit.Path -Text $edit.After
+            "updated: $($edit.Path)"
+        }
+    }
+    if (-not $Yes) { 'Nothing changed. Apply only after the owner agrees, with -Migrate -Yes.' }
+    return
+}
 $innerGit = Join-Path $legion '.git'
 $changedPaths = @()   # setup files written by this run
 $keptPaths = @()      # setup files that already existed, relative to .legion

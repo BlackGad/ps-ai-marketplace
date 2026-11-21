@@ -5,6 +5,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $catalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/uninstall-' + [guid]::NewGuid().ToString('N'))
     $bin = Join-Path $sandbox '.legion/bin'
+    # Old-only owner settings must still select every recorded uninstall target.
     $personalisation = Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json'
     $account = Join-Path $sandbox '.legion/agents/codex-a'
     $secondAccount = Join-Path $sandbox '.legion/agents/codex-b'
@@ -69,7 +70,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         )
         @{agents=$agents} | ConvertTo-Json | Set-Content $personalisation
         $original = Get-Content $personalisation -Raw
-        'notes' | Set-Content (Join-Path (Split-Path $personalisation) 'ps-ai-notes.md')
+        'notes' | Set-Content (Join-Path (Split-Path $personalisation) 'notes.md')
         'login' | Set-Content (Join-Path $account 'auth.json')
         'second login' | Set-Content (Join-Path $secondAccount 'auth.json')
         foreach ($name in @('codex-a','codex-a.cmd','codex-b','codex-b.cmd','external','external.cmd','unrelated','legion.cmd')) {
@@ -86,7 +87,7 @@ exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-
             . (Join-Path $repo 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
             $null = Sync-LegionFoundryRuntime -Tool codex -HomeRoot $sandbox
         }
-        $runtime = Join-Path $bin '.ps-ai-runtime'
+        $runtime = Join-Path $bin '.runtime'
         $published = @(Get-ChildItem -LiteralPath $runtime -Recurse -File -Force | ForEach-Object FullName)
         'keep' | Set-Content (Join-Path $runtime 'owner.txt')
         'owner script' | Set-Content (Join-Path $runtime 'skills/legion-codex/scripts/foundry-custom.ps1')
@@ -136,7 +137,7 @@ exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-
         }
         Assert-True (-not (Test-Path (Join-Path $bin 'legion'))) 'Owner command removed when no install remains'
         Assert-True ($output -contains "Kept account launchers: $bin") 'Summary names the retained account launchers'
-        foreach ($name in @('external','external.cmd','unrelated','legion.cmd','.ps-ai-runtime/owner.txt','.ps-ai-runtime/skills/legion-codex/scripts/foundry-custom.ps1')) {
+        foreach ($name in @('external','external.cmd','unrelated','legion.cmd','.runtime/owner.txt','.runtime/skills/legion-codex/scripts/foundry-custom.ps1')) {
             Assert-True (Test-Path (Join-Path $bin $name)) 'Unowned files preserved'
         }
         Assert-True (-not (Test-Path (Join-Path $runtime 'bin/legion-foundry.ps1'))) 'Copied runtime files removed'

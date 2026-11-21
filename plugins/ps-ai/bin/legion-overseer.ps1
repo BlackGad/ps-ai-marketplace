@@ -236,7 +236,7 @@ function Invoke-Overseer {
     $Repo = Get-LegionCodeRoot -Path $Repo
     if (-not $Repo) { throw 'not a git repository; run legion inside one' }
     $projectFile = Get-LegionRepoPath -Repo $Repo -Path 'configuration/project.json'
-    $ownerFile = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
+    $ownerFile = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings -Existing
     # No accounts yet: stop before any question, writing nothing.
     if (-not (Test-Path -LiteralPath $ownerFile)) { throw 'No accounts yet. Add one: legion add claude' }
     if (-not (Test-Path -LiteralPath $projectFile)) {

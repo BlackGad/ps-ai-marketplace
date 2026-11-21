@@ -20,7 +20,7 @@ try {
     $copilotAgent = [pscustomobject]@{id='copilot-dev';tool='copilot';configDir='~/.legion/agents/copilot-dev';provider=$copilotProvider}
     $codexAgent = [pscustomobject]@{id='codex-dev';tool='codex';configDir='~/.legion/agents/codex-dev';provider=@{kind='foundry';endpoint=$provider.endpoint;default='gpt-x';deployments=@(@{name='gpt-x'})}}
     @{agents=@($claudeAgent,$copilotAgent,$codexAgent,@{id='subscription';tool='claude'})} |
-        ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $config 'ps-ai-personalisation.json')
+        ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $config 'personalisation.json')
     $launch = Get-FoundryLaunch -Agent $claudeAgent -HomeRoot $homeRoot
     foreach ($name in @('ANTHROPIC_FOUNDRY_RESOURCE','ANTHROPIC_FOUNDRY_API_KEY','ANTHROPIC_FOUNDRY_AUTH_TOKEN','ANTHROPIC_SMALL_FAST_MODEL','CLAUDE_CODE_USE_BEDROCK','CLAUDE_CODE_USE_VERTEX','CLAUDE_CODE_USE_ANTHROPIC_AWS','CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD','CLAUDE_CODE_USE_MANTLE','CLAUDE_CODE_USE_GATEWAY')) {
         Assert-True ($launch.Clear -contains $name) "Claude clears $name"
@@ -71,7 +71,7 @@ try {
         Assert-Equal (Join-Path $homeRoot '.legion/temp') (Split-Path $log.environment.COPILOT_PROVIDERS_CONFIG -Parent) 'Provider file in per-home temp'
         $providers = $log.providersJson | ConvertFrom-Json
         Assert-Equal 1 $providers.providers.Count 'One Copilot provider'
-        Assert-Equal 'ps-ai-foundry' $providers.providers[0].name 'Copilot provider name'
+        Assert-Equal 'legion-foundry' $providers.providers[0].name 'Copilot provider name'
         Assert-Equal 'anthropic' $providers.providers[0].type 'Copilot provider protocol'
         Assert-Equal 'https://res-a.cognitiveservices.azure.com/anthropic' $providers.providers[0].baseUrl 'Copilot endpoint'
         Assert-True ($providers.providers[0].bearerToken -ceq 'fake-token') 'Copilot uses bearer token'
@@ -79,7 +79,7 @@ try {
         Assert-Equal 2 $providers.models.Count 'Copilot includes all deployments'
         Assert-Equal 'claude-sonnet-x' $providers.models[1].modelId 'Unknown model falls back to deployment'
         Assert-Equal 'claude-sonnet-x' $providers.models[1].wireModel 'Copilot wire model is deployment'
-        Assert-Equal 'ps-ai-foundry' $providers.models[1].provider 'Copilot model provider'
+        Assert-Equal 'legion-foundry' $providers.models[1].provider 'Copilot model provider'
     }
     Remove-Item -LiteralPath $env:LEGION_FAKE_TOOL_LOG
     Use-FakeAz -Answers @{ $tokenKey = @{exit=1;stdout='fake token denied'}; login = @{exit=0;stdout=''} }
@@ -118,7 +118,7 @@ try {
     Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') $fourthSkill -Recurse
     $env:PATH = @($bin,$fourthSkill,$fakeToolsFolder,$fakeAzFolder,$PSHOME) -join [IO.Path]::PathSeparator
     'throw "owned wrapper selected"' | Set-Content (Join-Path $bin 'fourth-cli.ps1')
-    $file = Join-Path $config 'ps-ai-personalisation.json'
+    $file = Join-Path $config 'personalisation.json'
     $data = Get-Content $file -Raw | ConvertFrom-Json
     $data.agents += @([pscustomobject]@{id='fourth-dev';tool='fourth';configDir='~/.legion/agents/fourth-dev';provider=$provider})
     $data | ConvertTo-Json -Depth 100 | Set-Content $file

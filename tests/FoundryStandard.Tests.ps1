@@ -59,7 +59,7 @@ $savedPath = $env:PATH
 $savedAnswers = $env:LEGION_FAKE_AZ
 $savedLog = $env:LEGION_FAKE_AZ_LOG
 $sandbox = Join-Path $repo ('.agents/temp/foundry-standard-' + [guid]::NewGuid().ToString('N'))
-$file = Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json'
+$file = Join-Path $sandbox '.legion/configuration/personalisation.json'
 New-Item -ItemType Directory -Path (Split-Path $file -Parent) -Force | Out-Null
 @{schemaVersion=1;agents=@();channels=@()} | ConvertTo-Json | Set-Content $file
 try {

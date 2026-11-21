@@ -82,7 +82,7 @@ try {
     $fixture = Join-Path $scratch ('consumers-' + [guid]::NewGuid().ToString('N'))
     $plugin = Join-Path $fixture 'plugin'
     $homeRoot = Join-Path $fixture 'home with spaces'
-    $ownerPath = Join-Path $homeRoot '.legion/configuration/ps-ai-personalisation.json'
+    $ownerPath = Join-Path $homeRoot '.legion/configuration/personalisation.json'
     $savedPath = $env:PATH
     try {
         New-Item -ItemType Directory (Split-Path $ownerPath -Parent) -Force | Out-Null

@@ -12,7 +12,7 @@ New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
     $env:LEGION_FAKE_TOOL_LOG = Join-Path $tempRoot 'tool-log.json'
     $homeRoot = Join-Path $tempRoot 'owner with spaces'
-    $file = Join-Path $homeRoot '.legion/configuration/ps-ai-personalisation.json'
+    $file = Join-Path $homeRoot '.legion/configuration/personalisation.json'
     New-Item -ItemType Directory -Path (Split-Path $file -Parent) -Force | Out-Null
     @{schemaVersion=1;agents=@();channels=@()} |
         ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $file
@@ -52,15 +52,15 @@ try {
     Assert-True $picker.modelPicker.replaceBuiltInOptions 'Claude picker replaces builtins'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.model -join '|') 'Picker uses deployment names'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.label -join '|') 'Picker labels'
-    foreach ($name in @('claude-dev','claude-dev.cmd','.ps-ai-runtime/bin/legion-foundry.ps1','.ps-ai-runtime/bin/lib/foundry.ps1','.ps-ai-runtime/bin/lib/tools.ps1','.ps-ai-runtime/schemas/tool.schema.json')) {
+    foreach ($name in @('claude-dev','claude-dev.cmd','.runtime/bin/legion-foundry.ps1','.runtime/bin/lib/foundry.ps1','.runtime/bin/lib/tools.ps1','.runtime/schemas/tool.schema.json')) {
         Assert-True (Test-Path (Join-Path $homeRoot ".legion/bin/$name")) "Foundry writes $name"
     }
     # RuntimeSurvivesRelocation: only selected runtime files are bundled.
-    $runtime = Join-Path (Get-LongPath $homeRoot) '.legion/bin/.ps-ai-runtime'
+    $runtime = Join-Path (Get-LongPath $homeRoot) '.legion/bin/.runtime'
     $expectedFiles = @('bin/legion-foundry.ps1','bin/lib/foundry.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','schemas/tool.schema.json','skills/legion-claude/SKILL.md','skills/legion-claude/tool.json','skills/legion-claude/scripts/foundry-launch.ps1','skills/legion-claude/scripts/foundry-config.ps1')
     Assert-Equal (($expectedFiles | Sort-Object) -join '|') ((Get-ChildItem $runtime -File -Recurse | ForEach-Object { [IO.Path]::GetRelativePath($runtime, $_.FullName).Replace('\','/') } | Sort-Object) -join '|') 'Bundle contains only runtime dependencies'
     Assert-True ((Get-Content (Join-Path $homeRoot '.legion/bin/claude-dev') -Raw).Contains((Join-Path $runtime 'bin/legion-foundry.ps1'))) 'Wrapper targets bundled runner'
-    $tracked = @($file, $settings, (Join-Path $homeRoot '.legion/bin/claude-dev'), (Join-Path $homeRoot '.legion/bin/.ps-ai-runtime/bin/legion-foundry.ps1'))
+    $tracked = @($file, $settings, (Join-Path $homeRoot '.legion/bin/claude-dev'), (Join-Path $homeRoot '.legion/bin/.runtime/bin/legion-foundry.ps1'))
     $timestamps = @($tracked | ForEach-Object { [IO.File]::GetLastWriteTimeUtc($_).Ticks })
     $repeat = & $accountScript -Action add @common @selection
     Assert-Equal 'skip: account claude-dev (already done)' $repeat 'Repeated add skips'
@@ -114,10 +114,10 @@ try {
 approval_policy = "never"
 model = "old"
 model_provider = "old"
-[model_providers.ps-ai-foundry]
+[model_providers.legion-foundry]
 base_url = "old"
 obsolete = true
-[model_providers.ps-ai-foundry.auth]
+[model_providers.legion-foundry.auth]
 command = "old"
 [other]
 model = "kept-nested"
@@ -132,7 +132,7 @@ value = 1
     Assert-True ($content.Contains('refresh_interval_ms = 1800000')) 'Codex refresh interval'
     Assert-True ($content.Contains('wire_api = "responses"')) 'Codex responses protocol'
     Assert-True ($content.Contains('"--resource","https://cognitiveservices.azure.com","--query","accessToken","-o","tsv"')) 'Codex token command arguments'
-    Assert-True (-not $content.Contains('obsolete')) 'Codex replaces provider table'
+    Assert-True ($content.Contains('obsolete = true')) 'Codex preserves unrelated provider settings'
     Assert-Equal 1 ([regex]::Matches($content, '(?m)^model_provider = ').Count) 'Codex has one root provider'
     $tomlCases = @(
         @{
@@ -141,9 +141,9 @@ value = 1
 "model" = "old-model"
 'model_provider' = "old-provider"
 approval_policy = "never"
-[model_providers."ps-ai-foundry"]
+[model_providers."legion-foundry"]
 base_url = "old-endpoint"
-[model_providers.'ps-ai-foundry'.auth]
+[model_providers.'legion-foundry'.auth]
 command = "old-command"
 [other]
 value = 1
@@ -166,24 +166,24 @@ approval_policy = "never"
         @{
             id = 'codex-escaped'
             text = @'
-# Comment with """ and [model_providers.ps-ai-foundry]
+# Comment with """ and [model_providers.legion-foundry]
 developer_instructions = """
 Escaped delimiter: \"""
-[model_providers.ps-ai-foundry]
+[model_providers.legion-foundry]
 model = "preserved-prompt"
-""" # comment with ''' and [model_providers.ps-ai-foundry.auth]
+""" # comment with ''' and [model_providers.legion-foundry.auth]
 note = "escaped quote: \" and triple apostrophes '''" # """
 approval_policy = "never"
 model = "old-model"
 model_provider = "old-provider"
-[model_providers.ps-ai-foundry] # '''
+[model_providers.legion-foundry] # '''
 base_url = "old-endpoint"
-[model_providers.ps-ai-foundry.auth] # """
+[model_providers.legion-foundry.auth] # """
 command = "old-command"
 [other] # """
 value = 1
 '@
-            preserved = "developer_instructions = `"`"`"`nEscaped delimiter: \`"`"`"`n[model_providers.ps-ai-foundry]`nmodel = `"preserved-prompt`"`n`"`"`" # comment with ''' and [model_providers.ps-ai-foundry.auth]"
+            preserved = "developer_instructions = `"`"`"`nEscaped delimiter: \`"`"`"`n[model_providers.legion-foundry]`nmodel = `"preserved-prompt`"`n`"`"`" # comment with ''' and [model_providers.legion-foundry.auth]"
         },
         @{
             id = 'codex-nested-array'
@@ -202,14 +202,14 @@ approval_policy = "never"
             id = 'codex-multiline-provider'
             text = @'
 developer_instructions = '''
-[model_providers.ps-ai-foundry]
+[model_providers.legion-foundry]
 Preserve these instructions.
 '''
 model = "old-model"
 model_provider = "old-provider"
 approval_policy = "never"
 '@
-            preserved = "developer_instructions = '''`n[model_providers.ps-ai-foundry]`nPreserve these instructions.`n'''"
+            preserved = "developer_instructions = '''`n[model_providers.legion-foundry]`nPreserve these instructions.`n'''"
         }
     )
     foreach ($tomlCase in $tomlCases) {
@@ -228,7 +228,7 @@ approval_policy = "never"
         . $accountScript -HomeRoot $homeRoot
         # Runtime namespace must not consume any valid account name.
         $collisionHome = Join-Path $tempRoot 'collision-home'
-        $collisionFile = Join-Path $collisionHome '.legion/configuration/ps-ai-personalisation.json'
+        $collisionFile = Join-Path $collisionHome '.legion/configuration/personalisation.json'
         New-Item -ItemType Directory (Split-Path $collisionFile -Parent) -Force | Out-Null
         Copy-Item $file $collisionFile
         $preservedCommand = Join-Path $collisionHome 'preserved-cli.ps1'

@@ -28,7 +28,7 @@ function Get-LegionUpdate {
         if ($manifest.name -ne 'ps-ai') { throw 'Invalid installed manifest' }
         $installed = [semver]::Parse([string]$manifest.version)
         $source = 'BlackGad/ps-ai-marketplace'
-        $cachePath = Get-LegionHomePath -HomeRoot (Get-LegionUpdateHome) -Path 'temp/ps-ai-update.json'
+        $cachePath = Get-LegionOwnerPath -HomeRoot (Get-LegionUpdateHome) -Name Update
         $cached = $null
         if (-not $Force -and (Test-Path -LiteralPath $cachePath -PathType Leaf)) {
             try {

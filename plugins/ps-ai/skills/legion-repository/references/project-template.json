@@ -1,4 +1,4 @@
 {
-  "$schema": "https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/schemas/project.schema.json",
+  "$schema": "https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/legion/schemas/project.schema.json",
   "schemaVersion": 1
 }

@@ -75,7 +75,7 @@ function Write-StatusRepository {
 
 # Main: inspect settings, commands and repository without starting a CLI or changing files.
 if (-not $statusNoRun) {
-    $file = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
+    $file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings -Existing
     $settings = $null
     if (Test-Path -LiteralPath $file -PathType Leaf) {
         $settings = Read-LegionJson -Path $file

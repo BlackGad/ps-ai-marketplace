@@ -29,6 +29,7 @@ For an existing setup, retain its mode only when the Git checks in [layout.md](r
 
 ## Create or update
 
+On the overseer's next start in an existing repository, check its orchestration rules and project schema link for old names. Offer the small name update, show the diff, and change it only after the owner's yes, following [migrate.md](references/migrate.md).
 1. Check the layout and gate with the owner: the mode above, which rules file is authoritative if unclear, and the one command that gates a task, if any. Offer missing Git tools through [tools.md](references/tools.md).
 2. Run the setup script once as [setup.md](references/setup.md) says; it creates everything and commits it. For an existing layout use [migrate.md](references/migrate.md): map it, show diffs, ask before moving tracked files.
 3. Re-read the result. Confirm every configured step resolves to an indexed script and `project.json` validated.

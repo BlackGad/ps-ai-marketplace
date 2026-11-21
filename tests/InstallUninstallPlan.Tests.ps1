@@ -24,7 +24,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-True ($calls.Count -gt 0) 'Detection happens before asking'
         Assert-Equal 0 $writes.Count 'Declining preserves installed state'
 
-        $records = Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json'
+        $records = Join-Path $sandbox '.legion/configuration/personalisation.json'
         New-Item -ItemType Directory -Path (Split-Path $records) -Force | Out-Null
         @{agents=@(@{id='codex-a';tool='codex';configDir='~/.codex';command='external-command'})} | ConvertTo-Json | Set-Content -LiteralPath $records
         $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -DryRun)

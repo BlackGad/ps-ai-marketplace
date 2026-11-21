@@ -66,11 +66,11 @@ function Get-LegionUpdateText {
         $env:LEGION_ROLE = ''
         $env:LEGION_TASK = ''
         foreach ($version in @('0.3.0','0.2.0')) {
-            Remove-Item (Join-Path $sandbox 'home/.legion/temp/ps-ai-update.json')
+            Remove-Item (Join-Path $sandbox 'home/.legion/temp/update.json')
             "{`"name`":`"ps-ai`",`"version`":`"$version`"}" | Set-Content (Join-Path $plugin 'response.txt') -NoNewline
             Assert-Equal 1 @(& pwsh -NoProfile -File $hook -Repo $fixtureRepo).Count 'Equal or older release adds no notice'
         }
-        Remove-Item (Join-Path $sandbox 'home/.legion/temp/ps-ai-update.json')
+        Remove-Item (Join-Path $sandbox 'home/.legion/temp/update.json')
         'fail' | Set-Content (Join-Path $plugin 'response.txt') -NoNewline
         $text = @(& pwsh -NoProfile -File $hook -Repo $fixtureRepo)
         Assert-Equal 1 $text.Count 'Failed check adds no output'

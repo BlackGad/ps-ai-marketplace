@@ -11,7 +11,7 @@ try {
     New-Item -ItemType Directory -Path $config -Force | Out-Null
     @{ agents = @(@{ id = 'copilot-dev'; tool = 'copilot'; configDir = '~/copilot'; provider = @{
         kind = 'foundry'; endpoint = 'https://res-a.cognitiveservices.azure.com'; default = 'claude-opus-x'; deployments = @(@{ name = 'claude-opus-x' })
-    } }) } | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $config 'ps-ai-personalisation.json')
+    } }) } | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $config 'personalisation.json')
     $fakeTools = Join-Path $tempRoot 'fake-tools'
     New-Item -ItemType Directory -Path $fakeTools -Force | Out-Null
     @'

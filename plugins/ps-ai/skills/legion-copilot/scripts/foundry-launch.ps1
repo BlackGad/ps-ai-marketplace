@@ -23,12 +23,12 @@ $launch.ProvidersFile = Join-Path $tempFolder ('copilot-providers-' + $Token.Exp
 $launch.Set = @{ COPILOT_HOME = $folder; COPILOT_PROVIDERS_CONFIG = $launch.ProvidersFile }
 $launch.ProvidersJson = @{
     providers = @(@{
-        name = 'ps-ai-foundry'; type = 'anthropic'; baseUrl = $Agent.provider.endpoint + '/anthropic'
+        name = 'legion-foundry'; type = 'anthropic'; baseUrl = $Agent.provider.endpoint + '/anthropic'
         bearerToken = $Token.Token; headers = @{ 'anthropic-version' = '2023-06-01' }
     })
     models = @($Agent.provider.deployments | ForEach-Object {
         $model = if ($_.model) { $_.model } else { $_.name }
-        @{ id = $_.name; provider = 'ps-ai-foundry'; modelId = $model; wireModel = $_.name }
+        @{ id = $_.name; provider = 'legion-foundry'; modelId = $model; wireModel = $_.name }
     })
 } | ConvertTo-Json -Depth 100
 $expiry = $Token.ExpiresOn.ToLocalTime().ToString('HH:mm')

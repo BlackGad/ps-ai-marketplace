@@ -15,7 +15,7 @@ Use these commands for a Foundry provider configuration request. Ordinary setup 
 & "<plugin>/bin/legion-account.ps1" -Action add -Tool codex -Id '<id>' -Provider foundry -Endpoint "https://<resource>.cognitiveservices.azure.com" -Deployments @('gpt-x') -Default gpt-x
 ```
 
-Add writes the provider entry with wrappers, and the account's `config.toml`. It sets `model`, `model_provider = "ps-ai-foundry"`, `/openai/v1` as the endpoint path, and `wire_api = "responses"`. The auth command uses the full `az` path and the cognitive-services token resource, with `refresh_interval_ms = 1800000`. Other config keys remain. Repeating the same id, tool, provider, and endpoint prints `skip: account <id> (already done)`.
+Add writes the provider entry with wrappers, and the account's `config.toml`. It sets `model`, `model_provider = "legion-foundry"`, `/openai/v1` as the endpoint path, and `wire_api = "responses"`. The auth command uses the full `az` path and the cognitive-services token resource, with `refresh_interval_ms = 1800000`. Other config keys remain. Repeating the same id, tool, provider, and endpoint prints `skip: account <id> (already done)`.
 
 For a requested provider configuration change, reuse the supplied settings and apply the complete replacement with:
 

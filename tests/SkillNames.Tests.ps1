@@ -10,7 +10,7 @@ foreach ($folder in Get-ChildItem -LiteralPath $skills -Directory) {
 }
 
 # Old names are built from pieces so this file does not mention them. Owner file names such as
-# ps-ai-personalisation.json are not skill names and are renamed separately.
+# personalisation.json are not skill names and are renamed separately.
 $oldSkills = 'claude', 'codex', 'copilot', 'knowledge', 'legion', 'overseer', 'personalisation', 'repository', 'telegram', 'update'
 $oldPattern = ('ps-ai-(' + ($oldSkills -join '|') + ')(?!\.json)') + '|' + 'bin/ps-ai-'
 $leftovers = @()

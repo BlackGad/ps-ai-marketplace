@@ -44,9 +44,9 @@ try {
 
     $config = Join-Path $tempRoot '.legion/configuration'
     $bin = Join-Path $tempRoot '.legion/bin'
-    $runtime = Join-Path $bin '.ps-ai-runtime/bin'
+    $runtime = Join-Path $bin '.runtime/bin'
     New-Item -ItemType Directory -Path $config, $runtime -Force | Out-Null
-    $file = Join-Path $config 'ps-ai-personalisation.json'
+    $file = Join-Path $config 'personalisation.json'
     @{
         agents=@(
             @{id='foundry-a';tool='claude';command=$(if ($IsWindows) { '~/.legion/bin/foundry-a.cmd' } else { '~/.legion/bin/foundry-a' });configDir='~/.legion/agents/foundry-a';provider=@{kind='foundry'}},
@@ -89,7 +89,7 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
         . (Join-Path $runtime 'legion-foundry.ps1') -NoRun
         Assert-Equal 'claude' (@(Get-LegionTools).id -join '|') 'Refreshed runner loads libraries and discovers its copied skill with the copied schema'
     }
-    Assert-True ((Get-Content (Join-Path $bin 'foundry-a') -Raw).Contains('.ps-ai-runtime')) 'Refresh regenerates owned Foundry wrapper'
+    Assert-True ((Get-Content (Join-Path $bin 'foundry-a') -Raw).Contains('.runtime')) 'Refresh regenerates owned Foundry wrapper'
     foreach ($path in @($shim,$cmdShim)) {
         $text = Get-Content $path -Raw
         Assert-True ($text.Contains((Join-Path $root 'plugins/ps-ai/bin/legion.ps1'))) 'Refresh retargets the existing legion shim'

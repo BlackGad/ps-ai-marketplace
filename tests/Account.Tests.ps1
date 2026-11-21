@@ -1,12 +1,12 @@
 $root = Split-Path $PSScriptRoot -Parent
 $accountScript = Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1'
 $homeRoot = Join-Path $root ('.agents/temp/lean-accounts-' + [guid]::NewGuid().ToString('N'))
-$file = Join-Path $homeRoot '.legion/configuration/ps-ai-personalisation.json'
+$file = Join-Path $homeRoot '.legion/configuration/personalisation.json'
 New-Item -ItemType Directory (Split-Path $file), (Join-Path $homeRoot 'existing') -Force | Out-Null
 '{"schemaVersion":1,"agents":[],"channels":[]}' | Set-Content $file
 $fake = Join-Path $homeRoot 'external.ps1'
 'exit 37' | Set-Content $fake
-$notes = Join-Path (Split-Path $file) 'ps-ai-notes.md'
+$notes = Join-Path (Split-Path $file) 'notes.md'
 'Keep the owner answers.' | Set-Content $notes
 & $accountScript -Action register -Id claude-a -Tool claude -Command $fake -ConfigDir '~/existing' -HomeRoot $homeRoot | Out-Null
 . $accountScript -NoRun -HomeRoot $homeRoot

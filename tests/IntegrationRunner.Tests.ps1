@@ -196,7 +196,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         foreach ($tool in 'claude', 'codex', 'copilot') { $script:Ctx.Targets[$tool] = @{ Source = $root; SourceRef = '' } }
         $config = Join-Path $repeatHome '.legion/configuration'
         New-Item -ItemType Directory -Path $config -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $config 'ps-ai-personalisation.json') -Value '{"agents":[{"id":"copilot1","tool":"copilot","configDir":"~/.legion/agents/copilot1"}]}'
+        Set-Content -LiteralPath (Join-Path $config 'personalisation.json') -Value '{"agents":[{"id":"copilot1","tool":"copilot","configDir":"~/.legion/agents/copilot1"}]}'
         New-Item -ItemType Directory -Path (Join-Path $repeatHome '.copilot'), (Join-Path $repeatHome '.codex'), (Join-Path $repeatHome '.legion/agents/copilot1') -Force | Out-Null
         $script:runtimeFiles = @('.copilot/logs/process-1-100.log', '.legion/agents/copilot1/logs/process-2-200.log')
         foreach ($os in 'windows', 'linux', 'macos') { $script:runtimeFiles += ".codex/tmp/arg0-$os/codex-arg0abc123/.lock" }
@@ -217,7 +217,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         $script:runtimeFiles += '.copilot/logs/process-3-300.log'
         $result = Invoke-IntegrationBlock { & $repeatStep }
         Assert-Equal 'passed' $result.Result "$repeatStep allows new CLI process logs"
-        foreach ($relative in '.copilot/settings.json', '.copilot/settings.json.lock', '.claude/plugins/installed_plugins.json', '.codex/config.toml', '.copilot/logs/ps-ai.json', '.copilot/logs/process-extra.log', '.codex/tmp/ps-ai.json', '.codex/plugins/cache/ps-ai-marketplace/ps-ai/0.6.0/SKILL.md', '.legion/configuration/ps-ai-notes.md') {
+        foreach ($relative in '.copilot/settings.json', '.copilot/settings.json.lock', '.claude/plugins/installed_plugins.json', '.codex/config.toml', '.copilot/logs/ps-ai.json', '.copilot/logs/process-extra.log', '.codex/tmp/ps-ai.json', '.codex/plugins/cache/ps-ai-marketplace/ps-ai/0.6.0/SKILL.md', '.legion/configuration/notes.md') {
             $file = Join-Path $repeatHome $relative
             New-Item -ItemType Directory -Path (Split-Path $file) -Force | Out-Null
             Set-Content -LiteralPath $file -Value 'first'
@@ -516,7 +516,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         try {
             $legion = Join-Path $purgeHome '.legion'
             New-Item -ItemType Directory -Path (Join-Path $legion 'configuration'), (Join-Path $purgeHome 'custom-claude') -Force | Out-Null
-            Set-Content (Join-Path $legion 'configuration/ps-ai-personalisation.json') '{"agents":[{"tool":"claude","configDir":"~/custom-claude"}]}'
+            Set-Content (Join-Path $legion 'configuration/personalisation.json') '{"agents":[{"tool":"claude","configDir":"~/custom-claude"}]}'
             foreach ($tool in $script:IntegrationTools) { New-Item -ItemType Directory -Path (Get-IntegrationToolFolder $tool) -Force | Out-Null }
             $script:purgeOutput='done: purge'
             $script:purgeKeepLegion=$false

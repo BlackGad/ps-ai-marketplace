@@ -3,7 +3,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     . (Join-Path $repo 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
     $sandbox = Join-Path $repo ('.agents/temp/stable-schema-' + [guid]::NewGuid().ToString('N'))
     $path = Join-Path $sandbox 'personalisation.json'
-    $stable = 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/schemas/personalisation.schema.json'
+    $stable = 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/legion/schemas/personalisation.schema.json'
     try {
         New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
         $data = Get-Content (Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json') -Raw | ConvertFrom-Json
@@ -28,4 +28,4 @@ $repo = Split-Path $PSScriptRoot -Parent
     }
 }
 $template = Get-Content (Join-Path $repo 'plugins/ps-ai/skills/legion-repository/references/project-template.json') -Raw | ConvertFrom-Json
-Assert-Equal 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/schemas/project.schema.json' $template.'$schema' 'Project template uses a stable schema reference'
+Assert-Equal 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/legion/schemas/project.schema.json' $template.'$schema' 'Project template uses a stable schema reference'

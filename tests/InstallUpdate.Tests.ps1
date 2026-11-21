@@ -23,7 +23,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $catalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/restructure/update-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path (Join-Path $sandbox '.legion/configuration') -Force | Out-Null
-    $personalisation = Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json'
+    $personalisation = Join-Path $sandbox '.legion/configuration/personalisation.json'
     $agents = @(
         @{tool='claude';configDir='~/.legion/agents/claude-a'},
         @{tool='claude';configDir='~/.legion/agents/claude-a'},
