@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795215388305,
+  "lastUpdate": 1795248026443,
   "repoUrl": "https://github.com/BlackGad/ps-ai-marketplace",
   "entries": {
     "integration timings": [
@@ -707,6 +707,360 @@ window.BENCHMARK_DATA = {
           {
             "name": "linux / uninstall (repeat)",
             "value": 6.0444958,
+            "unit": "s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ztBlackGad@gmail.com",
+            "name": "Volodymyr Shkolka",
+            "username": "BlackGad"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ede19d2ab4640d26d27d9ca5c694003463986a92",
+          "message": "docs: add release summary to the GitHub Release, not the release pull request (#22)",
+          "timestamp": "2026-11-21T09:57:44+02:00",
+          "tree_id": "1d99d93c49fbd013902bfa91e697e81b387a645c",
+          "url": "https://github.com/BlackGad/ps-ai-marketplace/commit/ede19d2ab4640d26d27d9ca5c694003463986a92"
+        },
+        "date": 1795248025905,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "windows / install-cli-claude",
+            "value": 12.0683252,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "windows / install-cli-claude (repeat)",
+            "value": 0.6974148,
+            "unit": "s"
+          },
+          {
+            "name": "windows / install-cli-codex",
+            "value": 15.9308223,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "windows / install-cli-codex (repeat)",
+            "value": 0.6283036,
+            "unit": "s"
+          },
+          {
+            "name": "windows / install-cli-copilot",
+            "value": 16.0604148,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "windows / install-cli-copilot (repeat)",
+            "value": 0.8392451,
+            "unit": "s"
+          },
+          {
+            "name": "windows / install-ps-ai",
+            "value": 11.6080133,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "windows / install-ps-ai (repeat)",
+            "value": 3.6077883,
+            "unit": "s"
+          },
+          {
+            "name": "windows / setup",
+            "value": 15.8171273,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "windows / setup (repeat)",
+            "value": 2.5649075,
+            "unit": "s"
+          },
+          {
+            "name": "windows / add",
+            "value": 4.0245073,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "windows / add (repeat)",
+            "value": 0.8328903,
+            "unit": "s"
+          },
+          {
+            "name": "windows / remove",
+            "value": 0.5343042,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "windows / remove (repeat)",
+            "value": 0.3295825,
+            "unit": "s"
+          },
+          {
+            "name": "windows / repo-private",
+            "value": 1.4378028,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "windows / repo-private (repeat)",
+            "value": 0.8841834,
+            "unit": "s"
+          },
+          {
+            "name": "windows / repo-shared",
+            "value": 1.6306262,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "windows / repo-shared (repeat)",
+            "value": 0.8172071,
+            "unit": "s"
+          },
+          {
+            "name": "windows / uninstall",
+            "value": 14.7817774,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "windows / uninstall (repeat)",
+            "value": 5.7337456,
+            "unit": "s"
+          },
+          {
+            "name": "macos / install-cli-claude",
+            "value": 13.9619595,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "macos / install-cli-claude (repeat)",
+            "value": 1.2916004,
+            "unit": "s"
+          },
+          {
+            "name": "macos / install-cli-codex",
+            "value": 10.4067345,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "macos / install-cli-codex (repeat)",
+            "value": 1.357145,
+            "unit": "s"
+          },
+          {
+            "name": "macos / install-cli-copilot",
+            "value": 6.9032218,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "macos / install-cli-copilot (repeat)",
+            "value": 1.4938887,
+            "unit": "s"
+          },
+          {
+            "name": "macos / install-ps-ai",
+            "value": 11.7868812,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "macos / install-ps-ai (repeat)",
+            "value": 5.1374774,
+            "unit": "s"
+          },
+          {
+            "name": "macos / setup",
+            "value": 12.9472869,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "macos / setup (repeat)",
+            "value": 2.8032821,
+            "unit": "s"
+          },
+          {
+            "name": "macos / add",
+            "value": 3.1139198,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "macos / add (repeat)",
+            "value": 0.7222247,
+            "unit": "s"
+          },
+          {
+            "name": "macos / remove",
+            "value": 0.4639744,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "macos / remove (repeat)",
+            "value": 0.2943609,
+            "unit": "s"
+          },
+          {
+            "name": "macos / repo-private",
+            "value": 1.66973,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "macos / repo-private (repeat)",
+            "value": 0.9412222,
+            "unit": "s"
+          },
+          {
+            "name": "macos / repo-shared",
+            "value": 1.8002179,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "macos / repo-shared (repeat)",
+            "value": 0.8018202,
+            "unit": "s"
+          },
+          {
+            "name": "macos / uninstall",
+            "value": 14.585799,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "macos / uninstall (repeat)",
+            "value": 6.1432556,
+            "unit": "s"
+          },
+          {
+            "name": "linux / install-cli-claude",
+            "value": 13.096477,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "linux / install-cli-claude (repeat)",
+            "value": 0.5113328,
+            "unit": "s"
+          },
+          {
+            "name": "linux / install-cli-codex",
+            "value": 4.8240592,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "linux / install-cli-codex (repeat)",
+            "value": 0.5505604,
+            "unit": "s"
+          },
+          {
+            "name": "linux / install-cli-copilot",
+            "value": 3.756491,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "linux / install-cli-copilot (repeat)",
+            "value": 0.662671,
+            "unit": "s"
+          },
+          {
+            "name": "linux / install-ps-ai",
+            "value": 7.5996485,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "linux / install-ps-ai (repeat)",
+            "value": 2.8798465,
+            "unit": "s"
+          },
+          {
+            "name": "linux / setup",
+            "value": 10.1941175,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "linux / setup (repeat)",
+            "value": 2.5687447,
+            "unit": "s"
+          },
+          {
+            "name": "linux / add",
+            "value": 3.0644701,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "linux / add (repeat)",
+            "value": 0.8360005,
+            "unit": "s"
+          },
+          {
+            "name": "linux / remove",
+            "value": 0.479943,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "linux / remove (repeat)",
+            "value": 0.2397686,
+            "unit": "s"
+          },
+          {
+            "name": "linux / repo-private",
+            "value": 0.7374983,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "linux / repo-private (repeat)",
+            "value": 0.4244515,
+            "unit": "s"
+          },
+          {
+            "name": "linux / repo-shared",
+            "value": 0.7398302,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "linux / repo-shared (repeat)",
+            "value": 0.4271829,
+            "unit": "s"
+          },
+          {
+            "name": "linux / uninstall",
+            "value": 10.9074721,
+            "unit": "s",
+            "extra": "claude 2.1.330, codex 0.171.0, copilot 1.0.114"
+          },
+          {
+            "name": "linux / uninstall (repeat)",
+            "value": 4.3065518,
             "unit": "s"
           }
         ]
