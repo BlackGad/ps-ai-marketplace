@@ -29,7 +29,8 @@
       "properties": {
         "defaultConfigDir": {"type": "string", "pattern": "^(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))~/[^:]+$"},
         "installedRoot": {"type": "string", "pattern": "^(?![/\\\\]|[A-Za-z]:|~[/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"},
-        "cacheDir": {"type": "string", "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$"},
+        "cacheDir": {"$ref": "#/$defs/exactRelativePath"},
+        "purge": {"$ref": "#/$defs/purge"},
         "marketplaceAdd": {"$ref": "#/$defs/arguments"},
         "marketplaceAddRef": {"$ref": "#/$defs/arguments"},
         "marketplaceRemove": {"$ref": "#/$defs/arguments"},
@@ -51,6 +52,24 @@
     "install": {"$ref": "#/$defs/install", "required": ["hint"]}
   },
   "$defs": {
+    "exactRelativePath": {"type": "string", "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$"},
+    "purge": {
+      "type": "object", "additionalProperties": false, "required": ["paths", "settings"],
+      "properties": {
+        "paths": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/exactRelativePath"}},
+        "emptyDirs": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/exactRelativePath"}},
+        "legacyHookTrust": {"type": "boolean"},
+        "settings": {
+          "type": "array", "items": {
+            "type": "object", "additionalProperties": false, "required": ["path", "kind"],
+            "properties": {
+              "path": {"$ref": "#/$defs/exactRelativePath"},
+              "kind": {"enum": ["settings", "marketplaces", "claude", "copilot", "toml"]}
+            }
+          }
+        }
+      }
+    },
     "marketplaceListing": {
       "type": "object", "additionalProperties": false, "required": ["format", "nameField"],
       "properties": {

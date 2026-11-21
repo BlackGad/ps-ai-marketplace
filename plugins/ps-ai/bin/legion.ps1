@@ -24,7 +24,7 @@ function Get-LegionHelp {
         '  legion remove <id>                   remove an account (its folder is kept)'
         '  legion status                        show accounts, commands, channels and this repository'
         '  legion update [--yes]                update ps-ai to the newest version of the track it was installed from'
-        '  legion uninstall [--yes]             remove ps-ai'
+        '  legion uninstall [--purge] [--yes]   remove ps-ai; --purge also deletes settings, notes and legion-made logins'
         '  legion help                          show this list'
         ''
         'setup and add show the plan and ask before changing anything; --yes applies without asking.'
@@ -106,9 +106,12 @@ function Get-LegionCall {
             return @{ Script = 'ps-ai-overseer.ps1'; Splat = $splat; AsksToApply = $false }
         }
         { $_ -in @('update', 'uninstall') } {
-            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags $yesFlags -MinArguments 0 -MaxArguments 0
+            $allowedFlags = $yesFlags
+            if ($verb -eq 'uninstall') { $allowedFlags += @('--purge', '-Purge') }
+            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags $allowedFlags -MinArguments 0 -MaxArguments 0
             $splat = @{}
             if ($verb -eq 'update') { $splat.Update = $true } else { $splat.Uninstall = $true }
+            if ($parts.Flags | Where-Object { $_ -in @('--purge', '-Purge') }) { $splat.Purge = $true }
             if ($hasYes) { $splat.Yes = $true }
             return @{ Installer = $true; Splat = $splat; AsksToApply = $false }
         }
@@ -152,7 +155,7 @@ function Invoke-LegionScript {
         Write-Host $_.Exception.Message
         $script:LegionExit = if ($_.Exception.Data.Contains('PsAiLaunchExitCode')) { [int]$_.Exception.Data['PsAiLaunchExitCode'] } else { 1 }
     } finally {
-        if ($installerFolder) { Remove-Item -LiteralPath $installerFolder -Recurse -Force -ErrorAction SilentlyContinue }
+        if ($installerFolder -and (Test-Path -LiteralPath $installerFolder)) { Remove-Item -LiteralPath $installerFolder -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 

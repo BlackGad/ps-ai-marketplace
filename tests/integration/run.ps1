@@ -332,11 +332,11 @@ function Invoke-IntegrationCli {
 
 # The installer's own parser, loaded in a child scope so its parameters and helpers stay out of this script.
 function Test-IntegrationListing {
-    param([string]$Tool, [string[]]$Lines, [switch]$IncludeDisabled)
+    param([string]$Tool, [string[]]$Lines, [switch]$IncludeDisabled, [ValidateSet('plugin', 'marketplace')][string]$Kind = 'plugin')
     return & {
         . (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/install.ps1') -NoRun
         $script:installCatalog = Get-InstallCatalog -Source $script:Ctx.Checkout
-        Test-InstallListing -Kind plugin -Tool $Tool -Lines $Lines -IncludeDisabled:$IncludeDisabled
+        Test-InstallListing -Kind $Kind -Tool $Tool -Lines $Lines -IncludeDisabled:$IncludeDisabled
     }
 }
 
@@ -652,7 +652,8 @@ function Invoke-RepoSharedRepeat {
 
 # Step 8: the default folders and the registered account folders, captured before the uninstall removes anything.
 function Get-IntegrationUninstallTargets {
-    $active = Get-IntegrationActiveTools
+    param([switch]$AllTools)
+    $active = if ($AllTools) { $script:IntegrationTools } else { Get-IntegrationActiveTools }
     $targets = @()
     foreach ($tool in $active) { $targets += @{ Tool = $tool; Folder = Get-IntegrationToolFolder $tool } }
     foreach ($agent in @((Get-IntegrationSettings).Data.agents)) {
@@ -789,7 +790,65 @@ function Invoke-UninstallRepeat {
     return $lines
 }
 
-# The steps in the spec's order 1-8. Building them touches nothing; only running a block does.
+# Step 11: purge also covers CLIs whose marketplace install was skipped.
+function Invoke-PurgeScript {
+    return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/install.ps1') @('-Uninstall', '-Purge', '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
+}
+
+function Assert-IntegrationPurged {
+    param($Target)
+    if (-not (Test-Path -LiteralPath $Target.Folder -PathType Container)) { return }
+    Assert-IntegrationUninstalled $Target
+    $info = Get-IntegrationToolInfo $Target.Tool
+    $listing = Invoke-IntegrationCli -Tool $Target.Tool -Arguments $info.plugin.marketplaceList -Folder $Target.Folder
+    Assert-IntegrationTrue ($listing.ExitCode -eq 0) "$($Target.Tool) marketplace listing failed after purge"
+    Assert-IntegrationTrue (-not (Test-IntegrationListing -Kind marketplace -Tool $Target.Tool -Lines $listing.Lines)) "ps-ai marketplace is still registered in $($Target.Folder)"
+    $paths = @($info.plugin.cacheDir) + @($info.plugin.purge.paths) + @($info.plugin.purge.emptyDirs)
+    if ($info.plugin.purge.legacyHookTrust) {
+        $paths += & {
+            . (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/install.ps1') -NoRun
+            Get-InstallPurgeTrustPath -ConfigDir $Target.Folder
+        }
+    }
+    foreach ($relative in $paths) {
+        if (-not $relative) { continue }
+        $path = Join-Path $Target.Folder $relative
+        Assert-IntegrationTrue (-not (Test-Path -LiteralPath $path)) "ps-ai path remains after purge: $path"
+    }
+    foreach ($setting in $info.plugin.purge.settings) {
+        $path = Join-Path $Target.Folder $setting.path
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        Assert-IntegrationTrue ([IO.File]::ReadAllText($path) -notmatch 'ps-ai') "ps-ai text remains after purge in $path"
+    }
+}
+
+function Assert-IntegrationPurgeComplete {
+    Assert-IntegrationTrue (-not (Test-Path -LiteralPath (Join-Path $script:Ctx.HomeRoot '.legion'))) 'legion home remains after purge'
+    foreach ($target in $script:Ctx.PurgeTargets) { Assert-IntegrationPurged $target }
+    foreach ($tool in $script:IntegrationTools) {
+        $result = Invoke-IntegrationCli -Tool $tool -Arguments @('--version') -Folder (Get-IntegrationToolFolder $tool)
+        Assert-IntegrationTrue ($result.ExitCode -eq 0) "$tool --version failed after purge"
+    }
+}
+
+function Invoke-PurgeFirst {
+    # Save account folders before purge removes the settings that name them.
+    $script:Ctx.PurgeTargets = @(Get-IntegrationUninstallTargets -AllTools)
+    $lines = Invoke-PurgeScript
+    Assert-IntegrationPurgeComplete
+    $script:Ctx.PurgeSnapshot = Get-IntegrationHomeSnapshot
+    return $lines
+}
+
+function Invoke-PurgeRepeat {
+    $lines = Invoke-PurgeScript
+    Assert-IntegrationText $lines 'skip: purge (already done)'
+    Assert-IntegrationPurgeComplete
+    Assert-TreeUnchanged $script:Ctx.PurgeSnapshot (Get-IntegrationHomeSnapshot)
+    return $lines
+}
+
+# Building the ordered steps touches nothing; only running a block does.
 function Get-IntegrationSteps {
     param([string]$HomeRoot, [string]$Checkout, [string]$Work, [string]$Os, [switch]$AllowFallback)
     $script:Ctx = @{
@@ -814,6 +873,7 @@ function Get-IntegrationSteps {
     $steps += @{ Name = 'uninstall'; DependsOn = @('setup'); First = { Invoke-UninstallFirst }; Repeat = { Invoke-UninstallRepeat } }
     $steps += @{ Name = 'reinstall'; DependsOn = @('uninstall'); First = { Invoke-ReinstallFirst }; Repeat = { Invoke-ReinstallRepeat } }
     $steps += @{ Name = 'restore-launchers'; DependsOn = @('reinstall'); First = { Invoke-RestoreLaunchersFirst }; Repeat = { Invoke-RestoreLaunchersRepeat } }
+    $steps += @{ Name = 'purge'; DependsOn = @('restore-launchers'); First = { Invoke-PurgeFirst }; Repeat = { Invoke-PurgeRepeat } }
     return $steps
 }
 

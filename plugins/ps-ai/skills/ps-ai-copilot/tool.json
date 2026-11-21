@@ -7,6 +7,14 @@
     "defaultConfigDir": "~/.copilot",
     "installedRoot": "installed-plugins",
     "cacheDir": "installed-plugins/ps-ai-marketplace",
+    "purge": {
+      "paths": ["marketplace-cache/ps-ai-marketplace", "plugin-data/ps-ai-marketplace/ps-ai"],
+      "emptyDirs": ["plugin-data/ps-ai-marketplace"],
+      "settings": [
+        {"path": "settings.json", "kind": "settings"},
+        {"path": "config.json", "kind": "copilot"}
+      ]
+    },
     "marketplaceAddRef": ["plugin", "marketplace", "add", "{source}#{ref}"],
     "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
     "uninstall": ["plugin", "uninstall", "ps-ai@ps-ai-marketplace"],

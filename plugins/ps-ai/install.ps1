@@ -8,6 +8,7 @@ param(
     [ValidateSet('release','main')][string]$Ref = 'release',
     [switch]$Update,
     [switch]$Uninstall,
+    [switch]$Purge,
     [string]$HomeRoot
 )
 
@@ -42,6 +43,14 @@ function Assert-InstallRelativePath {
     param($Value, [string]$Field, [switch]$AllowEmpty)
     Assert-InstallString $Value $Field -AllowEmpty:$AllowEmpty
     if ($Value -match '(^[/\\]|:|(^|[/\\])\.\.([/\\]|$))') { throw "invalid catalog field '$Field': expected relative path" }
+}
+
+function Assert-InstallExactRelativePath {
+    param($Value, [string]$Field)
+    Assert-InstallRelativePath $Value $Field
+    if ($Value -match '(^~|(^|[/\\])\.([/\\]|$)|[*?]|[/\\]$|[/\\]{2})') {
+        throw "invalid catalog ${Field}: expected exact relative path"
+    }
 }
 
 function Get-InstallBranch {
@@ -108,8 +117,22 @@ function Get-InstallCatalog {
                 Assert-InstallRelativePath $value "plugin.$field"
                 if ($value -match '^~[/\\]') { throw "invalid catalog plugin.${field}: expected relative path" }
             }
-            if ($field -eq 'cacheDir' -and $value -match '(^~|(^|[/\\])\.([/\\]|$)|[*?]|[/\\]$|[/\\]{2})') {
-                throw 'invalid catalog plugin.cacheDir: expected exact relative folder path'
+            if ($field -eq 'cacheDir') { Assert-InstallExactRelativePath $value 'plugin.cacheDir' }
+        }
+        if ($null -ne $tool.plugin.purge) {
+            $purge = $tool.plugin.purge
+            Assert-InstallObject $purge 'plugin.purge'
+            Assert-InstallArguments $purge.paths 'plugin.purge.paths'
+            if ($null -ne $purge.emptyDirs) { Assert-InstallArguments $purge.emptyDirs 'plugin.purge.emptyDirs' }
+            foreach ($path in (@($purge.paths) + @($purge.emptyDirs))) {
+                if ($null -ne $path) { Assert-InstallExactRelativePath $path 'plugin.purge path' }
+            }
+            if ($null -ne $purge.legacyHookTrust -and $purge.legacyHookTrust -isnot [bool]) { throw 'invalid plugin.purge.legacyHookTrust' }
+            if ($purge.settings -isnot [array]) { throw 'plugin.purge.settings must be an array' }
+            foreach ($setting in $purge.settings) {
+                Assert-InstallObject $setting 'plugin.purge.settings entry'
+                Assert-InstallExactRelativePath $setting.path 'plugin.purge.settings.path'
+                if ($setting.kind -cnotin @('settings', 'marketplaces', 'claude', 'copilot', 'toml')) { throw 'invalid plugin.purge.settings.kind' }
             }
         }
         $listing = $tool.plugin.listing
@@ -677,7 +700,7 @@ function Test-InstallGeneratedPathSafe {
 }
 
 function Get-UninstallCachePath {
-    param($Entry, [string]$ConfigDir)
+    param($Entry, [string]$ConfigDir, [switch]$AllowFile)
     if (-not $Entry.plugin.cacheDir) { return }
     if (-not $ConfigDir) {
         if (-not $Entry.plugin.defaultConfigDir) { throw 'Missing plugin.defaultConfigDir for cache cleanup' }
@@ -687,7 +710,8 @@ function Get-UninstallCachePath {
     $path = [IO.Path]::GetFullPath((Join-Path $root $Entry.plugin.cacheDir))
     $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     if (-not $path.StartsWith($root + [IO.Path]::DirectorySeparatorChar, $comparison)) { throw 'Unsafe plugin cache path' }
-    if (-not (Test-Path -LiteralPath $path -PathType Container)) { return }
+    if (-not (Test-Path -LiteralPath $path)) { return }
+    if (-not $AllowFile -and -not (Test-Path -LiteralPath $path -PathType Container)) { return }
     # Refuse linked ancestors and linked contents, including junctions on Windows PowerShell.
     $current = $path
     while ($current) {
@@ -698,7 +722,7 @@ function Get-UninstallCachePath {
         $current = Split-Path $current -Parent
     }
     $pending = New-Object 'Collections.Generic.Stack[string]'
-    $pending.Push($path)
+    if (Test-Path -LiteralPath $path -PathType Container) { $pending.Push($path) }
     while ($pending.Count) {
         foreach ($item in (Get-ChildItem -LiteralPath $pending.Pop() -Force -ErrorAction Stop)) {
             if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
@@ -711,9 +735,344 @@ function Get-UninstallCachePath {
     return $path
 }
 
+# Read JSON/JSONC token spans rather than serializing settings. Only the selected
+# member (or inventory array item) and one separating comma are removed.
+function Get-InstallPurgeJsonText {
+    param([string]$Text, [string]$Kind)
+    function Read-PurgeJsonNode {
+        param([ref]$Cursor, [int]$Depth = 0)
+        if ($Depth -gt 64 -or $Cursor.Value -ge $tokens.Count) { throw 'Unsupported JSON' }
+        $token = $tokens[$Cursor.Value]
+        $Cursor.Value++
+        $node = [pscustomobject]@{ Start=$token.Index; End=($token.Index + $token.Length); Value=$null; Children=@() }
+        if ($token.Value -notin @('{', '[')) {
+            if ($token.Value -match '^[}\],:]$') { throw 'Invalid JSON value' }
+            $node.Value = if ($token.Value.StartsWith('"')) { ConvertFrom-Json -InputObject $token.Value -ErrorAction Stop } else { $token.Value }
+            return $node
+        }
+        $object = $token.Value -eq '{'
+        $close = if ($object) { '}' } else { ']' }
+        $children = @()
+        $previousComma = -1
+        $names = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+        while ($Cursor.Value -lt $tokens.Count -and $tokens[$Cursor.Value].Value -ne $close) {
+            $start = $tokens[$Cursor.Value].Index
+            $name = '*'
+            if ($object) {
+                $key = $tokens[$Cursor.Value].Value
+                if (-not $key.StartsWith('"')) { throw 'Invalid JSON member' }
+                $name = ConvertFrom-Json -InputObject $key -ErrorAction Stop
+                if (-not $names.Add($name)) { throw 'Duplicate JSON member' }
+                $Cursor.Value++
+                if ($Cursor.Value -ge $tokens.Count -or $tokens[$Cursor.Value].Value -ne ':') { throw 'Missing JSON colon' }
+                $Cursor.Value++
+            }
+            $value = Read-PurgeJsonNode -Cursor $Cursor -Depth ($Depth + 1)
+            $member = [pscustomobject]@{ Key=$name; Start=$start; End=$value.End; Node=$value; BeforeComma=$previousComma; AfterComma=-1 }
+            $children += $member
+            if ($Cursor.Value -lt $tokens.Count -and $tokens[$Cursor.Value].Value -eq ',') {
+                $member.AfterComma = $tokens[$Cursor.Value].Index
+                $previousComma = $member.AfterComma
+                $Cursor.Value++
+            } elseif ($Cursor.Value -ge $tokens.Count -or $tokens[$Cursor.Value].Value -ne $close) { throw 'Missing JSON comma' }
+        }
+        if ($Cursor.Value -ge $tokens.Count) { throw 'Unclosed JSON container' }
+        $node.End = $tokens[$Cursor.Value].Index + 1
+        $node.Children = $children
+        $Cursor.Value++
+        return $node
+    }
+    $entries = @()
+    while ($true) {
+        $pattern = '\G(?:\s+|//[^\r\n]*|/\*[\s\S]*?\*/|"(?:\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})|[^"\\\x00-\x1f])*"|[{}\[\],:]|true\b|false\b|null\b|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)'
+        $tokens = @()
+        $offset = 0
+        while ($offset -lt $Text.Length) {
+            $match = ([regex]$pattern).Match($Text, $offset)
+            if (-not $match.Success -or $match.Index -ne $offset) { throw 'Unsupported JSONC syntax' }
+            $offset += $match.Length
+            if ($match.Value -match '^\s|^//|^/\*') { continue }
+            $tokens += $match
+        }
+        $cursor = 0
+        $root = Read-PurgeJsonNode -Cursor ([ref]$cursor)
+        if ($cursor -ne $tokens.Count -or $tokens[0].Value -ne '{') { throw 'Unsupported JSON root' }
+        $candidates = @()
+        if ($Kind -eq 'marketplaces') {
+            $candidates = @($root.Children | Where-Object Key -CEQ 'ps-ai-marketplace')
+        } else {
+            foreach ($parent in $root.Children) {
+                $key = if ($parent.Key -ceq 'extraKnownMarketplaces') { 'ps-ai-marketplace' } else { 'ps-ai@ps-ai-marketplace' }
+                if ($parent.Key -cin @('enabledPlugins', 'extraKnownMarketplaces') -or ($Kind -eq 'claude' -and $parent.Key -ceq 'plugins')) {
+                    $candidates += @($parent.Node.Children | Where-Object Key -CEQ $key)
+                }
+                if ($Kind -eq 'copilot' -and $parent.Key -ceq 'installedPlugins') {
+                    foreach ($item in $parent.Node.Children) {
+                        $name = @($item.Node.Children | Where-Object Key -CEQ 'name')
+                        $marketplace = @($item.Node.Children | Where-Object Key -CEQ 'marketplace')
+                        if ($name.Count -eq 1 -and $name[0].Node.Value -ceq 'ps-ai' -and $marketplace.Count -eq 1 -and $marketplace[0].Node.Value -ceq 'ps-ai-marketplace') { $candidates += $item }
+                    }
+                }
+            }
+        }
+        if (-not $candidates.Count) { break }
+        $member = $candidates[0]
+        $entries += if ($member.Key -eq '*') { 'installedPlugins: ps-ai@ps-ai-marketplace' } else { $member.Key }
+        $comma = if ($member.AfterComma -ge 0) { $member.AfterComma } else { $member.BeforeComma }
+        # Remove the comma independently so intervening comments and whitespace stay.
+        if ($comma -ge $member.End) { $Text = $Text.Remove($comma, 1) }
+        $Text = $Text.Remove($member.Start, $member.End - $member.Start)
+        if ($comma -ge 0 -and $comma -lt $member.Start) { $Text = $Text.Remove($comma, 1) }
+    }
+    return [pscustomobject]@{ Text=$Text; Entries=$entries }
+}
+
+function Get-InstallPurgeTomlText {
+    param([string]$Text)
+    # The same string/comment scan used by the Foundry adapter: apparent headers
+    # inside multiline strings and arrays are values, not tables to delete.
+    $delimiter = ''
+    $arrayDepth = 0
+    $skip = $false
+    $kept = New-Object Text.StringBuilder
+    $entries = @()
+    $key = '(?:ps-ai-marketplace|"ps-ai-marketplace"|''ps-ai-marketplace'')'
+    $plugin = '(?:"ps-ai@ps-ai-marketplace"|''ps-ai@ps-ai-marketplace'')'
+    $hook = '(?:"ps-ai@ps-ai-marketplace:[^"\r\n]*"|''ps-ai@ps-ai-marketplace:[^''\r\n]*'')'
+    $owned = '^\s*\[\s*(?:(?:plugins|"plugins"|''plugins'')\s*\.\s*' + $plugin + '|(?:marketplaces|"marketplaces"|''marketplaces'')\s*\.\s*' + $key + '|(?:hooks|"hooks"|''hooks'')\s*\.\s*(?:state|"state"|''state'')\s*\.\s*' + $hook + ')(?:\s*\.\s*[\w"''.-]+)*\s*\]\s*(?:#.*)?$'
+    foreach ($match in [regex]::Matches($Text, '[^\r\n]*(?:\r\n|\n|\r|$)')) {
+        $line = $match.Value
+        if (-not $line.Length) { continue }
+        $outsideValue = -not $delimiter -and $arrayDepth -eq 0
+        if ($outsideValue -and $line -match '^\s*\[') {
+            $skip = $line.TrimEnd("`r", "`n") -cmatch $owned
+            if ($skip) { $entries += $line.Trim() }
+        }
+        if ($outsideValue -and -not $skip -and $line -cmatch '^\s*(?:["'']?(?:plugins|marketplaces|hooks)["'']?[\s.=]|["'']?ps-ai(?:@ps-ai-marketplace|-marketplace))' -and $line -cmatch 'ps-ai(?:@ps-ai-marketplace|-marketplace)') {
+            throw 'Inline or dotted ps-ai TOML entry needs manual removal'
+        }
+        if (-not $skip) { [void]$kept.Append($line) }
+        for ($i = 0; $i -lt $line.Length;) {
+            if ($delimiter) {
+                if ($delimiter -ceq '"""' -and $line[$i] -ceq '\') { $i += 2; continue }
+                if ($i + 2 -lt $line.Length -and $line.Substring($i, 3) -ceq $delimiter) { $delimiter = ''; $i += 3; continue }
+                $i++; continue
+            }
+            if ($line[$i] -ceq '#') { break }
+            if ($line[$i] -cin @('"', "'")) {
+                $quote = [string]$line[$i]
+                if ($i + 2 -lt $line.Length -and $line.Substring($i, 3) -ceq ($quote * 3)) { $delimiter = $quote * 3; $i += 3; continue }
+                $word = [regex]::Match($line.Substring($i), '^(?:"(?:\\.|[^"\\])*"|''[^'']*'')')
+                if (-not $word.Success) { throw 'Unsupported TOML string' }
+                $i += $word.Length
+            } else {
+                if ($line[$i] -ceq '[') { $arrayDepth++ }
+                if ($line[$i] -ceq ']') { $arrayDepth-- }
+                $i++
+            }
+        }
+    }
+    if ($delimiter -or $arrayDepth -ne 0) { throw 'Unclosed TOML value' }
+    return [pscustomobject]@{ Text=$kept.ToString(); Entries=$entries }
+}
+
+function Get-InstallPurgeEdit {
+    param([string]$Path, [string]$Kind)
+    $before = [IO.File]::ReadAllBytes($Path)
+    $encoding = New-Object Text.UTF8Encoding ($false, $true)
+    $bom = 0
+    if ($before.Length -ge 3 -and $before[0] -eq 239 -and $before[1] -eq 187 -and $before[2] -eq 191) { $bom = 3 }
+    elseif ($before.Length -ge 2 -and $before[0] -eq 255 -and $before[1] -eq 254) { $encoding = New-Object Text.UnicodeEncoding ($false, $false, $true); $bom=2 }
+    elseif ($before.Length -ge 2 -and $before[0] -eq 254 -and $before[1] -eq 255) { $encoding = New-Object Text.UnicodeEncoding ($true, $false, $true); $bom=2 }
+    try {
+        $text = $encoding.GetString($before, $bom, $before.Length - $bom)
+        $result = if ($Kind -eq 'toml') { Get-InstallPurgeTomlText -Text $text } else { Get-InstallPurgeJsonText -Text $text -Kind $Kind }
+        if (-not $result.Entries.Count) { return }
+        $after = $encoding.GetBytes($result.Text)
+        if ($bom) { $after = [byte[]]($before[0..($bom - 1)] + $after) }
+        return [pscustomobject]@{ Path=$Path; Before=$before; After=$after; Entries=$result.Entries }
+    } catch {
+        # Do not print settings contents or parser errors that could contain secrets.
+        return [pscustomobject]@{ Manual=$true; Path=$Path }
+    }
+}
+
+function Get-InstallPurgeTrustPath {
+    param([string]$ConfigDir)
+    # Codex legacy_trust_path: SHA256 of length-prefixed config path and plugin ID.
+    $stream = New-Object IO.MemoryStream
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try {
+        foreach ($part in @([IO.Path]::GetFullPath((Join-Path $ConfigDir 'config.toml')), 'ps-ai@ps-ai-marketplace')) {
+            $bytes = [Text.Encoding]::UTF8.GetBytes($part)
+            $length = [BitConverter]::GetBytes([uint64]$bytes.Length)
+            if (-not [BitConverter]::IsLittleEndian) { [Array]::Reverse($length) }
+            $stream.Write($length, 0, $length.Length)
+            $stream.Write($bytes, 0, $bytes.Length)
+        }
+        $name = ([BitConverter]::ToString($hash.ComputeHash($stream.ToArray()))).Replace('-', '').ToLowerInvariant()
+        return ".hook-trust/$name"
+    } finally { $stream.Dispose(); $hash.Dispose() }
+}
+
+function Get-InstallPurgePlan {
+    param([string]$ConfigDir)
+    # Purge is global even if the preceding uninstall selected only some targets.
+    $paths = @()
+    $edits = @()
+    $manualSteps = @()
+    $pathEntries = @((Get-InstallLegionPath 'bin'), (Get-InstallLegionPath 'tools/pwsh'))
+    $userPath = if ($env:OS -eq 'Windows_NT') { Get-InstallUserPath } else { '' }
+    $keptPath = @()
+    $removedPath = @()
+    foreach ($part in ($userPath -split ';')) {
+        $owned = $false
+        foreach ($entry in $pathEntries) {
+            if (Test-InstallPathEntry -Path $part -Entry $entry -Separator ';') { $owned=$true; break }
+        }
+        if ($owned) { $removedPath += $part } else { $keptPath += $part }
+    }
+    $processPath = $env:PATH
+    $processSeparator = [string][IO.Path]::PathSeparator
+    $keptProcessPath = @()
+    $removedProcessPath = @()
+    if ($env:OS -eq 'Windows_NT') {
+        foreach ($part in ($processPath -split [regex]::Escape($processSeparator))) {
+            $owned = $false
+            foreach ($entry in $pathEntries) {
+                if (Test-InstallPathEntry -Path $part -Entry $entry -Separator $processSeparator) { $owned=$true; break }
+            }
+            if ($owned) { $removedProcessPath += $part } else { $keptProcessPath += $part }
+        }
+    }
+    $seen = @()
+    foreach ($entry in $script:installCatalog.tools) {
+        $folders = Get-UpdateConfigDirs -Tool $entry.id
+        if ($entry.plugin.defaultConfigDir) { $folders += Resolve-InstallConfigDir $entry.plugin.defaultConfigDir }
+        if ($ConfigDir) { $folders += Resolve-InstallConfigDir $ConfigDir }
+        foreach ($folder in $folders) {
+            if (-not $folder -and $entry.plugin.defaultConfigDir) { $folder = Resolve-InstallConfigDir $entry.plugin.defaultConfigDir }
+            if (-not $folder) { continue }
+            $key = Get-InstallFolderKey -Entry $entry -Folder $folder
+            if ($seen -ccontains $key) { continue }
+            $seen += $key
+            $purge = $entry.plugin.purge
+            $relativePaths = @($entry.plugin.cacheDir) + @($purge.paths)
+            if ($purge.legacyHookTrust) { $relativePaths += Get-InstallPurgeTrustPath -ConfigDir $folder }
+            foreach ($relative in $relativePaths) {
+                if (-not $relative) { continue }
+                $descriptor = @{ plugin=@{ cacheDir=$relative } }
+                $path = Get-UninstallCachePath -Entry $descriptor -ConfigDir $folder -AllowFile 6>$null
+                if ($path) { $paths += [pscustomobject]@{ Path=$path; Root=$folder; Relative=$relative; EmptyOnly=$false } }
+                elseif (Test-Path -LiteralPath (Join-Path $folder $relative)) { $manualSteps += "Manual step: $(Join-Path $folder $relative) (linked path; left in place)" }
+            }
+            foreach ($relative in $purge.emptyDirs) {
+                $descriptor = @{ plugin=@{ cacheDir=$relative } }
+                $path = Get-UninstallCachePath -Entry $descriptor -ConfigDir $folder 6>$null
+                # List the parent only if its remaining children are already planned for removal.
+                if ($path -and -not @(Get-ChildItem -LiteralPath $path -Force | Where-Object { $_.FullName -notin $paths.Path }).Count) {
+                    $paths += [pscustomobject]@{ Path=$path; Root=$folder; Relative=$relative; EmptyOnly=$true }
+                }
+            }
+            foreach ($setting in $purge.settings) {
+                $relative = $setting.path
+                $descriptor = @{ plugin=@{ cacheDir=$relative } }
+                $path = Get-UninstallCachePath -Entry $descriptor -ConfigDir $folder -AllowFile 6>$null
+                if (-not $path -and (Test-Path -LiteralPath (Join-Path $folder $relative))) { $manualSteps += "Manual step: $(Join-Path $folder $relative) (linked path; left in place)" }
+                if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) {
+                    $alreadyEdited = if ($env:OS -eq 'Windows_NT') { $edits.Path -contains $path } else { $edits.Path -ccontains $path }
+                    if ($alreadyEdited) { continue }
+                    $edit = Get-InstallPurgeEdit -Path $path -Kind $setting.kind
+                    if ($edit.Manual) { $manualSteps += "Manual step: $path (remove its ps-ai entries; could not match them safely)" }
+                    elseif ($edit) { $edits += $edit }
+                }
+            }
+        }
+    }
+    $legionDescriptor = @{ plugin=@{ cacheDir='.legion' } }
+    $legion = Get-UninstallCachePath -Entry $legionDescriptor -ConfigDir (Get-InstallHome) 6>$null
+    if (-not $legion -and (Test-Path -LiteralPath (Get-InstallLegionPath ''))) { $manualSteps += 'Manual step: legion home contains linked paths; left in place.' }
+    return [pscustomobject]@{
+        Paths=$paths; Edits=$edits; Legion=$legion; HomeRoot=(Get-InstallHome); ManualSteps=$manualSteps
+        UserPath=[pscustomobject]@{ Before=$userPath; After=($keptPath -join ';'); Entries=$removedPath }
+        ProcessPath=[pscustomobject]@{ Before=$processPath; After=($keptProcessPath -join $processSeparator); Entries=$removedProcessPath }
+        HasWork=[bool]($paths.Count -or $edits.Count -or $legion -or $removedPath.Count -or $removedProcessPath.Count)
+    }
+}
+
+function Show-InstallPurgePlan {
+    param($Plan)
+    foreach ($entry in $Plan.UserPath.Entries) { "Remove user PATH entry: $entry" }
+    foreach ($entry in $Plan.ProcessPath.Entries) { "Remove process PATH entry: $entry" }
+    foreach ($edit in $Plan.Edits) { foreach ($name in $edit.Entries) { "Remove entry: $($edit.Path): $name" } }
+    $items = @($Plan.Paths)
+    if ($Plan.Legion) { $items += [pscustomobject]@{ Path=$Plan.Legion; EmptyOnly=$false } }
+    $shown = @()
+    foreach ($item in $items) {
+        $key = if ($env:OS -eq 'Windows_NT') { $item.Path.ToLowerInvariant() } else { $item.Path }
+        if ($shown -ccontains $key) { continue }
+        $shown += $key
+        if (Test-Path -LiteralPath $item.Path -PathType Container) {
+            $count = @(Get-ChildItem -LiteralPath $item.Path -File -Recurse -Force).Count
+            $note = if ($item.EmptyOnly) { ' (if empty)' } elseif ($item.Path -ceq $Plan.Legion) { ' (last: all settings, notes, account folders, logins and launchers)' } else { '' }
+            "Remove folder: $($item.Path) ($count files)$note"
+        } else { "Remove file: $($item.Path)" }
+    }
+    foreach ($step in $Plan.ManualSteps) { $step }
+    'Codex hook approvals for folders ps-ai no longer knows cannot be identified and are left in place.'
+}
+
+function Invoke-InstallPurgePlan {
+    param($Plan)
+    if ($Plan.UserPath.Entries.Count) {
+        if ((Get-InstallUserPath) -cne $Plan.UserPath.Before) { throw 'User PATH changed after preview; run purge again.' }
+        Set-InstallUserPath -Path $Plan.UserPath.After
+    }
+    if ($Plan.ProcessPath.Entries.Count) {
+        if ($env:PATH -cne $Plan.ProcessPath.Before) { throw 'Process PATH changed after preview; run purge again.' }
+        $env:PATH = $Plan.ProcessPath.After
+    }
+    foreach ($edit in $Plan.Edits) {
+        # Refuse a concurrent settings write rather than overwriting the owner's changes.
+        $descriptor = @{ plugin=@{ cacheDir=([IO.Path]::GetFileName($edit.Path)) } }
+        $safe = Get-UninstallCachePath -Entry $descriptor -ConfigDir (Split-Path $edit.Path) -AllowFile
+        if (-not $safe -or [Convert]::ToBase64String([IO.File]::ReadAllBytes($edit.Path)) -cne [Convert]::ToBase64String($edit.Before)) { throw 'Settings changed after preview; run purge again.' }
+        [IO.File]::WriteAllBytes($edit.Path, $edit.After)
+    }
+    foreach ($item in $Plan.Paths) {
+        $descriptor = @{ plugin=@{ cacheDir=$item.Relative } }
+        $safe = Get-UninstallCachePath -Entry $descriptor -ConfigDir $item.Root -AllowFile
+        if (-not $safe -or $safe -cne $item.Path) { continue }
+        if ($item.EmptyOnly -and @(Get-ChildItem -LiteralPath $safe -Force).Count) { continue }
+        Remove-Item -LiteralPath $safe -Recurse -Force -ErrorAction Stop
+    }
+    # The running installer may be a private copy under this tree; functions are
+    # already loaded. Legion's caller tolerates its copy having been removed.
+    if ($Plan.Legion) {
+        $descriptor = @{ plugin=@{ cacheDir='.legion' } }
+        $safe = Get-UninstallCachePath -Entry $descriptor -ConfigDir $Plan.HomeRoot
+        if ($safe -and $safe -ceq $Plan.Legion) { Remove-Item -LiteralPath $safe -Recurse -Force -ErrorAction Stop }
+    }
+}
+
+function Invoke-PsAiPurge {
+    param([string]$ConfigDir, [switch]$DryRun, [switch]$Yes)
+    $plan = Get-InstallPurgePlan -ConfigDir $ConfigDir
+    Show-InstallPurgePlan -Plan $plan
+    if (-not $plan.HasWork) {
+        if ($plan.ManualSteps.Count) { 'Purge needs the manual steps above.' } else { 'skip: purge (already done)' }
+        return
+    }
+    if ($DryRun) { return }
+    if (-not ($Yes -or (Read-Host 'Purge ps-ai settings, notes, account folders and logins listed above? [y/N]') -match '^(?i:y|yes)$')) { 'Purge cancelled.'; return }
+    Invoke-InstallPurgePlan -Plan $plan
+    if ($plan.ManualSteps.Count) { 'Purge needs the manual steps above.' } else { 'done: purge' }
+}
+
 function Invoke-PsAiUninstall {
     param([string[]]$Tools, [string]$ConfigDir, [switch]$DryRun, [switch]$Yes)
     $homeRoot = Get-InstallHome
+    $script:installUninstallDeclined = $false
     $file = Get-InstallLegionPath 'configuration/ps-ai-personalisation.json'
     $owner = $null
     if (Test-Path -LiteralPath $file -PathType Leaf) {
@@ -808,6 +1167,8 @@ function Invoke-PsAiUninstall {
             }
         }
         Repair-InstallOwnerCommands -Survivors $survivors -Planned $plannedDead
+    } elseif ($hasWork -and -not $DryRun) {
+        $script:installUninstallDeclined = $true
     }
     $configuration = Get-InstallLegionPath 'configuration'
     $accounts = Get-InstallLegionPath 'agents'
@@ -1120,11 +1481,13 @@ function Ensure-InstallPowerShell {
 }
 
 function Invoke-PsAiInstaller {
-    param([string[]]$Tools, [string]$Source = 'BlackGad/ps-ai-marketplace', [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, $Catalog, [ValidateSet('release','main')][string]$Ref = 'release', [switch]$Update, [switch]$Uninstall)
+    param([string[]]$Tools, [string]$Source = 'BlackGad/ps-ai-marketplace', [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, $Catalog, [ValidateSet('release','main')][string]$Ref = 'release', [switch]$Update, [switch]$Uninstall, [switch]$Purge)
     if ($Update -and $Uninstall) { throw 'Choose either -Update or -Uninstall.' }
+    if ($Purge -and -not $Uninstall) { throw '-Purge requires -Uninstall.' }
     $script:installCatalog = Get-InstallCatalog -Source $Source -Ref $Ref -Catalog $Catalog
     if ($Uninstall) {
         Invoke-PsAiUninstall -Tools $Tools -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes
+        if ($Purge -and -not $script:installUninstallDeclined) { Invoke-PsAiPurge -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes }
         return
     }
     if (-not $Tools -or $Tools.Count -eq 0) {
@@ -1225,5 +1588,5 @@ if (-not $NoRun) {
         $PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'tools.json') -PathType Leaf)) {
         $catalog = Get-InstallCatalog -Catalog (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'tools.json') -Raw | ConvertFrom-Json)
     }
-    Invoke-PsAiInstaller -Tools $Tools -Source $Source -Ref $Ref -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes -Update:$Update -Uninstall:$Uninstall -Catalog $catalog
+    Invoke-PsAiInstaller -Tools $Tools -Source $Source -Ref $Ref -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes -Update:$Update -Uninstall:$Uninstall -Purge:$Purge -Catalog $catalog
 }

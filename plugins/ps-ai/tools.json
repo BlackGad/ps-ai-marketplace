@@ -26,6 +26,26 @@
         "defaultConfigDir": "~/.claude",
         "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
         "cacheDir": "plugins/cache/ps-ai-marketplace",
+        "purge": {
+          "paths": [
+            "plugins/marketplaces/ps-ai-marketplace",
+            "plugins/data/ps-ai-ps-ai-marketplace"
+          ],
+          "settings": [
+            {
+              "path": "settings.json",
+              "kind": "settings"
+            },
+            {
+              "path": "plugins/known_marketplaces.json",
+              "kind": "marketplaces"
+            },
+            {
+              "path": "plugins/installed_plugins.json",
+              "kind": "claude"
+            }
+          ]
+        },
         "marketplaceAddRef": [
           "plugin",
           "marketplace",
@@ -103,6 +123,19 @@
         "defaultConfigDir": "~/.codex",
         "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
         "cacheDir": "plugins/cache/ps-ai-marketplace",
+        "purge": {
+          "paths": [
+            ".tmp/marketplaces/ps-ai-marketplace",
+            "plugins/data/ps-ai-ps-ai-marketplace"
+          ],
+          "legacyHookTrust": true,
+          "settings": [
+            {
+              "path": "config.toml",
+              "kind": "toml"
+            }
+          ]
+        },
         "marketplaceAddRef": [
           "plugin",
           "marketplace",
@@ -178,6 +211,25 @@
         "defaultConfigDir": "~/.copilot",
         "installedRoot": "installed-plugins",
         "cacheDir": "installed-plugins/ps-ai-marketplace",
+        "purge": {
+          "paths": [
+            "marketplace-cache/ps-ai-marketplace",
+            "plugin-data/ps-ai-marketplace/ps-ai"
+          ],
+          "emptyDirs": [
+            "plugin-data/ps-ai-marketplace"
+          ],
+          "settings": [
+            {
+              "path": "settings.json",
+              "kind": "settings"
+            },
+            {
+              "path": "config.json",
+              "kind": "copilot"
+            }
+          ]
+        },
         "marketplaceAddRef": [
           "plugin",
           "marketplace",
