@@ -1,14 +1,18 @@
 $repo = Split-Path $PSScriptRoot -Parent
+$profileHome = $env:HOME
 & {
     . (Join-Path $PSScriptRoot 'fixtures/install/UninstallSandbox.ps1')
+    # Unix resolves UserProfile from HOME; keep the profile separate from the chosen home.
+    $env:HOME = $profileHome
     try {
         # A home that is not the real profile never reaches the real default tool folders.
+        Assert-True (-not (Test-InstallRealProfile)) 'The chosen home is not the process profile'
         $codexFolder = Join-Path $sandbox '.codex'
-        $preview = @(Invoke-PsAiInstaller -Catalog $catalog -Tools codex -Uninstall -DryRun) -join "`n"
+        $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -DryRun) -join "`n"
         Assert-True ($preview -notmatch 'default config') 'A non-default home never plans the CLI default folder'
         Assert-True ($preview.Contains("Target: codex in $codexFolder")) 'The default folder is under the chosen home'
 
-        $null = Invoke-PsAiInstaller -Catalog $catalog -Tools codex -Uninstall -Yes
+        $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -Yes
         Assert-True ($writes.Count -gt 0) 'The uninstall ran'
         Assert-Equal 0 @($callEnvironments | Where-Object { $_ -cne "codex=$codexFolder" }).Count 'Every codex call sets CODEX_HOME to the chosen home'
 
@@ -21,7 +25,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $state.Plugin = $true; $state.Marketplace = $true
         $writes.Clear(); $calls.Clear()
         Remove-Item -LiteralPath $codexFolder -Recurse -Force
-        $output = @(Invoke-PsAiInstaller -Catalog $catalog -Tools codex -Uninstall -Yes)
+        $output = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -Yes)
         Assert-Equal 0 $calls.Count 'A missing folder in the chosen home runs no CLI'
         Assert-True ($output -contains "skip: codex plugin in $codexFolder (not installed)") 'A missing folder is reported as not installed'
     } finally { Remove-UninstallSandbox }

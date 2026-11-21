@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/ps-ai/bin/ps-ai-install-tool.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/bin/legion-install-tool.ps1') -NoRun
     $sandbox = Join-Path $repo ('.agents/temp/portable-' + [guid]::NewGuid().ToString('N'))
     function Get-ToolInstallRoot { param($Tool) $sandbox }
     try {

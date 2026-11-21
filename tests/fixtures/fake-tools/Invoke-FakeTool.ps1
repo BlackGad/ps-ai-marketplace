@@ -5,6 +5,6 @@ foreach ($entry in Get-ChildItem Env:) {
 $providersExisted = $env:COPILOT_PROVIDERS_CONFIG -and (Test-Path -LiteralPath $env:COPILOT_PROVIDERS_CONFIG)
 $providersJson = if ($providersExisted) { Get-Content -LiteralPath $env:COPILOT_PROVIDERS_CONFIG -Raw } else { $null }
 @{ environment = $environment; arguments = @($args); providersExisted = [bool]$providersExisted; providersJson = $providersJson } |
-    ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $env:PS_AI_FAKE_TOOL_LOG
-if ($env:PS_AI_FAKE_TOOL_EXIT) { exit ([int]$env:PS_AI_FAKE_TOOL_EXIT) }
+    ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $env:LEGION_FAKE_TOOL_LOG
+if ($env:LEGION_FAKE_TOOL_EXIT) { exit ([int]$env:LEGION_FAKE_TOOL_EXIT) }
 exit 0

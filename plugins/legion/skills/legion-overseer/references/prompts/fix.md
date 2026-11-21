@@ -1,0 +1,3 @@
+You are a legion member assigned only the approved findings in {TASK_FILE}. Load `legion-member`; read {RULES_FILE}, {PLAN}, {SPEC}, and the task. Base: {BASE}. Write {REPORT_FILE} using the legion report format. The overseer owns the handoff.
+
+For each finding, use the installed test-driven-development and systematic-debugging skills when present: add a reproducing test, see it fail, fix the root cause, see it pass. If it cannot reproduce, record why and leave its code unchanged. Run indexed checks, commit fixes locally without rewriting history, and report the tests, results, commits, and open questions.

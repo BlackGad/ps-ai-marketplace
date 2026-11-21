@@ -4,15 +4,15 @@ Shared instructions for every coding agent working in this repository (Claude Co
 
 ## What this repository is
 
-A plugin marketplace with one plugin, `ps-ai`: orchestration as skills for Claude Code, Codex CLI and Copilot CLI.
+A plugin marketplace with one plugin, `legion`: orchestration as skills for Claude Code, Codex CLI and Copilot CLI.
 
 | Path | Holds |
 | --- | --- |
 | `.claude-plugin/`, `.agents/plugins/` | Marketplace manifests (Claude Code and Copilot; Codex) |
-| `plugins/ps-ai/skills/` | Skills: `SKILL.md` plus `references/` per skill |
-| `plugins/ps-ai/bin/` | PowerShell scripts the skills call |
-| `plugins/ps-ai/hooks/` | Session-start hooks for all three tools |
-| `plugins/ps-ai/schemas/` | JSON schemas for personalisation and project files |
+| `plugins/legion/skills/` | Skills: `SKILL.md` plus `references/` per skill |
+| `plugins/legion/bin/` | PowerShell scripts the skills call |
+| `plugins/legion/hooks/` | Session-start hooks for all three tools |
+| `plugins/legion/schemas/` | JSON schemas for personalisation and project files |
 | `install.ps1` | Standalone remote installer for the three CLIs; PowerShell 5.1 and 7 |
 | `docs/reference.md` | Installer options, CLI guides and technical details |
 | `tests/` | Test files (`*.Tests.ps1`), fakes and fixtures |
@@ -20,7 +20,7 @@ A plugin marketplace with one plugin, `ps-ai`: orchestration as skills for Claud
 
 ## Rules
 
-A settings field exists only if a script reads it. Everything else is a plain-words preference in the owner's `ps-ai-notes.md`, which agents read. Do not add a property for each decision.
+A settings field exists only if a script reads it. Everything else is a plain-words preference in the owner's `legion-notes.md`, which agents read. Do not add a property for each decision.
 
 - **PowerShell 7 only.** Scripts run on Windows, macOS and Linux unless a script says otherwise.
 - **Safe to run again.** Every script checks before it acts; a repeat prints `skip: <what> (already done)` and changes nothing.

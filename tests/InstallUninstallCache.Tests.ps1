@@ -3,7 +3,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     . (Join-Path $PSScriptRoot 'fixtures/install/UninstallSandbox.ps1')
     try {
         foreach ($tool in @('claude','codex','copilot')) {
-            $relative = if ($tool -eq 'copilot') { 'installed-plugins/ps-ai-marketplace' } else { 'plugins/cache/ps-ai-marketplace' }
+            $relative = if ($tool -eq 'copilot') { 'installed-plugins/legion-marketplace' } else { 'plugins/cache/ps-legion-marketplace' }
             $entry = $catalog.tools | Where-Object id -CEQ $tool
             Assert-Equal $relative $entry.plugin.cacheDir 'Cache cleanup path lives in tool data'
             foreach ($custom in @($false, $true)) {
@@ -12,39 +12,39 @@ $repo = Split-Path $PSScriptRoot -Parent
                 $cache = Join-Path $folder $relative
                 $other = Join-Path (Split-Path $cache) 'other-marketplace'
                 $unselected = Join-Path $sandbox "$tool-unselected/$relative"
-                foreach ($version in @('0.1.0','0.3.0','0.3.2','0.4.0')) { New-FixtureCache (Join-Path $cache "ps-ai/$version") }
+                foreach ($version in @('0.1.0','0.3.0','0.3.2','0.4.0')) { New-FixtureCache (Join-Path $cache "legion/$version") }
                 New-FixtureCache $other
                 New-FixtureCache $unselected
                 $state.Plugin=$true; $state.Marketplace=$true
-                $null = Invoke-PsAiInstaller -Catalog $catalog -Tools $tool -ConfigDir $config -Uninstall -DryRun
+                $null = Invoke-LegionInstaller -Catalog $catalog -Tools $tool -ConfigDir $config -Uninstall -DryRun
                 Assert-True (Test-Path -LiteralPath $cache) 'Preview preserves cache'
-                $null = Invoke-PsAiInstaller -Catalog $catalog -Tools $tool -ConfigDir $config -Uninstall -Yes
+                $null = Invoke-LegionInstaller -Catalog $catalog -Tools $tool -ConfigDir $config -Uninstall -Yes
                 Assert-True (-not (Test-Path -LiteralPath $cache)) 'Successful uninstall removes every cached version and marketplace cache folder'
                 Assert-True (Test-Path -LiteralPath $other) 'Other marketplace cache remains'
                 Assert-True (Test-Path -LiteralPath $unselected) 'Other config cache remains'
-                $repeat = @(Invoke-PsAiInstaller -Catalog $catalog -Tools $tool -ConfigDir $config -Uninstall)
+                $repeat = @(Invoke-LegionInstaller -Catalog $catalog -Tools $tool -ConfigDir $config -Uninstall)
                 Assert-True ($repeat -contains 'Nothing to uninstall.') 'Clean repeat has no work'
             }
         }
         $folder = Join-Path $sandbox 'safety'
-        $cache = Join-Path $folder 'plugins/cache/ps-ai-marketplace'
+        $cache = Join-Path $folder 'plugins/cache/ps-legion-marketplace'
         New-FixtureCache $cache
         foreach ($failure in @('FailRemove','KeepListed','FailVerify')) {
             $state.Plugin=$true; $state.Marketplace=$true; $state[$failure]=$true
             $writes.Clear()
-            Assert-Throws { Invoke-PsAiInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes } "$failure refuses cleanup"
+            Assert-Throws { Invoke-LegionInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes } "$failure refuses cleanup"
             Assert-True (Test-Path -LiteralPath $cache) "$failure preserves cache"
             $state[$failure]=$false
         }
         $state.Plugin=$false; $state.Marketplace=$false
         $state.Answer='n'
-        $preview = @(Invoke-PsAiInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall)
+        $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall)
         Assert-True (($preview -join "`n").Contains("Remove cache folder: $cache")) 'Leftover cache alone is planned'
         Assert-True (Test-Path -LiteralPath $cache) 'Declining keeps leftover cache'
-        $null = Invoke-PsAiInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes
+        $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes
         Assert-True (-not (Test-Path -LiteralPath $cache)) 'Already uninstalled plugin leftovers can be cleaned'
         New-Item -ItemType Directory -Path $cache -Force | Out-Null
-        $null = Invoke-PsAiInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes
+        $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes
         Assert-True (-not (Test-Path -LiteralPath $cache)) 'Empty cache folder is cleaned'
 
         $entry = $catalog.tools | Where-Object id -CEQ codex
@@ -52,9 +52,9 @@ $repo = Split-Path $PSScriptRoot -Parent
         foreach ($unsafe in @('../other-marketplace', '/outside', 'C:/outside', '.', 'plugins/../other', '~/outside', 'plugins/*', 'plugins/./cache')) {
             $entry.plugin.cacheDir=$unsafe
             Assert-Throws { Get-InstallCatalog -Catalog $catalog } 'Unsafe cache path rejected before any CLI command'
-            $descriptor = Get-Content (Join-Path $repo 'plugins/ps-ai/skills/ps-ai-codex/tool.json') -Raw | ConvertFrom-Json
+            $descriptor = Get-Content (Join-Path $repo 'plugins/legion/skills/legion-codex/tool.json') -Raw | ConvertFrom-Json
             $descriptor.plugin.cacheDir=$unsafe
-            Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile (Join-Path $repo 'plugins/ps-ai/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) 'Schema rejects unsafe cache path'
+            Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile (Join-Path $repo 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) 'Schema rejects unsafe cache path'
         }
         $entry.plugin.cacheDir=$original
         $outside = Join-Path $sandbox 'linked-owner-data'
@@ -64,19 +64,19 @@ $repo = Split-Path $PSScriptRoot -Parent
             if ($nested) { New-Item -ItemType Directory -Path $cache -Force | Out-Null }
             $link = if ($nested) { Join-Path $cache 'linked-version' } else { $cache }
             New-Item -ItemType $linkType -Path $link -Target $outside -ErrorAction Stop | Out-Null
-            $null = Invoke-PsAiInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes
+            $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes
             Assert-True (Test-Path -LiteralPath (Join-Path $outside 'fixture.txt')) 'Linked owner data remains'
             Assert-True (Test-Path -LiteralPath $link) 'Linked cache is skipped'
             Remove-Item -LiteralPath $link -Force
         }
 
-        $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
-        $fourth.plugin | Add-Member cacheDir 'private/cache/ps-ai-store'
+        $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw | ConvertFrom-Json
+        $fourth.plugin | Add-Member cacheDir 'private/cache/legion-store'
         $catalog.tools += [pscustomobject]@{id=$fourth.id;command=$fourth.command;configEnv=$fourth.configEnv;plugin=$fourth.plugin;hooks=$fourth.hooks;installHint='fixture'}
-        $futureCache = Join-Path $folder 'private/cache/ps-ai-store'
+        $futureCache = Join-Path $folder 'private/cache/legion-store'
         New-FixtureCache $futureCache
         $state.Plugin=$true; $state.Marketplace=$true
-        $null = Invoke-PsAiInstaller -Catalog $catalog -Tools fourth -ConfigDir $folder -Uninstall -Yes
+        $null = Invoke-LegionInstaller -Catalog $catalog -Tools fourth -ConfigDir $folder -Uninstall -Yes
         Assert-True (-not (Test-Path -LiteralPath $futureCache)) 'Future tools use their exact declared cache path'
     } finally { Remove-UninstallSandbox }
 }

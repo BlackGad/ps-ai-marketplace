@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-$skill = Join-Path $root 'plugins/ps-ai/skills/ps-ai-telegram'
+$skill = Join-Path $root 'plugins/legion/skills/legion-telegram'
 $png = Join-Path $skill 'assets/test.png'
 Assert-True (Test-Path $png) 'Bundled test image exists'
 $bytes = [IO.File]::ReadAllBytes($png)

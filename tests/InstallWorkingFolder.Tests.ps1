@@ -1,10 +1,10 @@
 $repo = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     # Codex reads <cwd>/.codex/config.toml as project settings, so running from the home folder
     # leaks the default account's marketplaces into every other account.
-    $callerFolder = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-cwd-' + [guid]::NewGuid().ToString('N'))
+    $callerFolder = Join-Path ([IO.Path]::GetTempPath()) ('legion-cwd-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path (Join-Path $callerFolder '.codex') -Force | Out-Null
     $child = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
     Push-Location -LiteralPath $callerFolder

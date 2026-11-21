@@ -5,39 +5,40 @@ $plugin = Join-Path $sandbox 'plugin'
 $fixtureRepo = Join-Path $sandbox 'repo'
 New-Item -ItemType Directory -Path (Join-Path $plugin 'hooks'), (Join-Path $plugin 'bin/lib'), (Join-Path $fixtureRepo '.legion/state') -Force | Out-Null
 try {
-    foreach ($file in @('hooks/detect-mode.ps1','bin/lib/common.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','bin/ps-ai-update.ps1')) {
-        Copy-Item (Join-Path $repo "plugins/ps-ai/$file") (Join-Path $plugin $file)
+    foreach ($file in @('hooks/detect-mode.ps1','bin/lib/common.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','bin/legion-update.ps1')) {
+        Copy-Item (Join-Path $repo "plugins/legion/$file") (Join-Path $plugin $file)
     }
-    '{"name":"ps-ai","version":"0.3.0"}' | Set-Content (Join-Path $plugin 'plugin.json')
+    '{"name":"legion","version":"0.3.0"}' | Set-Content (Join-Path $plugin 'plugin.json')
     # Replace only the download and home boundaries in the child-process copy.
     @'
-function Get-PsAiUpdateHome { Join-Path $PSScriptRoot '../../home' }
-function Get-PsAiUpdateText {
+function Get-LegionUpdateHome { Join-Path $PSScriptRoot '../../home' }
+function Get-LegionUpdateText {
     param([string]$Url)
     Add-Content (Join-Path $PSScriptRoot '../downloads.txt') 'download'
     $text = Get-Content (Join-Path $PSScriptRoot '../response.txt') -Raw
     if ($text -eq 'fail') { throw 'offline fixture' }
     $text
 }
-'@ | Add-Content (Join-Path $plugin 'bin/ps-ai-update.ps1')
-    '{"name":"ps-ai","version":"0.4.0"}' | Set-Content (Join-Path $plugin 'response.txt') -NoNewline
+'@ | Add-Content (Join-Path $plugin 'bin/legion-update.ps1')
+    '{"name":"legion","version":"0.4.0"}' | Set-Content (Join-Path $plugin 'response.txt') -NoNewline
     $hook = Join-Path $plugin 'hooks/detect-mode.ps1'
-    $savedRole = $env:PS_AI_ROLE
-    $savedTask = $env:PS_AI_TASK
+    $savedRole = $env:LEGION_ROLE
+    $savedTask = $env:LEGION_TASK
     try {
-        $env:PS_AI_ROLE = ''
-        $env:PS_AI_TASK = ''
+        $env:LEGION_ROLE = ''
+        $env:LEGION_TASK = ''
         Assert-Equal '{}' (& pwsh -NoProfile -File $hook -Repo $fixtureRepo -Format context-json) 'Ad hoc mode has no notice'
         Assert-True (-not (Test-Path (Join-Path $plugin 'downloads.txt'))) 'Ad hoc never checks'
         "## Goal and milestone`nM1`n## Current task`ntask 1`n" | Set-Content (Join-Path $fixtureRepo '.legion/state/handoff.md')
-        $env:PS_AI_ROLE = 'legion'
-        $env:PS_AI_TASK = 'task.md'
-        $null = & pwsh -NoProfile -File $hook -Repo $fixtureRepo
-        $env:PS_AI_TASK = ''
-        $null = & pwsh -NoProfile -File $hook -Repo $fixtureRepo
-        Assert-True (-not (Test-Path (Join-Path $plugin 'downloads.txt'))) 'Legion never checks even without task'
-        $env:PS_AI_ROLE = ''
-        $notice = 'ps-ai 0.4.0 is available (installed 0.3.0); say "update ps-ai" to update.'
+        $env:LEGION_ROLE = 'member'
+        $env:LEGION_TASK = 'task.md'
+        $memberText = & pwsh -NoProfile -File $hook -Repo $fixtureRepo
+        Assert-True ($memberText.Contains('you are a legion member') -and $memberText.Contains('LEGION_TASK')) 'Child hook reads member variables'
+        $env:LEGION_TASK = ''
+        Assert-Equal 'legion: LEGION_ROLE=member without LEGION_TASK; ignored.' (& pwsh -NoProfile -File $hook -Repo $fixtureRepo) 'Child hook warns about missing member task'
+        Assert-True (-not (Test-Path (Join-Path $plugin 'downloads.txt'))) 'Member never checks even without task'
+        $env:LEGION_ROLE = ''
+        $notice = 'legion 0.4.0 is available (installed 0.3.0); say "update legion" to update.'
         $text = @(& pwsh -NoProfile -File $hook -Repo $fixtureRepo)
         Assert-Equal 0 $LASTEXITCODE 'Text hook exits zero'
         Assert-Equal 2 $text.Count 'Text hook adds exactly one notice line'
@@ -46,12 +47,18 @@ function Get-PsAiUpdateText {
         $json = & pwsh -NoProfile -File $hook -Repo $fixtureRepo -Format context-json | ConvertFrom-Json
         Assert-Equal ($text -join "`n") $json.additionalContext 'JSON includes same notice'
         Assert-Equal 1 @(Get-Content (Join-Path $plugin 'downloads.txt')).Count 'Hook uses daily cache'
+        $env:LEGION_ROLE = 'legion'
+        $env:LEGION_TASK = 'task.md'
+        $oldRoleContext = (& pwsh -NoProfile -File $hook -Repo $fixtureRepo -Format context-json | ConvertFrom-Json).additionalContext
+        Assert-Equal ($text -join "`n") $oldRoleContext 'Unknown role retains normal update behavior'
+        $env:LEGION_ROLE = ''
+        $env:LEGION_TASK = ''
         foreach ($version in @('0.3.0','0.2.0')) {
-            Remove-Item (Join-Path $sandbox 'home/.legion/temp/ps-ai-update.json')
-            "{`"name`":`"ps-ai`",`"version`":`"$version`"}" | Set-Content (Join-Path $plugin 'response.txt') -NoNewline
+            Remove-Item (Join-Path $sandbox 'home/.legion/temp/update.json')
+            "{`"name`":`"legion`",`"version`":`"$version`"}" | Set-Content (Join-Path $plugin 'response.txt') -NoNewline
             Assert-Equal 1 @(& pwsh -NoProfile -File $hook -Repo $fixtureRepo).Count 'Equal or older release adds no notice'
         }
-        Remove-Item (Join-Path $sandbox 'home/.legion/temp/ps-ai-update.json')
+        Remove-Item (Join-Path $sandbox 'home/.legion/temp/update.json')
         'fail' | Set-Content (Join-Path $plugin 'response.txt') -NoNewline
         $text = @(& pwsh -NoProfile -File $hook -Repo $fixtureRepo)
         Assert-Equal 1 $text.Count 'Failed check adds no output'
@@ -60,8 +67,8 @@ function Get-PsAiUpdateText {
         $json = & pwsh -NoProfile -File $hook -Repo $fixtureRepo -Format context-json | ConvertFrom-Json
         Assert-Equal $text[0] $json.additionalContext 'Failed check preserves JSON context'
     } finally {
-        $env:PS_AI_ROLE = $savedRole
-        $env:PS_AI_TASK = $savedTask
+        $env:LEGION_ROLE = $savedRole
+        $env:LEGION_TASK = $savedTask
     }
 } finally {
     $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/restructure')) + [IO.Path]::DirectorySeparatorChar

@@ -1,13 +1,14 @@
 $root = Split-Path $PSScriptRoot -Parent
-$runnerScript = Join-Path $root 'plugins/ps-ai/bin/ps-ai-foundry.ps1'
+$runnerScript = Join-Path $root 'plugins/legion/bin/legion-foundry.ps1'
 . $runnerScript -NoRun
 Assert-True ([bool](Get-Command Get-FoundryLaunch -ErrorAction SilentlyContinue)) 'Foundry launch builder exists'
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $savedEnvironment = @{}
-foreach ($name in @('PATH','PS_AI_FAKE_AZ','PS_AI_FAKE_AZ_LOG','PS_AI_FAKE_TOOL_LOG','PS_AI_FAKE_TOOL_EXIT','CLAUDE_CODE_USE_BEDROCK','ANTHROPIC_DEFAULT_SONNET_MODEL','CLAUDE_CONFIG_DIR')) {
+foreach ($name in @('PATH','LEGION_FAKE_AZ','LEGION_FAKE_AZ_LOG','LEGION_FAKE_TOOL_LOG','LEGION_FAKE_TOOL_EXIT','CLAUDE_CODE_USE_BEDROCK','ANTHROPIC_DEFAULT_SONNET_MODEL','CLAUDE_CONFIG_DIR')) {
     $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
 }
-$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path (Get-TestTempPath) ('legion-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 $fakeRoot = $null
 try {
@@ -20,7 +21,7 @@ try {
     $copilotAgent = [pscustomobject]@{id='copilot-dev';tool='copilot';configDir='~/.legion/agents/copilot-dev';provider=$copilotProvider}
     $codexAgent = [pscustomobject]@{id='codex-dev';tool='codex';configDir='~/.legion/agents/codex-dev';provider=@{kind='foundry';endpoint=$provider.endpoint;default='gpt-x';deployments=@(@{name='gpt-x'})}}
     @{agents=@($claudeAgent,$copilotAgent,$codexAgent,@{id='subscription';tool='claude'})} |
-        ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $config 'ps-ai-personalisation.json')
+        ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $config 'personalisation.json')
     $launch = Get-FoundryLaunch -Agent $claudeAgent -HomeRoot $homeRoot
     foreach ($name in @('ANTHROPIC_FOUNDRY_RESOURCE','ANTHROPIC_FOUNDRY_API_KEY','ANTHROPIC_FOUNDRY_AUTH_TOKEN','ANTHROPIC_SMALL_FAST_MODEL','CLAUDE_CODE_USE_BEDROCK','CLAUDE_CODE_USE_VERTEX','CLAUDE_CODE_USE_ANTHROPIC_AWS','CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD','CLAUDE_CODE_USE_MANTLE','CLAUDE_CODE_USE_GATEWAY')) {
         Assert-True ($launch.Clear -contains $name) "Claude clears $name"
@@ -31,18 +32,18 @@ try {
     $tokenKey = 'account get-access-token --resource https://cognitiveservices.azure.com'
     $answers = @{ $tokenKey = @{exit=0;stdout='{"accessToken":"fake-token","expiresOn":"2026-11-18T18:30:00+00:00"}'} }
     Use-FakeAz -Answers $answers
-    $fakeRoot = Split-Path $env:PS_AI_FAKE_AZ -Parent
+    $fakeRoot = Split-Path $env:LEGION_FAKE_AZ -Parent
     $fakeAzFolder = Join-Path $PSScriptRoot 'fixtures/fake-az'
     $fakeToolsFolder = Join-Path $PSScriptRoot 'fixtures/fake-tools'
     $pwshPath = (Get-Process -Id $PID).Path
     $env:PATH = @($fakeToolsFolder,$fakeAzFolder,$PSHOME,$(if ($IsWindows) { $null } else { "/bin:/usr/bin" })) -join [IO.Path]::PathSeparator
-    $env:PS_AI_FAKE_TOOL_LOG = Join-Path $tempRoot 'tool.json'
-    $env:PS_AI_FAKE_TOOL_EXIT = '0'
+    $env:LEGION_FAKE_TOOL_LOG = Join-Path $tempRoot 'tool.json'
+    $env:LEGION_FAKE_TOOL_EXIT = '0'
     $env:CLAUDE_CODE_USE_BEDROCK = '1'
     $env:CLAUDE_CONFIG_DIR = 'parent-config'
     $output = @(& $pwshPath -NoProfile -File $runnerScript -Agent claude-dev -HomeRoot $homeRoot -p hi 2>&1)
     Assert-Equal 0 $LASTEXITCODE 'Claude runner succeeds'
-    $log = Get-Content -Raw $env:PS_AI_FAKE_TOOL_LOG | ConvertFrom-Json
+    $log = Get-Content -Raw $env:LEGION_FAKE_TOOL_LOG | ConvertFrom-Json
     Assert-Equal '1' $log.environment.CLAUDE_CODE_USE_FOUNDRY 'Claude enables Foundry'
     Assert-Equal 'https://res-a.cognitiveservices.azure.com/anthropic' $log.environment.ANTHROPIC_FOUNDRY_BASE_URL 'Claude endpoint'
     Assert-Equal 'claude-opus-x' $log.environment.ANTHROPIC_MODEL 'Claude default'
@@ -54,24 +55,24 @@ try {
     Assert-Equal 'parent-config' $env:CLAUDE_CONFIG_DIR 'Parent config unchanged'
     $output = @(& $pwshPath -NoProfile -File $runnerScript -Agent codex-dev -HomeRoot $homeRoot -p 'hi there' 2>&1)
     Assert-Equal 0 $LASTEXITCODE 'Codex runner succeeds'
-    $log = Get-Content -Raw $env:PS_AI_FAKE_TOOL_LOG | ConvertFrom-Json
+    $log = Get-Content -Raw $env:LEGION_FAKE_TOOL_LOG | ConvertFrom-Json
     Assert-Equal (Join-Path $homeRoot '.legion/agents/codex-dev') $log.environment.CODEX_HOME 'Codex config home'
     Assert-Equal '-p|hi there' ($log.arguments -join '|') 'Argument with space preserved'
     foreach ($exitCode in @(0,3)) {
-        $env:PS_AI_FAKE_TOOL_EXIT = [string]$exitCode
+        $env:LEGION_FAKE_TOOL_EXIT = [string]$exitCode
         $output = @(& $pwshPath -NoProfile -File $runnerScript -Agent copilot-dev -HomeRoot $homeRoot --resume 2>&1)
         Assert-Equal $exitCode $LASTEXITCODE 'Copilot exit code preserved'
         Assert-True (-not (($output -join "`n").Contains('fake-token'))) 'Runner never prints token'
         $expiry = ([DateTimeOffset]'2026-11-18T18:30:00+00:00').ToLocalTime().ToString('HH:mm')
         Assert-True (($output -join "`n").Contains("token valid until $expiry; after that restart with: copilot-dev --resume")) 'Copilot notice uses local expiry'
-        $log = Get-Content -Raw $env:PS_AI_FAKE_TOOL_LOG | ConvertFrom-Json
+        $log = Get-Content -Raw $env:LEGION_FAKE_TOOL_LOG | ConvertFrom-Json
         Assert-True $log.providersExisted 'Copilot providers existed during run'
         Assert-True (-not (Test-Path -LiteralPath $log.environment.COPILOT_PROVIDERS_CONFIG)) 'Copilot providers deleted afterwards'
         Assert-Equal (Join-Path $homeRoot '.legion/agents/copilot-dev') $log.environment.COPILOT_HOME 'Copilot config home'
         Assert-Equal (Join-Path $homeRoot '.legion/temp') (Split-Path $log.environment.COPILOT_PROVIDERS_CONFIG -Parent) 'Provider file in per-home temp'
         $providers = $log.providersJson | ConvertFrom-Json
         Assert-Equal 1 $providers.providers.Count 'One Copilot provider'
-        Assert-Equal 'ps-ai-foundry' $providers.providers[0].name 'Copilot provider name'
+        Assert-Equal 'legion-foundry' $providers.providers[0].name 'Copilot provider name'
         Assert-Equal 'anthropic' $providers.providers[0].type 'Copilot provider protocol'
         Assert-Equal 'https://res-a.cognitiveservices.azure.com/anthropic' $providers.providers[0].baseUrl 'Copilot endpoint'
         Assert-True ($providers.providers[0].bearerToken -ceq 'fake-token') 'Copilot uses bearer token'
@@ -79,20 +80,20 @@ try {
         Assert-Equal 2 $providers.models.Count 'Copilot includes all deployments'
         Assert-Equal 'claude-sonnet-x' $providers.models[1].modelId 'Unknown model falls back to deployment'
         Assert-Equal 'claude-sonnet-x' $providers.models[1].wireModel 'Copilot wire model is deployment'
-        Assert-Equal 'ps-ai-foundry' $providers.models[1].provider 'Copilot model provider'
+        Assert-Equal 'legion-foundry' $providers.models[1].provider 'Copilot model provider'
     }
-    Remove-Item -LiteralPath $env:PS_AI_FAKE_TOOL_LOG
+    Remove-Item -LiteralPath $env:LEGION_FAKE_TOOL_LOG
     Use-FakeAz -Answers @{ $tokenKey = @{exit=1;stdout='fake token denied'}; login = @{exit=0;stdout=''} }
     $output = @(& $pwshPath -NoProfile -File $runnerScript -Agent claude-dev -HomeRoot $homeRoot 2>&1)
     Assert-Equal 1 $LASTEXITCODE 'Token failure exits one'
     Assert-True (($output -join "`n").Contains('fake token denied')) 'Token failure message'
-    Assert-True (-not (Test-Path $env:PS_AI_FAKE_TOOL_LOG)) 'Token failure starts no tool'
+    Assert-True (-not (Test-Path $env:LEGION_FAKE_TOOL_LOG)) 'Token failure starts no tool'
     Assert-Equal 1 @(Get-FakeAzCalls | Where-Object { $_ -eq 'login' }).Count 'Runner retries login once'
     Use-FakeAz -Answers $answers
     $env:PATH = @($fakeAzFolder,$PSHOME) -join [IO.Path]::PathSeparator
     $output = @(& $pwshPath -NoProfile -File $runnerScript -Agent claude-dev -HomeRoot $homeRoot 2>&1)
     Assert-Equal 1 $LASTEXITCODE 'Missing tool exits one'
-    Assert-True (($output -join "`n").Contains('claude is not installed; run ps-ai-install-tool.ps1 -Tool claude')) 'Missing tool installer hint'
+    Assert-True (($output -join "`n").Contains('claude is not installed; run legion-install-tool.ps1 -Tool claude')) 'Missing tool installer hint'
     foreach ($case in @(@{id='x';error="unknown account 'x'"},@{id='subscription';error="account 'subscription' is not a Foundry agent"})) {
         $output = @(& $pwshPath -NoProfile -File $runnerScript -Agent $case.id -HomeRoot $homeRoot 2>&1)
         Assert-Equal 1 $LASTEXITCODE 'Invalid account exits one'
@@ -102,29 +103,29 @@ try {
     $bin = Join-Path $homeRoot '.legion/bin'
     New-Item -ItemType Directory -Path $bin -Force | Out-Null
     $bundledRunner = & {
-        . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -HomeRoot $homeRoot
-        foreach ($id in @('codex','copilot')) { $null = Sync-PsAiFoundryRuntime -Tool $id -HomeRoot $homeRoot }
-        Sync-PsAiFoundryRuntime -Tool claude -HomeRoot $homeRoot
+        . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -HomeRoot $homeRoot
+        foreach ($id in @('codex','copilot')) { $null = Sync-LegionFoundryRuntime -Tool $id -HomeRoot $homeRoot }
+        Sync-LegionFoundryRuntime -Tool claude -HomeRoot $homeRoot
     }
     'throw "wrapper selected as real tool"' | Set-Content -LiteralPath (Join-Path $bin 'claude.ps1')
     $env:PATH = @($bin,$fakeToolsFolder,$fakeAzFolder,$PSHOME) -join [IO.Path]::PathSeparator
-    $env:PS_AI_FAKE_TOOL_EXIT = '0'
+    $env:LEGION_FAKE_TOOL_EXIT = '0'
     $output = @(& $pwshPath -NoProfile -File $bundledRunner -Agent claude-dev -HomeRoot $homeRoot -p hi 2>&1)
     Assert-Equal 0 $LASTEXITCODE 'Installed runner skips wrappers and loads local helper'
-    Assert-True (Test-Path $env:PS_AI_FAKE_TOOL_LOG) 'Installed runner starts fake tool'
+    Assert-True (Test-Path $env:LEGION_FAKE_TOOL_LOG) 'Installed runner starts fake tool'
     # FourthToolLaunchAndStartFailureCleanup: extension uses only the added skill.
     $runtime = Split-Path (Split-Path $bundledRunner -Parent) -Parent
-    $fourthSkill = Join-Path $runtime 'skills/ps-ai-fourth'
-    Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth') $fourthSkill -Recurse
+    $fourthSkill = Join-Path $runtime 'skills/legion-fourth'
+    Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') $fourthSkill -Recurse
     $env:PATH = @($bin,$fourthSkill,$fakeToolsFolder,$fakeAzFolder,$PSHOME) -join [IO.Path]::PathSeparator
     'throw "owned wrapper selected"' | Set-Content (Join-Path $bin 'fourth-cli.ps1')
-    $file = Join-Path $config 'ps-ai-personalisation.json'
+    $file = Join-Path $config 'personalisation.json'
     $data = Get-Content $file -Raw | ConvertFrom-Json
     $data.agents += @([pscustomobject]@{id='fourth-dev';tool='fourth';configDir='~/.legion/agents/fourth-dev';provider=$provider})
     $data | ConvertTo-Json -Depth 100 | Set-Content $file
     $output = @(& $pwshPath -NoProfile -File $bundledRunner -Agent fourth-dev -HomeRoot $homeRoot --flag 'space value' 2>&1)
     Assert-Equal 0 $LASTEXITCODE 'Fourth runner resolves descriptor executable rather than id'
-    $log = Get-Content $env:PS_AI_FAKE_TOOL_LOG -Raw | ConvertFrom-Json
+    $log = Get-Content $env:LEGION_FAKE_TOOL_LOG -Raw | ConvertFrom-Json
     Assert-Equal (Join-Path $homeRoot '.legion/agents/fourth-dev') $log.config 'Fourth adapter sets child config home'
     Assert-Equal '--flag|space value' ($log.arguments -join '|') 'Fourth runner preserves argument boundaries'
     $descriptorPath = Join-Path $fourthSkill 'tool.json'
@@ -135,11 +136,11 @@ try {
         $data.agents[-1].tool = $tool
         $data | ConvertTo-Json -Depth 100 | Set-Content $file
         $calls = @(Get-FakeAzCalls).Count
-        if (Test-Path $env:PS_AI_FAKE_TOOL_LOG) { Remove-Item $env:PS_AI_FAKE_TOOL_LOG }
+        if (Test-Path $env:LEGION_FAKE_TOOL_LOG) { Remove-Item $env:LEGION_FAKE_TOOL_LOG }
         $output = @(& $pwshPath -NoProfile -File $bundledRunner -Agent fourth-dev -HomeRoot $homeRoot 2>&1)
         Assert-Equal 1 $LASTEXITCODE 'Unsupported capability exits one'
         Assert-Equal $calls @(Get-FakeAzCalls).Count 'Unsupported capability stops before Azure'
-        Assert-True (-not (Test-Path $env:PS_AI_FAKE_TOOL_LOG)) 'Unsupported capability starts no tool'
+        Assert-True (-not (Test-Path $env:LEGION_FAKE_TOOL_LOG)) 'Unsupported capability starts no tool'
         Assert-Equal 0 @(Get-ChildItem (Join-Path $homeRoot '.legion/temp') -Filter '*providers*' -ErrorAction SilentlyContinue).Count 'Unsupported capability creates no provider file'
     }
     # An invalid executable fails Process.Start after provider JSON has been written.
@@ -147,7 +148,7 @@ try {
     $brokenPath = Join-Path $tempRoot $brokenName
     [IO.File]::WriteAllBytes($brokenPath, [byte[]]@(0,1,2,3))
     if (-not $IsWindows) { [IO.File]::SetUnixFileMode($brokenPath, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute) }
-    $copilotDescriptorPath = Join-Path $runtime 'skills/ps-ai-copilot/tool.json'
+    $copilotDescriptorPath = Join-Path $runtime 'skills/legion-copilot/tool.json'
     $copilotDescriptor = Get-Content $copilotDescriptorPath -Raw | ConvertFrom-Json
     $copilotDescriptor.command = $brokenName
     $copilotDescriptor | ConvertTo-Json -Depth 100 | Set-Content $copilotDescriptorPath

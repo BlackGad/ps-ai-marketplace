@@ -1,8 +1,8 @@
 # LaunchAdapterContract: invoke adapters, never dot-source their internals.
 & {
     $repoRoot = Split-Path $PSScriptRoot -Parent
-    $skillRoot = Join-Path $repoRoot 'plugins/ps-ai/skills'
-    . (Join-Path $repoRoot 'plugins/ps-ai/bin/ps-ai-foundry.ps1') -NoRun
+    $skillRoot = Join-Path $repoRoot 'plugins/legion/skills'
+    . (Join-Path $repoRoot 'plugins/legion/bin/legion-foundry.ps1') -NoRun
     function Get-FoundryToken { throw 'Unexpected token request' }
     $homeRoot = Join-Path $repoRoot '.agents/temp/restructure/adapter home'
     $injectedToken = @{ Token = 'fake-token'; ExpiresOn = [DateTimeOffset]'2026-11-18T18:30:00+00:00' }
@@ -13,7 +13,7 @@
         @{ name = 'deployment-d'; alias = 'fable' }
     ) }
     foreach ($id in @('claude', 'codex', 'copilot')) {
-        $adapter = Join-Path $skillRoot "ps-ai-$id/scripts/foundry-launch.ps1"
+        $adapter = Join-Path $skillRoot "legion-$id/scripts/foundry-launch.ps1"
         Assert-True (Test-Path -LiteralPath $adapter) "$id launch adapter exists"
         foreach ($configDir in @('~/.legion/agents/agent-a', (Join-Path $homeRoot 'absolute config'))) {
             $adapterAgent = [pscustomobject]@{ id = 'agent-a'; tool = $id; configDir = $configDir; provider = $provider }
@@ -48,7 +48,7 @@
     }
     function Get-FoundryToken { return $injectedToken }
     $adapterAgent = [pscustomobject]@{ id = 'agent-a'; tool = 'copilot'; configDir = '~/config'; provider = $provider }
-    $result = @(& (Join-Path $skillRoot 'ps-ai-copilot/scripts/foundry-launch.ps1') -Agent $adapterAgent -HomeRoot $homeRoot)
+    $result = @(& (Join-Path $skillRoot 'legion-copilot/scripts/foundry-launch.ps1') -Agent $adapterAgent -HomeRoot $homeRoot)
     Assert-Equal 1 $result.Count 'Copilot obtains token only when omitted'
     Assert-Equal 'fake-token' (($result[0].ProvidersJson | ConvertFrom-Json).providers[0].bearerToken) 'Copilot uses caller token helper'
     Assert-True (-not (Test-Path -LiteralPath $homeRoot)) 'Launch adapters make no directories or config writes'
@@ -57,10 +57,10 @@
 # ConfigAdaptersPreserveAndSkip: config writers have one return value and no repeat writes.
 & {
     $repoRoot = Split-Path $PSScriptRoot -Parent
-    $skillRoot = Join-Path $repoRoot 'plugins/ps-ai/skills'
-    . (Join-Path $repoRoot 'plugins/ps-ai/bin/lib/tools.ps1')
+    $skillRoot = Join-Path $repoRoot 'plugins/legion/skills'
+    . (Join-Path $repoRoot 'plugins/legion/bin/lib/tools.ps1')
     foreach ($adapterId in @('claude', 'codex')) {
-        Assert-True (Test-Path -LiteralPath (Join-Path $skillRoot "ps-ai-$adapterId/scripts/foundry-config.ps1")) "$adapterId config adapter exists"
+        Assert-True (Test-Path -LiteralPath (Join-Path $skillRoot "legion-$adapterId/scripts/foundry-config.ps1")) "$adapterId config adapter exists"
     }
     $scratchRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '.agents/temp/restructure'))
     $configRoot = Join-Path $scratchRoot ('config-' + [guid]::NewGuid().ToString('N'))
@@ -72,7 +72,7 @@
     ) }
     try {
         foreach ($adapterId in @('claude', 'codex')) {
-            $adapter = Join-Path $skillRoot "ps-ai-$adapterId/scripts/foundry-config.ps1"
+            $adapter = Join-Path $skillRoot "legion-$adapterId/scripts/foundry-config.ps1"
             foreach ($seeded in @($false, $true)) {
                 $configDir = Join-Path $configRoot "$adapterId-$seeded"
                 $configAgent = @{ tool = $adapterId; configDir = $configDir; provider = $configProvider }
@@ -102,7 +102,7 @@
                     if ($seeded) {
                         Assert-Equal 'dark' $settings.theme 'Claude preserves unrelated settings'
                         Assert-Equal 'café' $settings.custom.label 'Claude preserves nested Unicode settings'
-                        $savedSettings = ConvertFrom-PsAiToolJson -Json $configText
+                        $savedSettings = ConvertFrom-LegionToolJson -Json $configText
                         Assert-Equal '2026-11-18T16:01:00+03:00' $savedSettings.custom.lastViewed 'Claude preserves unrelated timestamp strings and offsets'
                     }
                 } else {
@@ -138,7 +138,7 @@
             }
             [IO.File]::WriteAllText($settingsFile, $seed)
             $settingsAgent = @{ tool='claude'; configDir=$settingsDir; provider=$configProvider }
-            $writer = Join-Path $skillRoot 'ps-ai-claude/scripts/foundry-config.ps1'
+            $writer = Join-Path $skillRoot 'legion-claude/scripts/foundry-config.ps1'
             $result = & $writer -Agent $settingsAgent -HomeRoot $configRoot
             Assert-Equal $true $result.Changed "$syntax settings receive model picker"
             $bytes = [IO.File]::ReadAllBytes($settingsFile)
@@ -167,7 +167,7 @@ $agentData = Get-Content -LiteralPath $AgentPath -Raw | ConvertFrom-Json
         $childAgent = @{ tool = 'claude'; configDir = (Split-Path $childConfig -Parent); provider = $configProvider }
         $childAgentPath = Join-Path $configRoot 'agent.json'
         $childAgent | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $childAgentPath
-        $claudeWriter = Join-Path $skillRoot 'ps-ai-claude/scripts/foundry-config.ps1'
+        $claudeWriter = Join-Path $skillRoot 'legion-claude/scripts/foundry-config.ps1'
         $null = & $claudeWriter -Agent $childAgent -HomeRoot $configRoot
         [IO.File]::SetLastWriteTimeUtc($childConfig, [datetime]'2020-01-01T00:00:00Z')
         $childTime = [IO.File]::GetLastWriteTimeUtc($childConfig)
@@ -188,7 +188,7 @@ $agentData = Get-Content -LiteralPath $AgentPath -Raw | ConvertFrom-Json
             [IO.File]::WriteAllText($invalidFile, $invalidJson)
             $invalidAgent = @{ tool = 'claude'; configDir = $invalidDir; provider = $configProvider }
             $configError = ''
-            try { & (Join-Path $skillRoot 'ps-ai-claude/scripts/foundry-config.ps1') -Agent $invalidAgent -HomeRoot $configRoot | Out-Null }
+            try { & (Join-Path $skillRoot 'legion-claude/scripts/foundry-config.ps1') -Agent $invalidAgent -HomeRoot $configRoot | Out-Null }
             catch { $configError = $_.Exception.Message }
             Assert-Equal 'settings.json is not valid JSON; fix or remove it' $configError 'Claude retains the invalid JSON diagnostic'
             Assert-Equal $invalidJson ([IO.File]::ReadAllText($invalidFile)) 'Claude leaves invalid JSON untouched'
@@ -196,15 +196,15 @@ $agentData = Get-Content -LiteralPath $AgentPath -Raw | ConvertFrom-Json
 
         # Exercise the account delegator against real, relocated discovery data.
         $pluginCopy = Join-Path $configRoot 'plugin'
-        Copy-Item -LiteralPath (Join-Path $repoRoot 'plugins/ps-ai') -Destination $pluginCopy -Recurse
-        $fourthCopy = Join-Path $pluginCopy 'skills/ps-ai-fourth'
-        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth') -Destination $fourthCopy -Recurse
+        Copy-Item -LiteralPath (Join-Path $repoRoot 'plugins/legion') -Destination $pluginCopy -Recurse
+        $fourthCopy = Join-Path $pluginCopy 'skills/legion-fourth'
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') -Destination $fourthCopy -Recurse
         $homeCopy = Join-Path $configRoot 'delegation home'
-        $personalisation = Join-Path $homeCopy '.legion/configuration/ps-ai-personalisation.json'
+        $personalisation = Join-Path $homeCopy '.legion/configuration/personalisation.json'
         New-Item -ItemType Directory -Path (Split-Path $personalisation -Parent) -Force | Out-Null
         [IO.File]::WriteAllText($personalisation, '{"schemaVersion":1,"agents":[]}')
         & {
-            . (Join-Path $pluginCopy 'bin/ps-ai-account.ps1') -HomeRoot $homeCopy
+            . (Join-Path $pluginCopy 'bin/legion-account.ps1') -HomeRoot $homeCopy
             foreach ($adapterId in @('copilot', 'fourth')) {
                 $absentDir = Join-Path $homeCopy $adapterId
                 $configAgent = @{ tool = $adapterId; configDir = $absentDir; provider = $configProvider }

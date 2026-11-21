@@ -11,9 +11,9 @@
         { "type": "docs", "section": "Documentation" }
       ],
       "extra-files": [
-        { "type": "json", "path": "plugins/ps-ai/plugin.json", "jsonpath": "$.version" },
-        { "type": "json", "path": "plugins/ps-ai/.claude-plugin/plugin.json", "jsonpath": "$.version" },
-        { "type": "json", "path": "plugins/ps-ai/.codex-plugin/plugin.json", "jsonpath": "$.version" }
+        { "type": "json", "path": "plugins/legion/plugin.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "plugins/legion/.claude-plugin/plugin.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "plugins/legion/.codex-plugin/plugin.json", "jsonpath": "$.version" }
       ]
     }
   },

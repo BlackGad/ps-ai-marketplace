@@ -1,9 +1,9 @@
 $root = Split-Path $PSScriptRoot -Parent
-$script = Join-Path $root 'plugins/ps-ai/bin/ps-ai-channel.ps1'
+$script = Join-Path $root 'plugins/legion/bin/legion-channel.ps1'
 Assert-True (Test-Path $script) 'Channel script exists'
 
 $homeRoot = Join-Path $root ('.agents/temp/channel-binding-' + [guid]::NewGuid().ToString('N'))
-$file = Join-Path $homeRoot '.legion/configuration/ps-ai-personalisation.json'
+$file = Join-Path $homeRoot '.legion/configuration/personalisation.json'
 New-Item -ItemType Directory (Split-Path $file) -Force | Out-Null
 $claudeDir = Join-Path $homeRoot 'claude1-config'
 New-Item -ItemType Directory $claudeDir -Force | Out-Null

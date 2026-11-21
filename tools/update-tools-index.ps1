@@ -1,6 +1,6 @@
 param([switch]$Check, [switch]$NoRun)
 
-. (Join-Path $PSScriptRoot '../plugins/ps-ai/bin/lib/tools.ps1')
+. (Join-Path $PSScriptRoot '../plugins/legion/bin/lib/tools.ps1')
 
 function Get-ToolsIndexContent {
     param([object[]]$Tools, $Bootstrap)
@@ -34,10 +34,10 @@ function Get-ToolsIndexContent {
 
 if ($NoRun) { return }
 
-$tools = @(Get-PsAiTools)
+$tools = @(Get-LegionTools)
 # Only the standalone installer consumes this bootstrap recipe.
 $bootstrapJson = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'bootstrap.json') -Raw
-$schema = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../plugins/ps-ai/schemas/tool.schema.json') -Raw | ConvertFrom-Json -AsHashtable
+$schema = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../plugins/legion/schemas/tool.schema.json') -Raw | ConvertFrom-Json -AsHashtable
 $windows = $schema.'$defs'.install.properties.windows
 $windows.type = 'object'
 $windows.properties.download.required = @('zip')
@@ -47,11 +47,11 @@ $bootstrapSchema = @{
     properties = @{windows = $windows}
 } | ConvertTo-Json -Depth 100
 if (-not (Test-Json -Json $bootstrapJson -Schema $bootstrapSchema -ErrorAction SilentlyContinue)) { throw 'invalid PowerShell bootstrap recipe' }
-$bootstrap = ConvertFrom-PsAiToolJson -Json $bootstrapJson
-Assert-PsAiInstallPatterns -Install $bootstrap
+$bootstrap = ConvertFrom-LegionToolJson -Json $bootstrapJson
+Assert-LegionInstallPatterns -Install $bootstrap
 $content = Get-ToolsIndexContent -Tools $tools -Bootstrap $bootstrap
 $bytes = [Text.UTF8Encoding]::new($false).GetBytes($content)
-$path = Join-Path $PSScriptRoot '../plugins/ps-ai/tools.json'
+$path = Join-Path $PSScriptRoot '../plugins/legion/tools.json'
 if ((Test-Path -LiteralPath $path) -and
     [Convert]::ToBase64String([IO.File]::ReadAllBytes($path)) -ceq [Convert]::ToBase64String($bytes)) {
     'skip: tools index (already done)'

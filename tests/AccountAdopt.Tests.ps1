@@ -1,7 +1,7 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
     $sandbox = Join-Path $repo ('.agents/temp/adopt-account-' + [guid]::NewGuid().ToString('N'))
-    $file = Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json'
+    $file = Join-Path $sandbox '.legion/configuration/personalisation.json'
     $folder = Join-Path $sandbox 'existing account'
     New-Item -ItemType Directory -Path (Split-Path $file -Parent), $folder -Force | Out-Null
     @{schemaVersion=1;agents=@();channels=@()} |
@@ -11,7 +11,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $before = [IO.File]::ReadAllText($settings)
     $fake = Join-Path $sandbox 'fake-cli.ps1'
     'throw "No CLI or login may run during adoption"' | Set-Content -LiteralPath $fake
-    $account = Join-Path $repo 'plugins/ps-ai/bin/ps-ai-account.ps1'
+    $account = Join-Path $repo 'plugins/legion/bin/legion-account.ps1'
     try {
         $output = @(& $account -Action add -Tool claude -Id claude-existing -ConfigDir '~/existing account' -Command $fake -HomeRoot $sandbox)
         $data = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json

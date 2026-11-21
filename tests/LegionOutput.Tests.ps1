@@ -5,7 +5,7 @@ $standIns = Join-Path $scratch 'bin'
 New-Item -ItemType Directory -Path $standIns -Force | Out-Null
 $savedExit = $global:LASTEXITCODE
 try {
-    . (Join-Path $root 'plugins/ps-ai/bin/legion.ps1')
+    . (Join-Path $root 'plugins/legion/bin/legion.ps1')
     $script:LegionBin = $standIns
 
     # The stand-in records whether anything is piped after it, then prints and fails.
@@ -15,7 +15,7 @@ Set-Content -LiteralPath (Join-Path (Split-Path $PSScriptRoot -Parent) 'pipeline
 Write-Output 'first line'
 throw 'script failed'
 '@
-    Set-Content -LiteralPath (Join-Path $standIns 'ps-ai-overseer.ps1') -Value $standInText
+    Set-Content -LiteralPath (Join-Path $standIns 'legion-overseer.ps1') -Value $standInText
 
     $lines = @(& { Invoke-Legion -Words @() } 6>&1 | ForEach-Object { "$_" })
     # An interactive CLI must keep the console: nothing may be piped after the script.

@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $entry = Get-InstallTool -Tool claude
     $captured = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/listings/claude-plugins.json')
@@ -23,14 +23,14 @@ $repo = Split-Path $PSScriptRoot -Parent
     function Invoke-InstallRefresh { }
     try {
         $env:CLAUDE_CONFIG_DIR = 'selected-account'
-        $output = @(Invoke-PsAiUpdateSteps -Entry $entry)
-        Assert-True ($observed -contains 'claude|plugin|update|ps-ai@ps-ai-marketplace') 'Default update unsets environment override rather than passing empty string'
+        $output = @(Invoke-LegionUpdateSteps -Entry $entry)
+        Assert-True ($observed -contains 'claude|plugin|update|legion@ps-legion-marketplace') 'Default update unsets environment override rather than passing empty string'
         Assert-Equal 'selected-account' $env:CLAUDE_CONFIG_DIR 'Default update restores inherited override'
         Remove-Item Env:CLAUDE_CONFIG_DIR
-        $null = Invoke-PsAiUpdateSteps -Entry $entry
+        $null = Invoke-LegionUpdateSteps -Entry $entry
         Assert-True (-not (Test-Path Env:CLAUDE_CONFIG_DIR)) 'Absent caller override remains absent after update'
         function Invoke-ClosedInput { throw 'fixture process failed' }
-        Assert-Throws { Invoke-PsAiUpdateSteps -Entry $entry } 'Failed default listing propagates'
+        Assert-Throws { Invoke-LegionUpdateSteps -Entry $entry } 'Failed default listing propagates'
         Assert-True (-not (Test-Path Env:CLAUDE_CONFIG_DIR)) 'Failure restores absent caller override'
     } finally {
         if ($null -eq $saved) { Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue }

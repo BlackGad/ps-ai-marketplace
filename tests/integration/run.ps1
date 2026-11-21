@@ -15,7 +15,7 @@ $PSStyle.OutputRendering = 'PlainText'
 $env:NO_COLOR = '1'
 . (Join-Path $PSScriptRoot '../lib/junit.ps1')
 . (Join-Path $PSScriptRoot '../lib/benchmark.ps1')
-. (Join-Path $PSScriptRoot '../../plugins/ps-ai/bin/lib/installed.ps1')
+. (Join-Path $PSScriptRoot '../../plugins/legion/bin/lib/installed.ps1')
 $script:IntegrationScriptLog = $null
 
 function Get-IntegrationOs {
@@ -190,7 +190,7 @@ function Get-IntegrationHomeSnapshot {
     $folders = @(foreach ($tool in $script:IntegrationTools) {
         @{ Tool = $tool; Folder = Get-IntegrationToolFolder $tool }
     })
-    $settings = Join-Path $script:Ctx.HomeRoot '.legion/configuration/ps-ai-personalisation.json'
+    $settings = Join-Path $script:Ctx.HomeRoot '.legion/configuration/personalisation.json'
     if (Test-Path -LiteralPath $settings) {
         foreach ($agent in (Get-IntegrationSettings).Data.agents) {
             $folders += @{ Tool = $agent.tool; Folder = Resolve-IntegrationFolder $agent.configDir }
@@ -237,11 +237,11 @@ function Assert-IntegrationTrue {
     if (-not $Condition) { throw $Message }
 }
 
-function Get-IntegrationBin { return Join-Path $script:Ctx.Checkout 'plugins/ps-ai/bin' }
+function Get-IntegrationBin { return Join-Path $script:Ctx.Checkout 'plugins/legion/bin' }
 
 function Get-IntegrationToolInfo {
     param([string]$Tool)
-    $json = Get-Content -LiteralPath (Join-Path $script:Ctx.Checkout "plugins/ps-ai/skills/ps-ai-$Tool/tool.json") -Raw | ConvertFrom-Json
+    $json = Get-Content -LiteralPath (Join-Path $script:Ctx.Checkout "plugins/legion/skills/legion-$Tool/tool.json") -Raw | ConvertFrom-Json
     return $json
 }
 
@@ -265,11 +265,11 @@ function Set-IntegrationConfigEnvironment {
 
 function Get-IntegrationPluginVersion {
     param([string]$Tool, [string]$Folder)
-    return Get-PsAiInstalledVersion -ConfigDir $Folder -Tool (Get-IntegrationToolInfo $Tool)
+    return Get-LegionInstalledVersion -ConfigDir $Folder -Tool (Get-IntegrationToolInfo $Tool)
 }
 
 function Get-CheckoutVersion {
-    return (Get-Content -LiteralPath (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/plugin.json') -Raw | ConvertFrom-Json).version
+    return (Get-Content -LiteralPath (Join-Path $script:Ctx.Checkout 'plugins/legion/plugin.json') -Raw | ConvertFrom-Json).version
 }
 
 # Tools that skipped the checkout (local-folder refusal) take no part in the later steps.
@@ -334,13 +334,13 @@ function Invoke-IntegrationCli {
 function Test-IntegrationListing {
     param([string]$Tool, [string[]]$Lines, [switch]$IncludeDisabled, [ValidateSet('plugin', 'marketplace')][string]$Kind = 'plugin')
     return & {
-        . (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/install.ps1') -NoRun
+        . (Join-Path $script:Ctx.Checkout 'plugins/legion/install.ps1') -NoRun
         $script:installCatalog = Get-InstallCatalog -Source $script:Ctx.Checkout
         Test-InstallListing -Kind $Kind -Tool $Tool -Lines $Lines -IncludeDisabled:$IncludeDisabled
     }
 }
 
-# True when the folder lists ps-ai. A disabled entry counts as not installed unless -IncludeDisabled.
+# True when the folder lists legion. A disabled entry counts as not installed unless -IncludeDisabled.
 function Test-IntegrationPluginListed {
     param([string]$Tool, [string]$Folder, [switch]$IncludeDisabled)
     $result = Invoke-IntegrationCli -Tool $Tool -Arguments @((Get-IntegrationToolInfo $Tool).plugin.list) -Folder $Folder
@@ -353,11 +353,11 @@ function Assert-IntegrationControlFolder {
     param([string]$Tool)
     $control = Join-Path $script:Ctx.Work "control-$Tool"
     New-Item -ItemType Directory -Path $control -Force | Out-Null
-    Assert-IntegrationTrue (-not (Test-IntegrationPluginListed $Tool $control -IncludeDisabled)) "$Tool lists ps-ai in an empty control folder"
+    Assert-IntegrationTrue (-not (Test-IntegrationPluginListed $Tool $control -IncludeDisabled)) "$Tool lists legion in an empty control folder"
 }
 
 function Get-IntegrationSettings {
-    $path = Join-Path $script:Ctx.HomeRoot '.legion/configuration/ps-ai-personalisation.json'
+    $path = Join-Path $script:Ctx.HomeRoot '.legion/configuration/personalisation.json'
     return @{ Path = $path; Data = (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json) }
 }
 
@@ -367,13 +367,13 @@ function Invoke-CliInstallScript {
     $arguments = @('-Tool', $Tool, '-Yes')
     # Without a working winget the installer only asks for a method; zip needs no admin rights.
     if ((Get-IntegrationOs) -eq 'windows' -and -not (Test-IntegrationWingetWorks)) { $arguments += @('-Method', 'zip') }
-    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-install-tool.ps1') $arguments
+    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-install-tool.ps1') $arguments
 }
 
 function Get-IntegrationToolVersion {
     param([string]$Tool)
     # Load the standalone installer's parser in this scope, without running the installer.
-    . (Join-Path $PSScriptRoot '../../plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $PSScriptRoot '../../plugins/legion/install.ps1') -NoRun
     $command = Resolve-IntegrationCommand (Get-IntegrationToolInfo $Tool).command
     $output = @(& $command --version 2>&1 | ForEach-Object { "$_" }) -join "`n"
     Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "$Tool --version exited $LASTEXITCODE"
@@ -402,11 +402,11 @@ function Invoke-CliInstallRepeat {
 }
 
 # Step 2: one install.ps1 run per tool, so one tool's refusal never hides the others.
-function Invoke-PsAiInstall {
+function Invoke-LegionInstall {
     param([string]$Tool, $Target)
     $arguments = @('-Source', $Target.Source, '-Tools', $Tool, '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
     if ($Target.Ref) { $arguments += @('-Ref', $Target.Ref) }
-    return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/install.ps1') $arguments
+    return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'plugins/legion/install.ps1') $arguments
 }
 
 # Only the affected CLI's own refusal of a local folder counts; any other message is a real failure.
@@ -427,7 +427,7 @@ function Install-IntegrationTool {
     param([string]$Tool)
     $checkout = @{ Source = $script:Ctx.Checkout; Ref = '' }
     try {
-        $lines = Invoke-PsAiInstall $Tool $checkout
+        $lines = Invoke-LegionInstall $Tool $checkout
         $script:Ctx.Targets[$Tool] = $checkout
         return $lines
     } catch {
@@ -443,14 +443,14 @@ function Install-IntegrationTool {
     $remote = Get-IntegrationRemoteMain
     if ($remote -ne $revision) { throw "$Tool needs the published source, but main is $remote and the tested revision is $revision" }
     $fallback = @{ Source = $script:MarketplaceRepo; Ref = 'main' }
-    $lines = Invoke-PsAiInstall $Tool $fallback
+    $lines = Invoke-LegionInstall $Tool $fallback
     $remote = Get-IntegrationRemoteMain
     if ($remote -ne $revision) { throw "$Tool installed the published source, but main moved to $remote and the tested revision is $revision" }
     $script:Ctx.Targets[$Tool] = $fallback
     return $lines
 }
 
-function Invoke-PsAiInstallFirst {
+function Invoke-LegionInstallFirst {
     $lines = @()
     $errors = @()
     foreach ($tool in $script:IntegrationTools) {
@@ -463,18 +463,18 @@ function Invoke-PsAiInstallFirst {
     $expected = Get-CheckoutVersion
     foreach ($tool in $active) {
         $folder = Get-IntegrationToolFolder $tool
-        Assert-IntegrationTrue (Test-IntegrationPluginListed $tool $folder) "$tool does not list an enabled ps-ai"
+        Assert-IntegrationTrue (Test-IntegrationPluginListed $tool $folder) "$tool does not list an enabled legion"
         Assert-IntegrationControlFolder $tool
         $found = Get-IntegrationPluginVersion $tool $folder
-        Assert-IntegrationTrue ($found -eq $expected) "$tool has ps-ai $found, expected $expected"
+        Assert-IntegrationTrue ($found -eq $expected) "$tool has legion $found, expected $expected"
     }
     $script:Ctx.HomeSnapshot = Get-IntegrationHomeSnapshot
     return $lines
 }
 
-function Invoke-PsAiInstallRepeat {
+function Invoke-LegionInstallRepeat {
     $lines = @()
-    foreach ($tool in (Get-IntegrationActiveTools)) { $lines += Invoke-PsAiInstall $tool $script:Ctx.Targets[$tool] }
+    foreach ($tool in (Get-IntegrationActiveTools)) { $lines += Invoke-LegionInstall $tool $script:Ctx.Targets[$tool] }
     Assert-IntegrationText $lines 'skip:'
     Assert-TreeUnchanged $script:Ctx.HomeSnapshot (Get-IntegrationHomeSnapshot)
     return $lines
@@ -484,7 +484,7 @@ function Invoke-PsAiInstallRepeat {
 function Invoke-Setup {
     param([string]$Tool, [string]$Id)
     $arguments = @('-Add', @($Tool), '-Id', $Id, '-Yes', '-HomeRoot', $script:Ctx.HomeRoot, '-Source', $script:Ctx.Targets[$Tool].Source)
-    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-setup.ps1') $arguments
+    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-setup.ps1') $arguments
 }
 
 function Invoke-SetupAccounts {
@@ -496,8 +496,8 @@ function Invoke-SetupAccounts {
 function Invoke-SetupFirst {
     $lines = Invoke-SetupAccounts
     $settings = Get-IntegrationSettings
-    Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-validate.ps1') @('-Kind', 'personalisation', '-Path', $settings.Path) | Out-Null
-    Assert-IntegrationTrue (Test-Path -LiteralPath (Join-Path (Split-Path $settings.Path) 'ps-ai-notes.md')) 'ps-ai-notes.md is missing'
+    Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-validate.ps1') @('-Kind', 'personalisation', '-Path', $settings.Path) | Out-Null
+    Assert-IntegrationTrue (Test-Path -LiteralPath (Join-Path (Split-Path $settings.Path) 'notes.md')) 'notes.md is missing'
     $ids = @($settings.Data.agents | ForEach-Object id)
     foreach ($tool in (Get-IntegrationActiveTools)) {
         Assert-IntegrationTrue ($ids -contains "${tool}1") "account ${tool}1 is missing"
@@ -505,7 +505,7 @@ function Invoke-SetupFirst {
     }
     $bin = Join-Path $script:Ctx.HomeRoot '.legion/bin'
     Assert-IntegrationTrue (@(Get-ChildItem -LiteralPath $bin -File -ErrorAction SilentlyContinue).Count -gt 0) 'no owner commands in .legion/bin'
-    Assert-AccountsHavePsAi $settings.Data.agents
+    Assert-AccountsHaveLegion $settings.Data.agents
     if ($IsWindows) {
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
         Assert-IntegrationTrue ($userPath.Split(';') -contains $bin) '.legion/bin is not on the user PATH'
@@ -516,12 +516,12 @@ function Invoke-SetupFirst {
     return $lines
 }
 
-function Assert-AccountsHavePsAi {
+function Assert-AccountsHaveLegion {
     param([object[]]$Agents)
     $expected = Get-CheckoutVersion
     foreach ($agent in $Agents) {
         $found = Get-IntegrationPluginVersion $agent.tool (Resolve-IntegrationFolder $agent.configDir)
-        Assert-IntegrationTrue ($found -eq $expected) "$($agent.id) has ps-ai $found, expected $expected"
+        Assert-IntegrationTrue ($found -eq $expected) "$($agent.id) has legion $found, expected $expected"
     }
 }
 
@@ -540,7 +540,7 @@ function Invoke-AddFirst {
     $agent = @($settings.Data.agents | Where-Object id -eq 'ci-extra')
     Assert-IntegrationTrue ($agent.Count -eq 1) 'account ci-extra was not recorded'
     Assert-IntegrationTrue (Test-Path -LiteralPath (Resolve-IntegrationFolder $agent[0].configDir) -PathType Container) 'ci-extra folder was not created'
-    Assert-AccountsHavePsAi $agent
+    Assert-AccountsHaveLegion $agent
     $script:Ctx.AgentCount = @($settings.Data.agents).Count
     return $lines
 }
@@ -554,7 +554,7 @@ function Invoke-AddRepeat {
 
 # Step 5
 function Invoke-AccountRemove {
-    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-account.ps1') @('-Action', 'remove', '-Id', 'ci-extra', '-HomeRoot', $script:Ctx.HomeRoot)
+    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-account.ps1') @('-Action', 'remove', '-Id', 'ci-extra', '-HomeRoot', $script:Ctx.HomeRoot)
 }
 
 function Invoke-RemoveFirst {
@@ -595,7 +595,7 @@ function Invoke-RepositoryScript {
     param([string]$Repo, [string]$Mode)
     $arguments = @('-Repo', $Repo, '-Mode', $Mode, '-Gate', 'pwsh -NoProfile -Command exit 0')
     if ($Mode -eq 'Shared') { $arguments += @('-RulesFile', 'AGENTS.md') }
-    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-repository.ps1') $arguments
+    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-repository.ps1') $arguments
 }
 
 function Get-CommitCount {
@@ -608,7 +608,7 @@ function Assert-LegionItems {
     foreach ($item in 'configuration/project.json', 'configuration/workflow.md', 'scripts/index.md', 'scripts/check-task.ps1', 'state/handoff.md') {
         Assert-IntegrationTrue (Test-Path -LiteralPath (Join-Path $Repo ".legion/$item")) ".legion/$item is missing"
     }
-    Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-validate.ps1') @('-Kind', 'project', '-Path', (Join-Path $Repo '.legion/configuration/project.json')) | Out-Null
+    Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-validate.ps1') @('-Kind', 'project', '-Path', (Join-Path $Repo '.legion/configuration/project.json')) | Out-Null
 }
 
 function Invoke-RepoPrivateFirst {
@@ -634,10 +634,11 @@ function Invoke-RepoSharedFirst {
     $repo = New-IntegrationRepo 'repo-b' -WithRules
     $lines = Invoke-RepositoryScript $repo 'Shared'
     Assert-LegionItems $repo
-    $rules = [regex]::Matches((Get-Content -LiteralPath (Join-Path $repo 'AGENTS.md') -Raw), '(?m)^## ps-ai orchestration').Count
+    $heading = Get-Content -LiteralPath (Join-Path $script:Ctx.Checkout 'plugins/legion/skills/legion-repository/references/rules-file-lines.md') -TotalCount 1
+    $rules = [regex]::Matches((Get-Content -LiteralPath (Join-Path $repo 'AGENTS.md') -Raw), ('(?m)^' + [regex]::Escape($heading) + '\r?$')).Count
     Assert-IntegrationTrue ($rules -eq 1) "AGENTS.md has the rules block $rules times"
     Assert-IntegrationTrue ((Get-CommitCount $repo) -eq 2) 'expected exactly one new commit'
-    Assert-IntegrationTrue ((git -C $repo log -1 --format=%s) -eq 'Set up ps-ai orchestration') 'unexpected commit subject'
+    Assert-IntegrationTrue ((git -C $repo log -1 --format=%s) -eq 'Set up legion orchestration') 'unexpected commit subject'
     Assert-IntegrationTrue (-not (git -C $repo status --porcelain)) 'files were left uncommitted'
     return $lines
 }
@@ -668,15 +669,15 @@ function Assert-IntegrationUninstalled {
     param($Target)
     $tool = $Target.Tool
     $info = Get-IntegrationToolInfo $tool
-    Assert-IntegrationTrue ($null -eq (Get-IntegrationPluginVersion $tool $Target.Folder)) "ps-ai is still in $($Target.Folder)"
-    Assert-IntegrationTrue (-not (Test-IntegrationPluginListed $tool $Target.Folder -IncludeDisabled)) "$tool still lists ps-ai in $($Target.Folder)"
+    Assert-IntegrationTrue ($null -eq (Get-IntegrationPluginVersion $tool $Target.Folder)) "legion is still in $($Target.Folder)"
+    Assert-IntegrationTrue (-not (Test-IntegrationPluginListed $tool $Target.Folder -IncludeDisabled)) "$tool still lists legion in $($Target.Folder)"
     if ($info.plugin.cacheDir) {
         Assert-IntegrationTrue (-not (Test-Path -LiteralPath (Join-Path $Target.Folder $info.plugin.cacheDir))) "the $tool cache is still in $($Target.Folder)"
     }
 }
 
 function Invoke-UninstallScript {
-    return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/install.ps1') @('-Uninstall', '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
+    return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'plugins/legion/install.ps1') @('-Uninstall', '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
 }
 
 function Invoke-UninstallFirst {
@@ -704,7 +705,7 @@ function Invoke-UninstallFirst {
 # The installer's own list of owner commands, loaded in a child scope so its helpers stay out of this script.
 function Get-IntegrationOwnerCommandNames {
     return @(& {
-        . (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/install.ps1') -NoRun
+        . (Join-Path $script:Ctx.Checkout 'plugins/legion/install.ps1') -NoRun
         (Get-InstallOwnerCommands).Keys
     })
 }
@@ -740,18 +741,18 @@ function Assert-IntegrationLaunchersRun {
 }
 
 # Steps 9 and 10: the owner's scenario, uninstall then install again.
-function Invoke-PsAiInstallAgain {
+function Invoke-LegionInstallAgain {
     $lines = @()
-    foreach ($tool in (Get-IntegrationActiveTools)) { $lines += Invoke-PsAiInstall $tool $script:Ctx.Targets[$tool] }
+    foreach ($tool in (Get-IntegrationActiveTools)) { $lines += Invoke-LegionInstall $tool $script:Ctx.Targets[$tool] }
     return $lines
 }
 
 function Invoke-ReinstallFirst {
-    $lines = Invoke-PsAiInstallAgain
+    $lines = Invoke-LegionInstallAgain
     $expected = Get-CheckoutVersion
     foreach ($target in (Get-IntegrationUninstallTargets)) {
         $found = Get-IntegrationPluginVersion $target.Tool $target.Folder
-        Assert-IntegrationTrue ($found -eq $expected) "$($target.Tool) has ps-ai $found in $($target.Folder), expected $expected"
+        Assert-IntegrationTrue ($found -eq $expected) "$($target.Tool) has legion $found in $($target.Folder), expected $expected"
     }
     Assert-IntegrationLaunchersExist
     Assert-IntegrationLaunchersRun
@@ -760,7 +761,7 @@ function Invoke-ReinstallFirst {
 }
 
 function Invoke-ReinstallRepeat {
-    $lines = Invoke-PsAiInstallAgain
+    $lines = Invoke-LegionInstallAgain
     Assert-IntegrationText $lines 'skip:'
     Assert-TreeUnchanged $script:Ctx.HomeSnapshot (Get-IntegrationHomeSnapshot)
     return $lines
@@ -770,7 +771,7 @@ function Invoke-RestoreLaunchersFirst {
     foreach ($id in Get-IntegrationAccountIds) {
         foreach ($path in Get-IntegrationLauncherPaths $id) { Remove-Item -LiteralPath $path -Force }
     }
-    $lines = Invoke-PsAiInstallAgain
+    $lines = Invoke-LegionInstallAgain
     Assert-IntegrationLaunchersExist
     Assert-IntegrationLaunchersRun
     $script:Ctx.HomeSnapshot = Get-IntegrationHomeSnapshot
@@ -778,7 +779,7 @@ function Invoke-RestoreLaunchersFirst {
 }
 
 function Invoke-RestoreLaunchersRepeat {
-    $lines = Invoke-PsAiInstallAgain
+    $lines = Invoke-LegionInstallAgain
     Assert-IntegrationText $lines 'skip:'
     Assert-TreeUnchanged $script:Ctx.HomeSnapshot (Get-IntegrationHomeSnapshot)
     return $lines
@@ -792,7 +793,7 @@ function Invoke-UninstallRepeat {
 
 # Step 11: purge also covers CLIs whose marketplace install was skipped.
 function Invoke-PurgeScript {
-    return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/install.ps1') @('-Uninstall', '-Purge', '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
+    return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'plugins/legion/install.ps1') @('-Uninstall', '-Purge', '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
 }
 
 function Assert-IntegrationPurged {
@@ -802,23 +803,23 @@ function Assert-IntegrationPurged {
     $info = Get-IntegrationToolInfo $Target.Tool
     $listing = Invoke-IntegrationCli -Tool $Target.Tool -Arguments $info.plugin.marketplaceList -Folder $Target.Folder
     Assert-IntegrationTrue ($listing.ExitCode -eq 0) "$($Target.Tool) marketplace listing failed after purge"
-    Assert-IntegrationTrue (-not (Test-IntegrationListing -Kind marketplace -Tool $Target.Tool -Lines $listing.Lines)) "ps-ai marketplace is still registered in $($Target.Folder)"
+    Assert-IntegrationTrue (-not (Test-IntegrationListing -Kind marketplace -Tool $Target.Tool -Lines $listing.Lines)) "legion marketplace is still registered in $($Target.Folder)"
     $paths = @($info.plugin.cacheDir) + @($info.plugin.purge.paths) + @($info.plugin.purge.emptyDirs)
     if ($info.plugin.purge.legacyHookTrust) {
         $paths += & {
-            . (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/install.ps1') -NoRun
+            . (Join-Path $script:Ctx.Checkout 'plugins/legion/install.ps1') -NoRun
             Get-InstallPurgeTrustPath -ConfigDir $Target.Folder
         }
     }
     foreach ($relative in $paths) {
         if (-not $relative) { continue }
         $path = Join-Path $Target.Folder $relative
-        Assert-IntegrationTrue (-not (Test-Path -LiteralPath $path)) "ps-ai path remains after purge: $path"
+        Assert-IntegrationTrue (-not (Test-Path -LiteralPath $path)) "legion path remains after purge: $path"
     }
     foreach ($setting in $info.plugin.purge.settings) {
         $path = Join-Path $Target.Folder $setting.path
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
-        Assert-IntegrationTrue ([IO.File]::ReadAllText($path) -notmatch 'ps-ai') "ps-ai text remains after purge in $path"
+        Assert-IntegrationTrue ([IO.File]::ReadAllText($path) -notmatch 'legion') "legion text remains after purge in $path"
     }
 }
 
@@ -864,8 +865,8 @@ function Get-IntegrationSteps {
         }
     }
     $cliSteps = @($script:IntegrationTools | ForEach-Object { "install-cli-$_" })
-    $steps += @{ Name = 'install-ps-ai'; DependsOn = $cliSteps; First = { Invoke-PsAiInstallFirst }; Repeat = { Invoke-PsAiInstallRepeat } }
-    $steps += @{ Name = 'setup'; DependsOn = @('install-ps-ai'); First = { Invoke-SetupFirst }; Repeat = { Invoke-SetupRepeat } }
+    $steps += @{ Name = 'install-legion'; DependsOn = $cliSteps; First = { Invoke-LegionInstallFirst }; Repeat = { Invoke-LegionInstallRepeat } }
+    $steps += @{ Name = 'setup'; DependsOn = @('install-legion'); First = { Invoke-SetupFirst }; Repeat = { Invoke-SetupRepeat } }
     $steps += @{ Name = 'add'; DependsOn = @('setup'); First = { Invoke-AddFirst }; Repeat = { Invoke-AddRepeat } }
     $steps += @{ Name = 'remove'; DependsOn = @('add'); First = { Invoke-RemoveFirst }; Repeat = { Invoke-RemoveRepeat } }
     $steps += @{ Name = 'repo-private'; DependsOn = @(); First = { Invoke-RepoPrivateFirst }; Repeat = { Invoke-RepoPrivateRepeat } }
@@ -886,10 +887,10 @@ if ($env:CI -ne 'true') {
     exit 1
 }
 if (-not $Out) { throw '-Out <folder> is required' }
-if (-not $HomeRoot) { $HomeRoot = Join-Path $env:RUNNER_TEMP 'ps-ai-home' }
+if (-not $HomeRoot) { $HomeRoot = Join-Path $env:RUNNER_TEMP 'legion-home' }
 if (-not $Checkout) { $Checkout = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent }
 $os = Get-IntegrationOs
-$work = Join-Path (Split-Path $HomeRoot -Parent) 'ps-ai-work'
+$work = Join-Path (Split-Path $HomeRoot -Parent) 'legion-work'
 New-Item -ItemType Directory -Path $HomeRoot, $work, $Out -Force | Out-Null
 
 $probe = @(Get-IntegrationProbe -Checks (Get-IntegrationProbeChecks))

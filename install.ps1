@@ -12,8 +12,8 @@ param(
     [string]$HomeRoot
 )
 
-if ($PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'plugins/ps-ai/install.ps1') -PathType Leaf)) {
-    & (Join-Path $PSScriptRoot 'plugins/ps-ai/install.ps1') @PSBoundParameters
+if ($PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'plugins/legion/install.ps1') -PathType Leaf)) {
+    & (Join-Path $PSScriptRoot 'plugins/legion/install.ps1') @PSBoundParameters
 } else {
     if (-not (Get-Command Get-InstallSourceText -ErrorAction SilentlyContinue)) {
         function Get-InstallSourceText {
@@ -23,7 +23,7 @@ if ($PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'plugins
         }
     }
     $branch = if ($Ref -eq 'main') { 'main' } else { 'stable' }
-    try { $installer = Get-InstallSourceText -Url "https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/$branch/plugins/ps-ai/install.ps1" }
+    try { $installer = Get-InstallSourceText -Url "https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/$branch/plugins/legion/install.ps1" }
     catch {
         if ($Ref -eq 'release') { throw 'could not find the latest release; try again or run with main' }
         throw

@@ -5,7 +5,7 @@ $command = @'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false
 $marker = [char]0x2022
 $inputLength = [Console]::In.ReadToEnd().Length
-[Console]::Out.Write('[{"id":"ps-ai@ps-ai-marketplace","enabled":true,"installPath":"C:/fixture/' + $marker + '"}]')
+[Console]::Out.Write('[{"id":"legion@ps-legion-marketplace","enabled":true,"installPath":"C:/fixture/' + $marker + '"}]')
 [Console]::Error.Write('fixture ' + $marker + ' warning; stdin=' + $inputLength + '; env=' + $env:FIXTURE_LISTING_FLAG)
 '@
 $result = Invoke-ClosedInput -Command @($ChildRuntime, '-NoProfile', '-Command', $command) -Environment @{FIXTURE_LISTING_FLAG='fixture'}

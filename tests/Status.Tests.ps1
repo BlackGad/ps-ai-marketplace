@@ -1,19 +1,19 @@
 param([string]$Finding)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$statusScript = Join-Path $root 'plugins/ps-ai/bin/ps-ai-status.ps1'
+$statusScript = Join-Path $root 'plugins/legion/bin/legion-status.ps1'
 Assert-True (Test-Path -LiteralPath $statusScript) 'Status script exists'
 $scratch = Join-Path $root ('.agents/temp/status-' + [guid]::NewGuid().ToString('N'))
 $fixtureHome = Join-Path $scratch 'home'
 $repo = Join-Path $scratch 'repo'
 New-Item -ItemType Directory -Path $fixtureHome, $repo -Force | Out-Null
 $savedPath = $env:PATH
-$savedLog = $env:PS_AI_FAKE_TOOL_LOG
-$savedStatusBin = $env:PS_AI_STATUS_BIN
+$savedLog = $env:LEGION_FAKE_TOOL_LOG
+$savedStatusBin = $env:LEGION_STATUS_BIN
 try {
     $lines = @(& pwsh -NoProfile -File $statusScript -HomeRoot $fixtureHome -Repo $repo)
     Assert-Equal 0 $LASTEXITCODE 'Status without settings exits zero'
-    Assert-True ($lines -contains 'no ps-ai settings yet') 'No-settings explanation'
+    Assert-True ($lines -contains 'no legion settings yet') 'No-settings explanation'
     Assert-True ($lines -contains 'repo none') 'No orchestration reports repo none'
 
     . $statusScript -NoRun -HomeRoot $fixtureHome -Repo $repo
@@ -22,9 +22,9 @@ try {
         & {
             $permissionBin = Join-Path $scratch 'permission-bin'
             New-Item -ItemType Directory -Path $permissionBin -Force | Out-Null
-            foreach ($entry in (Get-PsAiOwnerCommands).GetEnumerator()) {
+            foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
                 foreach ($suffix in $(if ($IsWindows) { @('', '.cmd') } else { @('') })) {
-                    Get-PsAiShimText -Script (Join-Path $root "plugins/ps-ai/bin/$($entry.Value)") -Windows:([bool]$suffix) |
+                    Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($entry.Value)") -Windows:([bool]$suffix) |
                         Set-Content -LiteralPath (Join-Path $permissionBin "$($entry.Key)$suffix")
                     if (-not $IsWindows -and $entry.Key -ne 'legion') {
                         $path = Join-Path $permissionBin $entry.Key
@@ -33,7 +33,7 @@ try {
                 }
             }
             if ($IsWindows) {
-                function Test-PsAiLauncherExecutable { param($Path) return ((Split-Path $Path -Leaf) -ne 'legion') }
+                function Test-LegionLauncherExecutable { param($Path) return ((Split-Path $Path -Leaf) -ne 'legion') }
             }
             $lines = @(Write-StatusCommands -Bin $permissionBin)
             Assert-True ($lines -contains 'commands: not executable legion') 'R4 B5 status names a command needing execute permission'
@@ -45,8 +45,8 @@ try {
             $originalWindows = $IsWindows
             try {
                 Set-Variable IsWindows -Value $false -Force
-                $env:PS_AI_STATUS_BIN = $bin
-                Assert-Equal $false (Test-PsAiPathEntry -Path '%PS_AI_STATUS_BIN%' -Folder $bin) 'G3 Unix PATH entries keep literal percent variables'
+                $env:LEGION_STATUS_BIN = $bin
+                Assert-Equal $false (Test-LegionPathEntry -Path '%LEGION_STATUS_BIN%' -Folder $bin) 'G3 Unix PATH entries keep literal percent variables'
             } finally { Set-Variable IsWindows -Value $originalWindows -Force }
         }
     }
@@ -83,14 +83,14 @@ try {
         Assert-Equal 7 $LASTEXITCODE 'G3 status preserves the caller native exit status'
     }
     if (-not $Finding -or $Finding -eq 'E3') {
-        $env:PS_AI_STATUS_BIN = $bin
-        $env:PATH = '%PS_AI_STATUS_BIN%'
-        Assert-Equal ([bool]$IsWindows) (Test-PsAiPathEntry -Path $env:PATH -Folder $bin) 'E3 only Windows expands percent environment variables in PATH entries'
+        $env:LEGION_STATUS_BIN = $bin
+        $env:PATH = '%LEGION_STATUS_BIN%'
+        Assert-Equal ([bool]$IsWindows) (Test-LegionPathEntry -Path $env:PATH -Folder $bin) 'E3 only Windows expands percent environment variables in PATH entries'
         $lines = @(& $statusScript -HomeRoot $fixtureHome -Repo $repo)
         $expectedPath = if ($IsWindows) { 'yes' } else { 'no' }
         Assert-True ($lines -match "on PATH: $expectedPath") 'E3 status uses the shared platform PATH test'
         $needsPath = & {
-            . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-setup.ps1') -NoRun
+            . (Join-Path $root 'plugins/legion/bin/legion-setup.ps1') -NoRun
             function Get-SetupUserPath { return $env:PATH }
             (Get-SetupPlan -HomeRoot $fixtureHome).NeedsPath
         }
@@ -98,20 +98,20 @@ try {
     }
     if ($Finding) { return }
     $env:PATH = $bin
-    Assert-True (Test-PsAiPathEntry -Path $env:PATH -Folder $bin) 'Exact PATH entry'
+    Assert-True (Test-LegionPathEntry -Path $env:PATH -Folder $bin) 'Exact PATH entry'
     $env:PATH = $bin + [IO.Path]::DirectorySeparatorChar
-    Assert-True (Test-PsAiPathEntry -Path $env:PATH -Folder $bin) 'Trailing separator in PATH'
+    Assert-True (Test-LegionPathEntry -Path $env:PATH -Folder $bin) 'Trailing separator in PATH'
     $env:PATH = $bin
-    Assert-True (Test-PsAiPathEntry -Path $env:PATH -Folder ($bin + [IO.Path]::DirectorySeparatorChar)) 'Trailing separator in folder'
+    Assert-True (Test-LegionPathEntry -Path $env:PATH -Folder ($bin + [IO.Path]::DirectorySeparatorChar)) 'Trailing separator in folder'
     $env:PATH = $bin + '-other'
-    Assert-Equal $false (Test-PsAiPathEntry -Path $env:PATH -Folder $bin) 'PATH prefixes are not exact entries'
+    Assert-Equal $false (Test-LegionPathEntry -Path $env:PATH -Folder $bin) 'PATH prefixes are not exact entries'
     $env:PATH = $bin.ToUpperInvariant()
-    Assert-Equal ([bool]$IsWindows) (Test-PsAiPathEntry -Path $env:PATH -Folder $bin) 'PATH case follows the platform'
+    Assert-Equal ([bool]$IsWindows) (Test-LegionPathEntry -Path $env:PATH -Folder $bin) 'PATH case follows the platform'
 
     $config = Join-Path $fixtureHome '.legion/configuration'
-    $manifest = Join-Path $fixtureHome '.claude/plugins/cache/ps-ai-marketplace/ps-ai/0.6.0/plugin.json'
+    $manifest = Join-Path $fixtureHome '.claude/plugins/cache/ps-legion-marketplace/legion/0.6.0/plugin.json'
     New-Item -ItemType Directory -Path $config, $bin, (Split-Path $manifest) -Force | Out-Null
-    '{"name":"ps-ai","version":"0.6.0"}' | Set-Content -LiteralPath $manifest
+    '{"name":"legion","version":"0.6.0"}' | Set-Content -LiteralPath $manifest
     @{
         schemaVersion = 1
         agents = @(
@@ -119,17 +119,17 @@ try {
             @{ id = 'codex-a'; tool = 'codex'; configDir = '~/.codex-work' }
         )
         channels = @(@{ id = 'my-telegram'; kind = 'telegram'; target = '123'; accounts = @('claude-a') })
-    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $config 'ps-ai-personalisation.json')
-    $commands = Get-PsAiOwnerCommands
+    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $config 'personalisation.json')
+    $commands = Get-LegionOwnerCommands
     foreach ($name in $commands.Keys) {
-        (Get-PsAiShimText -Script (Join-Path $root "plugins/ps-ai/bin/$($commands[$name])")) |
+        (Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($commands[$name])")) |
             Set-Content -LiteralPath (Join-Path $bin $name)
         if (-not $IsWindows) {
             $path = Join-Path $bin $name
             [IO.File]::SetUnixFileMode($path, ([IO.File]::GetUnixFileMode($path) -bor [IO.UnixFileMode]::UserExecute))
         }
         if ($IsWindows) {
-            (Get-PsAiShimText -Script (Join-Path $root "plugins/ps-ai/bin/$($commands[$name])") -Windows) |
+            (Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($commands[$name])") -Windows) |
                 Set-Content -LiteralPath (Join-Path $bin "$name.cmd")
         }
     }
@@ -137,12 +137,12 @@ try {
     $fakeBin = Join-Path $scratch 'fake-bin'
     New-Item -ItemType Directory -Path $fakeBin -Force | Out-Null
     $fakeTool = Join-Path $PSScriptRoot 'fixtures/fake-tools/Invoke-FakeTool.ps1'
-    $env:PS_AI_FAKE_TOOL_LOG = Join-Path $scratch 'cli-calls.json'
+    $env:LEGION_FAKE_TOOL_LOG = Join-Path $scratch 'cli-calls.json'
     foreach ($name in @('claude', 'codex', 'copilot')) {
         if ($IsWindows) {
             "@pwsh -NoProfile -File `"$fakeTool`" %*" | Set-Content -LiteralPath (Join-Path $fakeBin "$name.cmd")
         } else {
-            (Get-PsAiShimText -Script $fakeTool) |
+            (Get-LegionShimText -Script $fakeTool) |
                 Set-Content -LiteralPath (Join-Path $fakeBin $name)
             [IO.File]::SetUnixFileMode((Join-Path $fakeBin $name), [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
         }
@@ -153,8 +153,8 @@ try {
     }) -join '|'
     $lines = @(& pwsh -NoProfile -File $statusScript -HomeRoot $fixtureHome -Repo $repo)
     Assert-Equal 0 $LASTEXITCODE 'Configured status exits zero'
-    Assert-True ($lines -match 'claude-a\s+claude\s+.*ps-ai 0\.6\.0') 'Account with installed ps-ai'
-    Assert-True ($lines -match 'codex-a\s+codex\s+.*ps-ai missing') 'Account missing ps-ai'
+    Assert-True ($lines -match 'claude-a\s+claude\s+.*legion 0\.6\.0') 'Account with installed legion'
+    Assert-True ($lines -match 'codex-a\s+codex\s+.*legion missing') 'Account missing legion'
     Assert-True ($lines -match 'on PATH: yes') 'PATH yes output'
     Assert-True ($lines -contains 'commands: yes') 'All owner commands recognized'
     Assert-True ($lines -match 'my-telegram \(telegram\) -> claude-a') 'Channel binding output'
@@ -162,7 +162,7 @@ try {
         $_.FullName + ':' + $_.LastWriteTimeUtc.Ticks + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash
     }) -join '|'
     Assert-Equal $before $after 'Status preserves home files and modification times'
-    Assert-Equal $false (Test-Path -LiteralPath $env:PS_AI_FAKE_TOOL_LOG) 'Status never starts the fake CLIs'
+    Assert-Equal $false (Test-Path -LiteralPath $env:LEGION_FAKE_TOOL_LOG) 'Status never starts the fake CLIs'
 
     # Only the read-only Git tracking probe is allowed; no CLI or agent can launch.
     function Start-Process { throw 'Status must not start a process' }
@@ -184,7 +184,7 @@ try {
     $lines = @(& $statusScript -HomeRoot $fixtureHome -Repo $repo)
     Assert-True ($lines -contains 'commands: blocked legion') 'Unrelated legion command is blocked'
     if ($IsWindows) {
-        (Get-PsAiShimText -Script (Join-Path $root 'plugins/ps-ai/bin/legion.ps1') -Windows) |
+        (Get-LegionShimText -Script (Join-Path $root 'plugins/legion/bin/legion.ps1') -Windows) |
             Set-Content -LiteralPath (Join-Path $bin 'legion.cmd')
         $lines = @(& $statusScript -HomeRoot $fixtureHome -Repo $repo)
         Assert-True ($lines -contains 'commands: blocked legion') 'Conflicting extensionless file remains blocked beside a valid cmd shim'
@@ -195,8 +195,8 @@ try {
         $path = Join-Path $bin $name
         if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
     }
-    (Get-PsAiShimText -Script (Join-Path $scratch 'gone/bin/legion.ps1')) | Set-Content -LiteralPath (Join-Path $bin 'legion')
-    if ($IsWindows) { (Get-PsAiShimText -Script (Join-Path $scratch 'gone/bin/legion.ps1') -Windows) | Set-Content -LiteralPath (Join-Path $bin 'legion.cmd') }
+    (Get-LegionShimText -Script (Join-Path $scratch 'gone/bin/legion.ps1')) | Set-Content -LiteralPath (Join-Path $bin 'legion')
+    if ($IsWindows) { (Get-LegionShimText -Script (Join-Path $scratch 'gone/bin/legion.ps1') -Windows) | Set-Content -LiteralPath (Join-Path $bin 'legion.cmd') }
     $lines = @(& $statusScript -HomeRoot $fixtureHome -Repo $repo)
     Assert-True ($lines -contains 'commands: stale legion') 'A command whose script is gone is stale'
     Assert-True ($lines -notcontains 'commands: yes') 'A stale command is not ready'
@@ -218,11 +218,11 @@ try {
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $legion 'temp/overseer.lock')
     $lines = @(& $statusScript -HomeRoot $fixtureHome -Repo $repo)
     Assert-True ($lines -match '^repo\s+Private\s+lease: held\s+handoff: yes$') 'Held lease shown without taking it'
-    Assert-Equal $false (Test-Path -LiteralPath $env:PS_AI_FAKE_TOOL_LOG) 'No CLI was called by any status probe'
+    Assert-Equal $false (Test-Path -LiteralPath $env:LEGION_FAKE_TOOL_LOG) 'No CLI was called by any status probe'
 } finally {
     $env:PATH = $savedPath
-    $env:PS_AI_FAKE_TOOL_LOG = $savedLog
-    $env:PS_AI_STATUS_BIN = $savedStatusBin
+    $env:LEGION_FAKE_TOOL_LOG = $savedLog
+    $env:LEGION_STATUS_BIN = $savedStatusBin
     $allowed = [IO.Path]::GetFullPath((Join-Path $root '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
     if ([IO.Path]::GetFullPath($scratch).StartsWith($allowed) -and (Test-Path -LiteralPath $scratch)) {
         Remove-Item -LiteralPath $scratch -Recurse -Force

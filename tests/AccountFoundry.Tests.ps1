@@ -1,18 +1,18 @@
 $root = Split-Path $PSScriptRoot -Parent
-$accountScript = Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1'
-. (Join-Path $root 'plugins/ps-ai/bin/ps-ai-validate.ps1') -NoRun
+$accountScript = Join-Path $root 'plugins/legion/bin/legion-account.ps1'
+. (Join-Path $root 'plugins/legion/bin/legion-validate.ps1') -NoRun
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $savedPath = $env:PATH
-$savedAnswers = $env:PS_AI_FAKE_AZ
-$savedLog = $env:PS_AI_FAKE_AZ_LOG
-$savedToolLog = $env:PS_AI_FAKE_TOOL_LOG
-$tempRoot = Join-Path (Get-TestTempPath) ('ps-ai-tests/' + [guid]::NewGuid())
+$savedAnswers = $env:LEGION_FAKE_AZ
+$savedLog = $env:LEGION_FAKE_AZ_LOG
+$savedToolLog = $env:LEGION_FAKE_TOOL_LOG
+$tempRoot = Join-Path (Get-TestTempPath) ('legion-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
-    $env:PS_AI_FAKE_TOOL_LOG = Join-Path $tempRoot 'tool-log.json'
+    $env:LEGION_FAKE_TOOL_LOG = Join-Path $tempRoot 'tool-log.json'
     $homeRoot = Join-Path $tempRoot 'owner with spaces'
-    $file = Join-Path $homeRoot '.legion/configuration/ps-ai-personalisation.json'
+    $file = Join-Path $homeRoot '.legion/configuration/personalisation.json'
     New-Item -ItemType Directory -Path (Split-Path $file -Parent) -Force | Out-Null
     @{schemaVersion=1;agents=@();channels=@()} |
         ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $file
@@ -22,7 +22,7 @@ try {
         'cognitiveservices account deployment list --name res-a --resource-group rg-a' = @{exit=0;stdout='[{"name":"claude-opus-x","properties":{"model":{"name":"claude-opus-x"}}},{"name":"claude-sonnet-x","properties":{"model":{"name":"claude-sonnet-x"}}},{"name":"gpt-x","properties":{"model":{"name":"gpt-x"}}}]'}
     }
     Use-FakeAz -Answers $answers
-    $fakeRoot = Split-Path $env:PS_AI_FAKE_AZ -Parent
+    $fakeRoot = Split-Path $env:LEGION_FAKE_AZ -Parent
     $common = @{HomeRoot=$homeRoot;Id='claude-dev';Tool='claude';Provider='foundry';Endpoint='https://res-a.cognitiveservices.azure.com/anthropic'}
     $before = [Convert]::ToBase64String([IO.File]::ReadAllBytes($file))
     $listOutput = & $accountScript -Action add @common -List
@@ -39,28 +39,28 @@ try {
     '{"theme":"dark"}' | Set-Content -LiteralPath $settings
     $selection = @{Deployments=@('claude-opus-x','claude-sonnet-x');Default='claude-opus-x';Aliases=@('claude-opus-x=opus','claude-sonnet-x=sonnet')}
     $addOutput = & $accountScript -Action add @common @selection
-    $data = Read-PsAiJson -Path $file
+    $data = Read-LegionJson -Path $file
     $agent = $data.agents[0]
     Assert-Equal 'https://res-a.cognitiveservices.azure.com' $agent.provider.endpoint 'Add normalises endpoint'
     Assert-Equal 'claude-opus-x' $agent.provider.deployments[0].model 'Add fills model name'
     Assert-Equal 'sonnet' $agent.provider.deployments[1].alias 'Add saves alias'
     Assert-True (-not $agent.PSObject.Properties['command']) 'Foundry stores no command'
     Assert-Equal $claudeDir $agent.configDir 'Foundry config dir'
-    Assert-Equal 0 @(Invoke-PsAiValidation -Kind personalisation -Path $file).Count 'Added Foundry agent validates'
+    Assert-Equal 0 @(Invoke-LegionValidation -Kind personalisation -Path $file).Count 'Added Foundry agent validates'
     $picker = Get-Content -Raw $settings | ConvertFrom-Json
     Assert-Equal 'dark' $picker.theme 'Claude preserves other settings'
     Assert-True $picker.modelPicker.replaceBuiltInOptions 'Claude picker replaces builtins'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.model -join '|') 'Picker uses deployment names'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.label -join '|') 'Picker labels'
-    foreach ($name in @('claude-dev','claude-dev.cmd','.ps-ai-runtime/bin/ps-ai-foundry.ps1','.ps-ai-runtime/bin/lib/foundry.ps1','.ps-ai-runtime/bin/lib/tools.ps1','.ps-ai-runtime/schemas/tool.schema.json')) {
+    foreach ($name in @('claude-dev','claude-dev.cmd','.runtime/bin/legion-foundry.ps1','.runtime/bin/lib/foundry.ps1','.runtime/bin/lib/tools.ps1','.runtime/schemas/tool.schema.json')) {
         Assert-True (Test-Path (Join-Path $homeRoot ".legion/bin/$name")) "Foundry writes $name"
     }
     # RuntimeSurvivesRelocation: only selected runtime files are bundled.
-    $runtime = Join-Path (Get-LongPath $homeRoot) '.legion/bin/.ps-ai-runtime'
-    $expectedFiles = @('bin/ps-ai-foundry.ps1','bin/lib/foundry.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','schemas/tool.schema.json','skills/ps-ai-claude/SKILL.md','skills/ps-ai-claude/tool.json','skills/ps-ai-claude/scripts/foundry-launch.ps1','skills/ps-ai-claude/scripts/foundry-config.ps1')
+    $runtime = Join-Path (Get-LongPath $homeRoot) '.legion/bin/.runtime'
+    $expectedFiles = @('bin/legion-foundry.ps1','bin/lib/foundry.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','schemas/tool.schema.json','skills/legion-claude/SKILL.md','skills/legion-claude/tool.json','skills/legion-claude/scripts/foundry-launch.ps1','skills/legion-claude/scripts/foundry-config.ps1')
     Assert-Equal (($expectedFiles | Sort-Object) -join '|') ((Get-ChildItem $runtime -File -Recurse | ForEach-Object { [IO.Path]::GetRelativePath($runtime, $_.FullName).Replace('\','/') } | Sort-Object) -join '|') 'Bundle contains only runtime dependencies'
-    Assert-True ((Get-Content (Join-Path $homeRoot '.legion/bin/claude-dev') -Raw).Contains((Join-Path $runtime 'bin/ps-ai-foundry.ps1'))) 'Wrapper targets bundled runner'
-    $tracked = @($file, $settings, (Join-Path $homeRoot '.legion/bin/claude-dev'), (Join-Path $homeRoot '.legion/bin/.ps-ai-runtime/bin/ps-ai-foundry.ps1'))
+    Assert-True ((Get-Content (Join-Path $homeRoot '.legion/bin/claude-dev') -Raw).Contains((Join-Path $runtime 'bin/legion-foundry.ps1'))) 'Wrapper targets bundled runner'
+    $tracked = @($file, $settings, (Join-Path $homeRoot '.legion/bin/claude-dev'), (Join-Path $homeRoot '.legion/bin/.runtime/bin/legion-foundry.ps1'))
     $timestamps = @($tracked | ForEach-Object { [IO.File]::GetLastWriteTimeUtc($_).Ticks })
     $repeat = & $accountScript -Action add @common @selection
     Assert-Equal 'skip: account claude-dev (already done)' $repeat 'Repeated add skips'
@@ -93,7 +93,7 @@ try {
     Use-FakeAz -Answers $answers
     $modelsOutput = @(& $accountScript -Action models -Id claude-dev -HomeRoot $homeRoot -Deployments claude-opus-x,claude-haiku-x -Default claude-haiku-x -Aliases claude-opus-x=opus,claude-haiku-x=haiku)
     Assert-Equal 0 $modelsOutput.Count 'Changed models does not leak the config adapter return value'
-    $updated = (Read-PsAiJson $file).agents[0]
+    $updated = (Read-LegionJson $file).agents[0]
     Assert-Equal 'claude-haiku-x' $updated.provider.default 'Models updates default'
     Assert-Equal 'haiku' $updated.provider.deployments[1].alias 'Models updates aliases'
     Assert-Equal 'claude-opus-x|claude-haiku-x' ((Get-Content -Raw $settings | ConvertFrom-Json).modelPicker.options.model -join '|') 'Models refreshes picker'
@@ -106,7 +106,7 @@ try {
         throw 'Expected invalid settings'
     } catch { Assert-Equal 'settings.json is not valid JSON; fix or remove it' $_.Exception.Message 'Unreadable settings stops add' }
     Assert-Equal '{bad' (Get-Content -Raw $badSettings) 'Unreadable settings unchanged'
-    Assert-Equal 1 (Read-PsAiJson $file).agents.Count 'Invalid settings does not add partial account'
+    Assert-Equal 1 (Read-LegionJson $file).agents.Count 'Invalid settings does not add partial account'
     $codexDir = Join-Path $homeRoot '.legion/agents/codex-dev'
     New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
     $toml = Join-Path $codexDir 'config.toml'
@@ -114,10 +114,10 @@ try {
 approval_policy = "never"
 model = "old"
 model_provider = "old"
-[model_providers.ps-ai-foundry]
+[model_providers.legion-foundry]
 base_url = "old"
 obsolete = true
-[model_providers.ps-ai-foundry.auth]
+[model_providers.legion-foundry.auth]
 command = "old"
 [other]
 model = "kept-nested"
@@ -132,7 +132,7 @@ value = 1
     Assert-True ($content.Contains('refresh_interval_ms = 1800000')) 'Codex refresh interval'
     Assert-True ($content.Contains('wire_api = "responses"')) 'Codex responses protocol'
     Assert-True ($content.Contains('"--resource","https://cognitiveservices.azure.com","--query","accessToken","-o","tsv"')) 'Codex token command arguments'
-    Assert-True (-not $content.Contains('obsolete')) 'Codex replaces provider table'
+    Assert-True ($content.Contains('obsolete = true')) 'Codex preserves unrelated provider settings'
     Assert-Equal 1 ([regex]::Matches($content, '(?m)^model_provider = ').Count) 'Codex has one root provider'
     $tomlCases = @(
         @{
@@ -141,9 +141,9 @@ value = 1
 "model" = "old-model"
 'model_provider' = "old-provider"
 approval_policy = "never"
-[model_providers."ps-ai-foundry"]
+[model_providers."legion-foundry"]
 base_url = "old-endpoint"
-[model_providers.'ps-ai-foundry'.auth]
+[model_providers.'legion-foundry'.auth]
 command = "old-command"
 [other]
 value = 1
@@ -166,24 +166,24 @@ approval_policy = "never"
         @{
             id = 'codex-escaped'
             text = @'
-# Comment with """ and [model_providers.ps-ai-foundry]
+# Comment with """ and [model_providers.legion-foundry]
 developer_instructions = """
 Escaped delimiter: \"""
-[model_providers.ps-ai-foundry]
+[model_providers.legion-foundry]
 model = "preserved-prompt"
-""" # comment with ''' and [model_providers.ps-ai-foundry.auth]
+""" # comment with ''' and [model_providers.legion-foundry.auth]
 note = "escaped quote: \" and triple apostrophes '''" # """
 approval_policy = "never"
 model = "old-model"
 model_provider = "old-provider"
-[model_providers.ps-ai-foundry] # '''
+[model_providers.legion-foundry] # '''
 base_url = "old-endpoint"
-[model_providers.ps-ai-foundry.auth] # """
+[model_providers.legion-foundry.auth] # """
 command = "old-command"
 [other] # """
 value = 1
 '@
-            preserved = "developer_instructions = `"`"`"`nEscaped delimiter: \`"`"`"`n[model_providers.ps-ai-foundry]`nmodel = `"preserved-prompt`"`n`"`"`" # comment with ''' and [model_providers.ps-ai-foundry.auth]"
+            preserved = "developer_instructions = `"`"`"`nEscaped delimiter: \`"`"`"`n[model_providers.legion-foundry]`nmodel = `"preserved-prompt`"`n`"`"`" # comment with ''' and [model_providers.legion-foundry.auth]"
         },
         @{
             id = 'codex-nested-array'
@@ -202,14 +202,14 @@ approval_policy = "never"
             id = 'codex-multiline-provider'
             text = @'
 developer_instructions = '''
-[model_providers.ps-ai-foundry]
+[model_providers.legion-foundry]
 Preserve these instructions.
 '''
 model = "old-model"
 model_provider = "old-provider"
 approval_policy = "never"
 '@
-            preserved = "developer_instructions = '''`n[model_providers.ps-ai-foundry]`nPreserve these instructions.`n'''"
+            preserved = "developer_instructions = '''`n[model_providers.legion-foundry]`nPreserve these instructions.`n'''"
         }
     )
     foreach ($tomlCase in $tomlCases) {
@@ -228,32 +228,32 @@ approval_policy = "never"
         . $accountScript -HomeRoot $homeRoot
         # Runtime namespace must not consume any valid account name.
         $collisionHome = Join-Path $tempRoot 'collision-home'
-        $collisionFile = Join-Path $collisionHome '.legion/configuration/ps-ai-personalisation.json'
+        $collisionFile = Join-Path $collisionHome '.legion/configuration/personalisation.json'
         New-Item -ItemType Directory (Split-Path $collisionFile -Parent) -Force | Out-Null
         Copy-Item $file $collisionFile
         $preservedCommand = Join-Path $collisionHome 'preserved-cli.ps1'
         '# inert preserved CLI' | Set-Content -LiteralPath $preservedCommand
-        & $accountScript -Action add -Id ps-ai-runtime -Tool claude -Command $preservedCommand -HomeRoot $collisionHome | Out-Null
-        $collisionWrapper = Join-Path $collisionHome '.legion/bin/ps-ai-runtime'
+        & $accountScript -Action add -Id legion-runtime -Tool claude -Command $preservedCommand -HomeRoot $collisionHome | Out-Null
+        $collisionWrapper = Join-Path $collisionHome '.legion/bin/legion-runtime'
         $collisionBytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))
         $runtimeChanges = [Collections.Generic.List[string]]::new()
-        $collisionRunner = Sync-PsAiFoundryRuntime -Tool claude -HomeRoot $collisionHome -Changes $runtimeChanges
+        $collisionRunner = Sync-LegionFoundryRuntime -Tool claude -HomeRoot $collisionHome -Changes $runtimeChanges
         Assert-Equal $collisionRunner $runtimeChanges[-1] 'Runtime publishes the runner after its dependencies'
-        Assert-True (Test-Path $collisionRunner -PathType Leaf) 'A valid account named ps-ai-runtime cannot block runtime sync'
+        Assert-True (Test-Path $collisionRunner -PathType Leaf) 'A valid account named legion-runtime cannot block runtime sync'
         Assert-Equal $collisionBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))) 'Runtime sync preserves same-named account wrapper'
-        & $accountScript -Action rename -Id ps-ai-runtime -NewId runtime-renamed -HomeRoot $collisionHome | Out-Null
-        & $accountScript -Action add -Id ps-ai-runtime -Tool claude -Command $preservedCommand -HomeRoot $collisionHome | Out-Null
+        & $accountScript -Action rename -Id legion-runtime -NewId runtime-renamed -HomeRoot $collisionHome | Out-Null
+        & $accountScript -Action add -Id legion-runtime -Tool claude -Command $preservedCommand -HomeRoot $collisionHome | Out-Null
         Assert-True ((Get-Content $collisionWrapper -Raw).Contains('preserved-cli')) 'Account creation still works after runtime installation'
         $pluginCopy = Join-Path $tempRoot 'source-plugin'
-        Copy-Item (Join-Path $root 'plugins/ps-ai') $pluginCopy -Recurse
-        . (Join-Path $pluginCopy 'bin/ps-ai-account.ps1') -HomeRoot $homeRoot
-        $null = Sync-PsAiFoundryRuntime -Tool codex -HomeRoot $homeRoot
+        Copy-Item (Join-Path $root 'plugins/legion') $pluginCopy -Recurse
+        . (Join-Path $pluginCopy 'bin/legion-account.ps1') -HomeRoot $homeRoot
+        $null = Sync-LegionFoundryRuntime -Tool codex -HomeRoot $homeRoot
         $allFiles = @(Get-ChildItem $runtime -Recurse -File)
         $snapshot = @($allFiles | ForEach-Object { $_.LastWriteTimeUtc.Ticks.ToString() + ':' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)) }) -join '|'
-        $syncOutput = @(Sync-PsAiFoundryRuntime -Tool claude -HomeRoot $homeRoot)
+        $syncOutput = @(Sync-LegionFoundryRuntime -Tool claude -HomeRoot $homeRoot)
         Assert-Equal 1 $syncOutput.Count 'Runtime sync returns only the runner path'
         Assert-Equal $snapshot (@($allFiles | ForEach-Object { [IO.File]::GetLastWriteTimeUtc($_.FullName).Ticks.ToString() + ':' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)) }) -join '|') 'Repeated sync preserves bytes and timestamps of both tools'
-        Assert-True (Test-Path (Join-Path $runtime 'skills/ps-ai-codex/tool.json')) 'Refreshing Claude retains Codex'
+        Assert-True (Test-Path (Join-Path $runtime 'skills/legion-codex/tool.json')) 'Refreshing Claude retains Codex'
         Assert-True (-not (Test-Path (Join-Path $runtime 'bin/install-tool/helpers.json'))) 'RelocatedRuntimeWithoutHelpers keeps discovery independent of installation'
         $resolvedCopy = [IO.Path]::GetFullPath($pluginCopy)
         if (-not $resolvedCopy.StartsWith([IO.Path]::GetFullPath($tempRoot) + [IO.Path]::DirectorySeparatorChar)) { throw 'Unsafe source cleanup' }
@@ -269,10 +269,10 @@ approval_policy = "never"
     Assert-True (-not (Test-Path (Join-Path $homeRoot '.legion/bin/claude-renamed'))) 'Remove deletes Foundry wrapper'
     Assert-True (Test-Path $settings) 'Remove keeps Foundry settings'
 } finally {
-    $env:PS_AI_FAKE_TOOL_LOG = $savedToolLog
+    $env:LEGION_FAKE_TOOL_LOG = $savedToolLog
     $env:PATH = $savedPath
-    $env:PS_AI_FAKE_AZ = $savedAnswers
-    $env:PS_AI_FAKE_AZ_LOG = $savedLog
+    $env:LEGION_FAKE_AZ = $savedAnswers
+    $env:LEGION_FAKE_AZ_LOG = $savedLog
     if ($fakeRoot -and (Test-Path $fakeRoot)) { Remove-Item -LiteralPath $fakeRoot -Recurse -Force }
     Remove-Item -LiteralPath $tempRoot -Recurse -Force
 }

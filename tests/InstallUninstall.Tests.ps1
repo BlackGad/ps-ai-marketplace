@@ -1,11 +1,12 @@
 $repo = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/uninstall-' + [guid]::NewGuid().ToString('N'))
     $bin = Join-Path $sandbox '.legion/bin'
-    $personalisation = Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json'
+    # Old-only owner settings must still select every recorded uninstall target.
+    $personalisation = Join-Path $sandbox '.legion/configuration/personalisation.json'
     $account = Join-Path $sandbox '.legion/agents/codex-a'
     $secondAccount = Join-Path $sandbox '.legion/agents/codex-b'
     $calls = [Collections.Generic.List[string]]::new()
@@ -20,7 +21,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     function Test-InstallCommandAvailable { param($Name) -not $state.OnlyMissing }
     function Read-Host {
         param($Prompt)
-        Assert-Equal 'Uninstall ps-ai from these targets? [y/N]' $Prompt 'Exact confirmation prompt'
+        Assert-Equal 'Uninstall legion from these targets? [y/N]' $Prompt 'Exact confirmation prompt'
         Assert-Equal 0 $writes.Count 'No CLI changes before confirmation'
         Assert-True (Test-Path (Join-Path $bin 'codex-a.cmd')) 'No files removed before confirmation'
         $state.Prompts++
@@ -34,21 +35,21 @@ $repo = Split-Path $PSScriptRoot -Parent
         $line = $Command -join '|'
         if ($line -eq "$($entry.command)|plugin|list$(if ($entry.id -eq 'claude') { '|--json' })") {
             if ($state.FailList) { return @{ExitCode=7;Output=@()} }
-            # The physical default folders hold no ps-ai here; only the named accounts do.
+            # The physical default folders hold no legion here; only the named accounts do.
             $absent = $state.Missing -or $folder -match '[\\/]\.(claude|codex|copilot)$'
-            $output = if ($absent) { if ($entry.id -eq 'claude') { '[]' } else { 'ps-ai@ps-ai-marketplace not installed' } }
-                elseif ($entry.id -eq 'claude') { '[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]' }
-                else { 'ps-ai@ps-ai-marketplace installed (disabled)' }
+            $output = if ($absent) { if ($entry.id -eq 'claude') { '[]' } else { 'legion@ps-legion-marketplace not installed' } }
+                elseif ($entry.id -eq 'claude') { '[{"id":"legion@ps-legion-marketplace","enabled":false}]' }
+                else { 'legion@ps-legion-marketplace installed (disabled)' }
             return @{ExitCode=0;Output=@($output)}
         }
         if ($line -eq ((@($entry.command) + $entry.plugin.marketplaceList) -join '|')) {
             $source = if ($state.Missing) { '' } else { 'example/other-source' }
             return @{ExitCode=0;Output=@(Get-FixtureMarketplaceListing -Tool $entry.id -Source $source)}
         }
-        $allowed = @('claude|plugin|uninstall|ps-ai@ps-ai-marketplace', 'codex|plugin|remove|ps-ai@ps-ai-marketplace',
-            'copilot|plugin|uninstall|ps-ai@ps-ai-marketplace', 'claude|plugin|marketplace|remove|ps-ai-marketplace',
-            'codex|plugin|marketplace|remove|ps-ai-marketplace', 'copilot|plugin|marketplace|remove|ps-ai-marketplace|--force',
-            'fourth-cli|plugin|erase|ps-ai@ps-ai-marketplace', 'fourth-cli|plugin|marketplace|unregister|ps-ai-marketplace')
+        $allowed = @('claude|plugin|uninstall|legion@ps-legion-marketplace', 'codex|plugin|remove|legion@ps-legion-marketplace',
+            'copilot|plugin|uninstall|legion@ps-legion-marketplace', 'claude|plugin|marketplace|remove|ps-legion-marketplace',
+            'codex|plugin|marketplace|remove|ps-legion-marketplace', 'copilot|plugin|marketplace|remove|ps-legion-marketplace|--force',
+            'fourth-cli|plugin|erase|legion@ps-legion-marketplace', 'fourth-cli|plugin|marketplace|unregister|ps-legion-marketplace')
         if ($line -notin $allowed) { throw "Unexpected command: $line" }
         if ($state.FailRemove) { return @{ExitCode=8;Output=@()} }
         $writes.Add($line)
@@ -69,27 +70,27 @@ $repo = Split-Path $PSScriptRoot -Parent
         )
         @{agents=$agents} | ConvertTo-Json | Set-Content $personalisation
         $original = Get-Content $personalisation -Raw
-        'notes' | Set-Content (Join-Path (Split-Path $personalisation) 'ps-ai-notes.md')
+        'notes' | Set-Content (Join-Path (Split-Path $personalisation) 'notes.md')
         'login' | Set-Content (Join-Path $account 'auth.json')
         'second login' | Set-Content (Join-Path $secondAccount 'auth.json')
-        foreach ($name in @('codex-a','codex-a.cmd','codex-b','codex-b.cmd','external','external.cmd','unrelated','ps-ai-overseer.cmd')) {
+        foreach ($name in @('codex-a','codex-a.cmd','codex-b','codex-b.cmd','external','external.cmd','unrelated','legion.cmd')) {
             'owner file' | Set-Content (Join-Path $bin $name)
         }
         foreach ($id in @('codex-a','codex-b')) {
-            "#!/bin/sh`n# Generated by ps-ai: account $id`nexit 0" | Set-Content (Join-Path $bin $id)
-            "@rem Generated by ps-ai: account $id`r`n@exit /b 0" | Set-Content (Join-Path $bin "$id.cmd")
+            "#!/bin/sh`n# Generated by legion: account $id`nexit 0" | Set-Content (Join-Path $bin $id)
+            "@rem Generated by legion: account $id`r`n@exit /b 0" | Set-Content (Join-Path $bin "$id.cmd")
         }
         '#!/bin/sh
-exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Content (Join-Path $bin 'ps-ai-overseer')
+exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-Path $bin 'legion')
         # Use the actual runtime publisher, with no CLI or network boundary involved.
         & {
-            . (Join-Path $repo 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
-            $null = Sync-PsAiFoundryRuntime -Tool codex -HomeRoot $sandbox
+            . (Join-Path $repo 'plugins/legion/bin/legion-account.ps1') -NoRun
+            $null = Sync-LegionFoundryRuntime -Tool codex -HomeRoot $sandbox
         }
-        $runtime = Join-Path $bin '.ps-ai-runtime'
+        $runtime = Join-Path $bin '.runtime'
         $published = @(Get-ChildItem -LiteralPath $runtime -Recurse -File -Force | ForEach-Object FullName)
         'keep' | Set-Content (Join-Path $runtime 'owner.txt')
-        'owner script' | Set-Content (Join-Path $runtime 'skills/ps-ai-codex/scripts/foundry-custom.ps1')
+        'owner script' | Set-Content (Join-Path $runtime 'skills/legion-codex/scripts/foundry-custom.ps1')
         $caseOwner = [pscustomobject]@{agents=@(
             [pscustomobject]@{id='codex-a';tool='codex';configDir=(Join-Path $sandbox 'case-account')},
             [pscustomobject]@{id='codex-b';tool='codex';configDir=(Join-Path $sandbox 'Case-account')}
@@ -100,31 +101,31 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
             Assert-True ((@(Get-UninstallFiles -Owner $caseOwner -ConfigDir (Join-Path $sandbox 'case-account'))) -notcontains (Join-Path $bin 'codex-a')) 'Unix selection keeps account launchers'
         } finally { $env:OS = $savedOS }
         Assert-True ((@(Get-UninstallFiles -Owner ([pscustomobject]@{agents=$agents}) -ConfigDir ($account + [IO.Path]::DirectorySeparatorChar))) -notcontains (Join-Path $bin 'codex-a.cmd')) 'Directory selection keeps account launchers'
-        $preview = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -DryRun)
+        $preview = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Uninstall -DryRun)
         Assert-True ($calls.Count -gt 0) 'Dry run checks installed state'
         Assert-Equal 0 $writes.Count 'Dry run never changes any CLI'
         Assert-Equal 0 $state.Prompts 'Dry run never asks'
-        Assert-True (($preview -join "`n").Contains('copilot plugin marketplace remove ps-ai-marketplace --force')) 'Preview includes force from metadata'
+        Assert-True (($preview -join "`n").Contains('copilot plugin marketplace remove ps-legion-marketplace --force')) 'Preview includes force from metadata'
         Assert-True (($preview -join "`n").Contains($account)) 'Preview includes recorded targets'
         Assert-True (-not (($preview -join "`n").Contains("Remove file: $(Join-Path $bin 'codex-a.cmd')"))) 'Preview excludes account launcher removals'
-        Assert-True (Test-Path (Join-Path $runtime 'bin/ps-ai-foundry.ps1')) 'Preview preserves runtime'
+        Assert-True (Test-Path (Join-Path $runtime 'bin/legion-foundry.ps1')) 'Preview preserves runtime'
 
-        $declined = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall)
+        $declined = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Uninstall)
         Assert-Equal 1 $state.Prompts 'Default confirmation happens once'
         Assert-Equal 0 $writes.Count 'Declined uninstall changes no CLI'
         Assert-True (Test-Path (Join-Path $bin 'codex-a.cmd')) 'Declined uninstall preserves launchers'
         $calls.Clear()
 
-        $null = Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools codex -ConfigDir $account -Uninstall -Yes
+        $null = Invoke-LegionInstaller -Source $repo -Catalog $catalog -Tools codex -ConfigDir $account -Uninstall -Yes
         Assert-Equal 2 $writes.Count 'Filters remove exactly one target'
-        Assert-Equal 'codex|plugin|remove|ps-ai@ps-ai-marketplace' $writes[0] 'Disabled plugin uninstalls before marketplace'
+        Assert-Equal 'codex|plugin|remove|legion@ps-legion-marketplace' $writes[0] 'Disabled plugin uninstalls before marketplace'
         Assert-True ($calls[0].StartsWith("codex:$account|")) 'Explicit config scopes listing'
         Assert-True (Test-Path (Join-Path $bin 'codex-a.cmd')) 'Selected account launchers kept'
         Assert-True (Test-Path (Join-Path $bin 'codex-b')) 'Other account launcher kept by filters'
-        Assert-True (Test-Path (Join-Path $runtime 'bin/ps-ai-foundry.ps1')) 'Shared runtime stays while another owned launcher remains'
+        Assert-True (Test-Path (Join-Path $runtime 'bin/legion-foundry.ps1')) 'Shared runtime stays while another owned launcher remains'
         $writes.Clear(); $calls.Clear()
 
-        $output = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -Yes)
+        $output = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Uninstall -Yes)
         Assert-Equal 12 $writes.Count 'Three defaults plus three unique account targets removed'
         foreach ($entry in $catalog.tools) {
             $inherited = Join-Path $sandbox 'inherited-account'
@@ -134,12 +135,12 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
         foreach ($name in @('codex-a','codex-a.cmd','codex-b','codex-b.cmd')) {
             Assert-True (Test-Path (Join-Path $bin $name)) 'Account launcher kept'
         }
-        Assert-True (-not (Test-Path (Join-Path $bin 'ps-ai-overseer'))) 'Owner command removed when no install remains'
+        Assert-True (-not (Test-Path (Join-Path $bin 'legion'))) 'Owner command removed when no install remains'
         Assert-True ($output -contains "Kept account launchers: $bin") 'Summary names the retained account launchers'
-        foreach ($name in @('external','external.cmd','unrelated','ps-ai-overseer.cmd','.ps-ai-runtime/owner.txt','.ps-ai-runtime/skills/ps-ai-codex/scripts/foundry-custom.ps1')) {
+        foreach ($name in @('external','external.cmd','unrelated','legion.cmd','.runtime/owner.txt','.runtime/skills/legion-codex/scripts/foundry-custom.ps1')) {
             Assert-True (Test-Path (Join-Path $bin $name)) 'Unowned files preserved'
         }
-        Assert-True (-not (Test-Path (Join-Path $runtime 'bin/ps-ai-foundry.ps1'))) 'Copied runtime files removed'
+        Assert-True (-not (Test-Path (Join-Path $runtime 'bin/legion-foundry.ps1'))) 'Copied runtime files removed'
         foreach ($path in $published) { Assert-True (-not (Test-Path -LiteralPath $path)) 'Every file from the actual runtime publisher is removed' }
         Assert-Equal $original (Get-Content $personalisation -Raw) 'Personalisation untouched'
         Assert-Equal 'login' (Get-Content (Join-Path $account 'auth.json')) 'Account login untouched'
@@ -149,27 +150,27 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
         }
         $writes.Clear(); $calls.Clear()
         $state.Missing=$true
-        $repeat = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -Yes)
+        $repeat = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Uninstall -Yes)
         Assert-Equal 0 $writes.Count 'Repeat never removes absent plugin or marketplace'
         Assert-True (($repeat -join "`n") -match 'skip: .*\(not installed\)') 'Repeat prints not installed'
         $state.Missing=$false
         foreach ($failure in @('FailList','FailRemove')) {
             $state[$failure]=$true
-            Assert-Throws { Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools codex -ConfigDir (Join-Path $sandbox 'selected') -Uninstall -Yes } "$failure propagates"
+            Assert-Throws { Invoke-LegionInstaller -Source $repo -Catalog $catalog -Tools codex -ConfigDir (Join-Path $sandbox 'selected') -Uninstall -Yes } "$failure propagates"
             Assert-Equal (Join-Path $sandbox 'inherited-account') $env:CODEX_HOME 'Failure restores config env'
             $state[$failure]=$false
         }
         $calls.Clear()
-        Assert-Throws { Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Update -Uninstall -Yes } 'Update and uninstall are mutually exclusive'
+        Assert-Throws { Invoke-LegionInstaller -Source $repo -Catalog $catalog -Update -Uninstall -Yes } 'Update and uninstall are mutually exclusive'
         Assert-Equal 0 $calls.Count 'Invalid mode executes nothing'
 
         $state.OnlyMissing=$true
         $calls.Clear()
-        $missing = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools codex -Uninstall -Yes)
+        $missing = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Tools codex -Uninstall -Yes)
         Assert-Equal 0 $calls.Count 'Unavailable CLI never invoked'
         Assert-True (($missing -join "`n").Contains('skip: codex (not installed)')) 'Missing CLI skipped'
         '{' | Set-Content -LiteralPath $personalisation
-        Assert-Throws { Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -Yes } 'Invalid owner records fail before removal'
+        Assert-Throws { Invoke-LegionInstaller -Source $repo -Catalog $catalog -Uninstall -Yes } 'Invalid owner records fail before removal'
         Assert-Equal 0 $calls.Count 'Malformed records never reach CLI boundary'
     } finally {
         foreach ($key in $saved.Keys) { [Environment]::SetEnvironmentVariable($key, $saved[$key], 'Process') }
@@ -180,7 +181,7 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
 }
 
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
     foreach ($field in @('uninstall','marketplaceRemove')) {
         $bad = $catalog | ConvertTo-Json -Depth 100 | ConvertFrom-Json

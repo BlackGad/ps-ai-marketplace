@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$setup = Join-Path $root 'plugins/ps-ai/bin/ps-ai-repository.ps1'
+$setup = Join-Path $root 'plugins/legion/bin/legion-repository.ps1'
 $sandbox = Join-Path $root ('.agents/temp/repository-scaffold-' + [guid]::NewGuid().ToString('N'))
 $savedEnv = @{}
 foreach ($name in @('GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM')) {
@@ -48,10 +48,10 @@ try {
     Assert-True ($workflow.Contains('Rules file: `AGENTS.md`')) 'Choices name the rules file'
     Assert-True ($workflow.Contains('.legion/docs/specs') -and $workflow.Contains('.legion/docs/plans')) 'Choices name the spec and plan paths'
     Assert-True ($workflow.Contains('Delivery: `merge-request`')) 'Choices name the delivery mode'
-    Assert-True ($workflow.Contains('## ps-ai orchestration')) 'Private keeps the rules block in workflow.md'
+    Assert-True ($workflow.Contains('## legion orchestration')) 'Private keeps the rules block in workflow.md'
     Assert-True (-not $workflow.Contains('Gate:')) 'No gate line without -Gate'
     Assert-Equal '' ((git -C $legion status --porcelain) -join "`n") 'Private setup leaves the inner repo committed'
-    Assert-Equal 'Set up ps-ai orchestration' (git -C $legion log -1 --format=%s) 'Private commit message'
+    Assert-Equal 'Set up legion orchestration' (git -C $legion log -1 --format=%s) 'Private commit message'
     Assert-Equal '' ((git -C $repo status --porcelain) -join "`n") 'Private setup leaves the code repo clean'
     $repeat = @(& $setup -Repo $repo)
     Assert-Equal 1 $repeat.Count 'Repeat prints one line'
@@ -89,14 +89,14 @@ try {
     $legion = Join-Path $repo '.legion'
     & $setup -Repo $repo -Mode Shared | Out-Null
     $rules = Get-FileText (Join-Path $repo 'AGENTS.md')
-    Assert-Equal 1 ([regex]::Matches($rules, '## ps-ai orchestration')).Count 'Shared adds the rules block'
+    Assert-Equal 1 ([regex]::Matches($rules, '## legion orchestration')).Count 'Shared adds the rules block'
     Assert-True ($rules.StartsWith('rules in AGENTS.md')) 'Shared keeps the existing rules text'
-    Assert-True (-not (Get-FileText (Join-Path $legion 'configuration/workflow.md')).Contains('## ps-ai orchestration')) 'Shared keeps the block out of workflow.md'
-    Assert-Equal 'Set up ps-ai orchestration' (git -C $repo log -1 --format=%s) 'Shared commit message'
+    Assert-True (-not (Get-FileText (Join-Path $legion 'configuration/workflow.md')).Contains('## legion orchestration')) 'Shared keeps the block out of workflow.md'
+    Assert-Equal 'Set up legion orchestration' (git -C $repo log -1 --format=%s) 'Shared commit message'
     Assert-Equal '' ((git -C $repo status --porcelain) -join "`n") 'Shared setup leaves the code repo clean'
     Assert-True (@(git -C $repo ls-files .legion) -contains '.legion/state/history/.gitkeep') 'Shared commits the setup files'
     Assert-Equal 'skip: Shared orchestration (already done)' (@(& $setup -Repo $repo -Mode Shared))[0] 'Shared repeat skips'
-    Assert-Equal 1 ([regex]::Matches((Get-FileText (Join-Path $repo 'AGENTS.md')), '## ps-ai orchestration')).Count 'Rules block stays single'
+    Assert-Equal 1 ([regex]::Matches((Get-FileText (Join-Path $repo 'AGENTS.md')), '## legion orchestration')).Count 'Rules block stays single'
 
     # Two rules files where neither imports the other: stop and name them.
     $repo = New-ScaffoldRepo 'ambiguous' -RulesFiles @('AGENTS.md', 'CLAUDE.md')
@@ -105,8 +105,8 @@ try {
     Assert-Equal 'choose -RulesFile: AGENTS.md, CLAUDE.md' $message 'Ambiguous rules files are named'
     Assert-True (-not (Test-Path (Join-Path $repo '.legion'))) 'Ambiguous stop changes nothing'
     & $setup -Repo $repo -Mode Shared -RulesFile CLAUDE.md | Out-Null
-    Assert-True ((Get-FileText (Join-Path $repo 'CLAUDE.md')).Contains('## ps-ai orchestration')) 'Chosen rules file gets the block'
-    Assert-True (-not (Get-FileText (Join-Path $repo 'AGENTS.md')).Contains('## ps-ai orchestration')) 'Other rules file is untouched'
+    Assert-True ((Get-FileText (Join-Path $repo 'CLAUDE.md')).Contains('## legion orchestration')) 'Chosen rules file gets the block'
+    Assert-True (-not (Get-FileText (Join-Path $repo 'AGENTS.md')).Contains('## legion orchestration')) 'Other rules file is untouched'
 
     # A rules file that imports the other is not ambiguous.
     $repo = New-ScaffoldRepo 'import'
@@ -114,7 +114,7 @@ try {
     git -C $repo add CLAUDE.md
     git -C $repo commit --quiet -m 'Import'
     & $setup -Repo $repo -Mode Shared | Out-Null
-    Assert-True ((Get-FileText (Join-Path $repo 'AGENTS.md')).Contains('## ps-ai orchestration')) 'The imported file gets the block'
+    Assert-True ((Get-FileText (Join-Path $repo 'AGENTS.md')).Contains('## legion orchestration')) 'The imported file gets the block'
 } finally {
     foreach ($name in $savedEnv.Keys) {
         [Environment]::SetEnvironmentVariable($name, $savedEnv[$name], 'Process')
