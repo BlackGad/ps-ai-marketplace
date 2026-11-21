@@ -158,7 +158,7 @@ repo none
 | `legion remove <id>` | Remove an account; keep its folder |
 | `legion status` | Show accounts, commands, channels and this repository |
 | `legion repo` | Set up ps-ai in this repository |
-| `legion start [<account>]` | Start the overseer here, with Telegram if bound |
+| `legion start [<account>]` | Start the overseer here; see [launcher defaults](../plugins/ps-ai/skills/ps-ai-personalisation/references/launcher.md) |
 | `legion start --no-channel` | Start the overseer without a channel |
 | `legion help` | Show this list |
 
@@ -170,7 +170,7 @@ The console and each connected channel are equal. Owner questions go to all of t
 
 Legion and review runs pass no model flag by default. Each CLI uses that account's own default model. A model flag is passed only when owner notes name one, such as “use astra for reviews”. Routing chooses agents without model discovery or model lists. Without owner preferences, the overseer follows [task routing](../plugins/ps-ai/skills/ps-ai-overseer/references/task-loop.md) and chooses a different tool/provider for independent reviews. It says which agent was chosen. Owner preferences always win.
 
-To open an overseer session, run `legion start` or `ps-ai-overseer`. One eligible account is selected automatically; otherwise choose one, such as `legion start codex1`. A single fitting Telegram binding is used by default. Use `legion start --no-channel` to skip it, or `ps-ai-overseer -Account claude1 -Channel my-telegram` to choose a binding.
+To open an overseer session, run `legion start` or `ps-ai-overseer`. See the [launcher guide](../plugins/ps-ai/skills/ps-ai-personalisation/references/launcher.md) for saved launches, account selection and channel defaults. Choose an account with `legion start codex1` or `legion start --account codex1`; use `legion start --no-channel` to skip the default channel, or `ps-ai-overseer -Account claude1 -Channel my-telegram` to choose a binding.
 
 Foundry agents use one Azure endpoint per agent, such as `https://<resource>.cognitiveservices.azure.com`, and the owner's `az` login. Setup can adopt an existing folder without changing its provider settings. For an explicit provider configuration request, use the matching account guide with values already supplied by the owner. Model preferences for work remain in notes.
 

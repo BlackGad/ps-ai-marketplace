@@ -14,7 +14,7 @@ After approval, handoff order is strict: write accurate handoff to disk; release
 pwsh -NoProfile -File <plugin>/bin/ps-ai-overseer.ps1 -Account <id> -Tool <tool> -Channel <id[]> -Repo <repo>
 ```
 
-`-Account` is optional when one account fits; pass it when several do. One matching channel is added by default; `-NoChannel` skips it. Setup writes the `ps-ai-overseer` command, so the owner can also run it directly.
+The owner can also run `ps-ai-overseer` or `legion start` directly. Follow the [shared launcher guide](../../ps-ai-personalisation/references/launcher.md) for saved launches, account selection and channel defaults.
 
 The new session takes the lease, reads handoff and confirms takeover through the channel skill. A failed launch leaves accurate handoff evidence; the old session must reacquire the lease before resuming oversight. No overlapping overseers.
 

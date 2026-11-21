@@ -47,6 +47,12 @@ try {
     $call = Get-LegionCall -Words @('start', '-Account', 'claude1')
     Assert-Equal 'claude1' $call.Splat.Account 'start -Account names the account'
     Assert-True (-not $call.Splat.ContainsKey('NoChannel')) 'start -Account keeps the channel'
+    foreach ($flag in @('--account', '-Account')) {
+        try { $null = Get-LegionCall -Words @('start', $flag); throw 'Expected missing account failure' }
+        catch { Assert-Equal "legion start: $flag requires an account" $_.Exception.Message 'Account flag needs a value' }
+        Assert-Throws { Get-LegionCall -Words @('start', 'claude1', $flag) } 'An earlier argument is not the account flag value'
+        Assert-Throws { Get-LegionCall -Words @('start', $flag, '--no-channel') } 'Another flag is not an account value'
+    }
 
     $call = Get-LegionCall -Words @('status')
     Assert-Equal 'ps-ai-status.ps1' $call.Script 'status script'
@@ -67,7 +73,7 @@ legion - ps-ai commands
   legion remove <id>                   remove an account (its folder is kept)
   legion status                        show accounts, commands, channels and this repository
   legion repo                          set up ps-ai in this repository
-  legion start [<account>]             start the overseer here; no account starts the last one with its settings
+  legion start [<account>]             start the overseer here; bare start repeats the last launch
   legion start --no-channel            start the overseer without a channel
   legion help                          show this list
 
@@ -118,6 +124,18 @@ if ($code -ne 'none') { exit [int]$code }
         Assert-Equal 0 $LASTEXITCODE 'R4 B4 public legion entry accepts the bound home and verb flags'
         Assert-Equal $scratch (Get-Records)[0].HomeRoot 'R4 B4 public legion entry forwards the bound home'
     }
+    foreach ($flag in @('-Account', '--account')) {
+        Reset-StandIns -Exit 'none'
+        & $pwsh -NoProfile -File (Join-Path $standIns 'legion.ps1') -HomeRoot $scratch start $flag claude1 | Out-Null
+        Assert-Equal 0 $LASTEXITCODE 'Public start accepts an account flag'
+        Assert-Equal 'claude1' (Get-Records)[0].Account 'Public start forwards the account flag value'
+        Assert-Equal $false (Get-Records)[0].NoChannel 'Account flag does not disable channels'
+    }
+    Reset-StandIns -Exit 'none'
+    $output = @(& $pwsh -NoProfile -File (Join-Path $standIns 'legion.ps1') -HomeRoot $scratch start --account)
+    Assert-Equal 1 $LASTEXITCODE 'Public start rejects an account flag without a value'
+    Assert-True ($output -contains 'legion start: --account requires an account') 'Missing account error explains the required value'
+    Assert-Equal 0 (Get-Records).Count 'Missing account never starts an overseer'
     & {
         . $legionScript -HomeRoot $scratch
         $script:LegionBin = $standIns

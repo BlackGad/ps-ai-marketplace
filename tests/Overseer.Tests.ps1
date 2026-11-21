@@ -26,9 +26,9 @@ foreach ($tool in @('claude','codex','copilot')) {
     $expected += 'continue as the overseer'
     Assert-Equal $expected ($launch.Args -join '|') 'ExplicitAccountAndModel preserve argv'
 }
-$launch = Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -Channel @('main','alerts','main')
+$launch = Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -Channel @('main','alerts','main') -HomeRoot $tempRoot
 Assert-Equal '--channels|plugin:telegram@claude-plugins-official|--|continue as the overseer' ($launch.Args -join '|') 'SameKindFlagsPreserveArgv'
-$launch = Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -Arguments @('--channels','plugin:telegram@claude-plugins-official')
+$launch = Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -Arguments @('--channels','plugin:telegram@claude-plugins-official') -HomeRoot $tempRoot
 Assert-Equal '--channels|plugin:telegram@claude-plugins-official|--|continue as the overseer' ($launch.Args -join '|') 'ExplicitChannelFlagStopsBeforePrompt'
 Assert-Throws { Get-OverseerLaunch -Personalisation $owner -AccountId claude-b -Channel alerts } 'Unbound chosen account fails'
 Assert-Throws { Get-OverseerLaunch -Personalisation $owner -AccountId codex-a -Channel main } 'Unsupported tool fails'
@@ -44,11 +44,11 @@ catch { Assert-Equal 'selected channels cannot share one launch' $_.Exception.Me
     'Fixture channel.' | Set-Content (Join-Path $fixtureKindFolder 'SKILL.md')
     '{"schemaVersion":1,"id":"fixture-channel","launch":{"claude":["--channels","second value","","2026-11-19","semi;literal","quote''value"]}}' | Set-Content (Join-Path $fixtureKindFolder 'channel.json')
     Get-ChildItem (Join-Path $plugin 'skills') -Filter overseer-model.ps1 -Recurse | Remove-Item
-    . (Join-Path $plugin 'bin/ps-ai-overseer.ps1') -NoRun
+    . (Join-Path $plugin 'bin/ps-ai-overseer.ps1') -NoRun -HomeRoot $tempRoot
     $copy = $owner | ConvertTo-Json -Depth 100 | ConvertFrom-Json
     $copy.channels[1].kind='fixture-channel'
     $copy.channels[1].accounts=@('claude-a')
-    $launch = Get-OverseerLaunch -Personalisation $copy -AccountId claude-a -Channel @('main','alerts','alerts')
+    $launch = Get-OverseerLaunch -Personalisation $copy -AccountId claude-a -Channel @('main','alerts','alerts') -HomeRoot $tempRoot
     Assert-Equal '--channels|plugin:telegram@claude-plugins-official|--channels|second value||2026-11-19|semi;literal|quote''value|--|continue as the overseer' ($launch.Args -join '|') 'SameKindFlagsPreserveArgv never deduplicates individual strings'
     'different' | Set-Content (Join-Path $fixtureKindFolder 'SKILL.md')
     $missingSkill = Join-Path $plugin 'skills/ps-ai-telegram/SKILL.md'
@@ -59,14 +59,21 @@ $repoPath = Join-Path $tempRoot 'My Projects'
 New-Item -ItemType Directory $repoPath -Force | Out-Null
     $probe = Join-Path $tempRoot 'cwd-probe.ps1'
     $resultFile = Join-Path $tempRoot 'cwd.txt'
-    'param($ResultFile) [System.IO.File]::WriteAllText($ResultFile, (Get-Location).Path + "|$env:CLAUDECODE|$env:CLAUDE_CODE_CHILD_SESSION")' | Set-Content -LiteralPath $probe
+    'param($ResultFile) [System.IO.File]::WriteAllText($ResultFile, (Get-Location).Path + "|$env:CLAUDECODE|$env:CLAUDE_CODE_CHILD_SESSION|$env:CLAUDE_CODE_FIXTURE|$env:NO_COLOR|$env:TERM")' | Set-Content -LiteralPath $probe
     $beforeLocation = (Get-Location).Path
-    $savedParent = @($env:CLAUDECODE, $env:CLAUDE_CODE_CHILD_SESSION)
-    $env:CLAUDECODE = '1'; $env:CLAUDE_CODE_CHILD_SESSION = '1'
-    Invoke-OverseerInRepo -Repo $repoPath -Command $probe -Arguments @($resultFile)
-    Assert-Equal "$repoPath||" ([System.IO.File]::ReadAllText($resultFile)) 'Unix launch runs in repo, outside the parent Claude session'
-    Assert-Equal '1|1' "$env:CLAUDECODE|$env:CLAUDE_CODE_CHILD_SESSION" 'Unix launch restores the caller environment'
-    $env:CLAUDECODE, $env:CLAUDE_CODE_CHILD_SESSION = $savedParent
+    $savedParent = @($env:CLAUDECODE, $env:CLAUDE_CODE_CHILD_SESSION, $env:CLAUDE_CODE_FIXTURE, $env:NO_COLOR, $env:TERM)
+    try {
+        $env:CLAUDECODE = '1'; $env:CLAUDE_CODE_CHILD_SESSION = '1'; $env:CLAUDE_CODE_FIXTURE = 'fixture'; $env:NO_COLOR = '1'; $env:TERM = 'dumb'
+        Invoke-OverseerInRepo -Repo $repoPath -Command $probe -Arguments @($resultFile)
+        Assert-Equal "$repoPath|||||" ([System.IO.File]::ReadAllText($resultFile)) 'In-place launch clears all parent Claude and terminal variables'
+        Assert-Equal '1|1|fixture|1|dumb' "$env:CLAUDECODE|$env:CLAUDE_CODE_CHILD_SESSION|$env:CLAUDE_CODE_FIXTURE|$env:NO_COLOR|$env:TERM" 'In-place launch restores the caller environment'
+        function failing-overseer { throw 'fixture failure' }
+        Assert-Throws { Invoke-OverseerInRepo -Repo $repoPath -Command failing-overseer } 'Launch errors propagate'
+        Assert-Throws { Invoke-OverseerInRepo -Repo (Join-Path $tempRoot 'missing-repo') -Command $probe } 'Missing launch folder fails'
+        Assert-Equal '1|1|fixture|1|dumb' "$env:CLAUDECODE|$env:CLAUDE_CODE_CHILD_SESSION|$env:CLAUDE_CODE_FIXTURE|$env:NO_COLOR|$env:TERM" 'Failed launches restore the caller environment'
+    } finally {
+        $env:CLAUDECODE, $env:CLAUDE_CODE_CHILD_SESSION, $env:CLAUDE_CODE_FIXTURE, $env:NO_COLOR, $env:TERM = $savedParent
+    }
     Assert-Equal $beforeLocation (Get-Location).Path 'Unix launch restores caller location'
     & {
         function Get-Command { param($Name, $CommandType, $ErrorAction) if ($Name -eq 'wt') { return $null }; throw 'Unexpected discovery' }
@@ -94,11 +101,40 @@ New-Item -ItemType Directory $repoPath -Force | Out-Null
             $decoded = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
             Assert-True ($decoded.Contains("& 'fixture.cmd' 'two words' 'apostrophe''argument'")) 'Terminal transport preserves literal values'
             Assert-True ($decoded.StartsWith('Remove-Item Env:NO_COLOR, Env:TERM, Env:CLAUDECODE, ')) 'New terminal tab drops inherited no-color settings'
-            Assert-True ($decoded.Contains('Env:CLAUDE_CODE_CHILD_SESSION') -and $decoded.Contains('Env:CLAUDE_CODE_SESSION_ID')) 'New terminal tab is not a child of the calling Claude session'
+            Assert-True ($decoded.Contains('Env:CLAUDE_CODE_*')) 'New terminal tab clears every Claude session variable'
         }
     }
 
 # Account and channel choice (Task 5). Nothing below opens a terminal or starts an agent.
+# Saved launch keys follow the host filesystem's case rules and ignore a trailing separator.
+$savedHome = Join-Path $tempRoot 'saved-home'
+$repoA = Join-Path $tempRoot 'ProjectA'
+$repoB = Join-Path $tempRoot 'ProjectB'
+Save-OverseerLastLaunch -Repo $repoA -HomeRoot $savedHome -Account claude-a -Channel @('main', 'alerts') -Arguments @('--model', 'chosen', '', 'two words')
+$saved = Get-OverseerLastLaunch -Repo ($repoA + [IO.Path]::DirectorySeparatorChar) -HomeRoot $savedHome
+Assert-Equal 'claude-a' $saved.account 'A one-repository JSON object round trips with a trailing separator'
+Assert-Equal 'main|alerts' ($saved.channels -join '|') 'Saved launch keeps all channel ids'
+Assert-Equal '--model|chosen||two words' ($saved.arguments -join '|') 'Saved launch keeps literal arguments'
+Save-OverseerLastLaunch -Repo $repoB -HomeRoot $savedHome -Account codex-a
+Save-OverseerLastLaunch -Repo $repoA -HomeRoot $savedHome -Account claude-b
+Assert-Equal 'claude-b' (Get-OverseerLastLaunch -Repo $repoA -HomeRoot $savedHome).account 'Updating one repository replaces its launch'
+Assert-Equal 'codex-a' (Get-OverseerLastLaunch -Repo $repoB -HomeRoot $savedHome).account 'Updating one repository preserves other repositories'
+Assert-Equal 0 @( (Get-OverseerLastLaunch -Repo $repoA -HomeRoot $savedHome).channels ).Count 'No-channel launch saves an empty array'
+Assert-True ($null -eq (Get-OverseerLastLaunch -Repo (Join-Path $tempRoot 'unseen') -HomeRoot $savedHome)) 'Unknown repository has no saved launch'
+$caseVariant = Join-Path $tempRoot 'projecta'
+if ($IsWindows) {
+    Assert-Equal (Get-OverseerRepoKey $repoA) (Get-OverseerRepoKey $caseVariant) 'Windows repository keys ignore case'
+    Assert-Equal 'claude-b' (Get-OverseerLastLaunch -Repo $caseVariant -HomeRoot $savedHome).account 'Windows case variants reuse the saved launch'
+} else {
+    Assert-True ((Get-OverseerRepoKey $repoA) -cne (Get-OverseerRepoKey $caseVariant)) 'Unix repository keys keep case'
+    Assert-True ($null -eq (Get-OverseerLastLaunch -Repo $caseVariant -HomeRoot $savedHome)) 'Unix case variants do not reuse a saved launch'
+    Save-OverseerLastLaunch -Repo $caseVariant -HomeRoot $savedHome -Account codex-b
+    Assert-Equal 'claude-b' (Get-OverseerLastLaunch -Repo $repoA -HomeRoot $savedHome).account 'Unix case-distinct repositories coexist in JSON'
+    Assert-Equal 'codex-b' (Get-OverseerLastLaunch -Repo $caseVariant -HomeRoot $savedHome).account 'Unix case-distinct launch round trips'
+}
+$driveRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($repoA))
+Assert-Equal $(if ($IsWindows) { $driveRoot.ToLowerInvariant() } else { $driveRoot }) (Get-OverseerRepoKey $driveRoot) 'Repository key preserves a filesystem root'
+
 $one = [pscustomobject]@{schemaVersion=1;agents=@(@{id='claude1';tool='claude';configDir='~/a'})}
 Assert-Equal 'claude1' (Select-OverseerAccount $one).id 'One account is picked'
 $two = [pscustomobject]@{schemaVersion=1;agents=@(
@@ -144,14 +180,44 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     '{"tool":"claude","account":"claude1","host":"other-host","pid":1,"processStartedAt":"2026-01-01T00:00:00Z"}' | Set-Content $leaseFile
     $lastFile = Join-Path $runHome '.legion/state/overseer-launches.json'
     Remove-Item -LiteralPath $lastFile -ErrorAction Ignore
+    $null = Invoke-Overseer @run -Account '' -Channel @() -DryRun
+    Assert-True (-not (Test-Path -LiteralPath $lastFile)) 'Dry run does not create saved launches'
     $text = @(Invoke-Overseer @run -Account '' -Channel @())
     Assert-Equal ('launched claude1 (claude) in ' + $runRepo + ' channel my-telegram') ($text -join '|') 'Bare start falls back to the lease account'
     Remove-Item -LiteralPath $leaseFile
+    Save-OverseerLastLaunch -Repo $runRepo -HomeRoot $runHome -Account removed-account -Channel @('removed-channel') -Arguments @('--old')
+    Assert-Throws { Invoke-Overseer @run } 'A removed saved account with no lease falls back to normal account selection'
+    '{"account":"codex1","host":"other-host","pid":1,"processStartedAt":"2026-01-01T00:00:00Z"}' | Set-Content $leaseFile
+    $text = @(Invoke-Overseer @run)
+    Assert-Equal ('launched codex1 (codex) in ' + $runRepo) ($text -join '|') 'A removed saved account falls back to the foreign lease account'
+    Assert-Equal 'continue as the overseer' ($state.Launch.Args -join '|') 'Removed account channels and arguments are discarded'
+    Remove-Item -LiteralPath $lastFile, $leaseFile
+    Assert-Throws { Invoke-Overseer @run } 'Missing saved launch and lease list eligible accounts'
+    '{"account":"removed-account"}' | Set-Content $leaseFile
+    Assert-Throws { Invoke-Overseer @run } 'A removed lease account falls back to normal selection'
+    '{"account":"claude1"}' | Set-Content $leaseFile
+    $null = Invoke-Overseer @run
+    Assert-Equal (Get-PsAiWrapperCommand claude1 $runHome) $state.Launch.Command 'A stale lease can supply the last account'
+    Remove-Item -LiteralPath $lastFile, $leaseFile
+    $single = [pscustomobject]@{schemaVersion=1;agents=@($two.agents[1]);channels=@()}
+    $single | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
+    $null = Invoke-Overseer @run
+    Assert-Equal (Get-PsAiWrapperCommand codex1 $runHome) $state.Launch.Command 'One eligible account starts when no history exists'
+    $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
     # A bare start brings back the last minion with its settings, whatever ran in between.
     $null = Invoke-Overseer @run -Account claude1 -Channel @() -NoChannel -Arguments @('--model', 'chosen', '')
     $text = @(Invoke-Overseer @run -Account '' -Channel @())
     Assert-Equal ('launched claude1 (claude) in ' + $runRepo) ($text -join '|') 'Bare start repeats the last account without a channel'
     Assert-Equal '--model|chosen||continue as the overseer' ($state.Launch.Args -join '|') 'Bare start repeats the last arguments'
+    $savedBeforeDryRun = Get-Content -LiteralPath $lastFile -Raw
+    $null = Invoke-Overseer @run -Account codex1 -DryRun
+    Assert-Equal $savedBeforeDryRun (Get-Content -LiteralPath $lastFile -Raw) 'Dry run does not replace the last launch'
+    $null = Invoke-Overseer @run -Channel my-telegram
+    Assert-True ($state.Launch.Args -contains '--channels') 'Explicit channel bypasses a saved no-channel launch'
+    $null = Invoke-Overseer @run -NoChannel -Tool claude
+    Assert-True ($state.Launch.Args -cnotcontains '--channels') 'Explicit NoChannel and tool bypass saved channels'
+    Assert-Throws { Invoke-Overseer @run -NoChannel } 'NoChannel alone does not reuse the saved account'
+    Assert-Throws { Invoke-Overseer @run -Arguments @('--model', 'other') } 'Arguments alone do not reuse the saved account'
     $null = Invoke-Overseer @run -Account codex1 -Channel @()
     $null = Invoke-Overseer @run -Account claude1 -Channel @()
     $text = @(Invoke-Overseer @run -Account '' -Channel @())

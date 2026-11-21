@@ -50,8 +50,7 @@ function Get-OverseerDefaultChannel {
     return $null
 }
 
-# The last overseer launch per repository, so a bare start brings back the same minion with
-# the same channels and arguments, whichever tool ran in between.
+# Launch history is per owner home and repository.
 function Get-OverseerLastLaunchFile {
     param([string]$HomeRoot)
     return Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'state/overseer-launches.json'
@@ -68,15 +67,16 @@ function Get-OverseerLastLaunch {
     param([string]$Repo, [string]$HomeRoot)
     $file = Get-OverseerLastLaunchFile -HomeRoot $HomeRoot
     if (-not (Test-Path -LiteralPath $file)) { return $null }
-    return (Read-PsAiJson -Path $file).(Get-OverseerRepoKey $Repo)
+    $saved = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json -AsHashtable
+    return $saved[(Get-OverseerRepoKey $Repo)]
 }
 
 function Save-OverseerLastLaunch {
     param([string]$Repo, [string]$HomeRoot, [string]$Account, [string[]]$Channel, [string[]]$Arguments)
     $file = Get-OverseerLastLaunchFile -HomeRoot $HomeRoot
-    $saved = if (Test-Path -LiteralPath $file) { Read-PsAiJson -Path $file } else { [pscustomobject]@{} }
+    $saved = if (Test-Path -LiteralPath $file) { Get-Content -LiteralPath $file -Raw | ConvertFrom-Json -AsHashtable } else { [hashtable]::new([StringComparer]::Ordinal) }
     $launch = [ordered]@{ account = $Account; channels = @($Channel | Where-Object { $_ }); arguments = @($Arguments | Where-Object { $null -ne $_ }) }
-    $saved | Add-Member -NotePropertyName (Get-OverseerRepoKey $Repo) -NotePropertyValue $launch -Force
+    $saved[(Get-OverseerRepoKey $Repo)] = $launch
     New-Item -ItemType Directory -Path (Split-Path $file) -Force | Out-Null
     $saved | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $file -Encoding utf8NoBOM
 }
@@ -118,26 +118,24 @@ function Get-OverseerLaunch {
     return @{Command=(Get-PsAiWrapperCommand $AccountId $HomeRoot);Args=$launchArgs.ToArray()}
 }
 
-# A Claude Code session marks the shells it starts as its own children. A CLI started with these
-# variables joins that session as a child and is not saved as a session of its own,
-# so the overseer could never be resumed. An agent shell also sets NO_COLOR and TERM=dumb.
+# Clear parent session markers and terminal overrides for a resumable interactive session.
 function Get-OverseerParentVariables {
-    return @(
-        'NO_COLOR', 'TERM', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_CODE_ENTRYPOINT',
-        'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_CHILD_NOTES_DIR', 'CLAUDE_CODE_SESSION_ID',
-        'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_SSE_PORT'
-    )
+    return @('NO_COLOR', 'TERM', 'CLAUDECODE', 'CLAUDE_CODE_*')
 }
 
 function Invoke-OverseerInRepo {
     param([string]$Repo, [string]$Command, [string[]]$Arguments)
     $saved = @{}
-    foreach ($name in Get-OverseerParentVariables) {
-        $saved[$name] = [Environment]::GetEnvironmentVariable($name)
-        [Environment]::SetEnvironmentVariable($name, $null)
-    }
     Push-Location -LiteralPath $Repo
-    try { & $Command @Arguments }
+    try {
+        foreach ($pattern in Get-OverseerParentVariables) {
+            foreach ($variable in Get-Item -Path "Env:$pattern" -ErrorAction Ignore) {
+                $saved[$variable.Name] = $variable.Value
+                [Environment]::SetEnvironmentVariable($variable.Name, $null)
+            }
+        }
+        & $Command @Arguments
+    }
     finally {
         Pop-Location
         foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
@@ -178,8 +176,7 @@ function Invoke-Overseer {
         if ($issues.Count) { throw ($issues -join '; ') }
     }
     $personalisation = Read-PsAiJson -Path $ownerFile
-    # A bare start repeats the last launch here while its account still exists.
-    # Without one, the account that last held the overseer lease here starts with its default channel.
+    # Bare start reuses saved settings for a known account, then falls back to the lease account.
     $bare = -not ($Account -or $Tool -or $Channel.Count -or $Arguments.Count -or $NoChannel)
     $known = @($personalisation.agents.id)
     $last = if ($bare) { Get-OverseerLastLaunch -Repo $Repo -HomeRoot $HomeRoot }
