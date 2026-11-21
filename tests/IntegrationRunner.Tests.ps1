@@ -170,7 +170,9 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
 
     # The real steps exist in the spec's order and depend on what they need (never run here).
     $steps = @(Get-IntegrationSteps -HomeRoot (Join-Path $tempRoot 'home') -Checkout $root -Work (Join-Path $tempRoot 'work') -Os 'linux')
-    Assert-Equal 'install-cli-claude,install-cli-codex,install-cli-copilot,install-ps-ai,setup,add,remove,repo-private,repo-shared,uninstall' (($steps.Name) -join ',') 'step order'
+    Assert-Equal 'install-cli-claude,install-cli-codex,install-cli-copilot,install-ps-ai,setup,add,remove,repo-private,repo-shared,uninstall,reinstall,restore-launchers' (($steps.Name) -join ',') 'step order'
+    Assert-True ($steps.Where({ $_.Name -eq 'reinstall' }).DependsOn -contains 'uninstall') 'reinstall needs uninstall'
+    Assert-True ($steps.Where({ $_.Name -eq 'restore-launchers' }).DependsOn -contains 'reinstall') 'restore-launchers needs reinstall'
     Assert-True ($steps.Where({ $_.Name -eq 'setup' }).DependsOn -contains 'install-ps-ai') 'setup needs install-ps-ai'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $tempRoot 'home'))) 'building the steps touches nothing'
 
@@ -458,7 +460,20 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     $script:stale = ''
     function Test-IntegrationPluginListed { param($Tool, $Folder, [switch]$IncludeDisabled) return ($Folder -like "*$script:stale*" -and $script:stale -ne '') }
     $script:uninstallOutput = 'Uninstalled'
+    foreach ($path in Get-IntegrationLauncherPaths 'claude1') { Set-Content -LiteralPath $path -Value 'launcher' }
     Invoke-UninstallFirst | Out-Null
+    $ownerPath = @(Get-IntegrationLauncherPaths 'legion')[0]
+    Set-Content -LiteralPath $ownerPath -Value 'owner'
+    $threw = $false
+    try { Invoke-UninstallFirst | Out-Null } catch { $threw = $_.Exception.Message -like '*legion*' }
+    Assert-True $threw 'an owner command left behind fails the uninstall'
+    Remove-Item -LiteralPath $ownerPath
+    $launcherPath = @(Get-IntegrationLauncherPaths 'claude1')[0]
+    Rename-Item -LiteralPath $launcherPath -NewName 'claude1.hidden'
+    $threw = $false
+    try { Invoke-UninstallFirst | Out-Null } catch { $threw = $_.Exception.Message -like '*launcher claude1*' }
+    Assert-True $threw 'an account launcher removed by the uninstall fails it'
+    Rename-Item -LiteralPath "$launcherPath.hidden" -NewName 'claude1'
     $script:stale = 'claude1'
     $threw = $false
     try { Invoke-UninstallFirst | Out-Null } catch { $threw = $_.Exception.Message -like '*claude1*' }
