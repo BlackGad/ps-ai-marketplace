@@ -8,6 +8,7 @@ param(
     [ValidateSet('release','main')][string]$Ref = 'release',
     [switch]$Update,
     [switch]$Uninstall,
+    [switch]$Purge,
     [string]$HomeRoot
 )
 

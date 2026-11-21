@@ -61,6 +61,15 @@ Say “Update ps-ai” or “Uninstall ps-ai,” or run `legion update` or `legi
 
 Uninstall keeps your `ps-ai-setup`, `ps-ai-status`, `ps-ai-overseer` and `legion` commands working through another ps-ai install if one is left. If none is left, it removes them.
 
+> [!IMPORTANT]
+> Uninstall then install is an upgrade: it keeps your settings, notes, account folders and account launchers. **Purge removes every ps-ai trace**, including settings, notes and legion-made logins. It lists everything and asks first.
+
+Run `legion uninstall --purge`, or use this PowerShell one-liner:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Uninstall -Purge
+```
+
 ## Security
 
 Legion members have your full user rights. They are instructed to stay in their assigned repository, never push or install tools, and report missing tools. These are instructions, not enforced access limits. Use accounts you trust, or leave legion unused. Never share tokens or credentials with an agent.

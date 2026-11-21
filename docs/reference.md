@@ -103,11 +103,23 @@ Codex hooks need one-time trust through `/hooks` in the selected account. Reinst
 
 ## Uninstall
 
+Uninstall then install is an upgrade: your settings, notes, account folders and account launchers stay in place.
+
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Uninstall
 ```
 
 Shows the targets and generated files before asking. Use `-Yes` to skip the prompt, `-DryRun` to preview, or `-Tools` and `-ConfigDir` to narrow targets. Removes ps-ai and its marketplace registration, plus its copied runtime when no unselected account launcher needs it. Keeps account launchers in `~/.legion/bin`; subscription launchers only select the config folder and call the CLI. The four owner commands in `~/.legion/bin` (`ps-ai-setup`, `ps-ai-status`, `ps-ai-overseer` and `legion`, with Windows `.cmd` files) keep working: if their ps-ai copy is gone and another install is left, they point to that install; if none is left, ps-ai removes them. Unrelated files stay. Keeps `~/.legion/configuration` (settings and notes), `~/.legion/agents` (account folders and logins), repositories, and the CLIs themselves. Reinstall recreates missing subscription account launchers from settings using the stock CLI on PATH, skipping accounts whose CLI is unavailable. Removing a single account still deletes its launchers.
+
+For a full removal, run `legion uninstall --purge` or:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Uninstall -Purge
+```
+
+Purge runs uninstall first, then lists everything it will delete and asks a separate question. It removes all of `~/.legion`, including settings, notes, account folders, legion-made logins and launchers. It removes ps-ai's plugin files, marketplace registration, caches, data and settings entries from every recorded tool folder and every default tool folder, even when a CLI is missing. On Windows it also removes the legion bin and portable PowerShell entries from user and current process PATH. Repositories, the CLIs and other tool settings stay. Purge covers all accounts even if `-Tools` or `-ConfigDir` narrowed the preceding uninstall. `-Yes` answers both questions; `-DryRun` lists the plan and removes nothing. Settings that cannot be safely edited are left unchanged and printed as manual steps.
+
+Codex hook approvals for folders ps-ai no longer knows cannot be identified and are left in place.
 
 ## First run
 
@@ -160,7 +172,7 @@ repo none
 | `legion [--no-channel]` | Start the overseer here, set up if needed; resumes the last conversation (see [launcher defaults](../plugins/ps-ai/skills/ps-ai-personalisation/references/launcher.md)) |
 | `legion pick [--no-channel]` | Choose which account leads the overseer |
 | `legion update [--yes]` | Update ps-ai along the track it was installed from |
-| `legion uninstall [--yes]` | Remove ps-ai |
+| `legion uninstall [--purge] [--yes]` | Remove ps-ai; purge also removes settings, notes and legion-made logins |
 | `legion help` | Show this list |
 
 `setup` and `add` show the plan, then ask `Apply? [Y/n]` in an interactive terminal (Enter accepts). `--yes` applies without asking; redirected input only prints the plan. For example, `legion add claude`, `legion remove claude1` and `legion pick`.

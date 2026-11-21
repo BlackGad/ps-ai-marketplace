@@ -80,7 +80,7 @@ legion - ps-ai commands
   legion remove <id>                   remove an account (its folder is kept)
   legion status                        show accounts, commands, channels and this repository
   legion update [--yes]                update ps-ai to the newest version of the track it was installed from
-  legion uninstall [--yes]             remove ps-ai
+  legion uninstall [--purge] [--yes]   remove ps-ai; --purge also deletes settings, notes and legion-made logins
   legion help                          show this list
 
 setup and add show the plan and ask before changing anything; --yes applies without asking.
