@@ -83,9 +83,10 @@ Test-PurgeScenario {
     $data = New-PurgeFile 'override-copilot/plugin-data/ps-ai-marketplace/ps-ai/keep-until-purge'
     $state.Installed=$true
     $preview = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -DryRun) -join "`n"
-    foreach ($path in @($login, $notes, $settings, (Split-Path $cache -Parent), $data)) {
-        Assert-True ($preview.Contains($path)) "Preview lists $path"
-    }
+    $legionFolder = Join-Path $fixtureHome '.legion'
+    Assert-True ($preview.Contains("Remove folder: $legionFolder (2 files)")) 'Preview summarizes the legion folder with its file count'
+    Assert-True ($preview.Contains("Remove entry: $settings")) 'Preview lists settings entries'
+    foreach ($path in @($login, $notes, $cache, $data)) { Assert-True (-not $preview.Contains($path)) 'Preview does not list files inside removed folders' }
     Assert-Equal 0 $state.Prompts.Count 'Dry run never prompts'
     Assert-Equal 0 $state.Writes.Count 'Dry run never calls CLI mutations'
     Assert-True (Test-Path $login) 'Dry run keeps login'
@@ -153,7 +154,7 @@ Test-PurgeScenario {
     $env:PATH = @('keep-first', $bin, 'keep-middle', $portable, 'keep-last') -join $separator
     $null = New-PurgeFile '.legion/configuration/ps-ai-notes.md' 'notes'
     $preview = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -DryRun) -join "`n"
-    Assert-True ($preview.IndexOf("Remove user PATH entry: $bin") -lt $preview.IndexOf('Remove path last:')) 'PATH entries listed before legion removal'
+    Assert-True ($preview.IndexOf("Remove user PATH entry: $bin") -lt $preview.IndexOf('Remove folder:')) 'PATH entries listed before folder removal'
     Assert-True ($preview.Contains("Remove process PATH entry: $bin")) 'Process PATH changes listed'
     Assert-Equal 0 $state.PathWrites 'Preview keeps user PATH'
     $null = Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes
@@ -268,4 +269,37 @@ function Invoke-ClosedInput { throw 'Real CLI calls forbidden' }
     Assert-Equal 0 $script:LegionExit 'Legion tolerates its copied installer being purged'
     Assert-True (-not (Test-Path (Join-Path $fixtureHome '.legion'))) 'Running copy and legion home removed'
     Assert-True ($output.Contains('done: purge')) 'Copied installer finished purge'
+}
+
+Test-PurgeScenario {
+    $state.Missing=$true
+    $owned = New-PurgeFile 'override-claude/plugins/extra-owned-ps-ai/entry.txt'
+    $settings = New-PurgeFile 'override-claude/extra-settings.json' '{"enabledPlugins":{"ps-ai@ps-ai-marketplace":false},"other":1}'
+    $entry = $catalog.tools | Where-Object id -CEQ claude
+    $entry.plugin.purge = [pscustomobject]@{
+        paths=@('plugins/extra-owned-ps-ai')
+        settings=@([pscustomobject]@{path='extra-settings.json';kind='settings'})
+    }
+    $script:installCatalog = Get-InstallCatalog -Catalog $catalog
+    $before = (Get-FileHash $settings).Hash
+    $plans = @(Get-InstallPurgePlan)
+    Assert-Equal 1 $plans.Count 'Plan builder returns one plan without preview output'
+    Assert-Equal $before (Get-FileHash $settings).Hash 'Planning leaves settings unchanged'
+    Assert-True (Test-Path $owned) 'Planning leaves descriptor-owned paths unchanged'
+    Assert-Equal 0 $state.Prompts.Count 'Planning does not ask to apply'
+    $preview = @(Show-InstallPurgePlan -Plan $plans[0]) -join "`n"
+    Assert-True ($preview.Contains("Remove folder: $(Split-Path $owned) (1 files)")) 'Descriptor-added folder appears once with its file count'
+    Assert-True (-not $preview.Contains($owned)) 'Folder preview omits contained filenames'
+    Invoke-InstallPurgePlan -Plan $plans[0]
+    Assert-True (-not (Test-Path $owned)) 'Applier removes the folder declared by the descriptor'
+    Assert-Equal '{"enabledPlugins":{},"other":1}' ([IO.File]::ReadAllText($settings)) 'Applier uses the descriptor settings file and preserves unrelated bytes'
+    $entry.plugin.purge.paths=@('../fake-real')
+    Assert-Throws { Get-InstallCatalog -Catalog $catalog } 'Standalone catalog rejects purge paths outside a tool folder'
+    $descriptor = Get-Content (Join-Path $repo 'plugins/ps-ai/skills/ps-ai-claude/tool.json') -Raw | ConvertFrom-Json
+    $descriptor.plugin.purge.settings[0].path='../outside.json'
+    $invalid = $descriptor | ConvertTo-Json -Depth 100
+    # The standalone installer also runs on 5.1; JSON Schema validation is a 7-only check.
+    if (Get-Command Test-Json -ErrorAction SilentlyContinue) {
+        Assert-True (-not (Test-Json -Json $invalid -SchemaFile (Join-Path $repo 'plugins/ps-ai/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) 'Tool schema rejects settings paths outside the config folder'
+    }
 }

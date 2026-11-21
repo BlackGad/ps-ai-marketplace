@@ -45,6 +45,14 @@ function Assert-InstallRelativePath {
     if ($Value -match '(^[/\\]|:|(^|[/\\])\.\.([/\\]|$))') { throw "invalid catalog field '$Field': expected relative path" }
 }
 
+function Assert-InstallExactRelativePath {
+    param($Value, [string]$Field)
+    Assert-InstallRelativePath $Value $Field
+    if ($Value -match '(^~|(^|[/\\])\.([/\\]|$)|[*?]|[/\\]$|[/\\]{2})') {
+        throw "invalid catalog ${Field}: expected exact relative path"
+    }
+}
+
 function Get-InstallBranch {
     param([ValidateSet('release','main')][string]$Ref = 'release')
     if ($Ref -eq 'main') { return 'main' }
@@ -109,8 +117,22 @@ function Get-InstallCatalog {
                 Assert-InstallRelativePath $value "plugin.$field"
                 if ($value -match '^~[/\\]') { throw "invalid catalog plugin.${field}: expected relative path" }
             }
-            if ($field -eq 'cacheDir' -and $value -match '(^~|(^|[/\\])\.([/\\]|$)|[*?]|[/\\]$|[/\\]{2})') {
-                throw 'invalid catalog plugin.cacheDir: expected exact relative folder path'
+            if ($field -eq 'cacheDir') { Assert-InstallExactRelativePath $value 'plugin.cacheDir' }
+        }
+        if ($null -ne $tool.plugin.purge) {
+            $purge = $tool.plugin.purge
+            Assert-InstallObject $purge 'plugin.purge'
+            Assert-InstallArguments $purge.paths 'plugin.purge.paths'
+            if ($null -ne $purge.emptyDirs) { Assert-InstallArguments $purge.emptyDirs 'plugin.purge.emptyDirs' }
+            foreach ($path in (@($purge.paths) + @($purge.emptyDirs))) {
+                if ($null -ne $path) { Assert-InstallExactRelativePath $path 'plugin.purge path' }
+            }
+            if ($null -ne $purge.legacyHookTrust -and $purge.legacyHookTrust -isnot [bool]) { throw 'invalid plugin.purge.legacyHookTrust' }
+            if ($purge.settings -isnot [array]) { throw 'plugin.purge.settings must be an array' }
+            foreach ($setting in $purge.settings) {
+                Assert-InstallObject $setting 'plugin.purge.settings entry'
+                Assert-InstallExactRelativePath $setting.path 'plugin.purge.settings.path'
+                if ($setting.kind -cnotin @('settings', 'marketplaces', 'claude', 'copilot', 'toml')) { throw 'invalid plugin.purge.settings.kind' }
             }
         }
         $listing = $tool.plugin.listing
@@ -871,8 +893,7 @@ function Get-InstallPurgeEdit {
         return [pscustomobject]@{ Path=$Path; Before=$before; After=$after; Entries=$result.Entries }
     } catch {
         # Do not print settings contents or parser errors that could contain secrets.
-        Write-Host "Manual step: $Path (remove its ps-ai entries; could not match them safely)"
-        return [pscustomobject]@{ Manual=$true }
+        return [pscustomobject]@{ Manual=$true; Path=$Path }
     }
 }
 
@@ -894,12 +915,12 @@ function Get-InstallPurgeTrustPath {
     } finally { $stream.Dispose(); $hash.Dispose() }
 }
 
-function Invoke-PsAiPurge {
-    param([string]$ConfigDir, [switch]$DryRun, [switch]$Yes)
+function Get-InstallPurgePlan {
+    param([string]$ConfigDir)
     # Purge is global even if the preceding uninstall selected only some targets.
     $paths = @()
     $edits = @()
-    $manual = $false
+    $manualSteps = @()
     $pathEntries = @((Get-InstallLegionPath 'bin'), (Get-InstallLegionPath 'tools/pwsh'))
     $userPath = if ($env:OS -eq 'Windows_NT') { Get-InstallUserPath } else { '' }
     $keptPath = @()
@@ -909,7 +930,7 @@ function Invoke-PsAiPurge {
         foreach ($entry in $pathEntries) {
             if (Test-InstallPathEntry -Path $part -Entry $entry -Separator ';') { $owned=$true; break }
         }
-        if ($owned) { $removedPath += $part; "Remove user PATH entry: $part" } else { $keptPath += $part }
+        if ($owned) { $removedPath += $part } else { $keptPath += $part }
     }
     $processPath = $env:PATH
     $processSeparator = [string][IO.Path]::PathSeparator
@@ -921,7 +942,7 @@ function Invoke-PsAiPurge {
             foreach ($entry in $pathEntries) {
                 if (Test-InstallPathEntry -Path $part -Entry $entry -Separator $processSeparator) { $owned=$true; break }
             }
-            if ($owned) { $removedProcessPath += $part; "Remove process PATH entry: $part" } else { $keptProcessPath += $part }
+            if ($owned) { $removedProcessPath += $part } else { $keptProcessPath += $part }
         }
     }
     $seen = @()
@@ -935,90 +956,90 @@ function Invoke-PsAiPurge {
             $key = Get-InstallFolderKey -Entry $entry -Folder $folder
             if ($seen -ccontains $key) { continue }
             $seen += $key
-            $relativePaths = @($entry.plugin.cacheDir)
-            $jsonFiles = @{ 'settings.json'='settings' }
-            switch ($entry.id) {
-                'claude' {
-                    $relativePaths += @('plugins/marketplaces/ps-ai-marketplace', 'plugins/data/ps-ai-ps-ai-marketplace')
-                    $jsonFiles['plugins/known_marketplaces.json']='marketplaces'
-                    $jsonFiles['plugins/installed_plugins.json']='claude'
-                }
-                'codex' {
-                    $relativePaths += @('.tmp/marketplaces/ps-ai-marketplace', 'plugins/data/ps-ai-ps-ai-marketplace', (Get-InstallPurgeTrustPath -ConfigDir $folder))
-                    $jsonFiles=@{ 'config.toml'='toml' }
-                }
-                'copilot' {
-                    $relativePaths += @('marketplace-cache/ps-ai-marketplace', 'plugin-data/ps-ai-marketplace/ps-ai')
-                    $jsonFiles['config.json']='copilot'
-                }
-            }
+            $purge = $entry.plugin.purge
+            $relativePaths = @($entry.plugin.cacheDir) + @($purge.paths)
+            if ($purge.legacyHookTrust) { $relativePaths += Get-InstallPurgeTrustPath -ConfigDir $folder }
             foreach ($relative in $relativePaths) {
                 if (-not $relative) { continue }
                 $descriptor = @{ plugin=@{ cacheDir=$relative } }
-                $path = Get-UninstallCachePath -Entry $descriptor -ConfigDir $folder -AllowFile
+                $path = Get-UninstallCachePath -Entry $descriptor -ConfigDir $folder -AllowFile 6>$null
                 if ($path) { $paths += [pscustomobject]@{ Path=$path; Root=$folder; Relative=$relative; EmptyOnly=$false } }
-                elseif (Test-Path -LiteralPath (Join-Path $folder $relative)) { $manual=$true; Write-Host "Manual step: $(Join-Path $folder $relative) (linked path; left in place)" }
+                elseif (Test-Path -LiteralPath (Join-Path $folder $relative)) { $manualSteps += "Manual step: $(Join-Path $folder $relative) (linked path; left in place)" }
             }
-            # Copilot leaves the empty marketplace data directory behind on uninstall.
-            if ($entry.id -eq 'copilot') {
-                $relative = 'plugin-data/ps-ai-marketplace'
+            foreach ($relative in $purge.emptyDirs) {
                 $descriptor = @{ plugin=@{ cacheDir=$relative } }
-                $path = Get-UninstallCachePath -Entry $descriptor -ConfigDir $folder
-                if ($path -and -not @(Get-ChildItem -LiteralPath $path -Force | Where-Object Name -CNE 'ps-ai').Count) {
+                $path = Get-UninstallCachePath -Entry $descriptor -ConfigDir $folder 6>$null
+                # List the parent only if its remaining children are already planned for removal.
+                if ($path -and -not @(Get-ChildItem -LiteralPath $path -Force | Where-Object { $_.FullName -notin $paths.Path }).Count) {
                     $paths += [pscustomobject]@{ Path=$path; Root=$folder; Relative=$relative; EmptyOnly=$true }
                 }
             }
-            foreach ($relative in $jsonFiles.Keys) {
+            foreach ($setting in $purge.settings) {
+                $relative = $setting.path
                 $descriptor = @{ plugin=@{ cacheDir=$relative } }
-                $path = Get-UninstallCachePath -Entry $descriptor -ConfigDir $folder -AllowFile
-                if (-not $path -and (Test-Path -LiteralPath (Join-Path $folder $relative))) { $manual=$true; Write-Host "Manual step: $(Join-Path $folder $relative) (linked path; left in place)" }
+                $path = Get-UninstallCachePath -Entry $descriptor -ConfigDir $folder -AllowFile 6>$null
+                if (-not $path -and (Test-Path -LiteralPath (Join-Path $folder $relative))) { $manualSteps += "Manual step: $(Join-Path $folder $relative) (linked path; left in place)" }
                 if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) {
                     $alreadyEdited = if ($env:OS -eq 'Windows_NT') { $edits.Path -contains $path } else { $edits.Path -ccontains $path }
                     if ($alreadyEdited) { continue }
-                    $edit = Get-InstallPurgeEdit -Path $path -Kind $jsonFiles[$relative]
-                    if ($edit.Manual) { $manual=$true }
+                    $edit = Get-InstallPurgeEdit -Path $path -Kind $setting.kind
+                    if ($edit.Manual) { $manualSteps += "Manual step: $path (remove its ps-ai entries; could not match them safely)" }
                     elseif ($edit) { $edits += $edit }
                 }
             }
         }
     }
-    foreach ($edit in $edits) { foreach ($name in $edit.Entries) { "Remove entry: $($edit.Path): $name" } }
-    foreach ($item in $paths) {
-        "Remove path: $($item.Path)$(if ($item.EmptyOnly) { ' (if empty)' })"
-        if (-not $item.EmptyOnly -and (Test-Path -LiteralPath $item.Path -PathType Container)) {
-            Get-ChildItem -LiteralPath $item.Path -Recurse -Force | ForEach-Object { "Remove path: $($_.FullName)" }
-        }
-    }
     $legionDescriptor = @{ plugin=@{ cacheDir='.legion' } }
-    $legion = Get-UninstallCachePath -Entry $legionDescriptor -ConfigDir (Get-InstallHome)
-    if (-not $legion -and (Test-Path -LiteralPath (Get-InstallLegionPath ''))) { $manual=$true; Write-Host 'Manual step: legion home contains linked paths; left in place.' }
-    if ($legion) {
-        "Remove path last: $legion (all settings, notes, account folders, logins and launchers)"
-        Get-ChildItem -LiteralPath $legion -Recurse -Force | ForEach-Object { "Remove path: $($_.FullName)" }
+    $legion = Get-UninstallCachePath -Entry $legionDescriptor -ConfigDir (Get-InstallHome) 6>$null
+    if (-not $legion -and (Test-Path -LiteralPath (Get-InstallLegionPath ''))) { $manualSteps += 'Manual step: legion home contains linked paths; left in place.' }
+    return [pscustomobject]@{
+        Paths=$paths; Edits=$edits; Legion=$legion; HomeRoot=(Get-InstallHome); ManualSteps=$manualSteps
+        UserPath=[pscustomobject]@{ Before=$userPath; After=($keptPath -join ';'); Entries=$removedPath }
+        ProcessPath=[pscustomobject]@{ Before=$processPath; After=($keptProcessPath -join $processSeparator); Entries=$removedProcessPath }
+        HasWork=[bool]($paths.Count -or $edits.Count -or $legion -or $removedPath.Count -or $removedProcessPath.Count)
     }
+}
+
+function Show-InstallPurgePlan {
+    param($Plan)
+    foreach ($entry in $Plan.UserPath.Entries) { "Remove user PATH entry: $entry" }
+    foreach ($entry in $Plan.ProcessPath.Entries) { "Remove process PATH entry: $entry" }
+    foreach ($edit in $Plan.Edits) { foreach ($name in $edit.Entries) { "Remove entry: $($edit.Path): $name" } }
+    $items = @($Plan.Paths)
+    if ($Plan.Legion) { $items += [pscustomobject]@{ Path=$Plan.Legion; EmptyOnly=$false } }
+    $shown = @()
+    foreach ($item in $items) {
+        $key = if ($env:OS -eq 'Windows_NT') { $item.Path.ToLowerInvariant() } else { $item.Path }
+        if ($shown -ccontains $key) { continue }
+        $shown += $key
+        if (Test-Path -LiteralPath $item.Path -PathType Container) {
+            $count = @(Get-ChildItem -LiteralPath $item.Path -File -Recurse -Force).Count
+            $note = if ($item.EmptyOnly) { ' (if empty)' } elseif ($item.Path -ceq $Plan.Legion) { ' (last: all settings, notes, account folders, logins and launchers)' } else { '' }
+            "Remove folder: $($item.Path) ($count files)$note"
+        } else { "Remove file: $($item.Path)" }
+    }
+    foreach ($step in $Plan.ManualSteps) { $step }
     'Codex hook approvals for folders ps-ai no longer knows cannot be identified and are left in place.'
-    if (-not $paths.Count -and -not $edits.Count -and -not $legion -and -not $removedPath.Count -and -not $removedProcessPath.Count) {
-        if ($manual) { 'Purge needs the manual steps above.' } else { 'skip: purge (already done)' }
-        return
+}
+
+function Invoke-InstallPurgePlan {
+    param($Plan)
+    if ($Plan.UserPath.Entries.Count) {
+        if ((Get-InstallUserPath) -cne $Plan.UserPath.Before) { throw 'User PATH changed after preview; run purge again.' }
+        Set-InstallUserPath -Path $Plan.UserPath.After
     }
-    if ($DryRun) { return }
-    if (-not ($Yes -or (Read-Host 'Purge ps-ai settings, notes, account folders and logins listed above? [y/N]') -match '^(?i:y|yes)$')) { 'Purge cancelled.'; return }
-    if ($removedPath.Count) {
-        if ((Get-InstallUserPath) -cne $userPath) { throw 'User PATH changed after preview; run purge again.' }
-        Set-InstallUserPath -Path ($keptPath -join ';')
+    if ($Plan.ProcessPath.Entries.Count) {
+        if ($env:PATH -cne $Plan.ProcessPath.Before) { throw 'Process PATH changed after preview; run purge again.' }
+        $env:PATH = $Plan.ProcessPath.After
     }
-    if ($removedProcessPath.Count) {
-        if ($env:PATH -cne $processPath) { throw 'Process PATH changed after preview; run purge again.' }
-        $env:PATH = $keptProcessPath -join $processSeparator
-    }
-    foreach ($edit in $edits) {
+    foreach ($edit in $Plan.Edits) {
         # Refuse a concurrent settings write rather than overwriting the owner's changes.
         $descriptor = @{ plugin=@{ cacheDir=([IO.Path]::GetFileName($edit.Path)) } }
         $safe = Get-UninstallCachePath -Entry $descriptor -ConfigDir (Split-Path $edit.Path) -AllowFile
         if (-not $safe -or [Convert]::ToBase64String([IO.File]::ReadAllBytes($edit.Path)) -cne [Convert]::ToBase64String($edit.Before)) { throw 'Settings changed after preview; run purge again.' }
         [IO.File]::WriteAllBytes($edit.Path, $edit.After)
     }
-    foreach ($item in $paths) {
+    foreach ($item in $Plan.Paths) {
         $descriptor = @{ plugin=@{ cacheDir=$item.Relative } }
         $safe = Get-UninstallCachePath -Entry $descriptor -ConfigDir $item.Root -AllowFile
         if (-not $safe -or $safe -cne $item.Path) { continue }
@@ -1027,11 +1048,25 @@ function Invoke-PsAiPurge {
     }
     # The running installer may be a private copy under this tree; functions are
     # already loaded. Legion's caller tolerates its copy having been removed.
-    if ($legion) {
-        $safe = Get-UninstallCachePath -Entry $legionDescriptor -ConfigDir (Get-InstallHome)
-        if ($safe -and $safe -ceq $legion) { Remove-Item -LiteralPath $safe -Recurse -Force -ErrorAction Stop }
+    if ($Plan.Legion) {
+        $descriptor = @{ plugin=@{ cacheDir='.legion' } }
+        $safe = Get-UninstallCachePath -Entry $descriptor -ConfigDir $Plan.HomeRoot
+        if ($safe -and $safe -ceq $Plan.Legion) { Remove-Item -LiteralPath $safe -Recurse -Force -ErrorAction Stop }
     }
-    if ($manual) { 'Purge needs the manual steps above.' } else { 'done: purge' }
+}
+
+function Invoke-PsAiPurge {
+    param([string]$ConfigDir, [switch]$DryRun, [switch]$Yes)
+    $plan = Get-InstallPurgePlan -ConfigDir $ConfigDir
+    Show-InstallPurgePlan -Plan $plan
+    if (-not $plan.HasWork) {
+        if ($plan.ManualSteps.Count) { 'Purge needs the manual steps above.' } else { 'skip: purge (already done)' }
+        return
+    }
+    if ($DryRun) { return }
+    if (-not ($Yes -or (Read-Host 'Purge ps-ai settings, notes, account folders and logins listed above? [y/N]') -match '^(?i:y|yes)$')) { 'Purge cancelled.'; return }
+    Invoke-InstallPurgePlan -Plan $plan
+    if ($plan.ManualSteps.Count) { 'Purge needs the manual steps above.' } else { 'done: purge' }
 }
 
 function Invoke-PsAiUninstall {

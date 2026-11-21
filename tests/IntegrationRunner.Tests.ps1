@@ -170,9 +170,10 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
 
     # The real steps exist in the spec's order and depend on what they need (never run here).
     $steps = @(Get-IntegrationSteps -HomeRoot (Join-Path $tempRoot 'home') -Checkout $root -Work (Join-Path $tempRoot 'work') -Os 'linux')
-    Assert-Equal 'install-cli-claude,install-cli-codex,install-cli-copilot,install-ps-ai,setup,add,remove,repo-private,repo-shared,uninstall,reinstall,restore-launchers' (($steps.Name) -join ',') 'step order'
+    Assert-Equal 'install-cli-claude,install-cli-codex,install-cli-copilot,install-ps-ai,setup,add,remove,repo-private,repo-shared,uninstall,reinstall,restore-launchers,purge' (($steps.Name) -join ',') 'step order'
     Assert-True ($steps.Where({ $_.Name -eq 'reinstall' }).DependsOn -contains 'uninstall') 'reinstall needs uninstall'
     Assert-True ($steps.Where({ $_.Name -eq 'restore-launchers' }).DependsOn -contains 'reinstall') 'restore-launchers needs reinstall'
+    Assert-True ($steps.Where({ $_.Name -eq 'purge' }).DependsOn -contains 'restore-launchers') 'purge needs restored launchers'
     Assert-True ($steps.Where({ $_.Name -eq 'setup' }).DependsOn -contains 'install-ps-ai') 'setup needs install-ps-ai'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $tempRoot 'home'))) 'building the steps touches nothing'
 
@@ -490,6 +491,101 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     Assert-True $threw 'a repeat that does not say Nothing to uninstall fails'
     $script:uninstallOutput = 'Nothing to uninstall.'
     Invoke-UninstallRepeat | Out-Null
+
+    # Exercise only the new purge assertions, with fake scripts/CLIs and a separate home.
+    & {
+        . Reset-Runner
+        $purgeHome = Join-Path $tempRoot 'purge-home'
+        $outside = Join-Path $tempRoot 'purge-fake-real'
+        New-Item -ItemType Directory -Path $purgeHome, $outside -Force | Out-Null
+        Set-Content (Join-Path $outside 'keep.txt') 'outside data'
+        $outsideHash = (Get-FileHash (Join-Path $outside 'keep.txt')).Hash
+        $saved = @{}
+        foreach ($name in 'HOME', 'USERPROFILE', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'COPILOT_HOME') { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+        $env:HOME=$purgeHome
+        $env:USERPROFILE=$purgeHome
+        $script:Ctx.HomeRoot=$purgeHome
+        $script:Ctx.NotTested.copilot='fixture skipped plugin install'
+        Set-IntegrationConfigEnvironment
+        function Remove-PurgeFixtureFolder {
+            param($Path)
+            $prefix = [IO.Path]::GetFullPath($purgeHome) + [IO.Path]::DirectorySeparatorChar
+            if (-not [IO.Path]::GetFullPath($Path).StartsWith($prefix)) { throw 'Unsafe purge assertion fixture cleanup' }
+            if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force }
+        }
+        try {
+            $legion = Join-Path $purgeHome '.legion'
+            New-Item -ItemType Directory -Path (Join-Path $legion 'configuration'), (Join-Path $purgeHome 'custom-claude') -Force | Out-Null
+            Set-Content (Join-Path $legion 'configuration/ps-ai-personalisation.json') '{"agents":[{"tool":"claude","configDir":"~/custom-claude"}]}'
+            foreach ($tool in $script:IntegrationTools) { New-Item -ItemType Directory -Path (Get-IntegrationToolFolder $tool) -Force | Out-Null }
+            $script:purgeOutput='done: purge'
+            $script:purgeKeepLegion=$false
+            $script:purgeBadVersion=''
+            $script:purgeMarketplace=''
+            $script:versionCalls=@()
+            function Invoke-IntegrationScript {
+                param($Script, $Arguments)
+                foreach ($flag in '-Uninstall', '-Purge', '-Yes') { Assert-True ($Arguments -contains $flag) "Purge passes $flag" }
+                Assert-True ($Arguments -contains $purgeHome) 'Purge passes the isolated home'
+                if (-not $script:purgeKeepLegion) { Remove-PurgeFixtureFolder $legion }
+                return @($script:purgeOutput)
+            }
+            function Test-IntegrationPluginListed { $false }
+            function Get-IntegrationPluginVersion { $null }
+            function Invoke-IntegrationCli {
+                param($Tool, $Arguments, $Folder)
+                Assert-True ($Folder.StartsWith($purgeHome + [IO.Path]::DirectorySeparatorChar)) 'Every fake CLI call selects a config folder in the purge home'
+                if ($Arguments -contains '--version') {
+                    $script:versionCalls += $Tool
+                    return @{ ExitCode=$(if ($Tool -eq $script:purgeBadVersion) { 1 } else { 0 }); Lines=@('fixture version') }
+                }
+                $items = @()
+                if ($Tool -eq $script:purgeMarketplace) { $items = @(@{name='ps-ai-marketplace'}) }
+                $text = if ($Tool -eq 'codex') { @{marketplaces=$items} | ConvertTo-Json -Compress } else { ConvertTo-Json -InputObject $items -Compress }
+                return @{ ExitCode=0; Lines=@($text) }
+            }
+            Invoke-PurgeFirst | Out-Null
+            Assert-Equal 4 $script:Ctx.PurgeTargets.Count 'Purge captures defaults and recorded folders before settings disappear'
+            Assert-True ($script:Ctx.PurgeTargets.Tool -contains 'copilot') 'Purge checks defaults even for a skipped plugin install'
+            Assert-Equal 'claude,codex,copilot' ($script:versionCalls -join ',') 'Purge checks --version for all three CLIs'
+            $script:purgeOutput='skip: purge (already done)'
+            Invoke-PurgeRepeat | Out-Null
+
+            foreach ($tool in $script:IntegrationTools) {
+                $info = Get-IntegrationToolInfo $tool
+                $folder = Get-IntegrationToolFolder $tool
+                foreach ($relative in (@($info.plugin.cacheDir) + @($info.plugin.purge.paths) + @($info.plugin.purge.emptyDirs))) {
+                    if (-not $relative) { continue }
+                    $path = Join-Path $folder $relative
+                    New-Item -ItemType Directory -Path $path -Force | Out-Null
+                    Assert-Throws { Assert-IntegrationPurgeComplete } "Purge assertions reject leftover path $relative"
+                    Remove-PurgeFixtureFolder $path
+                }
+                foreach ($setting in $info.plugin.purge.settings) {
+                    $path = Join-Path $folder $setting.path
+                    New-Item -ItemType Directory -Path (Split-Path $path) -Force | Out-Null
+                    Set-Content -LiteralPath $path -Value 'ps-ai leftover'
+                    Assert-Throws { Assert-IntegrationPurgeComplete } "Purge assertions reject ps-ai text in $($setting.path)"
+                    Remove-Item -LiteralPath $path -Force
+                }
+            }
+            $script:purgeMarketplace='codex'
+            Assert-Throws { Assert-IntegrationPurgeComplete } 'Purge assertions reject a marketplace still listed by the CLI'
+            $script:purgeMarketplace=''
+            $script:purgeBadVersion='copilot'
+            Assert-Throws { Assert-IntegrationPurgeComplete } 'Purge assertions reject a broken CLI'
+            $script:purgeBadVersion=''
+            New-Item -ItemType Directory -Path $legion -Force | Out-Null
+            Assert-Throws { Assert-IntegrationPurgeComplete } 'Purge assertions reject a remaining legion home'
+            Remove-PurgeFixtureFolder $legion
+            $script:purgeOutput='done: purge'
+            Assert-Throws { Invoke-PurgeRepeat } 'Repeat must print the exact already-done message'
+        } finally {
+            Assert-Equal $outsideHash (Get-FileHash (Join-Path $outside 'keep.txt')).Hash 'Purge assertion fakes preserve outside-home bytes'
+            Assert-Equal 1 @(Get-ChildItem $outside -Recurse -Force).Count 'Purge assertion fakes preserve outside-home inventory'
+            foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
+        }
+    }
 } finally {
     $env:CI = $savedCi
     $env:GITHUB_STEP_SUMMARY = $savedSummary

@@ -7,6 +7,11 @@
     "defaultConfigDir": "~/.codex",
     "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
     "cacheDir": "plugins/cache/ps-ai-marketplace",
+    "purge": {
+      "paths": [".tmp/marketplaces/ps-ai-marketplace", "plugins/data/ps-ai-ps-ai-marketplace"],
+      "legacyHookTrust": true,
+      "settings": [{"path": "config.toml", "kind": "toml"}]
+    },
     "marketplaceAddRef": ["plugin", "marketplace", "add", "{source}", "--ref", "{ref}"],
     "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
     "uninstall": ["plugin", "remove", "ps-ai@ps-ai-marketplace"],
