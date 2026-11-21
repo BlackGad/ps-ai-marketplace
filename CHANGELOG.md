@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.0](https://github.com/BlackGad/ps-ai-marketplace/compare/v0.9.0...v0.10.0) (2026-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* uninstall the previous plugin before installing legion@ps-legion-marketplace. No plugin migration is provided.
+
+### Features
+
+* rename ps-ai to legion ([#28](https://github.com/BlackGad/ps-ai-marketplace/issues/28)) ([92aedc5](https://github.com/BlackGad/ps-ai-marketplace/commit/92aedc50a9553ebc67e834e27ece664aadd87b54))
+
 ## [0.9.0](https://github.com/BlackGad/ps-ai-marketplace/compare/v0.8.0...v0.9.0) (2026-11-21)
 
 
