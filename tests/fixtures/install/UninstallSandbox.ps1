@@ -1,4 +1,4 @@
-. (Join-Path $repo 'install.ps1') -NoRun
+. (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
 . (Join-Path $PSScriptRoot 'MarketplaceListing.ps1')
 $catalog = Get-InstallCatalog -Source $repo
 $sandbox = Join-Path $repo ('.agents/temp/uninstall-clean-' + [guid]::NewGuid().ToString('N'))

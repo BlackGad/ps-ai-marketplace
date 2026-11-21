@@ -22,7 +22,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $env:PATH = @($fixtureBin, $PSHOME, $systemBin) -join [IO.Path]::PathSeparator
         Assert-Equal $codex (Get-Command codex -CommandType Application).Source 'R4 B6 consent uses the fixture executable'
         # B4: the home chosen with -HomeRoot is the home for every install path, including the refresh.
-        . (Join-Path $repo 'install.ps1') -NoRun -HomeRoot $fixtureHome
+        . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun -HomeRoot $fixtureHome
         Assert-Equal $fixtureHome (Get-InstallHome) 'B4: -HomeRoot selects the install home'
         Assert-Equal (Join-Path $fixtureHome '.legion/bin') (Get-InstallLegionPath 'bin') 'B4: legion paths follow the selected home'
 

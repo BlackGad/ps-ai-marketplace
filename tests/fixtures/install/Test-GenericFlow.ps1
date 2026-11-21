@@ -10,7 +10,7 @@ foreach ($entry in $entries) { $states[$entry.command] = @{Added=$false; Refresh
 . (Join-Path $PSScriptRoot 'InstallerSandbox.ps1') -InstallFixtureHome ($fixtureHome)
 function Get-InstallSourceText {
     param($Url)
-    if ($Url -ne 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/tools.json') { throw 'Unexpected catalog URL' }
+    if ($Url -ne 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/tools.json') { throw 'Unexpected catalog URL' }
     $catalogText
 }
 function Test-InstallCommandAvailable { param($Name) $Name -in @('claude','codex','copilot') }

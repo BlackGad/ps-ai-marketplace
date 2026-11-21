@@ -51,7 +51,7 @@ $bootstrap = ConvertFrom-PsAiToolJson -Json $bootstrapJson
 Assert-PsAiInstallPatterns -Install $bootstrap
 $content = Get-ToolsIndexContent -Tools $tools -Bootstrap $bootstrap
 $bytes = [Text.UTF8Encoding]::new($false).GetBytes($content)
-$path = Join-Path $PSScriptRoot '../tools.json'
+$path = Join-Path $PSScriptRoot '../plugins/ps-ai/tools.json'
 if ((Test-Path -LiteralPath $path) -and
     [Convert]::ToBase64String([IO.File]::ReadAllBytes($path)) -ceq [Convert]::ToBase64String($bytes)) {
     'skip: tools index (already done)'

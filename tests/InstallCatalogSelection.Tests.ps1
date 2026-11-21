@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $sandbox = Join-Path $repo ('.agents/temp/catalog-selection-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
     try {
@@ -15,7 +15,7 @@ function Get-InstallSourceText { Get-Content (Join-Path $PSScriptRoot 'remote.js
 function Ensure-InstallPowerShell { $true }
 function Test-InstallStepDone { $false }
 '@
-        $text = [IO.File]::ReadAllText((Join-Path $repo 'install.ps1')).Replace('if (-not $NoRun) {', $overrides + "`nif (-not `$NoRun) {")
+        $text = [IO.File]::ReadAllText((Join-Path $repo 'plugins/ps-ai/install.ps1')).Replace('if (-not $NoRun) {', $overrides + "`nif (-not `$NoRun) {")
         $installer = Join-Path $sandbox 'install.ps1'
         [IO.File]::WriteAllText($installer, $text)
         foreach ($extra in @(@(), @('-Source', 'example/market'), @('-SourceRef', 'feature'))) {

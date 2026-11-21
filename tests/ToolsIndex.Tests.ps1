@@ -2,7 +2,7 @@
 & {
     $repoRoot = Split-Path $PSScriptRoot -Parent
     $generator = Join-Path $repoRoot 'tools/update-tools-index.ps1'
-    $indexPath = Join-Path $repoRoot 'tools.json'
+    $indexPath = Join-Path $repoRoot 'plugins/ps-ai/tools.json'
     Assert-True (Test-Path -LiteralPath $generator) 'Tools index generator exists'
     Assert-True (Test-Path -LiteralPath $indexPath) 'Generated tools index exists'
     $trackedBytes = [IO.File]::ReadAllBytes($indexPath)
@@ -44,7 +44,8 @@
         Copy-Item -LiteralPath (Join-Path $repoRoot 'tools/bootstrap.json') -Destination (Join-Path $copyRoot 'tools/bootstrap.json')
         Copy-Item -LiteralPath (Join-Path $repoRoot 'plugins/ps-ai') -Destination (Join-Path $copyRoot 'plugins/ps-ai') -Recurse
         $copyGenerator = Join-Path $copyRoot 'tools/update-tools-index.ps1'
-        $copyIndex = Join-Path $copyRoot 'tools.json'
+        $copyIndex = Join-Path $copyRoot 'plugins/ps-ai/tools.json'
+        Remove-Item -LiteralPath $copyIndex
         Assert-Throws { & $copyGenerator -Check } 'Check rejects a missing index'
         Assert-True (-not (Test-Path -LiteralPath $copyIndex)) 'Check never creates missing output'
         & $copyGenerator | Out-Null
@@ -80,12 +81,12 @@
         if (Test-Path -LiteralPath $attributes) { Copy-Item -LiteralPath $attributes -Destination $copyRoot }
         & git -C $copyRoot -c init.defaultBranch=fixture init --quiet
         $checkoutBytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))
-        $checkoutFiles = @('tools.json')
+        $checkoutFiles = @('plugins/ps-ai/tools.json')
         if (Test-Path -LiteralPath (Join-Path $copyRoot '.gitattributes')) { $checkoutFiles += '.gitattributes' }
         & git -C $copyRoot -c core.autocrlf=true -c core.safecrlf=false add -- @checkoutFiles 2>$null
         Assert-Equal 0 $LASTEXITCODE 'Fixture index is staged locally'
         Remove-Item -LiteralPath $copyIndex
-        & git -C $copyRoot -c core.autocrlf=true checkout -- tools.json
+        & git -C $copyRoot -c core.autocrlf=true checkout -- plugins/ps-ai/tools.json
         Assert-Equal 0 $LASTEXITCODE 'Fixture index checks out locally'
         Assert-Equal $checkoutBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))) 'Checkout preserves LF index bytes with autocrlf enabled'
         & $copyGenerator -Check | Out-Null
@@ -107,14 +108,14 @@
 & {
     $repo = Split-Path $PSScriptRoot -Parent
     . (Join-Path $repo 'tools/update-tools-index.ps1') -NoRun
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $schema = Join-Path $repo 'plugins/ps-ai/schemas/tool.schema.json'
     $descriptorJson = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw
     $bootstrap = Get-Content (Join-Path $repo 'tools/bootstrap.json') -Raw | ConvertFrom-Json
     $fields = @('marketplaceAdd', 'marketplaceRemove', 'install', 'marketplaceList', 'list', 'marketplaceUpdate', 'update')
     $scratchRoot = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/restructure'))
     $scratch = Join-Path $scratchRoot ('catalog-boundaries-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $scratch 'plugins/ps-ai') -Force | Out-Null
     try {
         foreach ($boundary in @('empty-string-arguments', 'empty-arrays', 'empty-hook-status')) {
             $descriptor = $descriptorJson | ConvertFrom-Json
@@ -124,7 +125,7 @@
                 'empty-hook-status' { $descriptor.hooks.status = '' }
             }
             Assert-True (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile $schema) "$boundary is schema valid"
-            Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'tools.json')
+            Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'plugins/ps-ai/tools.json')
             $loaded = Get-InstallCatalog -Source $scratch
             foreach ($field in $fields) {
                 Assert-Equal ($descriptor.plugin.$field | ConvertTo-Json -Compress) ($loaded.tools[0].plugin.$field | ConvertTo-Json -Compress) "$boundary preserves plugin.$field"
@@ -137,7 +138,7 @@
                 $descriptor = $descriptorJson | ConvertFrom-Json
                 $descriptor.plugin.$field = $value
                 Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile $schema -ErrorAction SilentlyContinue)) "Schema rejects invalid plugin.$field"
-                Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'tools.json')
+                Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'plugins/ps-ai/tools.json')
                 Assert-Throws { Get-InstallCatalog -Source $scratch } "Loader rejects invalid plugin.$field"
             }
         }
@@ -145,7 +146,7 @@
             $descriptor = $descriptorJson | ConvertFrom-Json
             $descriptor.hooks.status = $value
             Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile $schema -ErrorAction SilentlyContinue)) 'Schema rejects non-string hooks.status'
-            Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'tools.json')
+            Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'plugins/ps-ai/tools.json')
             Assert-Throws { Get-InstallCatalog -Source $scratch } 'Loader rejects non-string hooks.status'
         }
     } finally {
@@ -158,7 +159,7 @@
 # CatalogLoadsBeforeBootstrapInBothRuntimes: bad metadata must stop before mutation.
 & {
     $repo = Split-Path $PSScriptRoot -Parent
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $fixtureText = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw
     $catalog = $fixtureText | ConvertFrom-Json
     $state = @{ Reads=0; Bootstrap=0; Url='' }
@@ -168,7 +169,7 @@
     Assert-Equal 0 $state.Reads 'Injected catalog bypasses reads'
     foreach ($ref in @('main','v1.2.3','abc123','feature/tool-skills')) {
         $null = Get-InstallCatalog -Source 'example/market' -SourceRef $ref
-        Assert-Equal "https://raw.githubusercontent.com/example/market/$ref/tools.json" $state.Url 'Remote ref remains literal'
+        Assert-Equal "https://raw.githubusercontent.com/example/market/$ref/plugins/ps-ai/tools.json" $state.Url 'Remote ref remains literal'
     }
     $withString = $fixtureText | ConvertFrom-Json
     $withString.tools[0].plugin.install += '2026-11-18T00:00:00Z'
@@ -178,10 +179,10 @@
         Assert-Throws { Get-InstallCatalog -Source $source } 'Unsupported source stops'
     }
     $scratch = Join-Path $repo ('.agents/temp/restructure/catalog space-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory $scratch | Out-Null
+    New-Item -ItemType Directory (Join-Path $scratch 'plugins/ps-ai') -Force | Out-Null
     try {
         Assert-Throws { Get-InstallCatalog -Source $scratch } 'Local missing index stops'
-        $fixtureText | Set-Content (Join-Path $scratch 'tools.json')
+        $fixtureText | Set-Content (Join-Path $scratch 'plugins/ps-ai/tools.json')
         $before = $state.Reads
         Assert-Equal 3 @((Get-InstallCatalog -Source $scratch).tools).Count 'Local spaced source loads offline'
         Assert-Equal $before $state.Reads 'Local source never fetches'
@@ -227,6 +228,6 @@
     $null = Invoke-PsAiInstaller -Source 'example/market' -Tools claude -DryRun
     Assert-Equal ($before + 1) $state.Reads 'Dry run reads metadata exactly once'
     Assert-Equal 1 $state.Bootstrap 'Valid invocation reaches bootstrap once'
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     Assert-Equal ($before + 1) $state.Reads 'Dot source NoRun fetches nothing'
 }

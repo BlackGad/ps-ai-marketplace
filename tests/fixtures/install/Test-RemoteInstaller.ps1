@@ -1,4 +1,30 @@
-param([string]$Installer, [string]$Repo)
+param([string]$Installer, [string]$Repo, [switch]$NoRun)
+
+function New-InstallTextRunner {
+    param([string]$Path)
+    @'
+param($Installer, $Plugin, $Fixture, $Mode = 'text', $Tool = 'claude', $CliPath)
+$ErrorActionPreference = 'Stop'
+if ($CliPath) { $env:PATH = $CliPath }
+foreach ($name in @('CLAUDE_CONFIG_DIR','CODEX_HOME','COPILOT_HOME')) { Remove-Item "Env:$name" -ErrorAction Ignore }
+$script:downloads = 0
+function Get-InstallSourceText {
+    param($Url)
+    if ($Url -ne 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/install.ps1') { throw "Unexpected URL: $Url" }
+    $script:downloads++
+    Get-Content -LiteralPath $Plugin -Raw
+}
+function Invoke-WebRequest { throw 'Unexpected network access' }
+$arguments = @{ DryRun = $true; HomeRoot = $Fixture }
+if ($Mode -ne 'catalog') { $arguments.Tools = @($Tool); $arguments.Source = $Fixture }
+else { $env:PATH = '' }
+if ($Mode -eq 'text') { & ([scriptblock]::Create((Get-Content -LiteralPath $Installer -Raw))) @arguments }
+else { & $Installer @arguments }
+"downloads=$script:downloads"
+'@ | Set-Content -LiteralPath $Path
+}
+
+if ($NoRun) { return }
 $fixtureInstaller = $Installer
 . $fixtureInstaller -NoRun
 $script:installCatalog = Get-Content (Join-Path $Repo 'tests/fixtures/install/catalog.json') -Raw | ConvertFrom-Json
@@ -142,12 +168,14 @@ else { 'ps-ai@ps-ai-marketplace installed, enabled' }
     $standalone = Join-Path $sandbox 'install.ps1'
     Copy-Item -LiteralPath $fixtureInstaller -Destination $standalone
     Copy-Item -LiteralPath (Join-Path $Repo 'tests/fixtures/install/catalog.json') -Destination (Join-Path $sandbox 'tools.json')
+    New-Item -ItemType Directory -Path (Join-Path $sandbox 'plugins/ps-ai') -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $sandbox 'tools.json') -Destination (Join-Path $sandbox 'plugins/ps-ai/tools.json')
     $runner = Join-Path $sandbox 'invoke-text.ps1'
     # The child reads the fixture home's accounts, never the real personalisation file.
     New-Item -ItemType Directory -Path (Join-Path $sandbox '.legion/configuration') -Force | Out-Null
     '{"agents":[{"id":"codex-fixture","tool":"codex","configDir":"~/.legion/agents/codex-fixture"}]}' | Set-Content -LiteralPath (Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json')
-    'param($Installer); & ([scriptblock]::Create((Get-Content -Raw $Installer))) -DryRun -Tools codex -Source (Split-Path $Installer) -HomeRoot (Split-Path $Installer)' | Set-Content -LiteralPath $runner
-    $result = Invoke-ClosedInput -Command @($fixturePwshExe, '-NoProfile', '-File', $runner, '-Installer', $standalone)
+    New-InstallTextRunner -Path $runner
+    $result = Invoke-ClosedInput -Command @($fixturePwshExe, '-NoProfile', '-File', $runner, '-Installer', $standalone, '-Fixture', $sandbox, '-Tool', 'codex')
     $output = $result.Output
     Assert-Equal 0 $result.ExitCode 'Script text runs standalone without repository context'
     Assert-True (($output -join "`n").Contains('codex-fixture')) 'P2: the child uses the fixture home, not the real personalisation file'

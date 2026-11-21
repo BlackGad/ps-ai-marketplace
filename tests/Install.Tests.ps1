@@ -1,6 +1,6 @@
 $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
-$script = Join-Path $root 'install.ps1'
+$script = Join-Path $root 'plugins/ps-ai/install.ps1'
 . $script -NoRun
 $script:installCatalog = Get-InstallCatalog -Source $root
 $expected = @{

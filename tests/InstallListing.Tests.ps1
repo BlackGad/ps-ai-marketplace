@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     # Launch only an inert PowerShell fixture; never a real coding CLI.
     $result = Invoke-ClosedInput -Command @('pwsh', '-NoProfile', '-Command', '[Console]::Out.Write(''[{"id":"ps-ai@ps-ai-marketplace","enabled":true}]''); [Console]::Error.WriteLine(''fixture warning'')')

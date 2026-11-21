@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $scriptPath = Join-Path $root 'plugins/ps-ai/bin/ps-ai-install-tool.ps1'
-$installer = Join-Path $root 'install.ps1'
+$installer = Join-Path $root 'plugins/ps-ai/install.ps1'
 . $scriptPath -NoRun
 Assert-Equal 'bun|--version' ((Get-ToolInstallData -Tool bun).check -join '|') 'Bun installed check'
 & {
