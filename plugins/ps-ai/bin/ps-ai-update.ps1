@@ -44,7 +44,7 @@ function Get-PsAiUpdate {
         if (-not $cached) {
             $cached = [pscustomobject]@{ Source=$source; CheckedAt=[DateTimeOffset]::UtcNow.ToString('o'); Available=$null; Failed=$false }
             try {
-                $text = Get-PsAiUpdateText -Url "https://raw.githubusercontent.com/$source/main/plugins/ps-ai/plugin.json"
+                $text = Get-PsAiUpdateText -Url "https://raw.githubusercontent.com/$source/stable/plugins/ps-ai/plugin.json"
                 $latest = $text | ConvertFrom-Json -ErrorAction Stop
                 if ($latest.name -ne 'ps-ai') { throw 'Invalid marketplace manifest' }
                 $null = [semver]::Parse([string]$latest.version)
@@ -62,7 +62,7 @@ function Get-PsAiUpdate {
             Installed = $manifest.version
             Available = $cached.Available
             Newer = ([semver]$cached.Available -gt $installed)
-            Command = "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/$source/main/install.ps1))) -Source '$source' -Update"
+            Command = "legion update"
         }
     } catch {
         if ($Force) { throw }
