@@ -1,6 +1,7 @@
 param([string]$JUnitPath)
 
 . (Join-Path $PSScriptRoot 'lib/junit.ps1')
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $failed = 0
 $passed = 0
 $cases = @()
@@ -26,6 +27,7 @@ foreach ($test in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Sort-Objec
     $guardHome = Join-Path $guard 'home'
     $outside = Join-Path $guard 'fake-real'
     New-Item -ItemType Directory -Path $guardHome, $outside -Force | Out-Null
+    $guardHome = Resolve-TestDirectory $guardHome
     'owner sentinel' | Set-Content (Join-Path $outside 'keep.txt')
     $outsideSnapshot = Get-TestOutsideSnapshot $outside
     $env:HOME = $guardHome

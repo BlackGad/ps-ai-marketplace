@@ -13,10 +13,22 @@ public static extern int GetLongPathName(string shortPath, System.Text.StringBui
     return $buffer.ToString()
 }
 
+function Resolve-TestDirectory {
+    param([string]$Path)
+    $directory = Get-Item -LiteralPath $Path -Force
+    if ($directory.Parent) {
+        $parent = Resolve-TestDirectory $directory.Parent.FullName
+        $directory = Get-Item -LiteralPath (Join-Path $parent $directory.Name) -Force
+    }
+    if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        $target = $directory.ResolveLinkTarget($true)
+        return Resolve-TestDirectory $target.FullName
+    }
+    return $directory.FullName
+}
+
 function Get-TestTempPath {
     # The macOS temp folder is under /var, a link to /private/var, but a real home is not linked.
     # Fixtures use the resolved folder so they follow the same rules as a real home.
-    $temp = [IO.Path]::GetTempPath()
-    if ($IsWindows) { return $temp }
-    return (& /bin/sh -c 'cd "$1" && pwd -P' sh $temp)
+    return Resolve-TestDirectory ([IO.Path]::GetTempPath())
 }
