@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$scratch = Join-Path $root ('.agents/temp/launcher-exit-' + [guid]::NewGuid().ToString('N'))
+$tempBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+$scratch = Join-Path $tempBase ('launcher-exit-' + [guid]::NewGuid().ToString('N'))
 $plugin = Join-Path $scratch 'plugin'
 $fixtureHome = Join-Path $scratch 'home'
 $repo = Join-Path $scratch 'repo'
@@ -36,6 +37,6 @@ try {
     Assert-True (-not ($output -match '^launched ')) 'G5 failed direct launch prints no success'
 } finally {
     $env:PATH = $savedPath
-    if (-not ([IO.Path]::GetFullPath($scratch).StartsWith([IO.Path]::GetFullPath((Join-Path $root '.agents/temp/'))))) { throw 'fixture cleanup escaped the worktree' }
+    if (-not ([IO.Path]::GetFullPath($scratch).StartsWith($tempBase))) { throw 'fixture cleanup escaped the temp folder' }
     Remove-Item -LiteralPath $scratch -Recurse -Force
 }

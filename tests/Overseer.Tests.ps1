@@ -1,10 +1,13 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $root 'plugins/ps-ai/bin/ps-ai-overseer.ps1'
-$tempRoot = Join-Path $root ('.agents/temp/overseer-' + [guid]::NewGuid().ToString('N'))
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('overseer-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $tempRoot -Force | Out-Null
-$lines = @(& pwsh -NoProfile -File $script -HomeRoot $tempRoot -Repo $tempRoot 2>&1)
+git init --quiet $tempRoot 2>&1 | Out-Null
+# Piped input is redirected input: the launcher cannot ask, so it prints the question and stops.
+$lines = @('' | & pwsh -NoProfile -File $script -HomeRoot $tempRoot -Repo $tempRoot 2>&1)
 Assert-True ($LASTEXITCODE -ne 0) 'Bare launcher without configuration fails'
+Assert-True (($lines -join "`n").Contains('This repository is not set up. Set it up (private)? [Y/n]')) 'Redirected not-set-up launcher prints the question'
 Assert-True (-not ($lines -match 'Usage:')) 'Bare launcher prints no usage line'
 . $script -NoRun -HomeRoot $tempRoot
 function Test-OverseerInteractive { return $false }
@@ -296,8 +299,10 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     $fresh = @{Repo=$freshRepo; HomeRoot=$runHome; Arguments=@()}
     $question = 'This repository is not set up. Set it up (private)? [Y/n]'
     $state.Interactive = $false
-    $text = @(Invoke-Overseer @fresh -Account claude1 -Channel @())
-    Assert-Equal $question ($text -join '|') 'NotSetUpAsks prints the question when input is redirected'
+    try { Invoke-Overseer @fresh -Account claude1 -Channel @(); throw 'Expected a stop' }
+    catch { Assert-Equal $question $_.Exception.Message 'NotSetUpAsks stops with the question when input is redirected' }
+    $text = @(Invoke-Overseer @fresh -Account claude1 -Channel @() -DryRun)
+    Assert-Equal $question ($text -join '|') 'NotSetUpAsks dry run prints the question and succeeds'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $freshRepo '.legion'))) 'NotSetUpAsks changes nothing when input is redirected'
     $state.Interactive = $true
     $state.Yes = $false
@@ -434,3 +439,5 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     catch { Assert-True ($_.Exception.Message -like '*exit code 5*') 'A nonzero exit raises an error naming the code' }
     Assert-True (-not ($text -match 'launched')) 'A nonzero exit prints no launched line'
 }
+
+Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction Ignore

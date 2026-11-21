@@ -165,7 +165,7 @@ repo none
 
 `setup` and `add` show the plan, then ask `Apply? [Y/n]` in an interactive terminal (Enter accepts). `--yes` applies without asking; redirected input only prints the plan. For example, `legion add claude`, `legion remove claude1` and `legion pick`.
 
-Open `my-project` and describe the work. a bare `legion` creates Private orchestration by default; ask the tool for [Private or Shared](../plugins/ps-ai/skills/ps-ai-repository/SKILL.md#choose-where-notes-live) storage and a repository check command when needed. State preferences later; they are saved in notes. Channels are set up only on request, such as “use Telegram”.
+Open `my-project` and describe the work. A bare `legion` creates Private orchestration by default; ask the tool for [Private or Shared](../plugins/ps-ai/skills/ps-ai-repository/SKILL.md#choose-where-notes-live) storage and a repository check command when needed. State preferences later; they are saved in notes. Channels are set up only on request, such as “use Telegram”.
 
 The console and each connected channel are equal. Owner questions go to all of them; an answer in any one resolves the question, with confirmation in the others. A request arriving through a channel is acknowledged there at once, followed by the real answer. Progress and completion notices go to all connected channels and the console.
 

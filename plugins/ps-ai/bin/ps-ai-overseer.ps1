@@ -238,7 +238,9 @@ function Invoke-Overseer {
     $projectFile = Get-PsAiRepoPath -Repo $Repo -Path 'configuration/project.json'
     if (-not (Test-Path -LiteralPath $projectFile)) {
         $question = 'This repository is not set up. Set it up (private)? [Y/n]'
-        if ($DryRun -or -not (Test-OverseerInteractive)) { return $question }
+        if ($DryRun) { return $question }
+        # A question nobody can answer is a stop.
+        if (-not (Test-OverseerInteractive)) { throw $question }
         if (-not (Read-OverseerYes -Question $question)) { return 'Nothing changed.' }
         Invoke-OverseerRepositorySetup -Repo $Repo
     }
