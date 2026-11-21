@@ -118,17 +118,34 @@ function Get-OverseerLastLaunch {
 }
 
 function Save-OverseerLastLaunch {
-    param([string]$Repo, [string]$HomeRoot, [string]$Account, [string[]]$Channel, [string[]]$Arguments)
+    param([string]$Repo, [string]$HomeRoot, [string]$Account, [string[]]$Channel, [string[]]$Arguments, [string]$Session)
     $file = Get-OverseerLastLaunchFile -HomeRoot $HomeRoot
     $saved = if (Test-Path -LiteralPath $file) { Get-Content -LiteralPath $file -Raw | ConvertFrom-Json -AsHashtable } else { [hashtable]::new([StringComparer]::Ordinal) }
-    $launch = [ordered]@{ account = $Account; channels = @($Channel | Where-Object { $_ }); arguments = @($Arguments | Where-Object { $null -ne $_ }) }
+    $launch = [ordered]@{ account = $Account; channels = @($Channel | Where-Object { $_ }); arguments = @($Arguments | Where-Object { $null -ne $_ }); session = $Session }
     $saved[(Get-OverseerRepoKey $Repo)] = $launch
     New-Item -ItemType Directory -Path (Split-Path $file) -Force | Out-Null
     $saved | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $file -Encoding utf8NoBOM
 }
 
+function New-OverseerSessionId {
+    return [guid]::NewGuid().ToString()
+}
+
+# Returns the tool to resume ('claude' or 'codex'), or $null to start fresh.
+# Resume needs a saved session for the same account; Claude also needs its conversation file.
+function Get-OverseerResume {
+    param($Last, $Selected, [string]$HomeRoot)
+    if (-not $Last -or -not $Last.session -or $Last.account -cne $Selected.id) { return $null }
+    if ($Selected.tool -ceq 'codex') { return 'codex' }
+    if ($Selected.tool -cne 'claude') { return $null }
+    $configDir = if ($Selected.configDir -match '^~[/\\]') { Join-Path $HomeRoot $Selected.configDir.Substring(2) } else { $Selected.configDir }
+    $pattern = Join-Path ([WildcardPattern]::Escape($configDir)) "projects/*/$($Last.session).jsonl"
+    if (Test-Path -Path $pattern) { return 'claude' }
+    return $null
+}
+
 function Get-OverseerLaunch {
-    param($Personalisation, [string]$AccountId, [string]$Tool, [string[]]$Channel, [string[]]$Arguments, [string]$HomeRoot = $HOME)
+    param($Personalisation, [string]$AccountId, [string]$Tool, [string[]]$Channel, [string[]]$Arguments, [string]$HomeRoot = $HOME, [string]$Session, [string]$Resume)
     $selected = Select-OverseerAccount $Personalisation $AccountId $Tool
     $Tool = $selected.tool
     $descriptor = Get-PsAiTool $Tool
@@ -154,6 +171,9 @@ function Get-OverseerLaunch {
         foreach ($arg in $destination.LaunchArguments) { $channelArgs.Add($arg) }
     }
     $launchArgs = [Collections.Generic.List[string]]::new()
+    if ($Resume -ceq 'claude') { $launchArgs.AddRange([string[]]@('--resume', $Session)) }
+    elseif ($Resume -ceq 'codex') { $launchArgs.AddRange([string[]]@('resume', '--last')) }
+    elseif ($Tool -ceq 'claude' -and $Session) { $launchArgs.AddRange([string[]]@('--session-id', $Session)) }
     foreach ($arg in @($Arguments) + $channelArgs.ToArray() + @($descriptor.overseerArgs)) {
         if ($null -ne $arg) { $launchArgs.Add([string]$arg) }
     }
@@ -189,10 +209,11 @@ function Invoke-OverseerInRepo {
 }
 
 function Start-OverseerLaunch {
-    param([string]$Repo, $Launch, [switch]$DryRun)
+    param([string]$Repo, $Launch, [switch]$DryRun, [switch]$InPlace)
     # Terminal parses semicolons as its own commands. Use the current terminal for literal ones.
+    # An owner launch stays in the current terminal so its exit code is seen.
     $terminal = $null
-    if ($IsWindows -and -not (($Repo + $Launch.Command + ($Launch.Args -join '')) -match ';')) {
+    if ($IsWindows -and -not $InPlace -and -not (($Repo + $Launch.Command + ($Launch.Args -join '')) -match ';')) {
         $terminal = Get-Command wt -CommandType Application -ErrorAction SilentlyContinue
     }
     if ($terminal) {
@@ -229,6 +250,7 @@ function Invoke-Overseer {
     $personalisation = Read-PsAiJson -Path $ownerFile
     # Bare start reuses the saved account, then the lease account; -Pick asks instead.
     # Saved channels and arguments apply only when the saved account leads.
+    $ownerLaunch = -not $Account
     $bare = -not ($Account -or $Tool -or $Channel.Count -or $Arguments.Count -or $NoChannel)
     $known = @($personalisation.agents.id)
     $last = Get-OverseerLastLaunch -Repo $Repo -HomeRoot $HomeRoot
@@ -252,12 +274,25 @@ function Invoke-Overseer {
         $default = Get-OverseerDefaultChannel -Personalisation $personalisation -AccountId $selected.id -Tool $Tool
         if ($default) { $Channel = @($default) }
     }
-    $launch = Get-OverseerLaunch -Personalisation $personalisation -AccountId $selected.id -Tool $Tool -Channel $Channel -Arguments $Arguments -HomeRoot $HomeRoot
-    if (-not $DryRun) { Save-OverseerLastLaunch -Repo $Repo -HomeRoot $HomeRoot -Account $selected.id -Channel $Channel -Arguments $Arguments }
+    # Resume the saved conversation when the tool can; Codex's session is always 'last', Copilot has none.
+    $resume = Get-OverseerResume -Last $last -Selected $selected -HomeRoot $HomeRoot
+    $session = switch ($Tool) {
+        'claude' { if ($resume) { $last.session } else { New-OverseerSessionId } }
+        'codex' { 'last' }
+        default { '' }
+    }
+    $launch = Get-OverseerLaunch -Personalisation $personalisation -AccountId $selected.id -Tool $Tool -Channel $Channel -Arguments $Arguments -HomeRoot $HomeRoot -Session $session -Resume $resume
+    $save = @{ Repo = $Repo; HomeRoot = $HomeRoot; Account = $selected.id; Channel = $Channel; Arguments = $Arguments }
+    if (-not $DryRun) { Save-OverseerLastLaunch @save -Session $session }
+    $channelText = if ($Channel.Count) { $Channel -join ', ' } else { 'none' }
+    Write-Host ($(if ($resume) { 'resuming' } else { 'starting' }) + " overseer: $($selected.id), channel $channelText")
     # Reset first: a stale code must not look like a failed launch.
     $global:LASTEXITCODE = 0
-    Start-OverseerLaunch -Repo $Repo -Launch $launch -DryRun:$DryRun
+    # Without -Account the owner typed the command; a scripted relaunch always names the account.
+    Start-OverseerLaunch -Repo $Repo -Launch $launch -DryRun:$DryRun -InPlace:$ownerLaunch
     if (-not $DryRun -and $LASTEXITCODE -ne 0) {
+        # A failed launch must not be resumed next time.
+        Save-OverseerLastLaunch @save -Session ''
         $failure = [Exception]::new("the launch failed with exit code $LASTEXITCODE")
         $failure.Data['PsAiLaunchExitCode'] = [int]$LASTEXITCODE
         throw $failure
