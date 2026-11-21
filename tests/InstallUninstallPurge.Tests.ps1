@@ -127,21 +127,29 @@ Test-PurgeScenario {
 Test-PurgeScenario {
     $state.Missing=$true
     $cases = @(
-        @{ Text='{ "enabledPlugins": {"ps-ai@ps-ai-marketplace":false,"a":true} }'; Expected='{ "enabledPlugins": {"a":true} }' },
-        @{ Text='{ "enabledPlugins": {"a":true,"ps-ai@ps-ai-marketplace":false,"b":false} }'; Expected='{ "enabledPlugins": {"a":true,"b":false} }' },
-        @{ Text='{ "enabledPlugins": {"ps-ai@ps-ai-marketplace":true} }'; Expected='{ "enabledPlugins": {} }' },
-        @{ Text="{// keep comment`r`n`"enabledPlugins`": {`"a`":true, /* keep */ `"ps-ai@ps-ai-marketplace`":false,},`r`n`"note`":`"ps-ai@ps-ai-marketplace`"}"; Expected="{// keep comment`r`n`"enabledPlugins`": {`"a`":true, /* keep */ },`r`n`"note`":`"ps-ai@ps-ai-marketplace`"}" }
+        @{ Text='"ps-ai@ps-ai-marketplace":false,"a":true'; Expected='"a":true' },
+        @{ Text='"a":true,"ps-ai@ps-ai-marketplace":false,"b":false'; Expected='"a":true,"b":false' },
+        @{ Text='"ps-ai@ps-ai-marketplace":true'; Expected='' },
+        @{ Text='"a":true, /* keep */ "ps-ai@ps-ai-marketplace":false,'; Expected='"a":true, /* keep */ '; Comment=$true }
     )
-    foreach ($case in $cases) {
-        $file = New-PurgeFile 'override-copilot/settings.json' $case.Text
-        $null = Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes
-        Assert-Equal $case.Expected ([IO.File]::ReadAllText($file)) 'JSONC member removal preserves every other character'
+    foreach ($ending in @("`n", "`r`n")) {
+        foreach ($case in $cases) {
+            # Build input and expected output from explicit line endings, independent of checkout.
+            $textLines = @('{', ('"enabledPlugins": {' + $case.Text + '},'), '"note":"ps-ai@ps-ai-marketplace"', '}')
+            $expectedLines = @('{', ('"enabledPlugins": {' + $case.Expected + '},'), '"note":"ps-ai@ps-ai-marketplace"', '}')
+            if ($case.Comment) { $textLines = @('// keep comment') + $textLines; $expectedLines = @('// keep comment') + $expectedLines }
+            $text = $textLines -join $ending
+            $expected = $expectedLines -join $ending
+            $file = New-PurgeFile 'override-copilot/settings.json' $text
+            $null = Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes
+            Assert-Equal $expected ([IO.File]::ReadAllText($file)) 'JSON/JSONC removes only the ps-ai member and preserves LF or CRLF bytes'
+        }
+        $file = New-PurgeFile 'override-copilot/settings.json' (@('{', '"enabledPlugins":{"ps-ai@ps-ai-marketplace":false,broken}', '}') -join $ending)
+        $before = (Get-FileHash $file).Hash
+        $output = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes 6>&1) -join "`n"
+        Assert-Equal $before (Get-FileHash $file).Hash 'Unsafe JSONC left unchanged for either line ending'
+        Assert-True ($output.Contains("Manual step: $file")) 'Unsafe JSONC reported for manual cleanup'
     }
-    $file = New-PurgeFile 'override-copilot/settings.json' '{"enabledPlugins":{"ps-ai@ps-ai-marketplace":false,broken}}'
-    $before = (Get-FileHash $file).Hash
-    $output = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes 6>&1) -join "`n"
-    Assert-Equal $before (Get-FileHash $file).Hash 'Unsafe JSONC left unchanged'
-    Assert-True ($output.Contains("Manual step: $file")) 'Unsafe JSONC reported for manual cleanup'
 }
 
 Test-PurgeScenario {
@@ -202,37 +210,37 @@ Test-PurgeScenario {
 Test-PurgeScenario {
     $state.Missing=$true
     foreach ($encoding in @([Text.UTF8Encoding]::new($true), [Text.UnicodeEncoding]::new($false,$true), [Text.UnicodeEncoding]::new($true,$true))) {
-        $file = New-PurgeFile 'override-copilot/settings.json'
-        $text = "// preserve BOM, Unicode and CRLF`r`n{`"enabledPlugins`":{`"ps-ai@ps-ai-marketplace`":false},`"name`":`"caf$([char]0xe9)`"}`r`n"
-        [IO.File]::WriteAllText($file, $text, $encoding)
-        $null = Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes
-        $expected = [byte[]]($encoding.GetPreamble() + $encoding.GetBytes($text.Replace('"ps-ai@ps-ai-marketplace":false','')))
-        Assert-Equal ([Convert]::ToBase64String($expected)) ([Convert]::ToBase64String([IO.File]::ReadAllBytes($file))) 'Settings edit keeps encoding, BOM, Unicode and line endings'
+        foreach ($ending in @("`n", "`r`n")) {
+            $file = New-PurgeFile 'override-copilot/settings.json'
+            $text = @('// preserve BOM, Unicode and line endings', "{`"enabledPlugins`":{`"ps-ai@ps-ai-marketplace`":false},`"name`":`"caf$([char]0xe9)`"}", '') -join $ending
+            [IO.File]::WriteAllText($file, $text, $encoding)
+            $null = Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes
+            $expected = [byte[]]($encoding.GetPreamble() + $encoding.GetBytes($text.Replace('"ps-ai@ps-ai-marketplace":false','')))
+            Assert-Equal ([Convert]::ToBase64String($expected)) ([Convert]::ToBase64String([IO.File]::ReadAllBytes($file))) 'Settings edit keeps encoding, BOM, Unicode and LF or CRLF bytes'
+        }
     }
-    $tomlText = @'
-developer_instructions = '''
-[plugins."ps-ai@ps-ai-marketplace"]
-This is prompt text, not a plugin table.
-'''
-[plugins."ps-ai@ps-ai-marketplace"]
-enabled = false
-[plugins."other@else"]
-enabled = true
-'@
-    $file = New-PurgeFile 'override-codex/config.toml' $tomlText
-    $null = Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes
-    Assert-Equal ($tomlText.Replace("[plugins.`"ps-ai@ps-ai-marketplace`"]`nenabled = false`n",'')) ([IO.File]::ReadAllText($file)) 'TOML prompt text that resembles a table stays intact'
-    $file = New-PurgeFile 'override-codex/config.toml' 'plugins = { "ps-ai@ps-ai-marketplace" = { enabled = false }, other = { enabled = true } }'
-    $before = (Get-FileHash $file).Hash
-    $output = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes 6>&1) -join "`n"
-    Assert-Equal $before (Get-FileHash $file).Hash 'Unsupported inline TOML kept unchanged'
-    Assert-True ($output.Contains("Manual step: $file")) 'Inline TOML requires manual removal'
-    Assert-True (-not $output.Contains('skip: purge (already done)')) 'Manual steps never claim purge already complete'
-    $file = New-PurgeFile 'override-codex/config.toml' "[plugins]`n`"ps-ai@ps-ai-marketplace`" = { enabled = false }`n`"other@else`" = { enabled = true }`n"
-    $before = (Get-FileHash $file).Hash
-    $output = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes 6>&1) -join "`n"
-    Assert-Equal $before (Get-FileHash $file).Hash 'Inline plugin members under parent tables are not rewritten'
-    Assert-True ($output.Contains("Manual step: $file")) 'Inline parent-table member cannot silently claim complete cleanup'
+    foreach ($ending in @("`n", "`r`n")) {
+        $prompt = @("developer_instructions = '''", '[plugins."ps-ai@ps-ai-marketplace"]', 'This is prompt text, not a plugin table.', "'''")
+        $otherTable = @('[plugins."other@else"]', 'enabled = true')
+        $tomlText = ($prompt + @('[plugins."ps-ai@ps-ai-marketplace"]', 'enabled = false') + $otherTable) -join $ending
+        $expected = ($prompt + $otherTable) -join $ending
+        $file = New-PurgeFile 'override-codex/config.toml' $tomlText
+        $output = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes) -join "`n"
+        Assert-Equal $expected ([IO.File]::ReadAllText($file)) 'TOML removes the real ps-ai table and preserves table-like prompt text with LF or CRLF'
+        Assert-True (-not $output.Contains('Manual step:')) 'Valid TOML table removal needs no manual step for either line ending'
+        $inlineCases = @(
+            @('plugins = { "ps-ai@ps-ai-marketplace" = { enabled = false }, other = { enabled = true } }', ''),
+            @('[plugins]', '"ps-ai@ps-ai-marketplace" = { enabled = false }', '"other@else" = { enabled = true }', '')
+        )
+        foreach ($lines in $inlineCases) {
+            $file = New-PurgeFile 'override-codex/config.toml' ($lines -join $ending)
+            $before = (Get-FileHash $file).Hash
+            $output = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes) -join "`n"
+            Assert-Equal $before (Get-FileHash $file).Hash 'Unsupported inline TOML stays byte-for-byte unchanged with LF or CRLF'
+            Assert-True ($output.Contains("Manual step: $file")) 'Unsupported inline TOML requires a manual step for either line ending'
+            Assert-True (-not $output.Contains('skip: purge (already done)')) 'Manual steps never claim purge already complete'
+        }
+    }
 }
 
 Test-PurgeScenario {
