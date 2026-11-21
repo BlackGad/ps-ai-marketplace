@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$legionScript = Join-Path $root 'plugins/ps-ai/bin/legion.ps1'
+$legionScript = Join-Path $root 'plugins/legion/bin/legion.ps1'
 Assert-True (Test-Path -LiteralPath $legionScript) 'Legion script exists'
 
 $scratch = Join-Path $root ('.agents/temp/legion-' + [guid]::NewGuid().ToString('N'))
@@ -71,16 +71,16 @@ try {
 
     # --- Help text ---
     $expectedHelp = @'
-legion - ps-ai commands
+legion - legion commands
 
   legion [--no-channel]                start the overseer here; it resumes the last conversation
   legion pick [--no-channel]           choose which account leads the overseer
-  legion setup [--yes]                 finish setup: settings, commands, ps-ai in every account
+  legion setup [--yes]                 finish setup: settings, commands, legion in every account
   legion add <tool> [<folder>] [--yes] add a claude, codex or copilot account (new or existing folder)
   legion remove <id>                   remove an account (its folder is kept)
   legion status                        show accounts, commands, channels and this repository
-  legion update [--yes]                update ps-ai to the newest version of the track it was installed from
-  legion uninstall [--purge] [--yes]   remove ps-ai; --purge also deletes settings, notes and legion-made logins
+  legion update [--yes]                update legion to the newest version of the track it was installed from
+  legion uninstall [--purge] [--yes]   remove legion; --purge also deletes settings, notes and legion-made logins
   legion help                          show this list
 
 setup and add show the plan and ask before changing anything; --yes applies without asking.
@@ -182,7 +182,7 @@ if ($code -ne 'none') { exit [int]$code }
         $exit = Invoke-Quiet $words
         Assert-Equal 1 $exit ("Rejected: " + ($words -join ' '))
         Assert-Equal 0 (Get-Records).Count ("Nothing runs for: " + ($words -join ' '))
-        Assert-True ($script:Output -contains 'legion - ps-ai commands') ("Help shown for: " + ($words -join ' '))
+        Assert-True ($script:Output -contains 'legion - legion commands') ("Help shown for: " + ($words -join ' '))
     }
     Reset-StandIns
     Assert-Equal 0 (Invoke-Quiet @('help')) 'Help exits zero'

@@ -3,7 +3,7 @@ $root = Split-Path $PSScriptRoot -Parent
 $tempRoot = Join-Path $root ('.agents/temp/generated-files-' + [guid]::NewGuid())
 $originalWindows = $IsWindows
 try {
-    . (Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1') -NoRun -HomeRoot $tempRoot
+    . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -NoRun -HomeRoot $tempRoot
     Set-Variable IsWindows -Value $false -Force
     $script:chmodCalls = 0
     $executableFiles = [Collections.Generic.HashSet[string]]::new()

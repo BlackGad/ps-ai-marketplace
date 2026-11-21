@@ -1,7 +1,7 @@
 $repo = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/uninstall-' + [guid]::NewGuid().ToString('N'))
     $bin = Join-Path $sandbox '.legion/bin'
@@ -21,7 +21,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     function Test-InstallCommandAvailable { param($Name) -not $state.OnlyMissing }
     function Read-Host {
         param($Prompt)
-        Assert-Equal 'Uninstall ps-ai from these targets? [y/N]' $Prompt 'Exact confirmation prompt'
+        Assert-Equal 'Uninstall legion from these targets? [y/N]' $Prompt 'Exact confirmation prompt'
         Assert-Equal 0 $writes.Count 'No CLI changes before confirmation'
         Assert-True (Test-Path (Join-Path $bin 'codex-a.cmd')) 'No files removed before confirmation'
         $state.Prompts++
@@ -35,21 +35,21 @@ $repo = Split-Path $PSScriptRoot -Parent
         $line = $Command -join '|'
         if ($line -eq "$($entry.command)|plugin|list$(if ($entry.id -eq 'claude') { '|--json' })") {
             if ($state.FailList) { return @{ExitCode=7;Output=@()} }
-            # The physical default folders hold no ps-ai here; only the named accounts do.
+            # The physical default folders hold no legion here; only the named accounts do.
             $absent = $state.Missing -or $folder -match '[\\/]\.(claude|codex|copilot)$'
-            $output = if ($absent) { if ($entry.id -eq 'claude') { '[]' } else { 'ps-ai@ps-ai-marketplace not installed' } }
-                elseif ($entry.id -eq 'claude') { '[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]' }
-                else { 'ps-ai@ps-ai-marketplace installed (disabled)' }
+            $output = if ($absent) { if ($entry.id -eq 'claude') { '[]' } else { 'legion@ps-legion-marketplace not installed' } }
+                elseif ($entry.id -eq 'claude') { '[{"id":"legion@ps-legion-marketplace","enabled":false}]' }
+                else { 'legion@ps-legion-marketplace installed (disabled)' }
             return @{ExitCode=0;Output=@($output)}
         }
         if ($line -eq ((@($entry.command) + $entry.plugin.marketplaceList) -join '|')) {
             $source = if ($state.Missing) { '' } else { 'example/other-source' }
             return @{ExitCode=0;Output=@(Get-FixtureMarketplaceListing -Tool $entry.id -Source $source)}
         }
-        $allowed = @('claude|plugin|uninstall|ps-ai@ps-ai-marketplace', 'codex|plugin|remove|ps-ai@ps-ai-marketplace',
-            'copilot|plugin|uninstall|ps-ai@ps-ai-marketplace', 'claude|plugin|marketplace|remove|ps-ai-marketplace',
-            'codex|plugin|marketplace|remove|ps-ai-marketplace', 'copilot|plugin|marketplace|remove|ps-ai-marketplace|--force',
-            'fourth-cli|plugin|erase|ps-ai@ps-ai-marketplace', 'fourth-cli|plugin|marketplace|unregister|ps-ai-marketplace')
+        $allowed = @('claude|plugin|uninstall|legion@ps-legion-marketplace', 'codex|plugin|remove|legion@ps-legion-marketplace',
+            'copilot|plugin|uninstall|legion@ps-legion-marketplace', 'claude|plugin|marketplace|remove|ps-legion-marketplace',
+            'codex|plugin|marketplace|remove|ps-legion-marketplace', 'copilot|plugin|marketplace|remove|ps-legion-marketplace|--force',
+            'fourth-cli|plugin|erase|legion@ps-legion-marketplace', 'fourth-cli|plugin|marketplace|unregister|ps-legion-marketplace')
         if ($line -notin $allowed) { throw "Unexpected command: $line" }
         if ($state.FailRemove) { return @{ExitCode=8;Output=@()} }
         $writes.Add($line)
@@ -84,7 +84,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-Path $bin 'legion')
         # Use the actual runtime publisher, with no CLI or network boundary involved.
         & {
-            . (Join-Path $repo 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
+            . (Join-Path $repo 'plugins/legion/bin/legion-account.ps1') -NoRun
             $null = Sync-LegionFoundryRuntime -Tool codex -HomeRoot $sandbox
         }
         $runtime = Join-Path $bin '.runtime'
@@ -105,7 +105,7 @@ exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-
         Assert-True ($calls.Count -gt 0) 'Dry run checks installed state'
         Assert-Equal 0 $writes.Count 'Dry run never changes any CLI'
         Assert-Equal 0 $state.Prompts 'Dry run never asks'
-        Assert-True (($preview -join "`n").Contains('copilot plugin marketplace remove ps-ai-marketplace --force')) 'Preview includes force from metadata'
+        Assert-True (($preview -join "`n").Contains('copilot plugin marketplace remove ps-legion-marketplace --force')) 'Preview includes force from metadata'
         Assert-True (($preview -join "`n").Contains($account)) 'Preview includes recorded targets'
         Assert-True (-not (($preview -join "`n").Contains("Remove file: $(Join-Path $bin 'codex-a.cmd')"))) 'Preview excludes account launcher removals'
         Assert-True (Test-Path (Join-Path $runtime 'bin/legion-foundry.ps1')) 'Preview preserves runtime'
@@ -118,7 +118,7 @@ exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-
 
         $null = Invoke-LegionInstaller -Source $repo -Catalog $catalog -Tools codex -ConfigDir $account -Uninstall -Yes
         Assert-Equal 2 $writes.Count 'Filters remove exactly one target'
-        Assert-Equal 'codex|plugin|remove|ps-ai@ps-ai-marketplace' $writes[0] 'Disabled plugin uninstalls before marketplace'
+        Assert-Equal 'codex|plugin|remove|legion@ps-legion-marketplace' $writes[0] 'Disabled plugin uninstalls before marketplace'
         Assert-True ($calls[0].StartsWith("codex:$account|")) 'Explicit config scopes listing'
         Assert-True (Test-Path (Join-Path $bin 'codex-a.cmd')) 'Selected account launchers kept'
         Assert-True (Test-Path (Join-Path $bin 'codex-b')) 'Other account launcher kept by filters'
@@ -181,7 +181,7 @@ exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-
 }
 
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
     foreach ($field in @('uninstall','marketplaceRemove')) {
         $bad = $catalog | ConvertTo-Json -Depth 100 | ConvertFrom-Json

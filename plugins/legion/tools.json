@@ -1,0 +1,299 @@
+{
+  "schemaVersion": 1,
+  "bootstrap": {
+    "windows": {
+      "wingetId": "Microsoft.PowerShell",
+      "portableCommand": "pwsh.exe",
+      "download": {
+        "zip": {
+          "kind": "zip",
+          "resolver": "release-assets",
+          "metadataUrl": "https://api.github.com/repos/PowerShell/PowerShell/releases/latest",
+          "assetPattern": "^PowerShell-[\\d.]+-win-x64\\.zip$",
+          "verification": "asset-digest",
+          "arguments": [],
+          "pathFolder": ""
+        }
+      }
+    }
+  },
+  "tools": [
+    {
+      "id": "claude",
+      "command": "claude",
+      "configEnv": "CLAUDE_CONFIG_DIR",
+      "plugin": {
+        "defaultConfigDir": "~/.claude",
+        "installedRoot": "plugins/cache/ps-legion-marketplace/legion",
+        "cacheDir": "plugins/cache/ps-legion-marketplace",
+        "purge": {
+          "paths": [
+            "plugins/marketplaces/ps-legion-marketplace",
+            "plugins/data/legion-ps-legion-marketplace"
+          ],
+          "settings": [
+            {
+              "path": "settings.json",
+              "kind": "settings"
+            },
+            {
+              "path": "plugins/known_marketplaces.json",
+              "kind": "marketplaces"
+            },
+            {
+              "path": "plugins/installed_plugins.json",
+              "kind": "claude"
+            }
+          ]
+        },
+        "marketplaceAddRef": [
+          "plugin",
+          "marketplace",
+          "add",
+          "{source}#{ref}"
+        ],
+        "marketplaceAdd": [
+          "plugin",
+          "marketplace",
+          "add",
+          "{source}"
+        ],
+        "uninstall": [
+          "plugin",
+          "uninstall",
+          "legion@ps-legion-marketplace"
+        ],
+        "marketplaceRemove": [
+          "plugin",
+          "marketplace",
+          "remove",
+          "ps-legion-marketplace"
+        ],
+        "install": [
+          "plugin",
+          "install",
+          "legion@ps-legion-marketplace"
+        ],
+        "marketplaceUpdate": [
+          "plugin",
+          "marketplace",
+          "update",
+          "ps-legion-marketplace"
+        ],
+        "update": [
+          "plugin",
+          "update",
+          "legion@ps-legion-marketplace"
+        ],
+        "marketplaceList": [
+          "plugin",
+          "marketplace",
+          "list",
+          "--json"
+        ],
+        "listingEnv": {
+          "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+        },
+        "marketplaceListing": {
+          "format": "json",
+          "nameField": "name"
+        },
+        "list": [
+          "plugin",
+          "list",
+          "--json"
+        ],
+        "listing": {
+          "format": "json",
+          "idField": "id",
+          "enabledField": "enabled"
+        }
+      },
+      "hooks": {
+        "status": "active",
+        "hint": ""
+      },
+      "installHint": "irm https://claude.ai/install.ps1 | iex"
+    },
+    {
+      "id": "codex",
+      "command": "codex",
+      "configEnv": "CODEX_HOME",
+      "plugin": {
+        "defaultConfigDir": "~/.codex",
+        "installedRoot": "plugins/cache/ps-legion-marketplace/legion",
+        "cacheDir": "plugins/cache/ps-legion-marketplace",
+        "purge": {
+          "paths": [
+            ".tmp/marketplaces/ps-legion-marketplace",
+            "plugins/data/legion-ps-legion-marketplace"
+          ],
+          "legacyHookTrust": true,
+          "settings": [
+            {
+              "path": "config.toml",
+              "kind": "toml"
+            }
+          ]
+        },
+        "marketplaceAddRef": [
+          "plugin",
+          "marketplace",
+          "add",
+          "{source}",
+          "--ref",
+          "{ref}"
+        ],
+        "marketplaceAdd": [
+          "plugin",
+          "marketplace",
+          "add",
+          "{source}"
+        ],
+        "uninstall": [
+          "plugin",
+          "remove",
+          "legion@ps-legion-marketplace"
+        ],
+        "marketplaceRemove": [
+          "plugin",
+          "marketplace",
+          "remove",
+          "ps-legion-marketplace"
+        ],
+        "install": [
+          "plugin",
+          "add",
+          "legion@ps-legion-marketplace"
+        ],
+        "marketplaceUpdate": [
+          "plugin",
+          "marketplace",
+          "upgrade"
+        ],
+        "update": [
+          "plugin",
+          "add",
+          "legion@ps-legion-marketplace"
+        ],
+        "marketplaceList": [
+          "plugin",
+          "marketplace",
+          "list",
+          "--json"
+        ],
+        "marketplaceListing": {
+          "format": "json",
+          "collectionField": "marketplaces",
+          "nameField": "name",
+          "rootField": "root"
+        },
+        "list": [
+          "plugin",
+          "list"
+        ],
+        "listing": {
+          "format": "lines",
+          "rejectPattern": "not installed|disabled"
+        }
+      },
+      "hooks": {
+        "status": "trust once with /hooks",
+        "hint": "Codex: approve the legion hooks once with /hooks in a Codex session."
+      },
+      "installHint": "npm install -g @openai/codex"
+    },
+    {
+      "id": "copilot",
+      "command": "copilot",
+      "configEnv": "COPILOT_HOME",
+      "plugin": {
+        "defaultConfigDir": "~/.copilot",
+        "installedRoot": "installed-plugins",
+        "cacheDir": "installed-plugins/legion-marketplace",
+        "purge": {
+          "paths": [
+            "marketplace-cache/ps-legion-marketplace",
+            "plugin-data/ps-legion-marketplace/legion"
+          ],
+          "emptyDirs": [
+            "plugin-data/ps-legion-marketplace"
+          ],
+          "settings": [
+            {
+              "path": "settings.json",
+              "kind": "settings"
+            },
+            {
+              "path": "config.json",
+              "kind": "copilot"
+            }
+          ]
+        },
+        "marketplaceAddRef": [
+          "plugin",
+          "marketplace",
+          "add",
+          "{source}#{ref}"
+        ],
+        "marketplaceAdd": [
+          "plugin",
+          "marketplace",
+          "add",
+          "{source}"
+        ],
+        "uninstall": [
+          "plugin",
+          "uninstall",
+          "legion@ps-legion-marketplace"
+        ],
+        "marketplaceRemove": [
+          "plugin",
+          "marketplace",
+          "remove",
+          "ps-legion-marketplace",
+          "--force"
+        ],
+        "install": [
+          "plugin",
+          "install",
+          "legion@ps-legion-marketplace"
+        ],
+        "marketplaceUpdate": [
+          "plugin",
+          "marketplace",
+          "update",
+          "ps-legion-marketplace"
+        ],
+        "update": [
+          "plugin",
+          "update",
+          "legion@ps-legion-marketplace"
+        ],
+        "marketplaceList": [
+          "plugin",
+          "marketplace",
+          "list",
+          "--json"
+        ],
+        "marketplaceListing": {
+          "format": "json",
+          "nameField": "name"
+        },
+        "list": [
+          "plugin",
+          "list"
+        ],
+        "listing": {
+          "format": "lines",
+          "rejectPattern": "not installed|disabled"
+        }
+      },
+      "hooks": {
+        "status": "loaded with plugin",
+        "hint": ""
+      },
+      "installHint": "npm install -g @github/copilot"
+    }
+  ]
+}

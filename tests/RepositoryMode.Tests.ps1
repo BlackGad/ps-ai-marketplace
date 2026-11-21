@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$setup = Join-Path $root 'plugins/ps-ai/bin/legion-repository.ps1'
+$setup = Join-Path $root 'plugins/legion/bin/legion-repository.ps1'
 $sandbox = Join-Path $root ('.agents/temp/repository-mode-' + [guid]::NewGuid().ToString('N'))
 $savedGlobal = $env:GIT_CONFIG_GLOBAL
 $savedSystem = $env:GIT_CONFIG_NOSYSTEM
@@ -72,7 +72,7 @@ try {
             Assert-Equal 'existing/|.legion/temp/|.legion/docs/' ((Get-Content (Join-Path $repo '.gitignore')) -join '|') 'Shared appends narrow ignores'
             Assert-True (-not ((Get-Content $excludePath) -ccontains '.legion/')) 'Shared keeps orchestration visible to code Git'
             # Setup itself commits every setup file, including ones that already existed.
-            Assert-Equal 'Set up ps-ai orchestration' (git -C $repo log -1 --format=%s) 'Shared commits belong to the code repository'
+            Assert-Equal 'Set up legion orchestration' (git -C $repo log -1 --format=%s) 'Shared commits belong to the code repository'
             Assert-True (@(git -C $repo ls-files .legion) -contains '.legion/state/handoff.md') 'Shared commits setup files that already existed'
             Assert-Equal '' ((git -C $repo status --porcelain) -join "`n") 'Shared docs and scratch stay untracked'
         }

@@ -1,7 +1,7 @@
 $repo = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw | ConvertFrom-Json
     $script:installCatalog.tools += $fourth
@@ -18,8 +18,8 @@ $repo = Split-Path $PSScriptRoot -Parent
                 return @{ExitCode=0; Output=$output}
             }
             if ($line -ceq ((@($entry.command) + $entry.plugin.list) -join '|')) {
-                $output = if ($entry.plugin.listing.format -eq 'json') { @('[{"id":"ps-ai@ps-ai-marketplace","enabled":true}]') }
-                    else { @('ps-ai@ps-ai-marketplace installed, enabled') }
+                $output = if ($entry.plugin.listing.format -eq 'json') { @('[{"id":"legion@ps-legion-marketplace","enabled":true}]') }
+                    else { @('legion@ps-legion-marketplace installed, enabled') }
                 return @{ExitCode=0; Output=$output}
             }
             $writes.Add($line)

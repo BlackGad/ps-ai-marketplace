@@ -1,12 +1,12 @@
 $repo = Split-Path $PSScriptRoot -Parent
-. (Join-Path $repo 'plugins/ps-ai/bin/legion-overseer.ps1') -NoRun
+. (Join-Path $repo 'plugins/legion/bin/legion-overseer.ps1') -NoRun
 $expected = @{
     claude = @('-p','--permission-mode','bypassPermissions','--strict-mcp-config')
     codex = @('exec','--dangerously-bypass-approvals-and-sandbox','-C','repo with spaces','-o','report with spaces.last.md','-')
     copilot = @('-p','Read and follow the task in task prompt with spaces.md; the report goes to stdout.','-s','--allow-all-tools','--deny-tool=shell(git push)')
 }
 foreach ($id in @('claude','codex','copilot')) {
-    $reference = Get-Content (Join-Path $repo "plugins/ps-ai/skills/legion-$id/references/run.md") -Raw
+    $reference = Get-Content (Join-Path $repo "plugins/legion/skills/legion-$id/references/run.md") -Raw
     $example = [regex]::Match($reference, '(?s)```powershell\r?\n(.*?)\r?\n```')
     Assert-True $example.Success "$id has an executable PowerShell worker example"
     $state = @{Args=@()}

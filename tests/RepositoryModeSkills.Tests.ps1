@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-$skill = Join-Path $root 'plugins/ps-ai/skills/legion-repository'
+$skill = Join-Path $root 'plugins/legion/skills/legion-repository'
 foreach ($reference in @('references/layout.md', 'references/setup.md')) {
     $text = Get-Content (Join-Path $skill $reference) -Raw
     Assert-True ($text -match '\.legion/\.git` folder or file means Private') "$reference detects both forms of Private history"

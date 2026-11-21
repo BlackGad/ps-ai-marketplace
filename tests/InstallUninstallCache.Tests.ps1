@@ -3,7 +3,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     . (Join-Path $PSScriptRoot 'fixtures/install/UninstallSandbox.ps1')
     try {
         foreach ($tool in @('claude','codex','copilot')) {
-            $relative = if ($tool -eq 'copilot') { 'installed-plugins/ps-ai-marketplace' } else { 'plugins/cache/ps-ai-marketplace' }
+            $relative = if ($tool -eq 'copilot') { 'installed-plugins/legion-marketplace' } else { 'plugins/cache/ps-legion-marketplace' }
             $entry = $catalog.tools | Where-Object id -CEQ $tool
             Assert-Equal $relative $entry.plugin.cacheDir 'Cache cleanup path lives in tool data'
             foreach ($custom in @($false, $true)) {
@@ -12,7 +12,7 @@ $repo = Split-Path $PSScriptRoot -Parent
                 $cache = Join-Path $folder $relative
                 $other = Join-Path (Split-Path $cache) 'other-marketplace'
                 $unselected = Join-Path $sandbox "$tool-unselected/$relative"
-                foreach ($version in @('0.1.0','0.3.0','0.3.2','0.4.0')) { New-FixtureCache (Join-Path $cache "ps-ai/$version") }
+                foreach ($version in @('0.1.0','0.3.0','0.3.2','0.4.0')) { New-FixtureCache (Join-Path $cache "legion/$version") }
                 New-FixtureCache $other
                 New-FixtureCache $unselected
                 $state.Plugin=$true; $state.Marketplace=$true
@@ -27,7 +27,7 @@ $repo = Split-Path $PSScriptRoot -Parent
             }
         }
         $folder = Join-Path $sandbox 'safety'
-        $cache = Join-Path $folder 'plugins/cache/ps-ai-marketplace'
+        $cache = Join-Path $folder 'plugins/cache/ps-legion-marketplace'
         New-FixtureCache $cache
         foreach ($failure in @('FailRemove','KeepListed','FailVerify')) {
             $state.Plugin=$true; $state.Marketplace=$true; $state[$failure]=$true
@@ -52,9 +52,9 @@ $repo = Split-Path $PSScriptRoot -Parent
         foreach ($unsafe in @('../other-marketplace', '/outside', 'C:/outside', '.', 'plugins/../other', '~/outside', 'plugins/*', 'plugins/./cache')) {
             $entry.plugin.cacheDir=$unsafe
             Assert-Throws { Get-InstallCatalog -Catalog $catalog } 'Unsafe cache path rejected before any CLI command'
-            $descriptor = Get-Content (Join-Path $repo 'plugins/ps-ai/skills/legion-codex/tool.json') -Raw | ConvertFrom-Json
+            $descriptor = Get-Content (Join-Path $repo 'plugins/legion/skills/legion-codex/tool.json') -Raw | ConvertFrom-Json
             $descriptor.plugin.cacheDir=$unsafe
-            Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile (Join-Path $repo 'plugins/ps-ai/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) 'Schema rejects unsafe cache path'
+            Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile (Join-Path $repo 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) 'Schema rejects unsafe cache path'
         }
         $entry.plugin.cacheDir=$original
         $outside = Join-Path $sandbox 'linked-owner-data'
@@ -71,9 +71,9 @@ $repo = Split-Path $PSScriptRoot -Parent
         }
 
         $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw | ConvertFrom-Json
-        $fourth.plugin | Add-Member cacheDir 'private/cache/ps-ai-store'
+        $fourth.plugin | Add-Member cacheDir 'private/cache/legion-store'
         $catalog.tools += [pscustomobject]@{id=$fourth.id;command=$fourth.command;configEnv=$fourth.configEnv;plugin=$fourth.plugin;hooks=$fourth.hooks;installHint='fixture'}
-        $futureCache = Join-Path $folder 'private/cache/ps-ai-store'
+        $futureCache = Join-Path $folder 'private/cache/legion-store'
         New-FixtureCache $futureCache
         $state.Plugin=$true; $state.Marketplace=$true
         $null = Invoke-LegionInstaller -Catalog $catalog -Tools fourth -ConfigDir $folder -Uninstall -Yes

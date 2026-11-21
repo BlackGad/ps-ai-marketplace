@@ -1,7 +1,7 @@
 param([string]$Finding)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$setupScript = Join-Path $root 'plugins/ps-ai/bin/legion-setup.ps1'
+$setupScript = Join-Path $root 'plugins/legion/bin/legion-setup.ps1'
 $tempRoot = Join-Path $root ('.agents/temp/setup-' + [guid]::NewGuid().ToString('N'))
 $savedPath = $env:PATH
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
@@ -37,7 +37,7 @@ try {
     $systemBin = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' }
     $fixturePath = @($fakeBin, (Split-Path (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source), $systemBin) -join [IO.Path]::PathSeparator
     $env:PATH = $fixturePath
-    $version = (Get-Content (Join-Path $root 'plugins/ps-ai/plugin.json') -Raw | ConvertFrom-Json).version
+    $version = (Get-Content (Join-Path $root 'plugins/legion/plugin.json') -Raw | ConvertFrom-Json).version
 
     # All machine, CLI and network seams are inert; account creation still runs the real add path.
     function Test-SetupCommand { param($Name) return ($Name -cnotin $script:missingTools) }
@@ -60,7 +60,7 @@ try {
         $descriptor = Get-LegionTool -Tool $Tool
         $manifest = Join-Path $ConfigDir "$($descriptor.plugin.installedRoot)/$version/plugin.json"
         New-Item -ItemType Directory -Path (Split-Path $manifest) -Force | Out-Null
-        @{ name = 'ps-ai'; version = $version } | ConvertTo-Json | Set-Content -LiteralPath $manifest
+        @{ name = 'legion'; version = $version } | ConvertTo-Json | Set-Content -LiteralPath $manifest
         return 0
     }
     function Reset-SetupTest {
@@ -145,14 +145,14 @@ try {
             $legion = Join-Path $bin $(if ($IsWindows) { 'legion.cmd' } else { 'legion' })
             Assert-True ([IO.File]::ReadAllText($legion).Contains('-HomeRoot ')) 'R4 B4 generated command binds its home before execution'
             $status = @(& $legion status)
-            Assert-True ($status -notcontains 'no ps-ai settings yet') 'R4 B4 generated legion reads the selected home settings'
+            Assert-True ($status -notcontains 'no legion settings yet') 'R4 B4 generated legion reads the selected home settings'
             Assert-True ($status -contains 'commands: yes') 'R4 B4 generated legion inspects the selected commands'
             foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
                 $path = Join-Path $bin $entry.Key
                 $text = [IO.File]::ReadAllText($path)
                 Assert-True ($text.Contains('-HomeRoot ' + (ConvertTo-LegionShellLiteral $testHome))) 'R4 B4 every alternate-home shell command binds its home'
             }
-            $runner = Join-Path $root 'plugins/ps-ai/bin/legion.ps1'
+            $runner = Join-Path $root 'plugins/legion/bin/legion.ps1'
             Assert-Equal (Get-LegionShimText -Script $runner) (Get-LegionShimText -Script $runner -HomeRoot $HOME) 'R4 B4 default-home shim stays unchanged'
         }
         R4B3 = {
@@ -180,7 +180,7 @@ try {
             Reset-SetupTest 'broken-node'
             & {
                 function Test-SetupToolInstalled { param($Tool) & $realToolInstalled -Tool $Tool }
-                . (Join-Path $root 'plugins/ps-ai/bin/legion-install-tool.ps1') -NoRun
+                . (Join-Path $root 'plugins/legion/bin/legion-install-tool.ps1') -NoRun
                 $probe = @{ Node = $false; Codex = $false; Commands = [Collections.Generic.List[string]]::new() }
                 function node { $global:LASTEXITCODE = if ($probe.Node) { 0 } else { 7 }; 'fixture node' }
                 function codex { $global:LASTEXITCODE = if ($probe.Codex) { 0 } else { 7 }; 'fixture codex' }
@@ -209,7 +209,7 @@ try {
             $hint = Get-SetupToolInstallHint -Tool (Get-LegionTool codex) -Platform macos
             Assert-Equal 'npm install -g @openai/codex' $hint 'K7 installed prerequisites are omitted'
             & {
-                . (Join-Path $root 'plugins/ps-ai/bin/legion-install-tool.ps1') -NoRun
+                . (Join-Path $root 'plugins/legion/bin/legion-install-tool.ps1') -NoRun
                 $installProbe = @{ Installed = @(); Commands = [Collections.Generic.List[string]]::new() }
                 function Test-ToolInstalled { param($Tool) return @{ Installed = ($Tool -in $installProbe.Installed); Version = 'fixture' } }
                 function Test-ToolCommandAvailable { param($Name) return $true }
@@ -427,7 +427,7 @@ try {
             Assert-Equal 2 $installs.Count 'B6 case-sensitive folders install separately and exact duplicates install once'
         }
         B7 = {
-            # Setup installs only where ps-ai is missing; a different version is the update flow's job.
+            # Setup installs only where legion is missing; a different version is the update flow's job.
             foreach ($delivered in @('0.5.0', '9.0.0')) {
                 Reset-SetupTest ("version-" + $delivered)
                 $currentVersion = $version
@@ -437,10 +437,10 @@ try {
                 $before = Get-SetupTree $testHome
                 $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
                 Assert-Equal 1 $installs.Count "B7 folder with version $delivered is not installed again"
-                Assert-SetupText $output 'skip: ps-ai in' "B7 repeat with version $delivered prints skip"
+                Assert-SetupText $output 'skip: legion in' "B7 repeat with version $delivered prints skip"
                 Assert-Equal $before (Get-SetupTree $testHome) "B7 repeat with version $delivered changes nothing"
                 $plan = @(Invoke-Setup -HomeRoot $testHome)
-                Assert-True (-not (($plan -join "`n") -match 'install  ps-ai')) "B7 plan skips folder with version $delivered"
+                Assert-True (-not (($plan -join "`n") -match 'install  legion')) "B7 plan skips folder with version $delivered"
             }
         }
 
@@ -494,7 +494,7 @@ try {
     $apply = @(Invoke-Setup -HomeRoot $testHome -Yes)
     Assert-Equal 0 (@(Invoke-LegionValidation -Kind personalisation -Path $settings).Count) 'Empty settings are valid'
     Assert-Equal 0 (@((Read-LegionJson $settings).agents).Count) 'Fresh setup supports no accounts'
-    Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/ps-ai/skills/legion-personalisation/references/notes-template.md'))) ([IO.File]::ReadAllText((Join-Path (Split-Path $settings) 'notes.md'))) 'Notes use the unchanged template'
+    Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/legion/skills/legion-personalisation/references/notes-template.md'))) ([IO.File]::ReadAllText((Join-Path (Split-Path $settings) 'notes.md'))) 'Notes use the unchanged template'
     if (-not $IsWindows) { $env:PATH += [IO.Path]::PathSeparator + (Join-Path $testHome '.legion/bin') }
     $before = Get-SetupTree $testHome
     $repeat = @(Invoke-Setup -HomeRoot $testHome -Yes)
@@ -512,7 +512,7 @@ try {
     $planWatch.Stop()
     Assert-SetupText $plan '  add      claude2 (claude) new folder' 'Auto id skips application claude1'
     Assert-SetupText $plan "  add      codex1 (codex) existing folder $adopt" 'Adoption keeps spaces and drive colon'
-    Assert-SetupText $plan '  install  ps-ai into ' 'Plan groups plugin installs'
+    Assert-SetupText $plan '  install  legion into ' 'Plan groups plugin installs'
     Assert-Equal $before (Get-SetupTree $testHome) 'Account plan changes no bytes or timestamps'
     Remove-Item -LiteralPath (Join-Path $fakeBin $(if ($IsWindows) { 'claude1.cmd' } else { 'claude1' }))
     $realNewWrappers = ${function:New-LegionWrappers}
@@ -536,12 +536,12 @@ try {
     Assert-Equal 2 $installs.Count 'Installer runs once per account folder'
     Assert-Equal $adopt $installs[1].ConfigDir 'Installer receives the whole adopted path'
     Assert-Equal 'keep login data' (Get-Content (Join-Path $adopt 'owner.txt')) 'Adoption preserves existing data'
-    Assert-SetupText $apply 'account  tool  folder  ps-ai  next step' 'Table has the contract columns'
+    Assert-SetupText $apply 'account  tool  folder  legion  next step' 'Table has the contract columns'
     Assert-SetupText $apply 'log in: run claude1' 'New folder asks for login'
     Assert-SetupText $apply 'ready' 'Adopted folder is ready'
     $bin = Join-Path $testHome '.legion/bin'
     foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
-        $target = Join-Path $root "plugins/ps-ai/bin/$($entry.Value)"
+        $target = Join-Path $root "plugins/legion/bin/$($entry.Value)"
         Assert-Equal (Get-LegionShimText -Script $target -HomeRoot $testHome) ([IO.File]::ReadAllText((Join-Path $bin $entry.Key))) 'Unix command shim equals shared format'
         if ($IsWindows) {
             Assert-Equal (Get-LegionShimText -Script $target -Windows -HomeRoot $testHome) ([IO.File]::ReadAllText((Join-Path $bin "$($entry.Key).cmd"))) 'Windows command shim equals shared format'
@@ -557,11 +557,11 @@ try {
     $before = Get-SetupTree $testHome
     $repeat = @(Invoke-Setup -HomeRoot $testHome -Yes)
     Assert-Equal $before (Get-SetupTree $testHome) 'Repeated apply preserves all bytes and timestamps'
-    Assert-Equal 2 $installs.Count 'Repeat does not reinstall ps-ai'
+    Assert-Equal 2 $installs.Count 'Repeat does not reinstall legion'
     Assert-Equal 0 $toolInstalls.Count 'Repeat installs no CLI'
     Assert-Equal $(if ($IsWindows) { 1 } else { 0 }) $pathWrites.Count 'Repeat writes no PATH'
-    Assert-SetupText $repeat 'skip: ps-ai in ' 'Repeat reports installed folders'
-    Assert-SetupText $repeat 'account  tool  folder  ps-ai  next step' 'Repeat keeps the table'
+    Assert-SetupText $repeat 'skip: legion in ' 'Repeat reports installed folders'
+    Assert-SetupText $repeat 'account  tool  folder  legion  next step' 'Repeat keeps the table'
     Assert-Equal ($apply | Where-Object { $_.StartsWith('claude1  ') }) ($repeat | Where-Object { $_.StartsWith('claude1  ') }) 'Repeat retains new-folder login guidance'
     Assert-Equal 'Nothing to do.' (@(Invoke-Setup -HomeRoot $testHome)[-1]) 'Finished account setup needs no changes'
     $next = @(Invoke-Setup -HomeRoot $testHome -Add claude)
@@ -606,14 +606,14 @@ try {
     if (-not $IsWindows) { $env:PATH += [IO.Path]::PathSeparator + (Join-Path $testHome '.legion/bin') }
     $plan = @(Invoke-Setup -HomeRoot $testHome)
     Assert-Equal 3 $plan.Count 'Partial earlier run plans only the install'
-    Assert-SetupText $plan "  install  ps-ai into $folder" 'Partial setup installs into recorded folder'
+    Assert-SetupText $plan "  install  legion into $folder" 'Partial setup installs into recorded folder'
     Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
     Assert-Equal 2 $installs.Count 'Partial setup is resumed without Add'
     $repeat = @(Invoke-Setup -HomeRoot $testHome -Add claude -Id claude1 -Yes)
     Assert-SetupText $repeat 'skip: account claude1 (already done)' 'Explicit id repeat skips'
     Assert-Equal 2 $installs.Count 'Explicit repeat does not reinstall'
     $adoptedPlan = @(Invoke-Setup -HomeRoot $testHome -Add "claude:$folder" -Id adopted -Yes)
-    Assert-SetupText $adoptedPlan "skip: ps-ai in $folder (already done)" 'Adopted current plugin is skipped'
+    Assert-SetupText $adoptedPlan "skip: legion in $folder (already done)" 'Adopted current plugin is skipped'
 
     foreach ($scenario in @('success', 'failure', 'terminal')) {
         Reset-SetupTest "cli-$scenario"
@@ -632,7 +632,7 @@ try {
         $agents = (Read-LegionJson $settings).agents
         if ($scenario -eq 'success') {
             Assert-Equal 'codex1|codex2|claude1' ($agents.id -join '|') 'Rechecked CLI permits both accounts'
-            Assert-Equal 3 $installs.Count 'All usable accounts install ps-ai'
+            Assert-Equal 3 $installs.Count 'All usable accounts install legion'
         } else {
             Assert-Equal 'claude1' ($agents.id -join '|') 'Unusable CLI records no accounts while independent tool completes'
             Assert-Equal 1 $installs.Count 'Only usable CLI gets plugin installation'
@@ -672,7 +672,7 @@ try {
     Assert-SetupText $plan 'commands rewrite legion' 'C-2: the plan names a stale command'
     $null = Invoke-Setup -HomeRoot $testHome -Yes
     $rewritten = [IO.File]::ReadAllText((Join-Path $bin 'legion'))
-    Assert-True ($rewritten.Contains((Join-Path $root 'plugins/ps-ai/bin/legion.ps1')) -and $rewritten.Contains('--keep')) 'C-2: a stale command is retargeted and keeps owner flags'
+    Assert-True ($rewritten.Contains((Join-Path $root 'plugins/legion/bin/legion.ps1')) -and $rewritten.Contains('--keep')) 'C-2: a stale command is retargeted and keeps owner flags'
 
     Reset-SetupTest 'blocked-command'
     $bin = Join-Path $testHome '.legion/bin'
@@ -732,7 +732,7 @@ try {
     # Setup always uses the installer shipped beside its plugin manifest.
     Reset-SetupTest 'shipped-installer'
     $script:SetupHomeRoot = $testHome
-    $script:SetupPluginRoot = Join-Path $testHome 'cache/plugins/ps-ai'
+    $script:SetupPluginRoot = Join-Path $testHome 'cache/plugins/legion'
     $shipped = Join-Path $script:SetupPluginRoot 'install.ps1'
     Assert-Equal $shipped (& $realFindInstaller) 'Setup uses its own shipped installer without searching or downloading'
 

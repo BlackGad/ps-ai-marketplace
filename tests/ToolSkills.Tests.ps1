@@ -1,5 +1,5 @@
 $repo = Split-Path $PSScriptRoot -Parent
-$skills = Join-Path $repo 'plugins/ps-ai/skills'
+$skills = Join-Path $repo 'plugins/legion/skills'
 $files = @(Get-ChildItem $skills -Filter '*.md' -File -Recurse) + @(Get-Item (Join-Path $repo 'README.md'), (Join-Path $repo 'docs/reference.md'))
 foreach ($file in $files) {
     $content = Get-Content $file.FullName -Raw

@@ -3,7 +3,7 @@ $script:fakeAzRoot = $null
 function Use-FakeAz {
     param([hashtable]$Answers)
     if (-not $script:fakeAzRoot) {
-        $script:fakeAzRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
+        $script:fakeAzRoot = Join-Path ([IO.Path]::GetTempPath()) ('legion-tests/' + [guid]::NewGuid())
         New-Item -ItemType Directory -Path $script:fakeAzRoot -Force | Out-Null
     }
     $env:LEGION_FAKE_AZ = Join-Path $script:fakeAzRoot 'answers.json'

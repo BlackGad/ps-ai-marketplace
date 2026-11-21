@@ -1,7 +1,7 @@
 $root = Split-Path $PSScriptRoot -Parent
-$script = Join-Path $root 'plugins/ps-ai/bin/legion-lease.ps1'
-$hook = Join-Path $root 'plugins/ps-ai/hooks/detect-mode.ps1'
-$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
+$script = Join-Path $root 'plugins/legion/bin/legion-lease.ps1'
+$hook = Join-Path $root 'plugins/legion/hooks/detect-mode.ps1'
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('legion-tests/' + [guid]::NewGuid())
 $repo = Join-Path $tempRoot 'repo'
 New-Item -ItemType Directory -Path $repo -Force | Out-Null
 # -WindowStyle exists only on Windows.
@@ -9,7 +9,7 @@ $hidden = if ($IsWindows) { @{ WindowStyle = "Hidden" } } else { @{} }
 try {
     # Each helper exits before the next starts; their non-shell ancestor stays alive.
     & pwsh -NoProfile -File $script -Action take -Repo $repo -Tool codex -Account session | Out-Null
-    . (Join-Path $root 'plugins/ps-ai/bin/lib/common.ps1')
+    . (Join-Path $root 'plugins/legion/bin/lib/common.ps1')
     Assert-Equal 'held' (Get-LegionLease -Repo $repo).State 'A short-lived helper leases for its long-lived parent'
     $path = Join-Path $repo '.legion/temp/overseer.lock'
     $saved = Get-Content $path -Raw | ConvertFrom-Json
@@ -32,7 +32,7 @@ param($Root, $LeaseScript, $Repo, $Bash, $Ready)
 $ErrorActionPreference = 'Stop'
 while (-not (Test-Path -LiteralPath $Ready)) { Start-Sleep -Milliseconds 25 }
 . (Join-Path $Root 'tests/Assert.ps1')
-. (Join-Path $Root 'plugins/ps-ai/bin/lib/common.ps1')
+. (Join-Path $Root 'plugins/legion/bin/lib/common.ps1')
 $env:LEGION_TEST_LEASE_SCRIPT = $LeaseScript
 $env:LEGION_TEST_LEASE_REPO = $Repo
 & $Bash -c 'pwsh -NoProfile -File "$LEGION_TEST_LEASE_SCRIPT" -Action take -Repo "$LEGION_TEST_LEASE_REPO" -Tool codex -Account session'

@@ -1,12 +1,12 @@
 $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
-$script = Join-Path $root 'plugins/ps-ai/install.ps1'
+$script = Join-Path $root 'plugins/legion/install.ps1'
 . $script -NoRun
 $script:installCatalog = Get-InstallCatalog -Source $root
 $expected = @{
-    claude = @('claude|plugin|marketplace|add|local source', 'claude|plugin|install|ps-ai@ps-ai-marketplace')
-    codex = @('codex|plugin|marketplace|add|local source', 'codex|plugin|add|ps-ai@ps-ai-marketplace')
-    copilot = @('copilot|plugin|marketplace|add|local source', 'copilot|plugin|install|ps-ai@ps-ai-marketplace')
+    claude = @('claude|plugin|marketplace|add|local source', 'claude|plugin|install|legion@ps-legion-marketplace')
+    codex = @('codex|plugin|marketplace|add|local source', 'codex|plugin|add|legion@ps-legion-marketplace')
+    copilot = @('copilot|plugin|marketplace|add|local source', 'copilot|plugin|install|legion@ps-legion-marketplace')
 }
 foreach ($tool in @('claude', 'codex', 'copilot')) {
     $commands = Get-InstallCommands -Tool $tool -Source 'local source'
@@ -21,7 +21,7 @@ $previewLines = @(& {
 })
 Assert-True $? 'Injected dry run succeeds'
 Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin marketplace add "local source"') 'Dry run marketplace command'
-Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install ps-ai@ps-ai-marketplace') 'Dry run plugin command'
+Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install legion@ps-legion-marketplace') 'Dry run plugin command'
 
 & {
     . $script -NoRun
@@ -30,7 +30,7 @@ Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install 
     function Get-InstallUserPath { Get-InstallLegionPath 'bin' }
     function Add-InstallPowerShellPath { }
     function Invoke-InstallRefresh { }
-    function Get-InstallPluginRoot { Join-Path $root 'plugins/ps-ai' }
+    function Get-InstallPluginRoot { Join-Path $root 'plugins/legion' }
     function codex { param($Version) Assert-Equal '--version' $Version 'Fake CLI only handles version'; 'fixture-version' }
     $calls = [Collections.Generic.List[string]]::new()
     function Invoke-ClosedInput {
@@ -47,7 +47,7 @@ Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install 
         $env:CODEX_HOME = 'default-account'
         $null = Invoke-LegionInstaller -Tools codex -Source $root -ConfigDir selected-account -Yes
         Assert-Equal 4 $calls.Count 'Fake install checks and performs both steps'
-        Assert-True ($calls -contains 'codex|plugin|add|ps-ai@ps-ai-marketplace') 'Fake install performs plugin write'
+        Assert-True ($calls -contains 'codex|plugin|add|legion@ps-legion-marketplace') 'Fake install performs plugin write'
         Assert-Equal 'default-account' $env:CODEX_HOME 'Install restores caller account'
     } finally { $env:CODEX_HOME = $previous }
 }
@@ -59,10 +59,10 @@ try {
 }
 
 # Real listings captured 2026-11-18 (Codex 0.167, Copilot 1.0.109, Claude 2.1.325).
-$codexAvailable = 'ps-ai@ps-ai-marketplace  not installed           C:\repo\plugins\ps-ai'
-$codexInstalled = 'ps-ai@ps-ai-marketplace  installed, enabled  0.1.0    C:\repo\plugins\ps-ai'
-$copilotDisabled = '  • ps-ai@ps-ai-marketplace (v0.1.0) (disabled)'
-$copilotEnabled = '  • ps-ai@ps-ai-marketplace (v0.1.0) (enabled)'
+$codexAvailable = 'legion@ps-legion-marketplace  not installed           C:\repo\plugins\legion'
+$codexInstalled = 'legion@ps-legion-marketplace  installed, enabled  0.1.0    C:\repo\plugins\legion'
+$copilotDisabled = '  • legion@ps-legion-marketplace (v0.1.0) (disabled)'
+$copilotEnabled = '  • legion@ps-legion-marketplace (v0.1.0) (enabled)'
 Assert-True (-not (Test-InstallListing -Kind plugin -Tool codex -Lines @($codexAvailable))) 'Available Codex plugin is not installed'
 Assert-True (Test-InstallListing -Kind plugin -Tool codex -Lines @($codexInstalled)) 'Installed Codex plugin counts'
 Assert-True (-not (Test-InstallListing -Kind plugin -Tool copilot -Lines @($copilotDisabled))) 'Disabled Copilot plugin is not done'
@@ -77,7 +77,7 @@ function Invoke-ClosedInput {
     $script:observedClaudeList = $Command -join '|'
     return @{ ExitCode = 0; Output = $disabledFixture }
 }
-Assert-True (-not (Test-InstallStepDone -Command @('claude', 'plugin', 'install', 'ps-ai@ps-ai-marketplace'))) 'Disabled Claude plugin requires install'
+Assert-True (-not (Test-InstallStepDone -Command @('claude', 'plugin', 'install', 'legion@ps-legion-marketplace'))) 'Disabled Claude plugin requires install'
 Assert-Equal 'claude|plugin|list|--json' $script:observedClaudeList 'Claude check requests JSON listing'
 
 $script:installedSteps = @{}
@@ -104,11 +104,11 @@ try {
     function Invoke-ClosedInput {
         param([string[]]$Command)
         if ($env:CODEX_HOME -eq 'selected-account') {
-            return @{ ExitCode = 0; Output = @('ps-ai@ps-ai-marketplace  installed, enabled') }
+            return @{ ExitCode = 0; Output = @('legion@ps-legion-marketplace  installed, enabled') }
         }
-        return @{ ExitCode = 0; Output = @('ps-ai@ps-ai-marketplace  not installed') }
+        return @{ ExitCode = 0; Output = @('legion@ps-legion-marketplace  not installed') }
     }
-    Assert-True (Test-InstallStepDone -Command @('codex', 'plugin', 'add', 'ps-ai@ps-ai-marketplace') -ConfigEnv CODEX_HOME -ConfigDir 'selected-account') 'Install check sees selected account listing'
+    Assert-True (Test-InstallStepDone -Command @('codex', 'plugin', 'add', 'legion@ps-legion-marketplace') -ConfigEnv CODEX_HOME -ConfigDir 'selected-account') 'Install check sees selected account listing'
     Assert-Equal 'default-account' $env:CODEX_HOME 'Install check restores caller account'
 } finally {
     $env:CODEX_HOME = $savedCodexHome
@@ -119,7 +119,7 @@ try {
     . $script -NoRun
     $catalog = Get-InstallCatalog -Source $root
     $script:installCatalog = $catalog
-    foreach ($json in @('[{"id":["ps-ai@ps-ai-marketplace","other"],"enabled":true}]','[{"id":"ps-ai@ps-ai-marketplace","enabled":"true"}]','[{"id":"ps-ai@ps-ai-marketplace-old","enabled":true}]','[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]')) {
+    foreach ($json in @('[{"id":["legion@ps-legion-marketplace","other"],"enabled":true}]','[{"id":"legion@ps-legion-marketplace","enabled":"true"}]','[{"id":"legion@ps-legion-marketplace-old","enabled":true}]','[{"id":"legion@ps-legion-marketplace","enabled":false}]')) {
         Assert-True (-not (Test-InstallListing -Kind plugin -Tool claude -Lines @($json))) 'Only exact id and Boolean true count'
     }
     $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw | ConvertFrom-Json

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "codex", "command": "codex", "configEnv": "CODEX_HOME",
+  "foundry": {"deploymentPrefix": "gpt", "aliases": []},
+  "overseerArgs": [],
+  "plugin": {
+    "defaultConfigDir": "~/.codex",
+    "installedRoot": "plugins/cache/ps-legion-marketplace/legion",
+    "cacheDir": "plugins/cache/ps-legion-marketplace",
+    "purge": {
+      "paths": [".tmp/marketplaces/ps-legion-marketplace", "plugins/data/legion-ps-legion-marketplace"],
+      "legacyHookTrust": true,
+      "settings": [{"path": "config.toml", "kind": "toml"}]
+    },
+    "marketplaceAddRef": ["plugin", "marketplace", "add", "{source}", "--ref", "{ref}"],
+    "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
+    "uninstall": ["plugin", "remove", "legion@ps-legion-marketplace"],
+    "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-legion-marketplace"],
+    "install": ["plugin", "add", "legion@ps-legion-marketplace"],
+    "marketplaceUpdate": ["plugin", "marketplace", "upgrade"],
+    "update": ["plugin", "add", "legion@ps-legion-marketplace"],
+    "marketplaceList": ["plugin", "marketplace", "list", "--json"],
+    "marketplaceListing": {"format": "json", "collectionField": "marketplaces", "nameField": "name", "rootField": "root"},
+    "list": ["plugin", "list"],
+    "listing": {"format": "lines", "rejectPattern": "not installed|disabled"}
+  },
+  "hooks": {"status": "trust once with /hooks", "hint": "Codex: approve the legion hooks once with /hooks in a Codex session."},
+  "install": {
+    "check": ["codex", "--version"], "hint": "npm install -g @openai/codex",
+    "windows": {
+      "wingetId": "OpenAI.Codex", "portableCommand": "codex.exe",
+      "download": {
+        "msi": {"kind": "script", "url": "https://chatgpt.com/codex/install.ps1", "verification": "vendor"},
+        "zip": {"kind": "script", "url": "https://chatgpt.com/codex/install.ps1", "verification": "vendor"}
+      }
+    },
+    "macos": {"needs": ["node"], "commands": [["npm", "install", "-g", "@openai/codex"]], "docs": ""},
+    "linux": {"needs": ["node"], "commands": [["npm", "install", "-g", "@openai/codex"]], "docs": ""}
+  }
+}

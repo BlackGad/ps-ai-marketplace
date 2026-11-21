@@ -1,7 +1,7 @@
 param([string]$InstallFixtureHome)
 $env:HOME = $InstallFixtureHome
 $env:USERPROFILE = $InstallFixtureHome
-$fixtureCatalog = Get-Content (Join-Path $PSScriptRoot '../../../plugins/ps-ai/tools.json') -Raw | ConvertFrom-Json
+$fixtureCatalog = Get-Content (Join-Path $PSScriptRoot '../../../plugins/legion/tools.json') -Raw | ConvertFrom-Json
 foreach ($fixtureTool in $fixtureCatalog.tools) {
     [Environment]::SetEnvironmentVariable($fixtureTool.configEnv, (Join-Path $InstallFixtureHome $fixtureTool.plugin.defaultConfigDir.Substring(2)), 'Process')
 }
@@ -17,6 +17,6 @@ function copilot { 'fixture-version' }
 function New-InstallFixturePlugin {
     param([string]$Path, [string]$Version = '0.3.0')
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
-    @{name='ps-ai';version=$Version} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Path 'plugin.json')
+    @{name='legion';version=$Version} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Path 'plugin.json')
     return $Path
 }

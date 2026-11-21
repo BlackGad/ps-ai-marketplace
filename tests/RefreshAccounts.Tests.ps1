@@ -4,8 +4,8 @@ $scratch = Join-Path $root ('.agents/temp/refresh-accounts-' + [guid]::NewGuid()
 $savedPath = $env:PATH
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 try {
-    . (Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
-    $refresh = Join-Path $root 'plugins/ps-ai/bin/legion-refresh.ps1'
+    . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -NoRun
+    $refresh = Join-Path $root 'plugins/legion/bin/legion-refresh.ps1'
     $fakeBin = Join-Path $scratch 'fake tools'
     New-Item -ItemType Directory -Path $fakeBin -Force | Out-Null
     $systemBin = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' }
@@ -38,7 +38,7 @@ try {
     $bin = Join-Path $scratch '.legion/bin'
     $before = @(Get-ChildItem $bin -File | Sort-Object Name | ForEach-Object { $_.LastWriteTimeUtc.Ticks }) -join '|'
     $repeat = @(& $refresh -HomeRoot $scratch)
-    Assert-True ($repeat -contains 'skip: ps-ai generated runtimes and launchers (already done)') 'Repeated refresh reports skip'
+    Assert-True ($repeat -contains 'skip: legion generated runtimes and launchers (already done)') 'Repeated refresh reports skip'
     Assert-Equal $before (@(Get-ChildItem $bin -File | Sort-Object Name | ForEach-Object { $_.LastWriteTimeUtc.Ticks }) -join '|') 'Repeated refresh changes no launcher timestamps'
 
     # An unavailable CLI blocks only its account; surviving launchers remain byte-for-byte intact.

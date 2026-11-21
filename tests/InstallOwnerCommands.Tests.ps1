@@ -1,11 +1,11 @@
 $repo = Split-Path $PSScriptRoot -Parent
-. (Join-Path $repo 'plugins/ps-ai/bin/lib/commands.ps1')
-. (Join-Path $repo 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
+. (Join-Path $repo 'plugins/legion/bin/lib/commands.ps1')
+. (Join-Path $repo 'plugins/legion/bin/legion-account.ps1') -NoRun
 $scratch = Join-Path $repo ('.agents/temp/install-owner-commands-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 try {
     & {
-        . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+        . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
         # C-1: install.ps1 is standalone and keeps its own copy of the rule; both copies must agree on every sample.
         $target = Join-Path $scratch "owner's plugin/bin/legion.ps1"
         $samples = @(

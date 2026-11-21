@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-. (Join-Path $root 'plugins/ps-ai/bin/legion-validate.ps1') -NoRun
+. (Join-Path $root 'plugins/legion/bin/legion-validate.ps1') -NoRun
 $scratch = Join-Path $root ('.agents/temp/lean-validate-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $scratch -Force | Out-Null
 function Check-Owner($Data) {
@@ -24,7 +24,7 @@ foreach ($extra in @(
     '{"schemaVersion":1,"agents":[{"id":"claude-a","tool":"claude","configDir":"~/account","provider":{"kind":"foundry","endpoint":"https://example.invalid","default":"a","deployments":[{"name":"a"}],"extra":true}}],"channels":[]}',
     '{"schemaVersion":1,"agents":[{"id":"claude-a","tool":"claude","configDir":"~/account","provider":{"kind":"foundry","endpoint":"https://example.invalid","default":"a","deployments":[{"name":"a","extra":true}]}}],"channels":[]}'
 )) {
-    Assert-True ((Check-Owner ($extra | ConvertFrom-Json)) -match 'run ps-ai setup to update your settings') 'Unknown fields name setup remedy'
+    Assert-True ((Check-Owner ($extra | ConvertFrom-Json)) -match 'run legion setup to update your settings') 'Unknown fields name setup remedy'
 }
 # ChannelBindingValidation
 $data = @{schemaVersion=1;agents=@(@{id='claude-a';tool='claude';configDir='~/a'});channels=@(@{id='main';kind='telegram';target='123';accounts=@('claude-a')})}

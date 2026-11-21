@@ -22,7 +22,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $env:PATH = @($fixtureBin, $PSHOME, $systemBin) -join [IO.Path]::PathSeparator
         Assert-Equal $codex (Get-Command codex -CommandType Application).Source 'R4 B6 consent uses the fixture executable'
         # B4: the home chosen with -HomeRoot is the home for every install path, including the refresh.
-        . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun -HomeRoot $fixtureHome
+        . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun -HomeRoot $fixtureHome
         Assert-Equal $fixtureHome (Get-InstallHome) 'B4: -HomeRoot selects the install home'
         Assert-Equal (Join-Path $fixtureHome '.legion/bin') (Get-InstallLegionPath 'bin') 'B4: legion paths follow the selected home'
 
@@ -38,7 +38,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         function Add-InstallPowerShellPath { param($Path) $script:pathWrites++ }
         function Get-InstallUserPath { Get-InstallLegionPath 'bin' }
         function Invoke-InstallRefresh { }
-        function Get-InstallPluginRoot { Join-Path $repo 'plugins/ps-ai' }
+        function Get-InstallPluginRoot { Join-Path $repo 'plugins/legion' }
         function Get-UpdateConfigDirs { param($Tool, $ConfigDir) ,@('') }
         function Resolve-InstallSource { param($Source) return $Source }
         function Test-InstallCommandAvailable { param($Name) $true }
@@ -71,7 +71,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         function Invoke-InstallRefresh { throw 'refresh broke' }
         $output = @(Invoke-LegionInstaller -Catalog (Get-InstallCatalog -Source $repo) -Tools codex -Yes)
         Assert-True ($output -contains 'commands not refreshed for codex in default config; run legion setup') 'Refresh failure prints one plain line'
-        Assert-True (@($output | Where-Object { $_ -like 'installed: ps-ai *' }).Count -eq 1) 'Install still prints the summary after a refresh failure'
+        Assert-True (@($output | Where-Object { $_ -like 'installed: legion *' }).Count -eq 1) 'Install still prints the summary after a refresh failure'
         function Invoke-InstallRefresh { }
     } finally {
         $env:PATH = $savedPath

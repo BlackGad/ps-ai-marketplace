@@ -1,8 +1,8 @@
 # LaunchAdapterContract: invoke adapters, never dot-source their internals.
 & {
     $repoRoot = Split-Path $PSScriptRoot -Parent
-    $skillRoot = Join-Path $repoRoot 'plugins/ps-ai/skills'
-    . (Join-Path $repoRoot 'plugins/ps-ai/bin/legion-foundry.ps1') -NoRun
+    $skillRoot = Join-Path $repoRoot 'plugins/legion/skills'
+    . (Join-Path $repoRoot 'plugins/legion/bin/legion-foundry.ps1') -NoRun
     function Get-FoundryToken { throw 'Unexpected token request' }
     $homeRoot = Join-Path $repoRoot '.agents/temp/restructure/adapter home'
     $injectedToken = @{ Token = 'fake-token'; ExpiresOn = [DateTimeOffset]'2026-11-18T18:30:00+00:00' }
@@ -57,8 +57,8 @@
 # ConfigAdaptersPreserveAndSkip: config writers have one return value and no repeat writes.
 & {
     $repoRoot = Split-Path $PSScriptRoot -Parent
-    $skillRoot = Join-Path $repoRoot 'plugins/ps-ai/skills'
-    . (Join-Path $repoRoot 'plugins/ps-ai/bin/lib/tools.ps1')
+    $skillRoot = Join-Path $repoRoot 'plugins/legion/skills'
+    . (Join-Path $repoRoot 'plugins/legion/bin/lib/tools.ps1')
     foreach ($adapterId in @('claude', 'codex')) {
         Assert-True (Test-Path -LiteralPath (Join-Path $skillRoot "legion-$adapterId/scripts/foundry-config.ps1")) "$adapterId config adapter exists"
     }
@@ -196,7 +196,7 @@ $agentData = Get-Content -LiteralPath $AgentPath -Raw | ConvertFrom-Json
 
         # Exercise the account delegator against real, relocated discovery data.
         $pluginCopy = Join-Path $configRoot 'plugin'
-        Copy-Item -LiteralPath (Join-Path $repoRoot 'plugins/ps-ai') -Destination $pluginCopy -Recurse
+        Copy-Item -LiteralPath (Join-Path $repoRoot 'plugins/legion') -Destination $pluginCopy -Recurse
         $fourthCopy = Join-Path $pluginCopy 'skills/legion-fourth'
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') -Destination $fourthCopy -Recurse
         $homeCopy = Join-Path $configRoot 'delegation home'

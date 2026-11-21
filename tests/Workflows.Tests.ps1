@@ -2,7 +2,7 @@ $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'lib/workflows.ps1')
 
 $sha = 'a' * 40
-$temp = Join-Path ([IO.Path]::GetTempPath()) "ps-ai-workflows-$([guid]::NewGuid().ToString('N'))"
+$temp = Join-Path ([IO.Path]::GetTempPath()) "legion-workflows-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $temp | Out-Null
 
 function New-Workflow {

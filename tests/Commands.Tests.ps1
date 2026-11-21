@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$library = Join-Path $root 'plugins/ps-ai/bin/lib/commands.ps1'
+$library = Join-Path $root 'plugins/legion/bin/lib/commands.ps1'
 Assert-True (Test-Path -LiteralPath $library) 'Owner-command library exists'
 . $library
 $commands = Get-LegionOwnerCommands
@@ -12,7 +12,7 @@ $scratch = Join-Path $root ('.agents/temp/commands-' + [guid]::NewGuid().ToStrin
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 $target = Join-Path $scratch "owner's plugin/bin/legion.ps1"
 $unix = Get-LegionShimText -Script $target
-. (Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
+. (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -NoRun
 $expected = "#!/bin/sh`n" + 'exec pwsh -NoProfile -File ' + (ConvertTo-LegionShellLiteral $target) + ' "$@"' + "`n"
 Assert-Equal $expected $unix 'Unix shim quotes spaces and apostrophes with the shared shell literal'
 $windows = Get-LegionShimText -Script 'C:\plugin folder\bin\legion.ps1' -Windows
@@ -49,7 +49,7 @@ $lookalikes = @(
     "python run.py pwsh -File /plugin/bin/legion.ps1")
 foreach ($text in $lookalikes) {
     [IO.File]::WriteAllText($path, $text)
-    Assert-Equal $false (Test-LegionOwnerCommandFile -Path $path -Script legion.ps1) 'A comment or a later argument naming the script is not a ps-ai command'
+    Assert-Equal $false (Test-LegionOwnerCommandFile -Path $path -Script legion.ps1) 'A comment or a later argument naming the script is not a legion command'
 }
 
 # C-3: one matcher finds the target as written, so refresh can replace it without index arithmetic.

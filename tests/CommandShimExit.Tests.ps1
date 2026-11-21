@@ -1,7 +1,7 @@
 $repo = Split-Path $PSScriptRoot -Parent
 # A .cmd command that its own script deletes must still end cleanly, with the script's exit status.
 if (-not $IsWindows) { return }
-. (Join-Path $repo 'plugins/ps-ai/bin/lib/commands.ps1')
+. (Join-Path $repo 'plugins/legion/bin/lib/commands.ps1')
 $scratch = Join-Path ([IO.Path]::GetTempPath()) ('shim-exit-' + [guid]::NewGuid().ToString('N'))
 try {
     $bin = New-Item -ItemType Directory -Path (Join-Path $scratch 'plugin/bin') -Force

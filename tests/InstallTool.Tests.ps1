@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$scriptPath = Join-Path $root 'plugins/ps-ai/bin/legion-install-tool.ps1'
-$installer = Join-Path $root 'plugins/ps-ai/install.ps1'
+$scriptPath = Join-Path $root 'plugins/legion/bin/legion-install-tool.ps1'
+$installer = Join-Path $root 'plugins/legion/install.ps1'
 . $scriptPath -NoRun
 Assert-Equal 'bun|--version' ((Get-ToolInstallData -Tool bun).check -join '|') 'Bun installed check'
 & {
@@ -313,7 +313,7 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
     $savedPath = $env:PATH
     try {
         New-Item -ItemType Directory $sandbox -Force | Out-Null
-        Copy-Item (Join-Path $repoRoot 'plugins/ps-ai') $plugin -Recurse
+        Copy-Item (Join-Path $repoRoot 'plugins/legion') $plugin -Recurse
         $fourthSkill = Join-Path $plugin 'skills/legion-fourth'
         Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') $fourthSkill -Recurse
         $descriptorPath = Join-Path $fourthSkill 'tool.json'
@@ -434,7 +434,7 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
     $plugin = Join-Path $sandbox 'plugin'
     try {
         New-Item -ItemType Directory $sandbox -Force | Out-Null
-        Copy-Item (Join-Path $repoRoot 'plugins/ps-ai') $plugin -Recurse
+        Copy-Item (Join-Path $repoRoot 'plugins/legion') $plugin -Recurse
         $fourthSkill = Join-Path $plugin 'skills/legion-fourth'
         Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') $fourthSkill -Recurse
         $descriptorPath = Join-Path $fourthSkill 'tool.json'

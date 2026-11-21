@@ -24,13 +24,13 @@ Assert-True ($null -eq (Get-Command fixture-leak -ErrorAction SilentlyContinue))
     Remove-Item -LiteralPath (Join-Path $testRoot 'C.Tests.ps1')
 
     # Run through a linked ancestor, like macOS /var -> /private/var.
-    $catalogFolder = Join-Path $fixtureRepo 'plugins/ps-ai'
+    $catalogFolder = Join-Path $fixtureRepo 'plugins/legion'
     New-Item -ItemType Directory -Path $catalogFolder -Force | Out-Null
-    Copy-Item (Join-Path $repo 'plugins/ps-ai/tools.json') $catalogFolder
-    Copy-Item (Join-Path $repo 'plugins/ps-ai/bin/lib/paths.ps1') (Join-Path $testRoot 'lib/owner-paths.ps1')
+    Copy-Item (Join-Path $repo 'plugins/legion/tools.json') $catalogFolder
+    Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/paths.ps1') (Join-Path $testRoot 'lib/owner-paths.ps1')
     @'
 . (Join-Path $PSScriptRoot 'lib/owner-paths.ps1')
-$catalog = Get-Content (Join-Path $PSScriptRoot '../plugins/ps-ai/tools.json') -Raw | ConvertFrom-Json
+$catalog = Get-Content (Join-Path $PSScriptRoot '../plugins/legion/tools.json') -Raw | ConvertFrom-Json
 Assert-Equal $env:HOME $env:USERPROFILE 'Both profile variables use the same home'
 foreach ($name in @('HOME', 'USERPROFILE') + @($catalog.tools.configEnv)) {
     $folder = [Environment]::GetEnvironmentVariable($name, 'Process')

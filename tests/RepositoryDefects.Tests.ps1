@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$setup = Join-Path $root 'plugins/ps-ai/bin/legion-repository.ps1'
+$setup = Join-Path $root 'plugins/legion/bin/legion-repository.ps1'
 $sandbox = Join-Path $root ('.agents/temp/repository-defects-' + [guid]::NewGuid().ToString('N'))
 $gitCommand = (Get-Command git -CommandType Application | Select-Object -First 1).Source
 $savedEnv = @{}

@@ -1,9 +1,9 @@
 {
-  "name": "ps-ai-marketplace",
+  "name": "ps-legion-marketplace",
   "plugins": [
     {
-      "name": "ps-ai",
-      "source": { "source": "local", "path": "./plugins/ps-ai" },
+      "name": "legion",
+      "source": { "source": "local", "path": "./plugins/legion" },
       "policy": { "installation": "AVAILABLE" },
       "category": "productivity"
     }

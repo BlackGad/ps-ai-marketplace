@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$script = Join-Path $root 'plugins/ps-ai/hooks/detect-mode.ps1'
+$script = Join-Path $root 'plugins/legion/hooks/detect-mode.ps1'
 $tempRoot = Join-Path $root ('.agents/temp/restructure/hook-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
@@ -8,7 +8,7 @@ try {
     $hookPlugin = Join-Path $tempRoot 'hook-plugin'
     New-Item -ItemType Directory -Path (Join-Path $hookPlugin 'hooks'), (Join-Path $hookPlugin 'bin/lib') -Force | Out-Null
     foreach ($file in @('hooks/detect-mode.ps1','bin/lib/common.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','bin/legion-update.ps1','plugin.json')) {
-        Copy-Item (Join-Path $root "plugins/ps-ai/$file") (Join-Path $hookPlugin $file)
+        Copy-Item (Join-Path $root "plugins/legion/$file") (Join-Path $hookPlugin $file)
     }
     @'
 function Get-LegionUpdateHome { Join-Path $PSScriptRoot '../../home' }
@@ -34,7 +34,7 @@ function Get-LegionUpdateText { throw 'offline fixture' }
     Assert-True ($mode.Text -match 'legion-member' -and $mode.Text -match 'cannot summon' -and $mode.Text -match 'LEGION_TASK') 'Member context activates its skill and names the task variable'
     $mode = Get-LegionMode -Repo $fixtureRepo -Environment @{ LEGION_ROLE = 'member' }
     Assert-Equal 'none' $mode.Mode 'Missing task disables member mode'
-    Assert-Equal 'ps-ai: LEGION_ROLE=member without LEGION_TASK; ignored.' $mode.Text 'Missing task warning'
+    Assert-Equal 'legion: LEGION_ROLE=member without LEGION_TASK; ignored.' $mode.Text 'Missing task warning'
     # Construct retired names so the old-name scan stays useful after the rename.
     $oldEnvironment = @{ ('PS_AI' + '_ROLE') = 'legion'; ('PS_AI' + '_TASK') = 'x.md' }
     foreach ($environment in @($oldEnvironment, @{ LEGION_ROLE = 'legion'; LEGION_TASK = 'x.md' })) {
@@ -112,7 +112,7 @@ function Get-LegionUpdateText { throw 'offline fixture' }
     Copy-Item (Join-Path $hookPlugin 'bin/lib/paths.ps1') (Join-Path $copy 'bin/lib/paths.ps1')
     '. (Join-Path $PSScriptRoot ''paths.ps1''); function Get-LegionLease { throw "fixture lease read failure" }' | Set-Content (Join-Path $copy 'bin/lib/common.ps1')
     $failedHook = Join-Path $copy 'hooks/detect-mode.ps1'
-    $warning = 'ps-ai: mode detection failed; continuing without mode context.'
+    $warning = 'legion: mode detection failed; continuing without mode context.'
     Assert-Equal $warning (& pwsh -NoProfile -File $failedHook -Repo $fixtureRepo -Format text) 'Text hook fails open'
     Assert-Equal 0 $LASTEXITCODE 'Text hook failure exits zero'
     $failedJson = & pwsh -NoProfile -File $failedHook -Repo $fixtureRepo -Format context-json | ConvertFrom-Json

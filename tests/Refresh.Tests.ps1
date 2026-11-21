@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$refresh = Join-Path $root 'plugins/ps-ai/bin/legion-refresh.ps1'
+$refresh = Join-Path $root 'plugins/legion/bin/legion-refresh.ps1'
 $tempRoot = Join-Path $root ('.agents/temp/refresh-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
@@ -8,7 +8,7 @@ try {
     $alternateHome = Join-Path $tempRoot 'alternate home'
     & $refresh -HomeRoot $alternateHome | Out-Null
     & {
-        . (Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
+        . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -NoRun
         foreach ($name in @('legion')) {
             $path = Join-Path $alternateHome ".legion/bin/$name"
             Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "RefreshCreatesMissing creates $name"
@@ -17,7 +17,7 @@ try {
             $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
             foreach ($suffix in $suffixes) {
                 $target = Read-LegionOwnerCommandTarget -Path "$path$suffix" -Script "$name.ps1"
-                Assert-Equal (Join-Path $root "plugins/ps-ai/bin/$name.ps1") $target.Path 'RefreshCreatesMissing targets the installed script'
+                Assert-Equal (Join-Path $root "plugins/legion/bin/$name.ps1") $target.Path 'RefreshCreatesMissing targets the installed script'
                 Assert-Equal 1 (@($target.Arguments | Where-Object { $_ -eq '-HomeRoot' }).Count) 'RefreshAlternateHome binds the new shim once'
                 Assert-Equal $alternateHome ($target.Arguments[1].Trim("'" + '"')) 'RefreshAlternateHome binds the selected home'
             }
@@ -56,7 +56,7 @@ try {
     } | ConvertTo-Json -Depth 20 | Set-Content $file
     $ownerBytes = [IO.File]::ReadAllText($file)
     & {
-        . (Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
+        . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -NoRun
         New-FoundryWrappers -Id foundry-a -Tool claude -HomeRoot $tempRoot
     }
     'stale runtime' | Set-Content (Join-Path $runtime 'legion-foundry.ps1')
@@ -74,16 +74,16 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
     '@pwsh -NoProfile -File "C:\old\cache\bin\legion.ps1" -Account chosen -Repo "\\server\team$\work folder" %*' | Set-Content $cmdShim
     & $refresh -HomeRoot $tempRoot | Out-Null
     $homeFlag = & {
-        . (Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
+        . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -NoRun
         '-HomeRoot ' + (ConvertTo-LegionShellLiteral $tempRoot)
     }
     Assert-True ((Get-Content $shim -Raw).Contains($homeFlag)) 'R4 B4 refresh binds an older unbound command to the selected home'
     & $refresh -HomeRoot $tempRoot | Out-Null
     Assert-Equal 1 ([regex]::Matches((Get-Content $shim -Raw), '-HomeRoot ').Count) 'R4 B4 refresh preserves one home binding'
     & $refresh -HomeRoot $tempRoot | Out-Null
-    Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/ps-ai/bin/legion-foundry.ps1'))) ([IO.File]::ReadAllText((Join-Path $runtime 'legion-foundry.ps1'))) 'Approved refresh updates copied runtime bytes'
+    Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/legion/bin/legion-foundry.ps1'))) ([IO.File]::ReadAllText((Join-Path $runtime 'legion-foundry.ps1'))) 'Approved refresh updates copied runtime bytes'
     foreach ($name in @('foundry', 'tools')) {
-        Assert-Equal ([IO.File]::ReadAllText((Join-Path $root "plugins/ps-ai/bin/lib/$name.ps1"))) ([IO.File]::ReadAllText((Join-Path $runtime "lib/$name.ps1"))) "Refresh updates the $name library in the current runtime layout"
+        Assert-Equal ([IO.File]::ReadAllText((Join-Path $root "plugins/legion/bin/lib/$name.ps1"))) ([IO.File]::ReadAllText((Join-Path $runtime "lib/$name.ps1"))) "Refresh updates the $name library in the current runtime layout"
     }
     & {
         . (Join-Path $runtime 'legion-foundry.ps1') -NoRun
@@ -92,7 +92,7 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
     Assert-True ((Get-Content (Join-Path $bin 'foundry-a') -Raw).Contains('.runtime')) 'Refresh regenerates owned Foundry wrapper'
     foreach ($path in @($shim,$cmdShim)) {
         $text = Get-Content $path -Raw
-        Assert-True ($text.Contains((Join-Path $root 'plugins/ps-ai/bin/legion.ps1'))) 'Refresh retargets the existing legion shim'
+        Assert-True ($text.Contains((Join-Path $root 'plugins/legion/bin/legion.ps1'))) 'Refresh retargets the existing legion shim'
         Assert-True ($text.Contains('-Account chosen')) 'Refresh preserves shim arguments'
     }
     Assert-True ((Get-Content $cmdShim -Raw).Contains('-Repo "\\server\team$\work folder"')) 'R5 B2 refresh preserves the quoted batch dollar path'
@@ -118,7 +118,7 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
     [IO.File]::WriteAllText((Join-Path $bin 'legion'), $stale)
     & $refresh -HomeRoot $tempRoot | Out-Null
     $fixed = [IO.File]::ReadAllText((Join-Path $bin 'legion'))
-    Assert-True ($fixed.Contains((Join-Path $root 'plugins/ps-ai/bin/legion.ps1')) -and $fixed.Contains('-OwnerFlag keep')) 'Refresh retargets a stale command and keeps its flags'
+    Assert-True ($fixed.Contains((Join-Path $root 'plugins/legion/bin/legion.ps1')) -and $fixed.Contains('-OwnerFlag keep')) 'Refresh retargets a stale command and keeps its flags'
 } finally {
     if ([IO.Path]::GetFullPath($tempRoot).StartsWith([IO.Path]::GetFullPath((Join-Path $root '.agents/temp/')))) {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force

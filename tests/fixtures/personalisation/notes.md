@@ -1,4 +1,4 @@
-# ps-ai notes
+# legion notes
 
 ## Communication
 

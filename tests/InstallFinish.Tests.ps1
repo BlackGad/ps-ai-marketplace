@@ -4,13 +4,13 @@ $repo = Split-Path $PSScriptRoot -Parent
 $failures = @()
 foreach ($case in $Cases) {
     try { & {
-        . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+        . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
         . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
         $scratch = Join-Path $repo ('.agents/temp/install-finish-' + [guid]::NewGuid().ToString('N'))
         $plugin = Join-Path $scratch 'installed'
         New-Item -ItemType Directory -Path $plugin -Force | Out-Null
-        Copy-Item -LiteralPath (Join-Path $repo 'plugins/ps-ai/bin') -Destination $plugin -Recurse
-        '{"name":"ps-ai","version":"0.8.0"}' | Set-Content -LiteralPath (Join-Path $plugin 'plugin.json')
+        Copy-Item -LiteralPath (Join-Path $repo 'plugins/legion/bin') -Destination $plugin -Recurse
+        '{"name":"legion","version":"0.8.0"}' | Set-Content -LiteralPath (Join-Path $plugin 'plugin.json')
         $fixturePwsh = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
         $catalog = Get-InstallCatalog -Source $repo
         $state = @{ Ready=$true; UserPath='fixture-existing'; Writes=0; Winget=0; Zip=0; Answer='y' }
@@ -40,7 +40,7 @@ foreach ($case in $Cases) {
             $folder = [string]$env:CLAUDE_CONFIG_DIR
             if ($Command -contains 'list') {
                 if ($Command -contains 'marketplace') { return @{ExitCode=0;Output=@(Get-FixtureMarketplaceListing -Tool claude -Source $repo)} }
-                $listing = if ($installed[$folder]) { '[{"id":"ps-ai@ps-ai-marketplace","enabled":true,"installPath":' + (ConvertTo-Json $plugin -Compress) + '}]' } else { '[]' }
+                $listing = if ($installed[$folder]) { '[{"id":"legion@ps-legion-marketplace","enabled":true,"installPath":' + (ConvertTo-Json $plugin -Compress) + '}]' } else { '[]' }
                 return @{ExitCode=0;Output=@($listing)}
             }
             if ($Command[2] -eq 'install') { $installed[$folder]=$true }
@@ -63,12 +63,12 @@ foreach ($case in $Cases) {
                 }
                 'InstallQuestionNamesPath' {
                     $null = Invoke-LegionInstaller @options
-                    Assert-Equal 'Install ps-ai for claude now, and add ~/.legion/bin to your PATH? [y/N]' ($questions -join '|') 'InstallQuestionNamesPath: one question covers PATH'
+                    Assert-Equal 'Install legion for claude now, and add ~/.legion/bin to your PATH? [y/N]' ($questions -join '|') 'InstallQuestionNamesPath: one question covers PATH'
                     Assert-Equal 1 $state.Writes 'InstallQuestionNamesPath: consent adds user PATH once'
                     Assert-True (Test-Path -LiteralPath (Join-Path $scratch '.legion/bin') -PathType Container) 'InstallQuestionNamesPath: command folder exists'
                     $questions.Clear()
                     $null = Invoke-LegionInstaller @options
-                    Assert-Equal 'Install ps-ai for claude now? [y/N]' ($questions -join '|') 'InstallQuestionNamesPath: existing PATH needs no PATH question'
+                    Assert-Equal 'Install legion for claude now? [y/N]' ($questions -join '|') 'InstallQuestionNamesPath: existing PATH needs no PATH question'
                     Assert-Equal 1 $state.Writes 'InstallQuestionNamesPath: repeat does not rewrite PATH'
                 }
                 'InstallMissingPowerShell' {
@@ -107,7 +107,7 @@ foreach ($case in $Cases) {
                 'InstallNextStep' {
                     foreach ($track in @('release','main')) {
                         $output = @(Invoke-LegionInstaller @options -Ref $track -Yes)
-                        Assert-Equal "installed: ps-ai 0.8.0 ($track)" $output[-2] 'InstallNextStep: installed plugin version and track'
+                        Assert-Equal "installed: legion 0.8.0 ($track)" $output[-2] 'InstallNextStep: installed plugin version and track'
                         Assert-Equal 'next: legion add claude (or legion in a repository)' $output[-1] 'InstallNextStep: explains the next action'
                     }
                 }

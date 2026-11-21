@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/stale-marketplace-' + [guid]::NewGuid().ToString('N'))
     $checkout = Join-Path $sandbox 'checkout'
@@ -10,17 +10,17 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-Equal $sandbox $env:CODEX_HOME 'Stale marketplace recovery uses selected account'
         $line = $Command -join '|'
         if ($line -eq 'codex|plugin|marketplace|list|--json') {
-            return @{ ExitCode=0; Output=@(@{ marketplaces=@(@{ name='ps-ai-marketplace'; root=$checkout; marketplaceSource=@{sourceType='git';source='https://github.com/BlackGad/ps-ai-marketplace.git'} }) } | ConvertTo-Json -Depth 10 -Compress) }
+            return @{ ExitCode=0; Output=@(@{ marketplaces=@(@{ name='ps-legion-marketplace'; root=$checkout; marketplaceSource=@{sourceType='git';source='https://github.com/BlackGad/ps-ai-marketplace.git'} }) } | ConvertTo-Json -Depth 10 -Compress) }
         }
         if ($line -eq 'codex|plugin|list') {
-            $output = if ($state.Installed) { @('ps-ai@ps-ai-marketplace installed, enabled') } else { @() }
+            $output = if ($state.Installed) { @('legion@ps-legion-marketplace installed, enabled') } else { @() }
             return @{ ExitCode=0; Output=$output }
         }
         $state.Calls.Add($line)
         if ($line -eq 'codex|plugin|marketplace|upgrade') {
             if ($state.FailRefresh) { return @{ExitCode=1; Output=@(); ErrorOutput=@('fixture refresh failure')} }
             New-Item -ItemType Directory -Path $checkout -Force | Out-Null
-        } elseif ($line -eq 'codex|plugin|add|ps-ai@ps-ai-marketplace') {
+        } elseif ($line -eq 'codex|plugin|add|legion@ps-legion-marketplace') {
             if (-not (Test-Path -LiteralPath $checkout)) { throw 'registered marketplace root is missing' }
             $state.Installed = $true
         } else { throw "Unexpected mutation: $line" }
@@ -29,7 +29,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     try {
         New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
         $null = Invoke-LegionInstallSteps -Tool codex -Source 'BlackGad/ps-ai-marketplace' -ConfigEnv CODEX_HOME -ConfigDir $sandbox
-        Assert-Equal 'codex|plugin|marketplace|upgrade,codex|plugin|add|ps-ai@ps-ai-marketplace' ($state.Calls -join ',') 'Missing root refreshes before plugin install without re-registering'
+        Assert-Equal 'codex|plugin|marketplace|upgrade,codex|plugin|add|legion@ps-legion-marketplace' ($state.Calls -join ',') 'Missing root refreshes before plugin install without re-registering'
         $state.Calls.Clear()
         $null = Invoke-LegionInstallSteps -Tool codex -Source 'BlackGad/ps-ai-marketplace' -ConfigEnv CODEX_HOME -ConfigDir $sandbox
         Assert-Equal 0 $state.Calls.Count 'Healthy repeat does not mutate the account'
@@ -52,7 +52,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 }
 
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $entry = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw | ConvertFrom-Json
     $entry.plugin.marketplaceUpdate = @('refresh-fixture-market')

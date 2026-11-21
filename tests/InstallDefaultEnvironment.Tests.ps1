@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $entry = Get-InstallTool -Tool claude
     $captured = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/listings/claude-plugins.json')
@@ -24,7 +24,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     try {
         $env:CLAUDE_CONFIG_DIR = 'selected-account'
         $output = @(Invoke-LegionUpdateSteps -Entry $entry)
-        Assert-True ($observed -contains 'claude|plugin|update|ps-ai@ps-ai-marketplace') 'Default update unsets environment override rather than passing empty string'
+        Assert-True ($observed -contains 'claude|plugin|update|legion@ps-legion-marketplace') 'Default update unsets environment override rather than passing empty string'
         Assert-Equal 'selected-account' $env:CLAUDE_CONFIG_DIR 'Default update restores inherited override'
         Remove-Item Env:CLAUDE_CONFIG_DIR
         $null = Invoke-LegionUpdateSteps -Entry $entry

@@ -1,4 +1,4 @@
-. (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+. (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
 . (Join-Path $PSScriptRoot 'MarketplaceListing.ps1')
 $catalog = Get-InstallCatalog -Source $repo
 $sandbox = Join-Path $repo ('.agents/temp/uninstall-clean-' + [guid]::NewGuid().ToString('N'))
@@ -23,11 +23,11 @@ function Invoke-ClosedInput {
     $callEnvironments.Add($entry.id + '=' + [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process'))
     if ($line -ceq ((@($entry.command) + $entry.plugin.list) -join '|')) {
         if ($state.FailVerify -and $writes.Count) { return @{ExitCode=7;Output=@()} }
-        # Only: when set, just that tool has ps-ai installed, so the others are not survivors.
+        # Only: when set, just that tool has legion installed, so the others are not survivors.
         $installed = $state.Plugin -and (-not $state.Only -or $state.Only -ceq $entry.id)
         $output = if ($entry.plugin.listing.format -eq 'json') {
-            if ($installed) { '[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]' } else { '[]' }
-        } elseif ($installed) { 'ps-ai@ps-ai-marketplace installed (disabled)' } else { '' }
+            if ($installed) { '[{"id":"legion@ps-legion-marketplace","enabled":false}]' } else { '[]' }
+        } elseif ($installed) { 'legion@ps-legion-marketplace installed (disabled)' } else { '' }
         return @{ExitCode=0;Output=@($output)}
     }
     if ($line -ceq ((@($entry.command) + $entry.plugin.marketplaceList) -join '|')) {

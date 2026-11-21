@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/fresh-codex-' + [guid]::NewGuid())
     New-Item -ItemType Directory -Path $sandbox | Out-Null
@@ -15,10 +15,10 @@ $repo = Split-Path $PSScriptRoot -Parent
             }
             if ($state.FailListing) { return @{ ExitCode=1; Output=@(); ErrorOutput=@('fixture permission denied') } }
             if ($Command -contains 'marketplace') {
-                $listing = @{ marketplaces=@(@{ name='ps-ai-marketplace'; root=$folder }) } | ConvertTo-Json -Depth 4 -Compress
+                $listing = @{ marketplaces=@(@{ name='ps-legion-marketplace'; root=$folder }) } | ConvertTo-Json -Depth 4 -Compress
                 return @{ ExitCode=0; Output=@($listing) }
             }
-            $output = if ($state.Installed) { 'ps-ai@ps-ai-marketplace enabled' } else { 'No marketplace plugins found.' }
+            $output = if ($state.Installed) { 'legion@ps-legion-marketplace enabled' } else { 'No marketplace plugins found.' }
             return @{ ExitCode=0; Output=@($output) }
         }
         Assert-True (Test-Path -LiteralPath $folder -PathType Container) 'Codex home exists before a mutating command'
@@ -32,7 +32,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-True (-not (Test-Path -LiteralPath $folder)) 'Preview leaves the missing home untouched'
         Assert-Equal 0 $state.Mutations 'Preview never runs a mutating CLI command'
         $null = Invoke-LegionInstallSteps -Tool codex -Source $repo -ConfigEnv CODEX_HOME -ConfigDir $folder
-        Assert-True $state.Installed 'Fresh logged-out Codex home installs ps-ai'
+        Assert-True $state.Installed 'Fresh logged-out Codex home installs legion'
         $mutations = $state.Mutations
         $repeat = @(Invoke-LegionInstallSteps -Tool codex -Source $repo -ConfigEnv CODEX_HOME -ConfigDir $folder)
         Assert-Equal $mutations $state.Mutations 'Repeat install makes no changes'

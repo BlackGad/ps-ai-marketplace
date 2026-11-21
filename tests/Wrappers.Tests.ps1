@@ -1,8 +1,8 @@
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $root = Split-Path $PSScriptRoot -Parent
-$account = Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1'
-$tempRoot = Join-Path (Get-TestTempPath) ('ps-ai-tests/' + [guid]::NewGuid())
+$account = Join-Path $root 'plugins/legion/bin/legion-account.ps1'
+$tempRoot = Join-Path (Get-TestTempPath) ('legion-tests/' + [guid]::NewGuid())
 $previousLog = $env:LEGION_WRAPPER_LOG
 $previousExpand = $env:LEGION_WRAPPER_EXPAND
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null

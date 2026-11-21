@@ -4,11 +4,11 @@ function Get-FixtureMarketplaceListing {
     $items = @()
     if ($Source) {
         switch ($Tool) {
-            fourth { $items += @{name='ps-ai-marketplace'; source=$Source} }
-            fourth-cli { $items += @{name='ps-ai-marketplace'; source=$Source} }
-            claude { $items += @{name='ps-ai-marketplace'; source='github'; repo=$Source} }
-            codex { $items += @{name='ps-ai-marketplace'; root=$PSScriptRoot; marketplaceSource=@{sourceType='git'; source=$Source}} }
-            copilot { $items += @{name='ps-ai-marketplace'; source="GitHub: $Source"; isDefault=$false} }
+            fourth { $items += @{name='ps-legion-marketplace'; source=$Source} }
+            fourth-cli { $items += @{name='ps-legion-marketplace'; source=$Source} }
+            claude { $items += @{name='ps-legion-marketplace'; source='github'; repo=$Source} }
+            codex { $items += @{name='ps-legion-marketplace'; root=$PSScriptRoot; marketplaceSource=@{sourceType='git'; source=$Source}} }
+            copilot { $items += @{name='ps-legion-marketplace'; source="GitHub: $Source"; isDefault=$false} }
             default { throw "Unknown fixture tool $Tool" }
         }
     }

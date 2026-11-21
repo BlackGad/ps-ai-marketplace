@@ -25,11 +25,11 @@
       "plugin": {
         "marketplaceListing": {"format": "json", "nameField": "name"},
         "defaultConfigDir": "~/.claude",
-        "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
-        "uninstall": ["plugin", "uninstall", "ps-ai@ps-ai-marketplace"],
-        "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-ai-marketplace", "--scope", "user"],
-        "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
-        "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
+        "installedRoot": "plugins/cache/ps-legion-marketplace/legion",
+        "uninstall": ["plugin", "uninstall", "legion@ps-legion-marketplace"],
+        "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-legion-marketplace", "--scope", "user"],
+        "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-legion-marketplace"],
+        "update": ["plugin", "update", "legion@ps-legion-marketplace"],
         "marketplaceAddRef": ["plugin", "marketplace", "add", "{source}#{ref}"],
         "marketplaceAdd": [
           "plugin",
@@ -40,7 +40,7 @@
         "install": [
           "plugin",
           "install",
-          "ps-ai@ps-ai-marketplace"
+          "legion@ps-legion-marketplace"
         ],
         "marketplaceList": [
           "plugin",
@@ -71,11 +71,11 @@
       "plugin": {
         "marketplaceListing": {"format": "json", "collectionField": "marketplaces", "nameField": "name", "rootField": "root"},
         "defaultConfigDir": "~/.codex",
-        "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
-        "uninstall": ["plugin", "remove", "ps-ai@ps-ai-marketplace"],
-        "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-ai-marketplace"],
+        "installedRoot": "plugins/cache/ps-legion-marketplace/legion",
+        "uninstall": ["plugin", "remove", "legion@ps-legion-marketplace"],
+        "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-legion-marketplace"],
         "marketplaceUpdate": ["plugin", "marketplace", "upgrade"],
-        "update": ["plugin", "add", "ps-ai@ps-ai-marketplace"],
+        "update": ["plugin", "add", "legion@ps-legion-marketplace"],
         "marketplaceAddRef": ["plugin", "marketplace", "add", "{source}", "--ref", "{ref}"],
         "marketplaceAdd": [
           "plugin",
@@ -86,7 +86,7 @@
         "install": [
           "plugin",
           "add",
-          "ps-ai@ps-ai-marketplace"
+          "legion@ps-legion-marketplace"
         ],
         "marketplaceList": [
           "plugin",
@@ -104,7 +104,7 @@
       },
       "hooks": {
         "status": "trust once with /hooks",
-        "hint": "Codex: approve the ps-ai hooks once with /hooks in a Codex session."
+        "hint": "Codex: approve the legion hooks once with /hooks in a Codex session."
       },
       "installHint": "npm install -g @openai/codex"
     },
@@ -116,10 +116,10 @@
         "marketplaceListing": {"format": "json", "nameField": "name"},
         "defaultConfigDir": "~/.copilot",
         "installedRoot": "installed-plugins",
-        "uninstall": ["plugin", "uninstall", "ps-ai@ps-ai-marketplace"],
-        "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-ai-marketplace", "--force"],
-        "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
-        "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
+        "uninstall": ["plugin", "uninstall", "legion@ps-legion-marketplace"],
+        "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-legion-marketplace", "--force"],
+        "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-legion-marketplace"],
+        "update": ["plugin", "update", "legion@ps-legion-marketplace"],
         "marketplaceAddRef": ["plugin", "marketplace", "add", "{source}#{ref}"],
         "marketplaceAdd": [
           "plugin",
@@ -130,7 +130,7 @@
         "install": [
           "plugin",
           "install",
-          "ps-ai@ps-ai-marketplace"
+          "legion@ps-legion-marketplace"
         ],
         "marketplaceList": [
           "plugin",

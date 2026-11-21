@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $entry = Get-InstallTool claude
     $sandbox = Join-Path $repo ('.agents/temp/install-refresh-' + [guid]::NewGuid().ToString('N'))
@@ -18,7 +18,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         if ($Command[2] -eq 'list') {
             if ($state.Missing -or ($state.Updated -and $state.Disappeared)) { return @{ExitCode=0;Output=@('[]')} }
             $path = if ($state.Updated) { $newPlugin } else { $oldPlugin }
-            $json = @(@{id='ps-ai@ps-ai-marketplace'; enabled=$true; installPath=$path}) | ConvertTo-Json -Compress -AsArray
+            $json = @(@{id='legion@ps-legion-marketplace'; enabled=$true; installPath=$path}) | ConvertTo-Json -Compress -AsArray
             return @{ExitCode=0;Output=@($json)}
         }
         if ($state.Fail) { return @{ExitCode=8;Output=@()} }
@@ -29,7 +29,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     try {
         foreach ($folder in @($oldPlugin,$newPlugin)) {
             New-Item -ItemType Directory -Path (Join-Path $folder 'bin') -Force | Out-Null
-            '{"name":"ps-ai","version":"0.3.0"}' | Set-Content (Join-Path $folder 'plugin.json')
+            '{"name":"legion","version":"0.3.0"}' | Set-Content (Join-Path $folder 'plugin.json')
         }
         'throw "stale refresh script invoked"' | Set-Content (Join-Path $oldPlugin 'bin/legion-refresh.ps1')
         ('param($HomeRoot); $HomeRoot | Set-Content -LiteralPath ''' + $marker.Replace("'", "''") + '''') | Set-Content (Join-Path $newPlugin 'bin/legion-refresh.ps1')
@@ -49,8 +49,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         $null = Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account -DryRun
         Assert-True (-not (Test-Path $marker)) 'Preview never invokes refresh'
         $state.Disappeared=$true
-        New-Item -ItemType Directory -Path (Join-Path $sandbox 'selected-home/.claude/plugins/cache/ps-ai-marketplace/ps-ai') -Force | Out-Null
-        Copy-Item -LiteralPath $newPlugin -Destination (Join-Path $sandbox 'selected-home/.claude/plugins/cache/ps-ai-marketplace/ps-ai/0.3.0') -Recurse
+        New-Item -ItemType Directory -Path (Join-Path $sandbox 'selected-home/.claude/plugins/cache/ps-legion-marketplace/legion') -Force | Out-Null
+        Copy-Item -LiteralPath $newPlugin -Destination (Join-Path $sandbox 'selected-home/.claude/plugins/cache/ps-legion-marketplace/legion/0.3.0') -Recurse
         $previousConfig = $env:CLAUDE_CONFIG_DIR
         try {
             $env:CLAUDE_CONFIG_DIR = 'selected-account'
@@ -68,7 +68,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 }
 
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/refresh-cache-' + [guid]::NewGuid().ToString('N'))
     $configRoot = Join-Path $sandbox 'selected-account'
@@ -76,7 +76,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome (Join-Path $sandbox 'selected-home')
     function Invoke-ClosedInput {
         param($Command)
-        if ($Command[0] -eq 'copilot') { return @{ExitCode=0;Output=@('ps-ai@ps-ai-marketplace (v0.3.0) (enabled)')} }
+        if ($Command[0] -eq 'copilot') { return @{ExitCode=0;Output=@('legion@ps-legion-marketplace (v0.3.0) (enabled)')} }
         $calls.Add($Command)
         @{ExitCode=0;Output=@()}
     }
@@ -84,7 +84,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         foreach ($version in @('0.2.0','0.3.0')) {
             $plugin = Join-Path $configRoot "installed-plugins/arbitrary-layout/$version"
             New-Item -ItemType Directory -Path (Join-Path $plugin 'bin') -Force | Out-Null
-            ('{"name":"ps-ai","version":"' + $version + '"}') | Set-Content (Join-Path $plugin 'plugin.json')
+            ('{"name":"legion","version":"' + $version + '"}') | Set-Content (Join-Path $plugin 'plugin.json')
             '# inert refresh fixture' | Set-Content (Join-Path $plugin 'bin/legion-refresh.ps1')
         }
         $null = Invoke-InstallRefresh -Entry (Get-InstallTool copilot) -ConfigDir $configRoot
@@ -100,13 +100,13 @@ $repo = Split-Path $PSScriptRoot -Parent
         $marketplace = Join-Path $sandbox 'live-marketplace'
         $livePlugin = Join-Path $marketplace 'extensions/orchestration'
         New-Item -ItemType Directory -Path (Join-Path $marketplace '.claude-plugin'), (Join-Path $livePlugin 'bin') -Force | Out-Null
-        '{"plugins":[{"name":"ps-ai","source":"./extensions/orchestration"}]}' | Set-Content -LiteralPath (Join-Path $marketplace '.claude-plugin/marketplace.json')
-        '{"name":"ps-ai","version":"0.6.0"}' | Set-Content -LiteralPath (Join-Path $livePlugin 'plugin.json')
+        '{"plugins":[{"name":"legion","source":"./extensions/orchestration"}]}' | Set-Content -LiteralPath (Join-Path $marketplace '.claude-plugin/marketplace.json')
+        '{"name":"legion","version":"0.6.0"}' | Set-Content -LiteralPath (Join-Path $livePlugin 'plugin.json')
         '# inert live refresh fixture' | Set-Content -LiteralPath (Join-Path $livePlugin 'bin/legion-refresh.ps1')
         function Invoke-ClosedInput {
             param($Command)
             if ($Command[0] -eq 'copilot') {
-                return @{ ExitCode = 0; Output = @('Live Plugins (loaded from a local marketplace directory, never copied):', '  • ps-ai@ps-ai-marketplace (v0.6.0) (enabled)', "      from $marketplace") }
+                return @{ ExitCode = 0; Output = @('Live Plugins (loaded from a local marketplace directory, never copied):', '  • legion@ps-legion-marketplace (v0.6.0) (enabled)', "      from $marketplace") }
             }
             $calls.Add($Command)
             return @{ ExitCode = 0; Output = @() }

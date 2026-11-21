@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-$accountScript = Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1'
+$accountScript = Join-Path $root 'plugins/legion/bin/legion-account.ps1'
 $homeRoot = Join-Path $root ('.agents/temp/lean-accounts-' + [guid]::NewGuid().ToString('N'))
 $file = Join-Path $homeRoot '.legion/configuration/personalisation.json'
 New-Item -ItemType Directory (Split-Path $file), (Join-Path $homeRoot 'existing') -Force | Out-Null

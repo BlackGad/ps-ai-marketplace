@@ -1,11 +1,11 @@
 $root = Split-Path $PSScriptRoot -Parent
-$recipe = Get-Content -LiteralPath (Join-Path $root 'plugins/ps-ai/skills/legion-copilot/references/run.md') -Raw
+$recipe = Get-Content -LiteralPath (Join-Path $root 'plugins/legion/skills/legion-copilot/references/run.md') -Raw
 
 if ($IsWindows) {
     $tempRoot = Join-Path $root ('.agents/temp/copilot-prompt-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
     try {
-        $accountScript = Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1'
+        $accountScript = Join-Path $root 'plugins/legion/bin/legion-account.ps1'
         $fakeTool = Join-Path $tempRoot 'fake-copilot.ps1'
         @'
 ConvertTo-Json -InputObject @($args) | Set-Content -LiteralPath (Join-Path $PSScriptRoot 'arguments.json')

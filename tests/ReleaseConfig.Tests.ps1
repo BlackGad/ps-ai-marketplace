@@ -10,9 +10,9 @@ Assert-Equal 'simple' $package.'release-type' 'Release type'
 Assert-Equal $false $package.'include-component-in-tag' 'Tag has no component'
 
 $expectedPaths = @(
-    'plugins/ps-ai/.claude-plugin/plugin.json'
-    'plugins/ps-ai/.codex-plugin/plugin.json'
-    'plugins/ps-ai/plugin.json'
+    'plugins/legion/.claude-plugin/plugin.json'
+    'plugins/legion/.codex-plugin/plugin.json'
+    'plugins/legion/plugin.json'
 )
 $extraFiles = @($package.'extra-files')
 Assert-Equal 3 $extraFiles.Count 'Extra file count'

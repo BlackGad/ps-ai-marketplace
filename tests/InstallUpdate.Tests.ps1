@@ -1,11 +1,11 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
     $expected = @{
-        claude = @('plugin|marketplace|update|ps-ai-marketplace', 'plugin|update|ps-ai@ps-ai-marketplace')
-        copilot = @('plugin|marketplace|update|ps-ai-marketplace', 'plugin|update|ps-ai@ps-ai-marketplace')
-        codex = @('plugin|marketplace|upgrade', 'plugin|add|ps-ai@ps-ai-marketplace')
+        claude = @('plugin|marketplace|update|ps-legion-marketplace', 'plugin|update|legion@ps-legion-marketplace')
+        copilot = @('plugin|marketplace|update|ps-legion-marketplace', 'plugin|update|legion@ps-legion-marketplace')
+        codex = @('plugin|marketplace|upgrade', 'plugin|add|legion@ps-legion-marketplace')
     }
     foreach ($tool in $catalog.tools) {
         Assert-Equal $expected[$tool.id][0] ($tool.plugin.marketplaceUpdate -join '|') "$($tool.id) marketplace refresh metadata"
@@ -19,7 +19,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 }
 
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/restructure/update-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path (Join-Path $sandbox '.legion/configuration') -Force | Out-Null
@@ -52,8 +52,8 @@ $repo = Split-Path $PSScriptRoot -Parent
             if ($state.FailList) { return @{ExitCode=7; Output=@('list failed')} }
             if ($state.Missing) { return @{ExitCode=0; Output=@($(if ($entry.id -eq 'claude') { '[]' }))} }
             # Disabled plugins still have an installed copy that needs refreshing.
-            $output = if ($entry.id -eq 'claude') { ConvertTo-Json -InputObject @(@{id='ps-ai@ps-ai-marketplace';enabled=$false;installPath=$fixturePlugin}) -Compress }
-                else { "ps-ai@ps-ai-marketplace installed (disabled) $fixturePlugin" }
+            $output = if ($entry.id -eq 'claude') { ConvertTo-Json -InputObject @(@{id='legion@ps-legion-marketplace';enabled=$false;installPath=$fixturePlugin}) -Compress }
+                else { "legion@ps-legion-marketplace installed (disabled) $fixturePlugin" }
             return @{ExitCode=0; Output=@($output)}
         }
         if ($state.FailUpdate) { return @{ExitCode=8; Output=@('update failed')} }
@@ -75,16 +75,16 @@ $repo = Split-Path $PSScriptRoot -Parent
             Assert-Equal 'inherited-account' ([Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')) 'Update restores caller config env'
         }
         $custom = Join-Path $sandbox 'custom account'
-        Assert-True ($calls -contains "claude:$custom|claude|plugin|update|ps-ai@ps-ai-marketplace") 'Registered custom folder refreshes'
-        Assert-True ($calls -contains "codex:$(Join-Path $sandbox '.legion/agents/codex-a')|codex|plugin|add|ps-ai@ps-ai-marketplace") 'Codex refresh repeats add without remove'
+        Assert-True ($calls -contains "claude:$custom|claude|plugin|update|legion@ps-legion-marketplace") 'Registered custom folder refreshes'
+        Assert-True ($calls -contains "codex:$(Join-Path $sandbox '.legion/agents/codex-a')|codex|plugin|add|legion@ps-legion-marketplace") 'Codex refresh repeats add without remove'
         Assert-Equal 0 @($calls | Where-Object { $_ -match '\|remove\||\|install\|' }).Count 'Installed plugin updates do not remove or reinstall'
-        Assert-True (($output -join "`n").Contains('claude plugin update ps-ai@ps-ai-marketplace')) 'Each mutation prints its command'
+        Assert-True (($output -join "`n").Contains('claude plugin update legion@ps-legion-marketplace')) 'Each mutation prints its command'
 
         $calls.Clear()
         $preview = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Update -DryRun)
         Assert-Equal 7 $calls.Count 'Dry run reads installed state for seven targets'
         Assert-Equal 0 @($calls | Where-Object { $_ -notmatch '\|list(?:\|--json)?$' }).Count 'Dry run only invokes read-only listings'
-        Assert-True (($preview -join "`n").Contains('codex plugin add ps-ai@ps-ai-marketplace')) 'Dry run prints refresh commands'
+        Assert-True (($preview -join "`n").Contains('codex plugin add legion@ps-legion-marketplace')) 'Dry run prints refresh commands'
         Assert-True (($preview -join "`n").Contains('custom account')) 'Dry run includes recorded accounts'
 
         $calls.Clear()
@@ -101,7 +101,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $declined = @(Invoke-LegionInstaller -Tools claude -ConfigDir absent -Source $repo -Catalog $catalog -Update)
         Assert-Equal 1 $script:questions 'A missing plugin asks before a fresh install'
         Assert-Equal 0 @($calls | Where-Object { $_ -match '\|(add|install)\|' }).Count 'A declined install adds no marketplace and installs nothing'
-        Assert-True (($declined -join "`n") -match 'Update ps-ai for claude in absent \(not installed\)') 'Preview names the missing install before declining'
+        Assert-True (($declined -join "`n") -match 'Update legion for claude in absent \(not installed\)') 'Preview names the missing install before declining'
         Assert-True ($declined -contains 'Nothing changed. Run again with -Yes to apply.') 'A declined update explains that nothing changed'
         $calls.Clear()
         $script:questions = 0
@@ -111,7 +111,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $calls.Clear()
         $output = @(Invoke-LegionInstaller -Tools claude -ConfigDir absent -Source $repo -Catalog $catalog -Update)
         Assert-True ($calls -contains "claude:absent|claude|plugin|marketplace|add|$(Resolve-InstallSource $repo)") 'Update registers marketplace for missing plugin'
-        Assert-True ($calls -contains 'claude:absent|claude|plugin|install|ps-ai@ps-ai-marketplace') 'Update installs missing plugin'
+        Assert-True ($calls -contains 'claude:absent|claude|plugin|install|legion@ps-legion-marketplace') 'Update installs missing plugin'
         Assert-True (($output -join "`n") -notmatch 'skip: .*\(not installed\)') 'Missing plugin is no longer skipped'
         $state.Missing = $false
 

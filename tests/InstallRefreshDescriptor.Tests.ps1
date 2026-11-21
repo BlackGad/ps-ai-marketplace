@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $entry = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw | ConvertFrom-Json
     $entry.plugin | Add-Member defaultConfigDir '~/.fixture-agent-data'
@@ -12,13 +12,13 @@ $repo = Split-Path $PSScriptRoot -Parent
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
     function Invoke-ClosedInput {
         param($Command)
-        if ($Command[0] -eq 'fourth-cli') { return @{ExitCode=0; Output=@('ps-ai@ps-ai-marketplace (v0.3.0) (enabled)')} }
+        if ($Command[0] -eq 'fourth-cli') { return @{ExitCode=0; Output=@('legion@ps-legion-marketplace (v0.3.0) (enabled)')} }
         $calls.Add($Command)
         @{ExitCode=0; Output=@()}
     }
     try {
         New-Item -ItemType Directory -Path (Join-Path $plugin 'bin') -Force | Out-Null
-        '{"name":"ps-ai","version":"0.3.0"}' | Set-Content (Join-Path $plugin 'plugin.json')
+        '{"name":"legion","version":"0.3.0"}' | Set-Content (Join-Path $plugin 'plugin.json')
         '# inert refresh fixture' | Set-Content (Join-Path $plugin 'bin/legion-refresh.ps1')
         $null = Invoke-InstallRefresh -Entry $entry
         Assert-Equal 1 $calls.Count 'Fourth tool refresh uses descriptor config root and installed-files path'
@@ -39,7 +39,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 }
 
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $descriptor = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw | ConvertFrom-Json
     $descriptor.plugin | Add-Member defaultConfigDir '~/.fixture-agent-data'
     $descriptor.plugin | Add-Member installedRoot 'actual-installed-files'

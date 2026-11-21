@@ -5,7 +5,7 @@ $standIns = Join-Path $scratch 'bin'
 New-Item -ItemType Directory -Path $standIns -Force | Out-Null
 $savedExit = $global:LASTEXITCODE
 try {
-    . (Join-Path $root 'plugins/ps-ai/bin/legion.ps1')
+    . (Join-Path $root 'plugins/legion/bin/legion.ps1')
     $script:LegionBin = $standIns
 
     # The stand-in records whether anything is piped after it, then prints and fails.

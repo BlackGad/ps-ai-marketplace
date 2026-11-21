@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-$skills = Join-Path $root 'plugins/ps-ai/skills'
+$skills = Join-Path $root 'plugins/legion/skills'
 
 function Get-SkillLines {
     param([string]$Relative)
@@ -64,7 +64,7 @@ foreach ($gone in @('registered in owner personalisation', 'Validate afterward',
 Assert-True ($text -notmatch '\birm\b') 'the remote irm installer is gone from the skill text'
 
 $personalisation = Get-SkillText 'legion-personalisation/SKILL.md'
-foreach ($rule in @('exactly one question per message', 'Save preferences, rulings and lessons that must persist in shared ps-ai files', 'independent channels with the same priority', 'first acknowledge it there at once')) {
+foreach ($rule in @('exactly one question per message', 'Save preferences, rulings and lessons that must persist in shared legion files', 'independent channels with the same priority', 'first acknowledge it there at once')) {
     Assert-True $personalisation.Contains($rule) "personalisation keeps '$rule'"
 }
 Assert-True ((Get-SkillText 'legion-overseer/SKILL.md').Contains('will not respond for a while')) 'overseer announces unresponsive periods'

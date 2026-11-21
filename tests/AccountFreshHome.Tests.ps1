@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-$accountScript = Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1'
+$accountScript = Join-Path $root 'plugins/legion/bin/legion-account.ps1'
 $homeRoot = Join-Path $root ('.agents/temp/fresh-home-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $homeRoot -Force | Out-Null
 try {
@@ -19,7 +19,7 @@ try {
 
     # Replace discovery in a plugin copy: no Azure tool, real home, PATH change, or network.
     $plugin = Join-Path $homeRoot 'plugin'
-    Copy-Item (Join-Path $root 'plugins/ps-ai') $plugin -Recurse
+    Copy-Item (Join-Path $root 'plugins/legion') $plugin -Recurse
     @'
 function Test-FoundryToken {
     param([switch]$Login)
@@ -54,7 +54,7 @@ function Get-FoundryDeployments {
         foreach ($action in @('remove', 'rename', 'models')) {
             $message = ''
             try { & $accountScript -Action $action -Id codex-a -HomeRoot $other | Out-Null } catch { $message = $_.Exception.Message }
-            Assert-Equal 'No ps-ai settings yet; add an agent first.' $message "$action explains missing settings"
+            Assert-Equal 'No legion settings yet; add an agent first.' $message "$action explains missing settings"
             Assert-True (-not (Test-Path -LiteralPath $other)) "$action creates no settings or folders"
         }
     } finally {

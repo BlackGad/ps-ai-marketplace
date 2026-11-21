@@ -1,7 +1,7 @@
 $root = Split-Path $PSScriptRoot -Parent
-$script = Join-Path $root 'plugins/ps-ai/bin/legion-lease.ps1'
-. (Join-Path $root 'plugins/ps-ai/bin/lib/common.ps1')
-$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
+$script = Join-Path $root 'plugins/legion/bin/legion-lease.ps1'
+. (Join-Path $root 'plugins/legion/bin/lib/common.ps1')
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('legion-tests/' + [guid]::NewGuid())
 $repo = Join-Path $tempRoot 'repo'
 $leasePath = Join-Path $repo '.legion/temp/overseer.lock'
 New-Item -ItemType Directory -Path (Split-Path $leasePath -Parent) -Force | Out-Null

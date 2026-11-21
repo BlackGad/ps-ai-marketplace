@@ -1,13 +1,13 @@
 $root = Split-Path $PSScriptRoot -Parent
-$accountScript = Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1'
-. (Join-Path $root 'plugins/ps-ai/bin/legion-validate.ps1') -NoRun
+$accountScript = Join-Path $root 'plugins/legion/bin/legion-account.ps1'
+. (Join-Path $root 'plugins/legion/bin/legion-validate.ps1') -NoRun
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $savedPath = $env:PATH
 $savedAnswers = $env:LEGION_FAKE_AZ
 $savedLog = $env:LEGION_FAKE_AZ_LOG
 $savedToolLog = $env:LEGION_FAKE_TOOL_LOG
-$tempRoot = Join-Path (Get-TestTempPath) ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path (Get-TestTempPath) ('legion-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
     $env:LEGION_FAKE_TOOL_LOG = Join-Path $tempRoot 'tool-log.json'
@@ -233,19 +233,19 @@ approval_policy = "never"
         Copy-Item $file $collisionFile
         $preservedCommand = Join-Path $collisionHome 'preserved-cli.ps1'
         '# inert preserved CLI' | Set-Content -LiteralPath $preservedCommand
-        & $accountScript -Action add -Id ps-ai-runtime -Tool claude -Command $preservedCommand -HomeRoot $collisionHome | Out-Null
-        $collisionWrapper = Join-Path $collisionHome '.legion/bin/ps-ai-runtime'
+        & $accountScript -Action add -Id legion-runtime -Tool claude -Command $preservedCommand -HomeRoot $collisionHome | Out-Null
+        $collisionWrapper = Join-Path $collisionHome '.legion/bin/legion-runtime'
         $collisionBytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))
         $runtimeChanges = [Collections.Generic.List[string]]::new()
         $collisionRunner = Sync-LegionFoundryRuntime -Tool claude -HomeRoot $collisionHome -Changes $runtimeChanges
         Assert-Equal $collisionRunner $runtimeChanges[-1] 'Runtime publishes the runner after its dependencies'
-        Assert-True (Test-Path $collisionRunner -PathType Leaf) 'A valid account named ps-ai-runtime cannot block runtime sync'
+        Assert-True (Test-Path $collisionRunner -PathType Leaf) 'A valid account named legion-runtime cannot block runtime sync'
         Assert-Equal $collisionBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))) 'Runtime sync preserves same-named account wrapper'
-        & $accountScript -Action rename -Id ps-ai-runtime -NewId runtime-renamed -HomeRoot $collisionHome | Out-Null
-        & $accountScript -Action add -Id ps-ai-runtime -Tool claude -Command $preservedCommand -HomeRoot $collisionHome | Out-Null
+        & $accountScript -Action rename -Id legion-runtime -NewId runtime-renamed -HomeRoot $collisionHome | Out-Null
+        & $accountScript -Action add -Id legion-runtime -Tool claude -Command $preservedCommand -HomeRoot $collisionHome | Out-Null
         Assert-True ((Get-Content $collisionWrapper -Raw).Contains('preserved-cli')) 'Account creation still works after runtime installation'
         $pluginCopy = Join-Path $tempRoot 'source-plugin'
-        Copy-Item (Join-Path $root 'plugins/ps-ai') $pluginCopy -Recurse
+        Copy-Item (Join-Path $root 'plugins/legion') $pluginCopy -Recurse
         . (Join-Path $pluginCopy 'bin/legion-account.ps1') -HomeRoot $homeRoot
         $null = Sync-LegionFoundryRuntime -Tool codex -HomeRoot $homeRoot
         $allFiles = @(Get-ChildItem $runtime -Recurse -File)

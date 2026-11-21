@@ -1,13 +1,13 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/bin/legion-account.ps1') -NoRun
     $sandbox = Join-Path $repo ('.agents/temp/stable-schema-' + [guid]::NewGuid().ToString('N'))
     $path = Join-Path $sandbox 'personalisation.json'
     $stable = 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/legion/schemas/personalisation.schema.json'
     try {
         New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
         $data = Get-Content (Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json') -Raw | ConvertFrom-Json
-        foreach ($old in @('C:/Users/example/.codex/plugins/cache/ps-ai-marketplace/ps-ai/0.4.1/schemas/personalisation.schema.json', '/home/example/.claude/plugins/cache/ps-ai-marketplace/ps-ai/0.4.1/schemas/personalisation.schema.json', $stable)) {
+        foreach ($old in @('C:/Users/example/.codex/plugins/cache/ps-legion-marketplace/legion/0.4.1/schemas/personalisation.schema.json', '/home/example/.claude/plugins/cache/ps-legion-marketplace/legion/0.4.1/schemas/personalisation.schema.json', $stable)) {
             $data.'$schema' = $old
             $data | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $path
             Write-LegionPersonalisation -Data $data -Path $path
@@ -27,5 +27,5 @@ $repo = Split-Path $PSScriptRoot -Parent
         Remove-Item -LiteralPath $sandbox -Recurse -Force
     }
 }
-$template = Get-Content (Join-Path $repo 'plugins/ps-ai/skills/legion-repository/references/project-template.json') -Raw | ConvertFrom-Json
+$template = Get-Content (Join-Path $repo 'plugins/legion/skills/legion-repository/references/project-template.json') -Raw | ConvertFrom-Json
 Assert-Equal 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/legion/schemas/project.schema.json' $template.'$schema' 'Project template uses a stable schema reference'

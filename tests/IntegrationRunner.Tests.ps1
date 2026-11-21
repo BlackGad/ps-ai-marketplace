@@ -170,11 +170,11 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
 
     # The real steps exist in the spec's order and depend on what they need (never run here).
     $steps = @(Get-IntegrationSteps -HomeRoot (Join-Path $tempRoot 'home') -Checkout $root -Work (Join-Path $tempRoot 'work') -Os 'linux')
-    Assert-Equal 'install-cli-claude,install-cli-codex,install-cli-copilot,install-ps-ai,setup,add,remove,repo-private,repo-shared,uninstall,reinstall,restore-launchers,purge' (($steps.Name) -join ',') 'step order'
+    Assert-Equal 'install-cli-claude,install-cli-codex,install-cli-copilot,install-legion,setup,add,remove,repo-private,repo-shared,uninstall,reinstall,restore-launchers,purge' (($steps.Name) -join ',') 'step order'
     Assert-True ($steps.Where({ $_.Name -eq 'reinstall' }).DependsOn -contains 'uninstall') 'reinstall needs uninstall'
     Assert-True ($steps.Where({ $_.Name -eq 'restore-launchers' }).DependsOn -contains 'reinstall') 'restore-launchers needs reinstall'
     Assert-True ($steps.Where({ $_.Name -eq 'purge' }).DependsOn -contains 'restore-launchers') 'purge needs restored launchers'
-    Assert-True ($steps.Where({ $_.Name -eq 'setup' }).DependsOn -contains 'install-ps-ai') 'setup needs install-ps-ai'
+    Assert-True ($steps.Where({ $_.Name -eq 'setup' }).DependsOn -contains 'install-legion') 'setup needs install-legion'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $tempRoot 'home'))) 'building the steps touches nothing'
 
     # ---- Fakes below replace the runner's functions; each block loads the real ones again first. ----
@@ -188,7 +188,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         $script:calls = @()
     }
 
-    # CLI process logs are runtime output; all ps-ai state must still be compared.
+    # CLI process logs are runtime output; all legion state must still be compared.
     foreach ($repeatStep in 'Invoke-LegionInstallRepeat', 'Invoke-SetupRepeat') {
         . Reset-Runner
         $repeatHome = Join-Path $tempRoot $repeatStep
@@ -208,7 +208,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
                 Add-Content -LiteralPath $log -Value 'listing'
             }
             if ($script:ownedFile) { Add-Content -LiteralPath (Join-Path $script:Ctx.HomeRoot $script:ownedFile) -Value 'unexpected write' }
-            return @('skip: ps-ai (already done)')
+            return @('skip: legion (already done)')
         }
         $script:Ctx.HomeSnapshot = Get-IntegrationHomeSnapshot
         $result = Invoke-IntegrationBlock { & $repeatStep }
@@ -217,7 +217,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         $script:runtimeFiles += '.copilot/logs/process-3-300.log'
         $result = Invoke-IntegrationBlock { & $repeatStep }
         Assert-Equal 'passed' $result.Result "$repeatStep allows new CLI process logs"
-        foreach ($relative in '.copilot/settings.json', '.copilot/settings.json.lock', '.claude/plugins/installed_plugins.json', '.codex/config.toml', '.copilot/logs/ps-ai.json', '.copilot/logs/process-extra.log', '.codex/tmp/ps-ai.json', '.codex/plugins/cache/ps-ai-marketplace/ps-ai/0.6.0/SKILL.md', '.legion/configuration/notes.md') {
+        foreach ($relative in '.copilot/settings.json', '.copilot/settings.json.lock', '.claude/plugins/installed_plugins.json', '.codex/config.toml', '.copilot/logs/legion.json', '.copilot/logs/process-extra.log', '.codex/tmp/legion.json', '.codex/plugins/cache/ps-legion-marketplace/legion/0.6.0/SKILL.md', '.legion/configuration/notes.md') {
             $file = Join-Path $repeatHome $relative
             New-Item -ItemType Directory -Path (Split-Path $file) -Force | Out-Null
             Set-Content -LiteralPath $file -Value 'first'
@@ -251,16 +251,16 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         # A tiny fake CLI in a folder that is not on PATH yet.
         $savedFolder = Join-Path $fakeWork 'saved-bin'
         New-Item -ItemType Directory -Path $savedFolder -Force | Out-Null
-        $fakeCli = if ($IsWindows) { 'ps-ai-fake-cli.cmd' } else { 'ps-ai-fake-cli' }
+        $fakeCli = if ($IsWindows) { 'legion-fake-cli.cmd' } else { 'legion-fake-cli' }
         Set-Content -LiteralPath (Join-Path $savedFolder $fakeCli) -Value $(if ($IsWindows) { '@echo off' } else { '#!/bin/sh' })
         if (-not $IsWindows) { chmod +x (Join-Path $savedFolder $fakeCli) }
         function Get-IntegrationPersistentFolders { return @($savedFolder) }
-        $resolved = Resolve-IntegrationCommand 'ps-ai-fake-cli'
+        $resolved = Resolve-IntegrationCommand 'legion-fake-cli'
         Assert-True (Test-Path -LiteralPath $resolved -PathType Leaf) 'the executable is resolved from the saved PATH'
         Assert-True (@($env:PATH -split [IO.Path]::PathSeparator) -contains $savedFolder) 'the runner PATH now has the folder'
         $threw = $false
         function Get-IntegrationPersistentFolders { return @() }
-        try { Resolve-IntegrationCommand 'ps-ai-missing-cli' | Out-Null } catch { $threw = $true }
+        try { Resolve-IntegrationCommand 'legion-missing-cli' | Out-Null } catch { $threw = $true }
         Assert-True $threw 'a tool missing everywhere is an error'
     } finally { $env:PATH = $savedPath }
 
@@ -351,7 +351,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         . Install-Fakes
         $script:behavior = { param($call) if ($call.Tool -eq 'codex') { throw $refusal }; 'ok' }
         $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
-        Assert-True (-not ($calls | Where-Object { $_.Source -like '*ps-ai-marketplace' -and $_.Source -ne $root })) 'the main-push environment alone enables no fallback'
+        Assert-True (-not ($calls | Where-Object { $_.Source -eq $script:MarketplaceRepo -and $_.Source -ne $root })) 'the main-push environment alone enables no fallback'
         Assert-Equal 'codex' (@($script:Ctx.NotTested.Keys) -join ',') 'the release call skips codex'
     } finally { $env:GITHUB_REF = $savedRef; $env:GITHUB_EVENT_NAME = $savedEvent }
 
@@ -433,14 +433,14 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     & {
         . Reset-Runner
         $sharedRepo = New-IntegrationRepo 'rules-check' -WithRules
-        $rulesBlock = Get-Content -LiteralPath (Join-Path $root 'plugins/ps-ai/skills/legion-repository/references/rules-file-lines.md') -Raw
+        $rulesBlock = Get-Content -LiteralPath (Join-Path $root 'plugins/legion/skills/legion-repository/references/rules-file-lines.md') -Raw
         $rulesCopies = 1
         function New-IntegrationRepo { return $sharedRepo }
         function Assert-LegionItems { }
         function Invoke-RepositoryScript {
             Set-Content -LiteralPath (Join-Path $sharedRepo 'AGENTS.md') -Value ($rulesBlock * $rulesCopies)
             git -C $sharedRepo add AGENTS.md
-            git -C $sharedRepo commit --quiet -m 'Set up ps-ai orchestration'
+            git -C $sharedRepo commit --quiet -m 'Set up legion orchestration'
             return @('prepared: Shared orchestration')
         }
         Invoke-RepoSharedFirst | Out-Null
@@ -454,19 +454,19 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     # Listing: the catalog's arguments and parser; a disabled entry is not installed.
     . Reset-Runner
     function Invoke-IntegrationCli { param($Tool, $Arguments, $Folder) $script:calls += , @($Arguments | ForEach-Object { $_ }); return @{ ExitCode = 0; Lines = @($script:listing) } }
-    $script:listing = '[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]'
+    $script:listing = '[{"id":"legion@ps-legion-marketplace","enabled":false}]'
     Assert-True (-not (Test-IntegrationPluginListed 'claude' 'folder')) 'a disabled entry is not installed'
     Assert-True (Test-IntegrationPluginListed 'claude' 'folder' -IncludeDisabled) 'a disabled entry is still listed'
     Assert-Equal 'plugin list --json' (@($calls[0]) -join ' ') 'the catalog listing arguments are used'
-    $script:listing = '[{"id":"ps-ai@ps-ai-marketplace","enabled":true}]'
+    $script:listing = '[{"id":"legion@ps-legion-marketplace","enabled":true}]'
     Assert-True (Test-IntegrationPluginListed 'claude' 'folder') 'an enabled entry is installed'
     $script:listing = '[]'
     Assert-True (-not (Test-IntegrationPluginListed 'claude' 'folder' -IncludeDisabled)) 'an empty folder lists nothing'
     Assert-IntegrationControlFolder 'claude'
-    $script:listing = '[{"id":"ps-ai@ps-ai-marketplace","enabled":true}]'
+    $script:listing = '[{"id":"legion@ps-legion-marketplace","enabled":true}]'
     $threw = $false
     try { Assert-IntegrationControlFolder 'claude' } catch { $threw = $true }
-    Assert-True $threw 'a control folder that lists ps-ai fails'
+    Assert-True $threw 'a control folder that lists legion fails'
 
     # Uninstall: default and account folders are captured first and checked afterwards; the repeat must have nothing to do.
     . Reset-Runner
@@ -502,7 +502,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     try { Invoke-UninstallFirst | Out-Null } catch { $threw = $_.Exception.Message -like '*claude1*' }
     Assert-True $threw 'a plugin left in an account folder fails the uninstall'
     $script:stale = ''
-    $cacheFolder = Join-Path $fakeHome '.claude/plugins/cache/ps-ai-marketplace'
+    $cacheFolder = Join-Path $fakeHome '.claude/plugins/cache/ps-legion-marketplace'
     New-Item -ItemType Directory -Path $cacheFolder -Force | Out-Null
     $threw = $false
     try { Invoke-UninstallFirst | Out-Null } catch { $threw = $_.Exception.Message -like '*cache*' }
@@ -562,7 +562,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
                     return @{ ExitCode=$(if ($Tool -eq $script:purgeBadVersion) { 1 } else { 0 }); Lines=@('fixture version') }
                 }
                 $items = @()
-                if ($Tool -eq $script:purgeMarketplace) { $items = @(@{name='ps-ai-marketplace'}) }
+                if ($Tool -eq $script:purgeMarketplace) { $items = @(@{name='ps-legion-marketplace'}) }
                 $text = if ($Tool -eq 'codex') { @{marketplaces=$items} | ConvertTo-Json -Compress } else { ConvertTo-Json -InputObject $items -Compress }
                 return @{ ExitCode=0; Lines=@($text) }
             }
@@ -586,8 +586,8 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
                 foreach ($setting in $info.plugin.purge.settings) {
                     $path = Join-Path $folder $setting.path
                     New-Item -ItemType Directory -Path (Split-Path $path) -Force | Out-Null
-                    Set-Content -LiteralPath $path -Value 'ps-ai leftover'
-                    Assert-Throws { Assert-IntegrationPurgeComplete } "Purge assertions reject ps-ai text in $($setting.path)"
+                    Set-Content -LiteralPath $path -Value 'legion leftover'
+                    Assert-Throws { Assert-IntegrationPurgeComplete } "Purge assertions reject legion text in $($setting.path)"
                     Remove-Item -LiteralPath $path -Force
                 }
             }

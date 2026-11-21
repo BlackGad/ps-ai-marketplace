@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
     $fixtures = Join-Path $PSScriptRoot 'fixtures/install/listings'
     $sandbox = Join-Path $repo ('.agents/temp/dry-listings-' + [guid]::NewGuid().ToString('N'))
@@ -16,7 +16,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $calls.Add(($Command -join '|'))
         $file = if ($Command -contains 'marketplace') { "$($Command[0])-marketplaces.json" } else { 'claude-plugins.json' }
         $output = if ($Command -contains 'marketplace' -or $Command[0] -eq 'claude') { Get-Content (Join-Path $fixtures $file) }
-            else { @("ps-ai@ps-ai-marketplace installed, enabled 0.3.0 $fixturePlugin") }
+            else { @("legion@ps-legion-marketplace installed, enabled 0.3.0 $fixturePlugin") }
         if ($Command[0] -eq 'claude' -and $Command -notcontains 'marketplace') {
             $plugins = ($output -join "`n") | ConvertFrom-Json
             foreach ($plugin in $plugins) { $plugin | Add-Member installPath $fixturePlugin -Force }
@@ -36,12 +36,12 @@ $repo = Split-Path $PSScriptRoot -Parent
         $calls.Clear()
         $preview = @(Invoke-LegionInstaller -Catalog $catalog -Update -DryRun)
         Assert-Equal 3 $calls.Count 'Update DryRun checks installed state for every tool'
-        Assert-True ($preview -contains 'claude plugin update ps-ai@ps-ai-marketplace') 'Update DryRun detects captured Claude user plugin'
+        Assert-True ($preview -contains 'claude plugin update legion@ps-legion-marketplace') 'Update DryRun detects captured Claude user plugin'
         function Invoke-ClosedInput { @{ExitCode=0; Output=@('[]'); ErrorOutput=@()} }
         $preview = @(Invoke-LegionInstaller -Tools claude -Catalog $catalog -Update -DryRun)
         Assert-True ($preview -contains 'claude plugin marketplace add BlackGad/ps-ai-marketplace#stable') 'Update DryRun proposes registering missing marketplace'
-        Assert-True ($preview -contains 'claude plugin install ps-ai@ps-ai-marketplace') 'Update DryRun proposes installing absent plugin'
-        Assert-True (-not ($preview -contains 'claude plugin update ps-ai@ps-ai-marketplace')) 'Update DryRun never proposes updating absent plugin'
+        Assert-True ($preview -contains 'claude plugin install legion@ps-legion-marketplace') 'Update DryRun proposes installing absent plugin'
+        Assert-True (-not ($preview -contains 'claude plugin update legion@ps-legion-marketplace')) 'Update DryRun never proposes updating absent plugin'
     } finally {
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
         if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe listing fixture cleanup' }

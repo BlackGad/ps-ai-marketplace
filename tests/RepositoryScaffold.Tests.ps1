@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$setup = Join-Path $root 'plugins/ps-ai/bin/legion-repository.ps1'
+$setup = Join-Path $root 'plugins/legion/bin/legion-repository.ps1'
 $sandbox = Join-Path $root ('.agents/temp/repository-scaffold-' + [guid]::NewGuid().ToString('N'))
 $savedEnv = @{}
 foreach ($name in @('GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM')) {
@@ -51,7 +51,7 @@ try {
     Assert-True ($workflow.Contains('## legion orchestration')) 'Private keeps the rules block in workflow.md'
     Assert-True (-not $workflow.Contains('Gate:')) 'No gate line without -Gate'
     Assert-Equal '' ((git -C $legion status --porcelain) -join "`n") 'Private setup leaves the inner repo committed'
-    Assert-Equal 'Set up ps-ai orchestration' (git -C $legion log -1 --format=%s) 'Private commit message'
+    Assert-Equal 'Set up legion orchestration' (git -C $legion log -1 --format=%s) 'Private commit message'
     Assert-Equal '' ((git -C $repo status --porcelain) -join "`n") 'Private setup leaves the code repo clean'
     $repeat = @(& $setup -Repo $repo)
     Assert-Equal 1 $repeat.Count 'Repeat prints one line'
@@ -92,7 +92,7 @@ try {
     Assert-Equal 1 ([regex]::Matches($rules, '## legion orchestration')).Count 'Shared adds the rules block'
     Assert-True ($rules.StartsWith('rules in AGENTS.md')) 'Shared keeps the existing rules text'
     Assert-True (-not (Get-FileText (Join-Path $legion 'configuration/workflow.md')).Contains('## legion orchestration')) 'Shared keeps the block out of workflow.md'
-    Assert-Equal 'Set up ps-ai orchestration' (git -C $repo log -1 --format=%s) 'Shared commit message'
+    Assert-Equal 'Set up legion orchestration' (git -C $repo log -1 --format=%s) 'Shared commit message'
     Assert-Equal '' ((git -C $repo status --porcelain) -join "`n") 'Shared setup leaves the code repo clean'
     Assert-True (@(git -C $repo ls-files .legion) -contains '.legion/state/history/.gitkeep') 'Shared commits the setup files'
     Assert-Equal 'skip: Shared orchestration (already done)' (@(& $setup -Repo $repo -Mode Shared))[0] 'Shared repeat skips'

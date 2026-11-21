@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $failures = @()
     function Ensure-InstallPowerShell { $true }
@@ -34,7 +34,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         function Invoke-ClosedInput {
             param($Command)
             Assert-Equal 'codex|plugin|marketplace|list|--json' ($Command -join '|') 'KindIsPassed: marketplace listing is selected explicitly'
-            @{ ExitCode=0; Output=@('{"marketplaces":[{"name":"ps-ai-marketplace","root":"fixture"}]}') }
+            @{ ExitCode=0; Output=@('{"marketplaces":[{"name":"ps-legion-marketplace","root":"fixture"}]}') }
         }
         Assert-True (Test-InstallStepDone -Command @('codex','plugin','marketplace','add','example/market','--ref','stable') -Kind marketplace) 'KindIsPassed'
         'PASS KindIsPassed'

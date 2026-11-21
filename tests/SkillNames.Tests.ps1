@@ -1,5 +1,5 @@
 $repo = Split-Path $PSScriptRoot -Parent
-$skills = Join-Path $repo 'plugins/ps-ai/skills'
+$skills = Join-Path $repo 'plugins/legion/skills'
 
 foreach ($folder in Get-ChildItem -LiteralPath $skills -Directory) {
     Assert-True ($folder.Name.StartsWith('legion-')) "Skill folder $($folder.Name) starts with legion-"
@@ -12,7 +12,7 @@ foreach ($folder in Get-ChildItem -LiteralPath $skills -Directory) {
 # Old names are built from pieces so this file does not mention them. Owner file names such as
 # personalisation.json are not skill names and are renamed separately.
 $oldSkills = 'claude', 'codex', 'copilot', 'knowledge', 'legion', 'overseer', 'personalisation', 'repository', 'telegram', 'update'
-$oldPattern = ('ps-ai-(' + ($oldSkills -join '|') + ')(?!\.json)') + '|' + 'bin/ps-ai-'
+$oldPattern = ('legion-(' + ($oldSkills -join '|') + ')(?!\.json)') + '|' + 'bin/legion-'
 $leftovers = @()
 foreach ($file in (& git -C $repo ls-files)) {
     if ($file -eq 'CHANGELOG.md' -or $file -eq 'tests/SkillNames.Tests.ps1') { continue }
@@ -24,7 +24,7 @@ foreach ($file in (& git -C $repo ls-files)) {
     $lines = $text -split "`n"
     for ($i = 0; $i -lt $lines.Count; $i++) {
         # The retired owner commands keep their names until they are removed.
-        if ($lines[$i] -match 'ps-ai-(setup|status)') { continue }
+        if ($lines[$i] -match 'legion-(setup|status)') { continue }
         if ($lines[$i] -match $oldPattern) { $leftovers += "${file}:$($i + 1)" }
     }
 }

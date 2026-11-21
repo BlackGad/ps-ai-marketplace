@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-$runnerScript = Join-Path $root 'plugins/ps-ai/bin/legion-foundry.ps1'
+$runnerScript = Join-Path $root 'plugins/legion/bin/legion-foundry.ps1'
 . $runnerScript -NoRun
 Assert-True ([bool](Get-Command Get-FoundryLaunch -ErrorAction SilentlyContinue)) 'Foundry launch builder exists'
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
@@ -8,7 +8,7 @@ $savedEnvironment = @{}
 foreach ($name in @('PATH','LEGION_FAKE_AZ','LEGION_FAKE_AZ_LOG','LEGION_FAKE_TOOL_LOG','LEGION_FAKE_TOOL_EXIT','CLAUDE_CODE_USE_BEDROCK','ANTHROPIC_DEFAULT_SONNET_MODEL','CLAUDE_CONFIG_DIR')) {
     $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
 }
-$tempRoot = Join-Path (Get-TestTempPath) ('ps-ai-tests/' + [guid]::NewGuid())
+$tempRoot = Join-Path (Get-TestTempPath) ('legion-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 $fakeRoot = $null
 try {
@@ -103,7 +103,7 @@ try {
     $bin = Join-Path $homeRoot '.legion/bin'
     New-Item -ItemType Directory -Path $bin -Force | Out-Null
     $bundledRunner = & {
-        . (Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1') -HomeRoot $homeRoot
+        . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -HomeRoot $homeRoot
         foreach ($id in @('codex','copilot')) { $null = Sync-LegionFoundryRuntime -Tool $id -HomeRoot $homeRoot }
         Sync-LegionFoundryRuntime -Tool claude -HomeRoot $homeRoot
     }

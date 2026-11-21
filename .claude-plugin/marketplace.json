@@ -1,7 +1,7 @@
 {
-  "name": "ps-ai-marketplace",
+  "name": "ps-legion-marketplace",
   "owner": { "name": "BlackGad" },
   "plugins": [
-    { "name": "ps-ai", "source": "./plugins/ps-ai" }
+    { "name": "legion", "source": "./plugins/legion" }
   ]
 }

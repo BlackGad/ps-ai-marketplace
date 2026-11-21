@@ -1,7 +1,7 @@
 param([string]$Finding)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$statusScript = Join-Path $root 'plugins/ps-ai/bin/legion-status.ps1'
+$statusScript = Join-Path $root 'plugins/legion/bin/legion-status.ps1'
 Assert-True (Test-Path -LiteralPath $statusScript) 'Status script exists'
 $scratch = Join-Path $root ('.agents/temp/status-' + [guid]::NewGuid().ToString('N'))
 $fixtureHome = Join-Path $scratch 'home'
@@ -13,7 +13,7 @@ $savedStatusBin = $env:LEGION_STATUS_BIN
 try {
     $lines = @(& pwsh -NoProfile -File $statusScript -HomeRoot $fixtureHome -Repo $repo)
     Assert-Equal 0 $LASTEXITCODE 'Status without settings exits zero'
-    Assert-True ($lines -contains 'no ps-ai settings yet') 'No-settings explanation'
+    Assert-True ($lines -contains 'no legion settings yet') 'No-settings explanation'
     Assert-True ($lines -contains 'repo none') 'No orchestration reports repo none'
 
     . $statusScript -NoRun -HomeRoot $fixtureHome -Repo $repo
@@ -24,7 +24,7 @@ try {
             New-Item -ItemType Directory -Path $permissionBin -Force | Out-Null
             foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
                 foreach ($suffix in $(if ($IsWindows) { @('', '.cmd') } else { @('') })) {
-                    Get-LegionShimText -Script (Join-Path $root "plugins/ps-ai/bin/$($entry.Value)") -Windows:([bool]$suffix) |
+                    Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($entry.Value)") -Windows:([bool]$suffix) |
                         Set-Content -LiteralPath (Join-Path $permissionBin "$($entry.Key)$suffix")
                     if (-not $IsWindows -and $entry.Key -ne 'legion') {
                         $path = Join-Path $permissionBin $entry.Key
@@ -90,7 +90,7 @@ try {
         $expectedPath = if ($IsWindows) { 'yes' } else { 'no' }
         Assert-True ($lines -match "on PATH: $expectedPath") 'E3 status uses the shared platform PATH test'
         $needsPath = & {
-            . (Join-Path $root 'plugins/ps-ai/bin/legion-setup.ps1') -NoRun
+            . (Join-Path $root 'plugins/legion/bin/legion-setup.ps1') -NoRun
             function Get-SetupUserPath { return $env:PATH }
             (Get-SetupPlan -HomeRoot $fixtureHome).NeedsPath
         }
@@ -109,9 +109,9 @@ try {
     Assert-Equal ([bool]$IsWindows) (Test-LegionPathEntry -Path $env:PATH -Folder $bin) 'PATH case follows the platform'
 
     $config = Join-Path $fixtureHome '.legion/configuration'
-    $manifest = Join-Path $fixtureHome '.claude/plugins/cache/ps-ai-marketplace/ps-ai/0.6.0/plugin.json'
+    $manifest = Join-Path $fixtureHome '.claude/plugins/cache/ps-legion-marketplace/legion/0.6.0/plugin.json'
     New-Item -ItemType Directory -Path $config, $bin, (Split-Path $manifest) -Force | Out-Null
-    '{"name":"ps-ai","version":"0.6.0"}' | Set-Content -LiteralPath $manifest
+    '{"name":"legion","version":"0.6.0"}' | Set-Content -LiteralPath $manifest
     @{
         schemaVersion = 1
         agents = @(
@@ -122,14 +122,14 @@ try {
     } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $config 'personalisation.json')
     $commands = Get-LegionOwnerCommands
     foreach ($name in $commands.Keys) {
-        (Get-LegionShimText -Script (Join-Path $root "plugins/ps-ai/bin/$($commands[$name])")) |
+        (Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($commands[$name])")) |
             Set-Content -LiteralPath (Join-Path $bin $name)
         if (-not $IsWindows) {
             $path = Join-Path $bin $name
             [IO.File]::SetUnixFileMode($path, ([IO.File]::GetUnixFileMode($path) -bor [IO.UnixFileMode]::UserExecute))
         }
         if ($IsWindows) {
-            (Get-LegionShimText -Script (Join-Path $root "plugins/ps-ai/bin/$($commands[$name])") -Windows) |
+            (Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($commands[$name])") -Windows) |
                 Set-Content -LiteralPath (Join-Path $bin "$name.cmd")
         }
     }
@@ -153,8 +153,8 @@ try {
     }) -join '|'
     $lines = @(& pwsh -NoProfile -File $statusScript -HomeRoot $fixtureHome -Repo $repo)
     Assert-Equal 0 $LASTEXITCODE 'Configured status exits zero'
-    Assert-True ($lines -match 'claude-a\s+claude\s+.*ps-ai 0\.6\.0') 'Account with installed ps-ai'
-    Assert-True ($lines -match 'codex-a\s+codex\s+.*ps-ai missing') 'Account missing ps-ai'
+    Assert-True ($lines -match 'claude-a\s+claude\s+.*legion 0\.6\.0') 'Account with installed legion'
+    Assert-True ($lines -match 'codex-a\s+codex\s+.*legion missing') 'Account missing legion'
     Assert-True ($lines -match 'on PATH: yes') 'PATH yes output'
     Assert-True ($lines -contains 'commands: yes') 'All owner commands recognized'
     Assert-True ($lines -match 'my-telegram \(telegram\) -> claude-a') 'Channel binding output'
@@ -184,7 +184,7 @@ try {
     $lines = @(& $statusScript -HomeRoot $fixtureHome -Repo $repo)
     Assert-True ($lines -contains 'commands: blocked legion') 'Unrelated legion command is blocked'
     if ($IsWindows) {
-        (Get-LegionShimText -Script (Join-Path $root 'plugins/ps-ai/bin/legion.ps1') -Windows) |
+        (Get-LegionShimText -Script (Join-Path $root 'plugins/legion/bin/legion.ps1') -Windows) |
             Set-Content -LiteralPath (Join-Path $bin 'legion.cmd')
         $lines = @(& $statusScript -HomeRoot $fixtureHome -Repo $repo)
         Assert-True ($lines -contains 'commands: blocked legion') 'Conflicting extensionless file remains blocked beside a valid cmd shim'

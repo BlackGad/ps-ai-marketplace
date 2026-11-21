@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
     $catalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/install-targets-' + [guid]::NewGuid().ToString('N'))
@@ -20,8 +20,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         $output = if ($Command -contains 'marketplace') {
             Get-FixtureMarketplaceListing -Tool $entry.id -Source 'BlackGad/ps-ai-marketplace'
         } elseif ($entry.plugin.listing.format -eq 'json') {
-            ConvertTo-Json -InputObject @(@{id='ps-ai@ps-ai-marketplace';enabled=$true;installPath=$fixturePlugin}) -Compress
-        } else { "ps-ai@ps-ai-marketplace enabled $fixturePlugin" }
+            ConvertTo-Json -InputObject @(@{id='legion@ps-legion-marketplace';enabled=$true;installPath=$fixturePlugin}) -Compress
+        } else { "legion@ps-legion-marketplace enabled $fixturePlugin" }
         return @{ExitCode=0;Output=@($output)}
     }
     $saved = @{}

@@ -14,7 +14,7 @@ $repo = Split-Path $PSScriptRoot -Parent
             $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -ConfigDir selected -Uninstall -DryRun)
             $commands = @($preview | Where-Object { $_ -match 'codex plugin (remove|marketplace remove)' })
             Assert-Equal 1 $commands.Count 'Preview only lists installed steps'
-            $expected = if ($plugin) { 'codex plugin remove ps-ai@ps-ai-marketplace' } else { 'codex plugin marketplace remove ps-ai-marketplace' }
+            $expected = if ($plugin) { 'codex plugin remove legion@ps-legion-marketplace' } else { 'codex plugin marketplace remove ps-legion-marketplace' }
             Assert-True ($commands[0].EndsWith($expected)) 'Preview selects the installed step'
             Assert-Equal 0 $writes.Count 'Preview only reads'
         }

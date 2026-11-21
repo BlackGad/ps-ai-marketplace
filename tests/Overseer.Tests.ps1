@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$script = Join-Path $root 'plugins/ps-ai/bin/legion-overseer.ps1'
+$script = Join-Path $root 'plugins/legion/bin/legion-overseer.ps1'
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('overseer-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $tempRoot -Force | Out-Null
 git init --quiet $tempRoot 2>&1 | Out-Null
@@ -56,7 +56,7 @@ try { Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -Channel @(
 catch { Assert-Equal 'selected channels cannot share one launch' $_.Exception.Message 'ChannelIntersection exact failure' }
 & {
     $plugin = Join-Path $tempRoot 'plugin'
-    Copy-Item (Join-Path $root 'plugins/ps-ai') $plugin -Recurse
+    Copy-Item (Join-Path $root 'plugins/legion') $plugin -Recurse
     $fixtureKindFolder = Join-Path $plugin 'skills/legion-fixture-channel'
     New-Item -ItemType Directory $fixtureKindFolder -Force | Out-Null
     'Fixture channel.' | Set-Content (Join-Path $fixtureKindFolder 'SKILL.md')

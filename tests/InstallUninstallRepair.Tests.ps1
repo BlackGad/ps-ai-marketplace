@@ -2,8 +2,8 @@ $repo = Split-Path $PSScriptRoot -Parent
 # K4 and K11: after an uninstall, working commands survive through a remaining install, and only planned dead ones are removed.
 & {
     . (Join-Path $PSScriptRoot 'fixtures/install/UninstallSandbox.ps1')
-    . (Join-Path $repo 'plugins/ps-ai/bin/lib/commands.ps1')
-    . (Join-Path $repo 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/bin/lib/commands.ps1')
+    . (Join-Path $repo 'plugins/legion/bin/legion-account.ps1') -NoRun
     $bin = Join-Path $sandbox '.legion/bin'
     $installed = [Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::Ordinal)
     $pluginPaths = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
@@ -29,8 +29,8 @@ $repo = Split-Path $PSScriptRoot -Parent
             if ($state.FailTool -ceq $entry.id) { return @{ ExitCode=1; Output=@(); ErrorOutput=@('listing unavailable') } }
             if ($installed.ContainsKey($key) -and $installed[$key]) {
                 $output = if ($entry.id -eq 'claude') {
-                    ConvertTo-Json -InputObject @(@{ id = 'ps-ai@ps-ai-marketplace'; enabled = $true; version = '0.5.5'; installPath = $pluginPaths[$key] }) -Compress
-                } else { 'ps-ai@ps-ai-marketplace installed' }
+                    ConvertTo-Json -InputObject @(@{ id = 'legion@ps-legion-marketplace'; enabled = $true; version = '0.5.5'; installPath = $pluginPaths[$key] }) -Compress
+                } else { 'legion@ps-legion-marketplace installed' }
             } elseif ($entry.id -eq 'claude') { $output = '[]' }
             return @{ ExitCode = 0; Output = @($output); ErrorOutput = @() }
         }
@@ -44,9 +44,9 @@ $repo = Split-Path $PSScriptRoot -Parent
     }
     function New-FakePlugin {
         param([string]$Tool, [string]$Key, [string]$ConfigFolder)
-        $path = Join-Path $ConfigFolder 'plugins/cache/ps-ai-marketplace/ps-ai/0.5.5'
+        $path = Join-Path $ConfigFolder 'plugins/cache/ps-legion-marketplace/legion/0.5.5'
         New-Item -ItemType Directory -Path (Join-Path $path 'bin') -Force | Out-Null
-        '{"name":"ps-ai","version":"0.5.5"}' | Set-Content -LiteralPath (Join-Path $path 'plugin.json')
+        '{"name":"legion","version":"0.5.5"}' | Set-Content -LiteralPath (Join-Path $path 'plugin.json')
         '' | Set-Content -LiteralPath (Join-Path $path 'bin/legion-refresh.ps1')
         foreach ($name in @('legion')) {
             '' | Set-Content -LiteralPath (Join-Path $path "bin/$name.ps1")
@@ -106,7 +106,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -DryRun) -join "`n"
         Assert-True (-not $preview.Contains((Join-Path $bin 'legion'))) 'The plan does not remove commands a survivor needs'
         $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -Yes
-        Assert-True (Test-Path -LiteralPath (Join-Path $bin 'legion')) 'Commands stay while the default CLI folder still has ps-ai'
+        Assert-True (Test-Path -LiteralPath (Join-Path $bin 'legion')) 'Commands stay while the default CLI folder still has legion'
         Assert-Equal (Join-Path $defaultPlugin 'bin/legion.ps1') (Read-LegionOwnerCommandTarget -Path (Join-Path $bin 'legion') -Script legion.ps1).Path 'A default survivor supplies the working command target'
         Assert-Equal 0 $refreshed.Count 'Repair does not rewrite sibling commands through refresh'
 
@@ -142,7 +142,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $root = New-FakePlugin -Tool claude -Key ([IO.Path]::GetFullPath($named)) -ConfigFolder $named
         Remove-Item -LiteralPath (Join-Path $root 'bin/legion.ps1')
         Add-AccountWrapper -Id claude-b -Folder '~/.legion/agents/claude-b'
-        Get-LegionShimText -Script (Join-Path $sandbox '.codex/plugins/cache/ps-ai-marketplace/ps-ai/0.5.5/bin/legion.ps1') -Windows | Set-Content -LiteralPath (Join-Path $bin 'legion.cmd')
+        Get-LegionShimText -Script (Join-Path $sandbox '.codex/plugins/cache/ps-legion-marketplace/legion/0.5.5/bin/legion.ps1') -Windows | Set-Content -LiteralPath (Join-Path $bin 'legion.cmd')
         $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -DryRun) -join "`n"
         foreach ($name in @('legion', 'legion.cmd')) { Assert-True ($preview.Contains("Remove dead command: $(Join-Path $bin $name)")) 'An older survivor cannot provide legion' }
         $listed.Clear()

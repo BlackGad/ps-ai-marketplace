@@ -1,17 +1,17 @@
 $repoRoot = Split-Path $PSScriptRoot -Parent
-$schemaPath = Join-Path $repoRoot 'plugins/ps-ai/schemas/tool.schema.json'
-$skillsRoot = Join-Path $repoRoot 'plugins/ps-ai/skills'
-$helpersPath = Join-Path $repoRoot 'plugins/ps-ai/bin/install-tool/helpers.json'
+$schemaPath = Join-Path $repoRoot 'plugins/legion/schemas/tool.schema.json'
+$skillsRoot = Join-Path $repoRoot 'plugins/legion/skills'
+$helpersPath = Join-Path $repoRoot 'plugins/legion/bin/install-tool/helpers.json'
 
 # One structural check exercises shipped descriptors and their shared install definition.
-. (Join-Path $repoRoot 'plugins/ps-ai/bin/lib/tools.ps1')
+. (Join-Path $repoRoot 'plugins/legion/bin/lib/tools.ps1')
 Assert-Equal 'claude|codex|copilot' (@(Get-LegionTools).id -join '|') 'Shipped descriptors load'
 $shippedRecipes = Get-LegionInstallRecipes
 Assert-True ($shippedRecipes.ContainsKey('bun') -and $shippedRecipes.ContainsKey('node')) 'Shared helper recipes load'
 $fourthJson = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw
 
 # DiscoverFourthAndRejectInvalidNeighbors: folder additions need no shared id list.
-$toolsModule = Join-Path $repoRoot 'plugins/ps-ai/bin/lib/tools.ps1'
+$toolsModule = Join-Path $repoRoot 'plugins/legion/bin/lib/tools.ps1'
 Assert-True (Test-Path -LiteralPath $toolsModule) 'Tool discovery module exists'
 . $toolsModule
 $builtIns = @(Get-LegionTools)
@@ -38,7 +38,7 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $discoveryRoot 'legion-shared'), (Join-Path $discoveryRoot 'nested') -Force | Out-Null
     Copy-Item -LiteralPath $folder -Destination (Join-Path $discoveryRoot 'nested/legion-hidden') -Recurse
     Copy-Item -LiteralPath $folder -Destination (Join-Path $discoveryRoot 'unrelated') -Recurse
-    Assert-Equal 'fourth' (@(Get-LegionTools -SkillsRoot $discoveryRoot).id -join '|') 'Only direct ps-ai descriptors are discovered'
+    Assert-Equal 'fourth' (@(Get-LegionTools -SkillsRoot $discoveryRoot).id -join '|') 'Only direct legion descriptors are discovered'
     $fourth = Get-LegionTool -Tool fourth -SkillsRoot $discoveryRoot
     Assert-Equal $null (Get-LegionToolScript -Tool $fourth -Name foundry-config) 'Missing optional config adapter returns null'
     Assert-Equal 'fourth-cli' $fourth.command 'Tool id does not dictate executable'

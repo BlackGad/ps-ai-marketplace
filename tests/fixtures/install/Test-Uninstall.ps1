@@ -14,18 +14,18 @@ function Invoke-ClosedInput {
     $state.Calls++
     $line = $Command -join '|'
     if ($Command[2] -eq 'list') {
-        # Only codex has ps-ai here; the other CLIs must not look like surviving installs.
+        # Only codex has legion here; the other CLIs must not look like surviving installs.
         $output = if ($Command[0] -ne 'codex') { '[]' }
-        elseif ($state.Plugin) { 'ps-ai@ps-ai-marketplace installed, disabled' }
-        else { 'ps-ai@ps-ai-marketplace not installed' }
+        elseif ($state.Plugin) { 'legion@ps-legion-marketplace installed, disabled' }
+        else { 'legion@ps-legion-marketplace not installed' }
         return @{ExitCode=0;Output=@($output)}
     }
     if ($Command[3] -eq 'list') {
         $source = if ($state.Marketplace) { 'example/marketplace' } else { '' }
         return @{ExitCode=0;Output=@(Get-FixtureMarketplaceListing -Tool $Command[0] -Source $source)}
     }
-    if ($line -ne 'codex|plugin|remove|ps-ai@ps-ai-marketplace' -and
-        $line -ne 'codex|plugin|marketplace|remove|ps-ai-marketplace') { throw "Unexpected fake mutation: $line" }
+    if ($line -ne 'codex|plugin|remove|legion@ps-legion-marketplace' -and
+        $line -ne 'codex|plugin|marketplace|remove|ps-legion-marketplace') { throw "Unexpected fake mutation: $line" }
     if ($Command[2] -eq 'remove') { $state.Plugin=$false }
     else { $state.Marketplace=$false }
     $state.Writes++
@@ -36,9 +36,9 @@ New-Item -ItemType Directory -Path $bin -Force | Out-Null
 '#!/bin/sh
 exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-Path $bin 'legion')
 'owner file' | Set-Content (Join-Path $bin 'unrelated')
-$cache = Join-Path $fixtureHome '.codex/plugins/cache/ps-ai-marketplace'
+$cache = Join-Path $fixtureHome '.codex/plugins/cache/ps-legion-marketplace'
 $other = Join-Path $fixtureHome '.codex/plugins/cache/other-marketplace'
-New-Item -ItemType Directory -Path (Join-Path $cache 'ps-ai/0.1.0'), (Join-Path $cache 'ps-ai/0.4.0'), $other -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $cache 'legion/0.1.0'), (Join-Path $cache 'legion/0.4.0'), $other -Force | Out-Null
 'owner cache' | Set-Content (Join-Path $other 'keep.txt')
 # Exercise the downloaded script-block entry point, including top-level parameter forwarding.
 $overrides = ''

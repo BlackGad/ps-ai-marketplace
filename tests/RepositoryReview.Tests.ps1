@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$setup = Join-Path $root 'plugins/ps-ai/bin/legion-repository.ps1'
+$setup = Join-Path $root 'plugins/legion/bin/legion-repository.ps1'
 $sandbox = Join-Path $root ('.agents/temp/repository-review-' + [guid]::NewGuid().ToString('N'))
 $savedEnv = @{}
 foreach ($name in @('GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM')) {

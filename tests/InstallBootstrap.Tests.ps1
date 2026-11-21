@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 $bootstrap = Join-Path $repo 'install.ps1'
-$plugin = Join-Path $repo 'plugins/ps-ai/install.ps1'
+$plugin = Join-Path $repo 'plugins/legion/install.ps1'
 Assert-True (Test-Path -LiteralPath $plugin) 'BootstrapParamsMatchInstaller: the installed copy ships its installer'
 $signatures = foreach ($path in @($bootstrap, $plugin)) {
     $tokens = $null
@@ -15,7 +15,7 @@ Assert-Equal $signatures[1] $signatures[0] 'BootstrapParamsMatchInstaller: names
     . $plugin -NoRun
     . (Join-Path $PSScriptRoot 'fixtures/install/Test-RemoteInstaller.ps1') -Repo $repo -Installer $plugin -NoRun
     $scratch = Join-Path $repo ('.agents/temp/bootstrap-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path (Join-Path $scratch 'plugins/ps-ai') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $scratch 'plugins/legion') -Force | Out-Null
     try {
         $fakeBin = Join-Path $scratch 'bin'
         New-Item -ItemType Directory -Path $fakeBin -Force | Out-Null
@@ -26,8 +26,8 @@ Assert-Equal $signatures[1] $signatures[0] 'BootstrapParamsMatchInstaller: names
             & chmod +x (Join-Path $fakeBin 'claude')
         }
         # A source folder supplies data only; its executable must never run.
-        Copy-Item (Join-Path $repo 'plugins/ps-ai/tools.json') (Join-Path $scratch 'plugins/ps-ai/tools.json')
-        'throw "Source installer executed"' | Set-Content (Join-Path $scratch 'plugins/ps-ai/install.ps1')
+        Copy-Item (Join-Path $repo 'plugins/legion/tools.json') (Join-Path $scratch 'plugins/legion/tools.json')
+        'throw "Source installer executed"' | Set-Content (Join-Path $scratch 'plugins/legion/install.ps1')
         'throw "Source installer executed"' | Set-Content (Join-Path $scratch 'install.ps1')
         $runner = Join-Path $scratch 'invoke-text.ps1'
         New-InstallTextRunner -Path $runner
@@ -40,7 +40,7 @@ Assert-Equal $signatures[1] $signatures[0] 'BootstrapParamsMatchInstaller: names
                 if ($branch -eq 'main') { $extra = @('-Ref','main') }
                 $result = Invoke-ClosedInput -Command (@($runtime, '-NoProfile', '-File', $runner, '-Installer', $bootstrap, '-Plugin', $plugin, '-Fixture', $scratch, '-CliPath', $fakeBin) + $extra)
                 Assert-Equal 0 $result.ExitCode "BootstrapReleaseUrl: $($result.ErrorOutput -join ' ')"
-                Assert-True ($result.Output -contains "download=https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/$branch/plugins/ps-ai/install.ps1") "BootstrapReleaseUrl: $branch code is downloaded"
+                Assert-True ($result.Output -contains "download=https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/$branch/plugins/legion/install.ps1") "BootstrapReleaseUrl: $branch code is downloaded"
             }
             $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', $bootstrap, '-Plugin', $plugin, '-Fixture', $scratch, '-CliPath', $fakeBin, '-NoRelease')
             Assert-True ($result.ExitCode -ne 0) 'BootstrapNoRelease: failed release stops'
@@ -60,7 +60,7 @@ Assert-Equal $signatures[1] $signatures[0] 'BootstrapParamsMatchInstaller: names
             $copy = Join-Path $scratch 'installed'
             New-Item -ItemType Directory -Path $copy -Force | Out-Null
             Copy-Item $plugin (Join-Path $copy 'install.ps1')
-            $catalog = Get-Content (Join-Path $repo 'plugins/ps-ai/tools.json') -Raw | ConvertFrom-Json
+            $catalog = Get-Content (Join-Path $repo 'plugins/legion/tools.json') -Raw | ConvertFrom-Json
             $catalog.tools[0].installHint = 'sibling catalog selected'
             $catalog | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $copy 'tools.json')
             $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', (Join-Path $copy 'install.ps1'), '-Plugin', $plugin, '-Fixture', $scratch, '-Mode', 'catalog', '-Ref', 'main')

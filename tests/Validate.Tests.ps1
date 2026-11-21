@@ -1,6 +1,6 @@
 $root = Split-Path $PSScriptRoot -Parent
-$script = Join-Path $root 'plugins/ps-ai/bin/legion-validate.ps1'
-$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
+$script = Join-Path $root 'plugins/legion/bin/legion-validate.ps1'
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('legion-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
     $ownerFile = Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json'
@@ -86,7 +86,7 @@ try {
     $savedPath = $env:PATH
     try {
         New-Item -ItemType Directory (Split-Path $ownerPath -Parent) -Force | Out-Null
-        Copy-Item (Join-Path $repoRoot 'plugins/ps-ai') $plugin -Recurse
+        Copy-Item (Join-Path $repoRoot 'plugins/legion') $plugin -Recurse
         $fourthSkill = Join-Path $plugin 'skills/legion-fourth'
         Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') $fourthSkill -Recurse
         $owner = [pscustomobject]@{schemaVersion=1;agents=@();channels=@()}

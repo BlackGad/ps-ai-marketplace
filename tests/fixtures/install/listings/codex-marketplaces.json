@@ -1,8 +1,8 @@
 {
   "marketplaces": [
     {
-      "name": "ps-ai-marketplace",
-      "root": "C:\\Users\\example\\.codex\\.tmp\\marketplaces\\ps-ai-marketplace",
+      "name": "ps-legion-marketplace",
+      "root": "C:\\Users\\example\\.codex\\.tmp\\marketplaces\\ps-legion-marketplace",
       "marketplaceSource": {
         "sourceType": "git",
         "source": "https://github.com/BlackGad/ps-ai-marketplace.git"

@@ -10,7 +10,7 @@ foreach ($name in @('CLAUDE_CONFIG_DIR','CODEX_HOME','COPILOT_HOME')) { Remove-I
 $script:downloads = 0
 function Get-InstallSourceText {
     param($Url)
-    if ($Url -notin @('https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/stable/plugins/ps-ai/install.ps1', 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/install.ps1')) { throw "Unexpected URL: $Url" }
+    if ($Url -notin @('https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/stable/plugins/legion/install.ps1', 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/legion/install.ps1')) { throw "Unexpected URL: $Url" }
     $script:downloads++
     Write-Host "download=$Url"
     if ($NoRelease) { throw 'Fixture release unavailable' }
@@ -38,7 +38,7 @@ $script:installCatalog = Get-Content (Join-Path $Repo 'tests/fixtures/install/ca
     $catalog.tools += [pscustomobject]@{id='fourth';command='fourth-cli';configEnv='FOURTH_HOME';plugin=$fourth.plugin;hooks=$fourth.hooks;installHint='fixture only'}
     $script:installCatalog = Get-InstallCatalog -Catalog $catalog
     Assert-Equal 'fourth-cli|plugin|marketplace|add|local source' ((Get-InstallCommands fourth 'local source')[0] -join '|') 'Standalone fourth command uses catalog'
-    Assert-True (-not (Test-InstallListing -Kind plugin -Tool claude -Lines @('[{"id":"ps-ai@ps-ai-marketplace","enabled":"true"}]'))) 'Windows PowerShell JSON rejects string true'
+    Assert-True (-not (Test-InstallListing -Kind plugin -Tool claude -Lines @('[{"id":"legion@ps-legion-marketplace","enabled":"true"}]'))) 'Windows PowerShell JSON rejects string true'
     function Ensure-InstallPowerShell { throw 'Invalid metadata reached bootstrap' }
     foreach ($field in @('wingetId','portableCommand')) {
         $bad = $catalog | ConvertTo-Json -Depth 100 | ConvertFrom-Json
@@ -153,7 +153,7 @@ param($Tool)
 if ($args -contains 'marketplace') {
     if ($Tool -eq 'codex') { '{"marketplaces":[]}' } else { '[]' }
 } elseif ($Tool -eq 'claude') { '[]' }
-else { 'ps-ai@ps-ai-marketplace installed, enabled ' + (Join-Path (Split-Path $PSScriptRoot -Parent) 'installed-update') }
+else { 'legion@ps-legion-marketplace installed, enabled ' + (Join-Path (Split-Path $PSScriptRoot -Parent) 'installed-update') }
 '@ | Set-Content -LiteralPath $listingScript
     if ($env:OS -eq 'Windows_NT') {
         foreach ($tool in @('claude','codex','copilot')) {
@@ -171,8 +171,8 @@ else { 'ps-ai@ps-ai-marketplace installed, enabled ' + (Join-Path (Split-Path $P
     $standalone = Join-Path $sandbox 'install.ps1'
     Copy-Item -LiteralPath $fixtureInstaller -Destination $standalone
     Copy-Item -LiteralPath (Join-Path $Repo 'tests/fixtures/install/catalog.json') -Destination (Join-Path $sandbox 'tools.json')
-    New-Item -ItemType Directory -Path (Join-Path $sandbox 'plugins/ps-ai') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $sandbox 'tools.json') -Destination (Join-Path $sandbox 'plugins/ps-ai/tools.json')
+    New-Item -ItemType Directory -Path (Join-Path $sandbox 'plugins/legion') -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $sandbox 'tools.json') -Destination (Join-Path $sandbox 'plugins/legion/tools.json')
     $runner = Join-Path $sandbox 'invoke-text.ps1'
     # The child reads the fixture home's accounts, never the real personalisation file.
     New-Item -ItemType Directory -Path (Join-Path $sandbox '.legion/configuration') -Force | Out-Null
@@ -182,7 +182,7 @@ else { 'ps-ai@ps-ai-marketplace installed, enabled ' + (Join-Path (Split-Path $P
     $output = $result.Output
     Assert-Equal 0 $result.ExitCode 'Script text runs standalone without repository context'
     Assert-True (($output -join "`n").Contains('codex-fixture')) 'P2: the child uses the fixture home, not the real personalisation file'
-    Assert-Equal 1 @($output | Where-Object { "$_" -eq 'Codex: approve the ps-ai hooks once with /hooks in a Codex session.' }).Count 'Codex prints hook approval reminder once'
+    Assert-Equal 1 @($output | Where-Object { "$_" -eq 'Codex: approve the legion hooks once with /hooks in a Codex session.' }).Count 'Codex prints hook approval reminder once'
     if ($windowsPowerShell) {
         $result = Invoke-ClosedInput -Command @($windowsPowerShell.Source, '-NoProfile', '-File', $fixtureInstaller, '-DryRun', '-Source', $Repo, '-Tools', 'claude', '-HomeRoot', $sandbox)
         $output = $result.Output
@@ -229,7 +229,7 @@ function Ensure-InstallPowerShell { throw 'Update attempted prerequisite install
 function Test-InstallCommandAvailable { param($Name) $Name -eq 'codex' }
 $fixturePlugin = Join-Path $fixtureHome 'installed-update'
 New-Item -ItemType Directory -Path $fixturePlugin -Force | Out-Null
-'{"name":"ps-ai","version":"0.3.0"}' | Set-Content -LiteralPath (Join-Path $fixturePlugin 'plugin.json')
+'{"name":"legion","version":"0.3.0"}' | Set-Content -LiteralPath (Join-Path $fixturePlugin 'plugin.json')
 $state = @{ Calls=0; Default=0; Account=0 }
 function Invoke-ClosedInput {
     param($Command)
@@ -238,7 +238,7 @@ function Invoke-ClosedInput {
     elseif ($env:CODEX_HOME -eq (Join-Path $fixtureHome '.legion/agents/codex-a')) { $state.Account++ }
     else { throw 'Incorrect config target' }
     if ($Command[2] -eq 'remove') { throw 'Update removed plugin approval' }
-    return @{ ExitCode=0; Output=@("ps-ai@ps-ai-marketplace installed, enabled $fixturePlugin") }
+    return @{ ExitCode=0; Output=@("legion@ps-legion-marketplace installed, enabled $fixturePlugin") }
 }
 $env:CODEX_HOME = 'inherited-account'
 $null = Invoke-LegionInstaller -Source $fixtureHome -Tools codex -Update -Yes
@@ -264,7 +264,7 @@ if ($env:CODEX_HOME -ne 'inherited-account') { throw 'Caller config environment 
     foreach ($runtime in $runtimes) {
         $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', $standalone)
         Assert-Equal 0 $result.ExitCode 'Script-block entry accepts update preview'
-        Assert-True ($result.Output -contains 'CODEX_HOME=selected codex plugin add ps-ai@ps-ai-marketplace') 'Script-block forwards update mode'
+        Assert-True ($result.Output -contains 'CODEX_HOME=selected codex plugin add legion@ps-legion-marketplace') 'Script-block forwards update mode'
         Assert-True (-not (($result.Output -join "`n").Contains('marketplace add'))) 'Update preview does not add marketplaces'
     }
 
