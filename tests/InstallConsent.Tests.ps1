@@ -3,16 +3,16 @@ $repo = Split-Path $PSScriptRoot -Parent
     $fixtureHome = Join-Path $repo ('.agents/temp/install-consent-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $fixtureHome -Force | Out-Null
     $savedPath = $env:PATH
-    $savedLog = $env:PS_AI_CONSENT_LOG
+    $savedLog = $env:LEGION_CONSENT_LOG
     try {
         $fixtureBin = Join-Path $fixtureHome 'tools'
         New-Item -ItemType Directory -Path $fixtureBin -Force | Out-Null
-        $env:PS_AI_CONSENT_LOG = Join-Path $fixtureHome 'versions.txt'
+        $env:LEGION_CONSENT_LOG = Join-Path $fixtureHome 'versions.txt'
         $codex = Join-Path $fixtureBin $(if ($IsWindows) { 'codex.cmd' } else { 'codex' })
         $text = if ($IsWindows) {
-            "@echo %*>>`"%PS_AI_CONSENT_LOG%`"`r`n@echo fixture codex`r`n@exit /b 0`r`n"
+            "@echo %*>>`"%LEGION_CONSENT_LOG%`"`r`n@echo fixture codex`r`n@exit /b 0`r`n"
         } else {
-            '#!/bin/sh' + "`n" + 'printf "%s\n" "$*" >> "$PS_AI_CONSENT_LOG"' + "`n" + 'echo fixture codex' + "`n"
+            '#!/bin/sh' + "`n" + 'printf "%s\n" "$*" >> "$LEGION_CONSENT_LOG"' + "`n" + 'echo fixture codex' + "`n"
         }
         [IO.File]::WriteAllText($codex, $text)
         if (-not $IsWindows) {
@@ -42,7 +42,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         function Get-UpdateConfigDirs { param($Tool, $ConfigDir) ,@('') }
         function Resolve-InstallSource { param($Source) return $Source }
         function Test-InstallCommandAvailable { param($Name) $true }
-        function Invoke-PsAiInstallSteps { $script:installs++ }
+        function Invoke-LegionInstallSteps { $script:installs++ }
         $null = Ensure-InstallPowerShell -OnWindows $true
         Assert-Equal 0 $script:pathWrites 'P1: a portable PowerShell does not touch the user PATH without consent'
         $script:answer = 'y'
@@ -55,27 +55,27 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-Equal 0 $script:pathWrites 'P1: a dry run never repairs the PATH'
 
         $script:answer = 'n'
-        $null = Invoke-PsAiInstaller -Catalog (Get-InstallCatalog -Source $repo) -Tools codex
+        $null = Invoke-LegionInstaller -Catalog (Get-InstallCatalog -Source $repo) -Tools codex
         Assert-Equal 0 $script:installs 'P1: no install into the default account without consent'
         $script:answer = 'y'
-        $null = Invoke-PsAiInstaller -Catalog (Get-InstallCatalog -Source $repo) -Tools codex
+        $null = Invoke-LegionInstaller -Catalog (Get-InstallCatalog -Source $repo) -Tools codex
         Assert-Equal 1 $script:installs 'P1: the owner can say yes at the prompt'
         $script:prompts = 0
-        $null = Invoke-PsAiInstaller -Catalog (Get-InstallCatalog -Source $repo) -Tools codex -Yes
-        $null = Invoke-PsAiInstaller -Catalog (Get-InstallCatalog -Source $repo) -Tools codex -DryRun
+        $null = Invoke-LegionInstaller -Catalog (Get-InstallCatalog -Source $repo) -Tools codex -Yes
+        $null = Invoke-LegionInstaller -Catalog (Get-InstallCatalog -Source $repo) -Tools codex -DryRun
         Assert-Equal 3 $script:installs '-Yes and a dry run both go on to the install steps'
         Assert-Equal 0 $script:prompts '-Yes and a dry run never prompt'
-        Assert-Equal '--version|--version' ((Get-Content -LiteralPath $env:PS_AI_CONSENT_LOG) -join '|') 'R4 B6 version probes call only the fixture executable'
+        Assert-Equal '--version|--version' ((Get-Content -LiteralPath $env:LEGION_CONSENT_LOG) -join '|') 'R4 B6 version probes call only the fixture executable'
 
         # A refresh failure is one plain line; install goes on to the summary.
         function Invoke-InstallRefresh { throw 'refresh broke' }
-        $output = @(Invoke-PsAiInstaller -Catalog (Get-InstallCatalog -Source $repo) -Tools codex -Yes)
+        $output = @(Invoke-LegionInstaller -Catalog (Get-InstallCatalog -Source $repo) -Tools codex -Yes)
         Assert-True ($output -contains 'commands not refreshed for codex in default config; run legion setup') 'Refresh failure prints one plain line'
         Assert-True (@($output | Where-Object { $_ -like 'installed: ps-ai *' }).Count -eq 1) 'Install still prints the summary after a refresh failure'
         function Invoke-InstallRefresh { }
     } finally {
         $env:PATH = $savedPath
-        $env:PS_AI_CONSENT_LOG = $savedLog
+        $env:LEGION_CONSENT_LOG = $savedLog
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
         if ([IO.Path]::GetFullPath($fixtureHome).StartsWith($allowed)) { Remove-Item -LiteralPath $fixtureHome -Recurse -Force }
     }

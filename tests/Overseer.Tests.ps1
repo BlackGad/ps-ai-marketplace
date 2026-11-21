@@ -38,7 +38,7 @@ Assert-Throws { Select-OverseerAccount $owner } 'Explicit account required'
 Assert-Throws { Select-OverseerAccount $owner claude-a codex } 'Tool mismatch'
 foreach ($tool in @('claude','codex','copilot')) {
     $launch = Get-OverseerLaunch -Personalisation $owner -AccountId "$tool-a" -Arguments @('--model','chosen','two words','','2026-11-19','semi;literal',"apostrophe'value") -HomeRoot $tempRoot
-    Assert-Equal (Get-PsAiWrapperCommand "$tool-a" $tempRoot) $launch.Command 'Derived canonical wrapper'
+    Assert-Equal (Get-LegionWrapperCommand "$tool-a" $tempRoot) $launch.Command 'Derived canonical wrapper'
     $expected = '--model|chosen|two words||2026-11-19|semi;literal|apostrophe''value|'
     if ($tool -eq 'copilot') { $expected += '-i|' }
     $expected += 'continue as the overseer'
@@ -204,7 +204,7 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
         $global:LASTEXITCODE = $state.ExitCode
     }
     # Folders under run-repo belong to run-repo; any other folder is its own root.
-    function Get-PsAiCodeRoot {
+    function Get-LegionCodeRoot {
         param([string]$Path)
         if ($state.NoGit) { return $null }
         if ($Path.StartsWith($runRepo)) { return $runRepo }
@@ -256,12 +256,12 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     Assert-Throws { Invoke-Overseer @run } 'A removed lease account falls back to normal selection'
     '{"account":"claude1"}' | Set-Content $leaseFile
     $null = Invoke-Overseer @run
-    Assert-Equal (Get-PsAiWrapperCommand claude1 $runHome) $state.Launch.Command 'A stale lease can supply the last account'
+    Assert-Equal (Get-LegionWrapperCommand claude1 $runHome) $state.Launch.Command 'A stale lease can supply the last account'
     Remove-Item -LiteralPath $lastFile, $leaseFile
     $single = [pscustomobject]@{schemaVersion=1;agents=@($two.agents[1]);channels=@()}
     $single | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
     $null = Invoke-Overseer @run
-    Assert-Equal (Get-PsAiWrapperCommand codex1 $runHome) $state.Launch.Command 'One eligible account starts when no history exists'
+    Assert-Equal (Get-LegionWrapperCommand codex1 $runHome) $state.Launch.Command 'One eligible account starts when no history exists'
     $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
     # A bare start brings back the last minion with its settings, whatever ran in between.
     $null = Invoke-Overseer @run -Account claude1 -Channel @() -NoChannel -Arguments @('--model', 'chosen', '')
@@ -381,7 +381,7 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     $saveLast = { param($Account, $Session, $Channel = @(), $Arguments = @()) Save-OverseerLastLaunch -Repo $runRepo -HomeRoot $runHome -Account $Account -Channel $Channel -Arguments $Arguments -Session $Session }
     $null = Invoke-Overseer @run -Account claude1 -Channel @()
     Assert-Equal "--session-id|$uuid|--channels|plugin:telegram@claude-plugins-official|--|continue as the overseer" ($state.Launch.Args -join '|') 'ClaudeFreshSavesSession starts with a session id'
-    Assert-Equal (Get-PsAiWrapperCommand claude1 $runHome) $state.Launch.Command 'ClaudeFreshSavesSession uses the account wrapper'
+    Assert-Equal (Get-LegionWrapperCommand claude1 $runHome) $state.Launch.Command 'ClaudeFreshSavesSession uses the account wrapper'
     Assert-Equal $uuid (Get-OverseerLastLaunch -Repo $runRepo -HomeRoot $runHome).session 'ClaudeFreshSavesSession saves the session'
 
     New-Item -ItemType Directory $sessionFolder -Force | Out-Null
@@ -443,7 +443,7 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     try { $text = @(Invoke-Overseer @run); throw 'Expected launch failure' }
     catch {
         Assert-True ($_.Exception.Message -like '*exit code 3*') 'FailedResumeMarksFresh keeps the exit code'
-        Assert-Equal 3 $_.Exception.Data['PsAiLaunchExitCode'] 'FailedResumeMarksFresh propagates exit 3'
+        Assert-Equal 3 $_.Exception.Data['LegionLaunchExitCode'] 'FailedResumeMarksFresh propagates exit 3'
     }
     Assert-Equal 1 $state.Launches 'FailedResumeMarksFresh does not retry'
     Assert-Equal '' (Get-OverseerLastLaunch -Repo $runRepo -HomeRoot $runHome).session 'FailedResumeMarksFresh saves an empty session'

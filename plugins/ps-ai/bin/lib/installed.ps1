@@ -2,7 +2,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
-function Get-PsAiCopilotLocalManifest {
+function Get-LegionCopilotLocalManifest {
     param([string]$ConfigDir)
 
     try {
@@ -22,7 +22,7 @@ function Get-PsAiCopilotLocalManifest {
     return $null
 }
 
-function Get-PsAiInstalledVersion {
+function Get-LegionInstalledVersion {
     param([string]$ConfigDir, $Tool)
 
     $cache = Join-Path $ConfigDir $Tool.plugin.installedRoot
@@ -31,7 +31,7 @@ function Get-PsAiInstalledVersion {
         $files = @(Get-ChildItem -LiteralPath $cache -Filter plugin.json -File -Recurse | ForEach-Object FullName)
     }
     if ($Tool.id -ceq 'copilot') {
-        $localManifest = Get-PsAiCopilotLocalManifest -ConfigDir $ConfigDir
+        $localManifest = Get-LegionCopilotLocalManifest -ConfigDir $ConfigDir
         if ($localManifest) { $files = @($localManifest) }
     }
     $highest = $null

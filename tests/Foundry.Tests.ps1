@@ -4,8 +4,8 @@ Assert-True (Test-Path $helper) 'Foundry helper exists'
 . $helper
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
 $savedPath = $env:PATH
-$savedAnswers = $env:PS_AI_FAKE_AZ
-$savedLog = $env:PS_AI_FAKE_AZ_LOG
+$savedAnswers = $env:LEGION_FAKE_AZ
+$savedLog = $env:LEGION_FAKE_AZ_LOG
 $tempRoot = $null
 try {
     Assert-Equal 'https://res-a.cognitiveservices.azure.com' (ConvertTo-FoundryEndpoint 'https://res-a.cognitiveservices.azure.com/anthropic/') 'Endpoint strips path'
@@ -14,7 +14,7 @@ try {
     catch { Assert-Equal 'endpoint must start with https://' $_.Exception.Message 'HTTPS required' }
     $tokenKey = 'account get-access-token --resource https://cognitiveservices.azure.com'
     Use-FakeAz -Answers @{ $tokenKey = @{ exit=0; stdout='{"accessToken":"fake-token","expiresOn":"2026-11-18T18:30:00+00:00"}' } }
-    $tempRoot = Split-Path $env:PS_AI_FAKE_AZ -Parent
+    $tempRoot = Split-Path $env:LEGION_FAKE_AZ -Parent
     Assert-True (Test-FoundryToken).Ok 'Token check succeeds'
     $token = Get-FoundryToken
     Assert-Equal 'fake-token' $token.Token 'Token read in memory'
@@ -58,7 +58,7 @@ try {
     Assert-Equal 0 $result.Deployments.Count 'Failed read has no deployments'
 } finally {
     $env:PATH = $savedPath
-    $env:PS_AI_FAKE_AZ = $savedAnswers
-    $env:PS_AI_FAKE_AZ_LOG = $savedLog
+    $env:LEGION_FAKE_AZ = $savedAnswers
+    $env:LEGION_FAKE_AZ_LOG = $savedLog
     if ($tempRoot) { Remove-Item -LiteralPath $tempRoot -Recurse -Force }
 }

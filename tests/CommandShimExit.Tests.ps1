@@ -9,7 +9,7 @@ try {
         $shim = Join-Path $scratch "legion$code.cmd"
         '$ErrorActionPreference = ''Stop''; Remove-Item -LiteralPath $args[0]; exit ' + $code | Set-Content -LiteralPath (Join-Path $bin 'legion.ps1')
         # The script receives the shim's own path as its first argument and deletes it.
-        $text = (Get-PsAiShimText -Script (Join-Path $bin 'legion.ps1') -Windows).Replace(' %*', ' "' + $shim + '" %*')
+        $text = (Get-LegionShimText -Script (Join-Path $bin 'legion.ps1') -Windows).Replace(' %*', ' "' + $shim + '" %*')
         [IO.File]::WriteAllText($shim, $text)
         $output = @(& cmd.exe /d /c ('"' + $shim + '" 2>&1'))
         $status = $LASTEXITCODE

@@ -1,6 +1,6 @@
 # Sending
 
-Read notes and [formats.md](formats.md). Resolve every requested destination separately with `Resolve-PsAiChannel`; use its `Target` with the connected session's tool. Do not collapse two same-kind destinations. Verify that the session account is bound and that the session exposes the expected tools. Never send through a direct Bot API client.
+Read notes and [formats.md](formats.md). Resolve every requested destination separately with `Resolve-LegionChannel`; use its `Target` with the connected session's tool. Do not collapse two same-kind destinations. Verify that the session account is bound and that the session exposes the expected tools. Never send through a direct Bot API client.
 
 The supported session contract is `reply(chat_id, text, format, reply_to?, files?)`. Inspect the actual tool definition before use. Always supply `chat_id`, `text`, and explicit `format`. `reply_to` is an optional message ID; `files` is an array of absolute paths. Images appear inline; other files are documents. The plugin returns sent message IDs. It supports files up to 50 MB each.
 

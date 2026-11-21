@@ -9,11 +9,11 @@ try {
         # C-1: install.ps1 is standalone and keeps its own copy of the rule; both copies must agree on every sample.
         $target = Join-Path $scratch "owner's plugin/bin/legion.ps1"
         $samples = @(
-            (Get-PsAiShimText -Script $target).Replace(' "$@"', ' -Repo "work folder" "$@"'),
-            (Get-PsAiShimText -Script 'C:\plugin folder\bin\legion.ps1' -Windows).Replace(' %*', ' -Repo "C:\work folder" %*'),
-            (Get-PsAiShimText -Script $target),
-            (Get-PsAiShimText -Script 'C:\plugin folder\bin\legion.ps1' -Windows),
-            (Get-PsAiShimText -Script $target).Replace(' "$@"', ' --extra "$@"'),
+            (Get-LegionShimText -Script $target).Replace(' "$@"', ' -Repo "work folder" "$@"'),
+            (Get-LegionShimText -Script 'C:\plugin folder\bin\legion.ps1' -Windows).Replace(' %*', ' -Repo "C:\work folder" %*'),
+            (Get-LegionShimText -Script $target),
+            (Get-LegionShimText -Script 'C:\plugin folder\bin\legion.ps1' -Windows),
+            (Get-LegionShimText -Script $target).Replace(' "$@"', ' --extra "$@"'),
             'pwsh -NoProfile -File /plugin/bin/legion.ps1',
             '@pwsh -NoProfile -File C:\plugin\bin\legion.ps1',
             "#!/bin/sh`n# exec pwsh -NoProfile -File '/plugin/bin/legion.ps1' `"`$@`"`necho mine",
@@ -28,7 +28,7 @@ try {
         foreach ($text in $samples) {
             [IO.File]::WriteAllText($path, $text)
             foreach ($script in @('legion.ps1', 'ps-ai-status.ps1')) {
-                Assert-Equal (Test-PsAiOwnerCommandFile -Path $path -Script $script) (Test-InstallOwnerCommandFile -Path $path -Script $script) "Both copies of the rule agree on: $text"
+                Assert-Equal (Test-LegionOwnerCommandFile -Path $path -Script $script) (Test-InstallOwnerCommandFile -Path $path -Script $script) "Both copies of the rule agree on: $text"
             }
         }
         [IO.File]::WriteAllText($path, $samples[7])
@@ -38,24 +38,24 @@ try {
             [IO.File]::WriteAllText($quotedPath, $text)
             Assert-True (Test-InstallOwnerCommandFile -Path $quotedPath -Script legion.ps1) 'R4 B2 installer accepts literal quoted owner arguments'
         }
-        $bound = Get-PsAiShimText -Script $target -HomeRoot (Join-Path $scratch "owner's home")
+        $bound = Get-LegionShimText -Script $target -HomeRoot (Join-Path $scratch "owner's home")
         [IO.File]::WriteAllText($path, $bound)
         Assert-True (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R4 B2 installer recognizes adjacent shell quotes in literal arguments'
-        Assert-Equal (Test-PsAiOwnerCommandFile -Path $path -Script legion.ps1) (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R4 B2 bound-home matcher parity'
+        Assert-Equal (Test-LegionOwnerCommandFile -Path $path -Script legion.ps1) (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R4 B2 bound-home matcher parity'
 
         # G2: the standalone copy decodes batch quoting too.
         $percentScript = Join-Path $scratch 'plugin 100%/bin/legion.ps1'
         New-Item -ItemType Directory -Path (Split-Path $percentScript) -Force | Out-Null
         '' | Set-Content -LiteralPath $percentScript
         $batchPath = Join-Path $scratch 'legion.cmd'
-        $dollarText = (Get-PsAiShimText -Script 'C:\old\bin\legion.ps1' -Windows).Replace(' %*', ' -Repo "\\server\team$\work folder" %*')
+        $dollarText = (Get-LegionShimText -Script 'C:\old\bin\legion.ps1' -Windows).Replace(' %*', ' -Repo "\\server\team$\work folder" %*')
         [IO.File]::WriteAllText($batchPath, $dollarText)
         Assert-True (Test-InstallOwnerCommandFile -Path $batchPath -Script legion.ps1) 'R5 B2 installer accepts a quoted batch dollar path'
-        Assert-Equal (Read-PsAiOwnerCommandTarget -Path $batchPath -Script legion.ps1).Path (Get-InstallOwnerCommandTarget -Path $batchPath -Script legion.ps1).Path 'R5 B2 batch dollar path matcher parity'
+        Assert-Equal (Read-LegionOwnerCommandTarget -Path $batchPath -Script legion.ps1).Path (Get-InstallOwnerCommandTarget -Path $batchPath -Script legion.ps1).Path 'R5 B2 batch dollar path matcher parity'
         [IO.File]::WriteAllText($path, $dollarText)
         Assert-Equal $false (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R5 B2 installer shell matcher rejects dollar expansion'
-        Assert-Equal (Test-PsAiOwnerCommandFile -Path $path -Script legion.ps1) (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R5 B2 shell dollar path matcher parity'
-        [IO.File]::WriteAllText($batchPath, (Get-PsAiShimText -Script $percentScript -Windows))
+        Assert-Equal (Test-LegionOwnerCommandFile -Path $path -Script legion.ps1) (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R5 B2 shell dollar path matcher parity'
+        [IO.File]::WriteAllText($batchPath, (Get-LegionShimText -Script $percentScript -Windows))
         Assert-Equal $percentScript (Get-InstallOwnerCommandTarget -Path $batchPath -Script legion.ps1).Path 'The installer decodes batch quoting'
 
         # C-2: after an uninstall, commands whose script is gone move to a surviving install, or go away.
@@ -68,8 +68,8 @@ try {
         '' | Set-Content -LiteralPath $live
         $script:installCatalog = Get-InstallCatalog -Source $repo
         function Write-RepairFixture {
-            Get-PsAiShimText -Script (Join-Path $scratch 'gone/bin/legion.ps1') | Set-Content -LiteralPath (Join-Path $bin 'legion')
-            Get-PsAiShimText -Script $live | Set-Content -LiteralPath (Join-Path $bin 'ps-ai-status')
+            Get-LegionShimText -Script (Join-Path $scratch 'gone/bin/legion.ps1') | Set-Content -LiteralPath (Join-Path $bin 'legion')
+            Get-LegionShimText -Script $live | Set-Content -LiteralPath (Join-Path $bin 'ps-ai-status')
             'mine' | Set-Content -LiteralPath (Join-Path $bin 'ps-ai-setup')
         }
         $refreshes = [Collections.Generic.List[string]]::new()
@@ -91,10 +91,10 @@ try {
 
         foreach ($batch in @($false, $true)) {
             $commandPath = Join-Path $bin "legion$(if ($batch) { '.cmd' })"
-            $original = (Get-PsAiShimText -Script (Join-Path $scratch 'gone/bin/legion.ps1') -Windows:$batch).Replace(' %*', ' -NoChannel %*').Replace(' "$@"', ' -NoChannel "$@"')
+            $original = (Get-LegionShimText -Script (Join-Path $scratch 'gone/bin/legion.ps1') -Windows:$batch).Replace(' %*', ' -NoChannel %*').Replace(' "$@"', ' -NoChannel "$@"')
             [IO.File]::WriteAllText($commandPath, $original)
             Set-InstallOwnerCommandTarget -Path $commandPath -Script legion.ps1 -Runner $runner
-            Assert-Equal $runner (Read-PsAiOwnerCommandTarget -Path $commandPath -Script legion.ps1).Path 'Retargeting round-trips apostrophes and percent signs'
+            Assert-Equal $runner (Read-LegionOwnerCommandTarget -Path $commandPath -Script legion.ps1).Path 'Retargeting round-trips apostrophes and percent signs'
             Assert-True ((Get-Content -LiteralPath $commandPath -Raw).Contains(' -NoChannel ')) 'Retargeting keeps literal owner flags'
             Remove-Item -LiteralPath $commandPath -Force
         }

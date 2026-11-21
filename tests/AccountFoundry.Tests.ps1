@@ -4,13 +4,13 @@ $accountScript = Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1'
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $savedPath = $env:PATH
-$savedAnswers = $env:PS_AI_FAKE_AZ
-$savedLog = $env:PS_AI_FAKE_AZ_LOG
-$savedToolLog = $env:PS_AI_FAKE_TOOL_LOG
+$savedAnswers = $env:LEGION_FAKE_AZ
+$savedLog = $env:LEGION_FAKE_AZ_LOG
+$savedToolLog = $env:LEGION_FAKE_TOOL_LOG
 $tempRoot = Join-Path (Get-TestTempPath) ('ps-ai-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
-    $env:PS_AI_FAKE_TOOL_LOG = Join-Path $tempRoot 'tool-log.json'
+    $env:LEGION_FAKE_TOOL_LOG = Join-Path $tempRoot 'tool-log.json'
     $homeRoot = Join-Path $tempRoot 'owner with spaces'
     $file = Join-Path $homeRoot '.legion/configuration/ps-ai-personalisation.json'
     New-Item -ItemType Directory -Path (Split-Path $file -Parent) -Force | Out-Null
@@ -22,7 +22,7 @@ try {
         'cognitiveservices account deployment list --name res-a --resource-group rg-a' = @{exit=0;stdout='[{"name":"claude-opus-x","properties":{"model":{"name":"claude-opus-x"}}},{"name":"claude-sonnet-x","properties":{"model":{"name":"claude-sonnet-x"}}},{"name":"gpt-x","properties":{"model":{"name":"gpt-x"}}}]'}
     }
     Use-FakeAz -Answers $answers
-    $fakeRoot = Split-Path $env:PS_AI_FAKE_AZ -Parent
+    $fakeRoot = Split-Path $env:LEGION_FAKE_AZ -Parent
     $common = @{HomeRoot=$homeRoot;Id='claude-dev';Tool='claude';Provider='foundry';Endpoint='https://res-a.cognitiveservices.azure.com/anthropic'}
     $before = [Convert]::ToBase64String([IO.File]::ReadAllBytes($file))
     $listOutput = & $accountScript -Action add @common -List
@@ -39,14 +39,14 @@ try {
     '{"theme":"dark"}' | Set-Content -LiteralPath $settings
     $selection = @{Deployments=@('claude-opus-x','claude-sonnet-x');Default='claude-opus-x';Aliases=@('claude-opus-x=opus','claude-sonnet-x=sonnet')}
     $addOutput = & $accountScript -Action add @common @selection
-    $data = Read-PsAiJson -Path $file
+    $data = Read-LegionJson -Path $file
     $agent = $data.agents[0]
     Assert-Equal 'https://res-a.cognitiveservices.azure.com' $agent.provider.endpoint 'Add normalises endpoint'
     Assert-Equal 'claude-opus-x' $agent.provider.deployments[0].model 'Add fills model name'
     Assert-Equal 'sonnet' $agent.provider.deployments[1].alias 'Add saves alias'
     Assert-True (-not $agent.PSObject.Properties['command']) 'Foundry stores no command'
     Assert-Equal $claudeDir $agent.configDir 'Foundry config dir'
-    Assert-Equal 0 @(Invoke-PsAiValidation -Kind personalisation -Path $file).Count 'Added Foundry agent validates'
+    Assert-Equal 0 @(Invoke-LegionValidation -Kind personalisation -Path $file).Count 'Added Foundry agent validates'
     $picker = Get-Content -Raw $settings | ConvertFrom-Json
     Assert-Equal 'dark' $picker.theme 'Claude preserves other settings'
     Assert-True $picker.modelPicker.replaceBuiltInOptions 'Claude picker replaces builtins'
@@ -93,7 +93,7 @@ try {
     Use-FakeAz -Answers $answers
     $modelsOutput = @(& $accountScript -Action models -Id claude-dev -HomeRoot $homeRoot -Deployments claude-opus-x,claude-haiku-x -Default claude-haiku-x -Aliases claude-opus-x=opus,claude-haiku-x=haiku)
     Assert-Equal 0 $modelsOutput.Count 'Changed models does not leak the config adapter return value'
-    $updated = (Read-PsAiJson $file).agents[0]
+    $updated = (Read-LegionJson $file).agents[0]
     Assert-Equal 'claude-haiku-x' $updated.provider.default 'Models updates default'
     Assert-Equal 'haiku' $updated.provider.deployments[1].alias 'Models updates aliases'
     Assert-Equal 'claude-opus-x|claude-haiku-x' ((Get-Content -Raw $settings | ConvertFrom-Json).modelPicker.options.model -join '|') 'Models refreshes picker'
@@ -106,7 +106,7 @@ try {
         throw 'Expected invalid settings'
     } catch { Assert-Equal 'settings.json is not valid JSON; fix or remove it' $_.Exception.Message 'Unreadable settings stops add' }
     Assert-Equal '{bad' (Get-Content -Raw $badSettings) 'Unreadable settings unchanged'
-    Assert-Equal 1 (Read-PsAiJson $file).agents.Count 'Invalid settings does not add partial account'
+    Assert-Equal 1 (Read-LegionJson $file).agents.Count 'Invalid settings does not add partial account'
     $codexDir = Join-Path $homeRoot '.legion/agents/codex-dev'
     New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
     $toml = Join-Path $codexDir 'config.toml'
@@ -237,7 +237,7 @@ approval_policy = "never"
         $collisionWrapper = Join-Path $collisionHome '.legion/bin/ps-ai-runtime'
         $collisionBytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))
         $runtimeChanges = [Collections.Generic.List[string]]::new()
-        $collisionRunner = Sync-PsAiFoundryRuntime -Tool claude -HomeRoot $collisionHome -Changes $runtimeChanges
+        $collisionRunner = Sync-LegionFoundryRuntime -Tool claude -HomeRoot $collisionHome -Changes $runtimeChanges
         Assert-Equal $collisionRunner $runtimeChanges[-1] 'Runtime publishes the runner after its dependencies'
         Assert-True (Test-Path $collisionRunner -PathType Leaf) 'A valid account named ps-ai-runtime cannot block runtime sync'
         Assert-Equal $collisionBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))) 'Runtime sync preserves same-named account wrapper'
@@ -247,10 +247,10 @@ approval_policy = "never"
         $pluginCopy = Join-Path $tempRoot 'source-plugin'
         Copy-Item (Join-Path $root 'plugins/ps-ai') $pluginCopy -Recurse
         . (Join-Path $pluginCopy 'bin/ps-ai-account.ps1') -HomeRoot $homeRoot
-        $null = Sync-PsAiFoundryRuntime -Tool codex -HomeRoot $homeRoot
+        $null = Sync-LegionFoundryRuntime -Tool codex -HomeRoot $homeRoot
         $allFiles = @(Get-ChildItem $runtime -Recurse -File)
         $snapshot = @($allFiles | ForEach-Object { $_.LastWriteTimeUtc.Ticks.ToString() + ':' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)) }) -join '|'
-        $syncOutput = @(Sync-PsAiFoundryRuntime -Tool claude -HomeRoot $homeRoot)
+        $syncOutput = @(Sync-LegionFoundryRuntime -Tool claude -HomeRoot $homeRoot)
         Assert-Equal 1 $syncOutput.Count 'Runtime sync returns only the runner path'
         Assert-Equal $snapshot (@($allFiles | ForEach-Object { [IO.File]::GetLastWriteTimeUtc($_.FullName).Ticks.ToString() + ':' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)) }) -join '|') 'Repeated sync preserves bytes and timestamps of both tools'
         Assert-True (Test-Path (Join-Path $runtime 'skills/ps-ai-codex/tool.json')) 'Refreshing Claude retains Codex'
@@ -269,10 +269,10 @@ approval_policy = "never"
     Assert-True (-not (Test-Path (Join-Path $homeRoot '.legion/bin/claude-renamed'))) 'Remove deletes Foundry wrapper'
     Assert-True (Test-Path $settings) 'Remove keeps Foundry settings'
 } finally {
-    $env:PS_AI_FAKE_TOOL_LOG = $savedToolLog
+    $env:LEGION_FAKE_TOOL_LOG = $savedToolLog
     $env:PATH = $savedPath
-    $env:PS_AI_FAKE_AZ = $savedAnswers
-    $env:PS_AI_FAKE_AZ_LOG = $savedLog
+    $env:LEGION_FAKE_AZ = $savedAnswers
+    $env:LEGION_FAKE_AZ_LOG = $savedLog
     if ($fakeRoot -and (Test-Path $fakeRoot)) { Remove-Item -LiteralPath $fakeRoot -Recurse -Force }
     Remove-Item -LiteralPath $tempRoot -Recurse -Force
 }

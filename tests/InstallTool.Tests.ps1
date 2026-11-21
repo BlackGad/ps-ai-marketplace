@@ -216,14 +216,14 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
         Assert-Equal 2 $pathWrites.Count 'Retry repairs a missing portable user PATH entry'
         Assert-Equal $requestCount $requests.Count 'PATH repair does not download again'
         Assert-Equal $exeTime (Get-Item -LiteralPath $exe).LastWriteTimeUtc 'PATH repair preserves installed files'
-        $savedTestRoot = $env:PS_AI_INSTALL_TEST_ROOT
+        $savedTestRoot = $env:LEGION_INSTALL_TEST_ROOT
         try {
-            $env:PS_AI_INSTALL_TEST_ROOT = $sandbox
+            $env:LEGION_INSTALL_TEST_ROOT = $sandbox
             $separator = [IO.Path]::DirectorySeparatorChar
-            $userPathState.Value = "%PS_AI_INSTALL_TEST_ROOT%${separator}tools${separator}az${separator}bin${separator}"
+            $userPathState.Value = "%LEGION_INSTALL_TEST_ROOT%${separator}tools${separator}az${separator}bin${separator}"
             Install-ToolZip -Tool az -Archive $archive -PathFolder bin | Out-Null
             Assert-Equal 2 $pathWrites.Count 'Expanded equivalent PATH entry is not duplicated'
-        } finally { $env:PS_AI_INSTALL_TEST_ROOT = $savedTestRoot }
+        } finally { $env:LEGION_INSTALL_TEST_ROOT = $savedTestRoot }
 
         $installed['az'] = $true
         $requests.Clear()

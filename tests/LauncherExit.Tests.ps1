@@ -22,7 +22,7 @@ try {
     . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
     . (Join-Path $root 'plugins/ps-ai/bin/lib/commands.ps1')
     $public = Join-Path $scratch $(if ($IsWindows) { 'legion.cmd' } else { 'legion' })
-    Get-PsAiShimText -Script (Join-Path $plugin 'bin/legion.ps1') -Windows:$IsWindows | Set-Content $public
+    Get-LegionShimText -Script (Join-Path $plugin 'bin/legion.ps1') -Windows:$IsWindows | Set-Content $public
     if (-not $IsWindows) { & chmod +x $public }
     $pwsh = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
     $git = (Get-Command git -CommandType Application | Select-Object -First 1).Source

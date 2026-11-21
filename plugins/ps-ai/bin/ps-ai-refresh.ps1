@@ -3,44 +3,44 @@ param([string]$HomeRoot = $HOME)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ps-ai-account.ps1') -NoRun -HomeRoot $HomeRoot
 $changes = [Collections.Generic.List[string]]::new()
-$file = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
+$file = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
 if (Test-Path -LiteralPath $file) {
-    $owner = Read-PsAiJson -Path $file
+    $owner = Read-LegionJson -Path $file
     foreach ($agent in $owner.agents) {
         if (-not $agent.provider) {
             $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
             $missing = @($suffixes | Where-Object {
-                -not (Test-PsAiLauncherExecutable -Path (Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$($agent.id)$_"))
+                -not (Test-LegionLauncherExecutable -Path (Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$($agent.id)$_"))
             }).Count -gt 0
             if (-not $missing) { continue }
             $folder = $agent.configDir
             if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }
-            $target = Get-PsAiWrapperTarget -Id $agent.id -Tool $agent.tool -HomeRoot $HomeRoot -ConfigDir $folder
+            $target = Get-LegionWrapperTarget -Id $agent.id -Tool $agent.tool -HomeRoot $HomeRoot -ConfigDir $folder
             if (-not $target) { "skip: account $($agent.id) (CLI target not found or launcher needs repair)"; continue }
-            New-PsAiWrappers -Id $agent.id -Tool $agent.tool -HomeRoot $HomeRoot -ConfigDir $folder -RealCommand $target -Changes $changes
+            New-LegionWrappers -Id $agent.id -Tool $agent.tool -HomeRoot $HomeRoot -ConfigDir $folder -RealCommand $target -Changes $changes
             continue
         }
         if ($agent.provider.kind -cne 'foundry') { continue }
-        $wrapper = Get-PsAiWrapperCommand $agent.id $HomeRoot
-        if (-not (Test-PsAiOwnedWrapper $wrapper $agent.id)) { continue }
+        $wrapper = Get-LegionWrapperCommand $agent.id $HomeRoot
+        if (-not (Test-LegionOwnedWrapper $wrapper $agent.id)) { continue }
         New-FoundryWrappers -Id $agent.id -Tool $agent.tool -HomeRoot $HomeRoot -Changes $changes
     }
 }
 
-foreach ($entry in (Get-PsAiOwnerCommands).GetEnumerator()) {
+foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
     $runner = Join-Path $PSScriptRoot $entry.Value
     foreach ($suffix in @('', '.cmd')) {
-        $path = Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$($entry.Key)$suffix"
-        $state = Get-PsAiOwnerCommandState -Path $path -Script $entry.Value
+        $path = Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$($entry.Key)$suffix"
+        $state = Get-LegionOwnerCommandState -Path $path -Script $entry.Value
         if ($state -eq 'blocked') { continue }
         if ($state -eq 'missing') {
             if ($suffix -and -not $IsWindows) { continue }
-            $updated = Get-PsAiShimText -Script $runner -Windows:([bool]$suffix) -HomeRoot $HomeRoot
+            $updated = Get-LegionShimText -Script $runner -Windows:([bool]$suffix) -HomeRoot $HomeRoot
         } else {
             $text = [IO.File]::ReadAllText($path)
-            $updated = Update-PsAiOwnerCommandText -Text $text -Script $entry.Value -Runner $runner -Windows:([bool]$suffix) -HomeRoot $HomeRoot
+            $updated = Update-LegionOwnerCommandText -Text $text -Script $entry.Value -Runner $runner -Windows:([bool]$suffix) -HomeRoot $HomeRoot
         }
-        Write-PsAiGeneratedFile -Path $path -Content $updated -Changes $changes -Executable:($suffix -eq '')
+        Write-LegionGeneratedFile -Path $path -Content $updated -Changes $changes -Executable:($suffix -eq '')
     }
 }
 if ($changes.Count) { 'ps-ai generated runtimes and launchers refreshed' }

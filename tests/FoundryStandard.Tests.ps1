@@ -3,7 +3,7 @@ $accountScript = Join-Path $repo 'plugins/ps-ai/bin/ps-ai-account.ps1'
 . $accountScript -NoRun
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
 
-$claude = Get-PsAiTool -Tool claude
+$claude = Get-LegionTool -Tool claude
 $standardDeployments = @(
     @{name='opus-5-1';model='claude-opus-5-1'},
     @{name='opus-5.5-2';model='claude-opus-5-5'},
@@ -12,7 +12,7 @@ $standardDeployments = @(
     @{name='fable-5-2';model='claude-fable-5-2'},
     @{name='notopus-99';model='claude-notopus-99'}
 )
-$mapping = Select-PsAiFoundryStandard -Deployments $standardDeployments -Tool $claude
+$mapping = Select-LegionFoundryStandard -Deployments $standardDeployments -Tool $claude
 Assert-Equal 'opus-5.5-2=opus|claude-sonnet-5-5=sonnet|haiku-5-5=haiku' ($mapping.Aliases -join '|') 'Standard maps separate tokens and compares numeric versions'
 Assert-Equal 'claude-sonnet-5-5' $mapping.Default 'Claude standard defaults to sonnet'
 Assert-Equal 0 @($mapping.Unresolved).Count 'Complete mapping resolves all aliases'
@@ -22,15 +22,15 @@ $modelOnly = @(
     @{name='secondary';model='claude.opus.5.9'},
     $standardDeployments[2], $standardDeployments[3]
 )
-$mapping = Select-PsAiFoundryStandard -Deployments $modelOnly -Tool $claude
+$mapping = Select-LegionFoundryStandard -Deployments $modelOnly -Tool $claude
 Assert-Equal 'primary=opus' $mapping.Aliases[0] 'Model tokens match without case sensitivity and compare numerically'
 
 $tie = @($standardDeployments) + @(@{name='other-opus-5-5-2';model='claude-opus'})
-$mapping = Select-PsAiFoundryStandard -Deployments $tie -Tool $claude
+$mapping = Select-LegionFoundryStandard -Deployments $tie -Tool $claude
 Assert-Equal 'opus' $mapping.Unresolved[0].Alias 'Equal highest versions leave the alias unresolved'
 Assert-Equal 'opus-5.5-2|other-opus-5-5-2' ($mapping.Unresolved[0].Candidates -join '|') 'Tie names only the tied candidates'
 Assert-True (-not ($mapping.Aliases -match '=opus$')) 'Ties never silently choose an alias'
-$mapping = Select-PsAiFoundryStandard -Deployments @($standardDeployments[0],$standardDeployments[3]) -Tool $claude
+$mapping = Select-LegionFoundryStandard -Deployments @($standardDeployments[0],$standardDeployments[3]) -Tool $claude
 Assert-Equal 'sonnet' $mapping.Unresolved[0].Alias 'Missing alias is unresolved'
 Assert-Equal 'opus-5-1' $mapping.Default 'Without sonnet the first mapped alias is the default'
 Assert-Equal 'opus-5-1|haiku-5-5' ($mapping.Unresolved[0].Candidates -join '|') 'Missing alias supplies available candidates'
@@ -41,23 +41,23 @@ $gpt = @(
     @{name='gpt-9-astra';model='gpt-9-astra'}
 )
 foreach ($toolId in @('codex','copilot')) {
-    $descriptor = Get-PsAiTool -Tool $toolId
-    $mapping = Select-PsAiFoundryStandard -Deployments $gpt -Tool $descriptor
+    $descriptor = Get-LegionTool -Tool $toolId
+    $mapping = Select-LegionFoundryStandard -Deployments $gpt -Tool $descriptor
     Assert-Equal 'gpt-6.2-sol' $mapping.Default "$toolId prefers the newest sol deployment"
     Assert-Equal 0 @($mapping.Aliases).Count "$toolId saves no aliases"
-    $mapping = Select-PsAiFoundryStandard -Deployments @($standardDeployments[0],$standardDeployments[1],@{name='fable-99';model='claude-fable-99'}) -Tool $descriptor
+    $mapping = Select-LegionFoundryStandard -Deployments @($standardDeployments[0],$standardDeployments[1],@{name='fable-99';model='claude-fable-99'}) -Tool $descriptor
     Assert-Equal 'opus-5.5-2' $mapping.Default "$toolId falls back to newest without choosing Fable"
-    $mapping = Select-PsAiFoundryStandard -Deployments @() -Tool $descriptor
+    $mapping = Select-LegionFoundryStandard -Deployments @() -Tool $descriptor
     Assert-Equal 'default' $mapping.Unresolved[0].Alias "$toolId leaves an empty default unresolved"
-    $mapping = Select-PsAiFoundryStandard -Deployments @($gpt[1],@{name='other-sol-6-2';model='gpt-sol'}) -Tool $descriptor
+    $mapping = Select-LegionFoundryStandard -Deployments @($gpt[1],@{name='other-sol-6-2';model='gpt-sol'}) -Tool $descriptor
     Assert-Equal 'default' $mapping.Unresolved[0].Alias "$toolId leaves a tied default unresolved"
-    $mapping = Select-PsAiFoundryStandard -Deployments @(@{name='fable-99';model='claude-fable-99'}) -Tool $descriptor
+    $mapping = Select-LegionFoundryStandard -Deployments @(@{name='fable-99';model='claude-fable-99'}) -Tool $descriptor
     Assert-Equal $null $mapping.Default "$toolId cannot choose Fable as its only default"
 }
 
 $savedPath = $env:PATH
-$savedAnswers = $env:PS_AI_FAKE_AZ
-$savedLog = $env:PS_AI_FAKE_AZ_LOG
+$savedAnswers = $env:LEGION_FAKE_AZ
+$savedLog = $env:LEGION_FAKE_AZ_LOG
 $sandbox = Join-Path $repo ('.agents/temp/foundry-standard-' + [guid]::NewGuid().ToString('N'))
 $file = Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json'
 New-Item -ItemType Directory -Path (Split-Path $file -Parent) -Force | Out-Null
@@ -130,9 +130,9 @@ try {
     Assert-Equal 'opus-5-1' $agent.provider.default 'Explicit mapping still works after an unresolved standard mapping'
 } finally {
     $env:PATH = $savedPath
-    $fakeRoot = Split-Path $env:PS_AI_FAKE_AZ -Parent
-    $env:PS_AI_FAKE_AZ = $savedAnswers
-    $env:PS_AI_FAKE_AZ_LOG = $savedLog
+    $fakeRoot = Split-Path $env:LEGION_FAKE_AZ -Parent
+    $env:LEGION_FAKE_AZ = $savedAnswers
+    $env:LEGION_FAKE_AZ_LOG = $savedLog
     $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
     if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe fixture cleanup' }
     Remove-Item -LiteralPath $sandbox -Recurse -Force

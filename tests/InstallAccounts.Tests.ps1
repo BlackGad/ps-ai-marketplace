@@ -44,7 +44,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     try {
         $env:CLAUDE_CONFIG_DIR = 'inherited-account'
         $env:CODEX_HOME = 'inherited-account'
-        $null = Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Yes
+        $null = Invoke-LegionInstaller -Source $repo -Catalog $catalog -Yes
         $inherited = [IO.Path]::GetFullPath('inherited-account')
         $expected = @("claude:$inherited", "claude:$(Join-Path $sandbox '.claude-account2')", "codex:$inherited", "codex:$(Join-Path $sandbox '.codex-account2')") | Sort-Object
         $targets = @($calls | ForEach-Object { ($_ -split '\|')[0] } | Sort-Object -Unique)
@@ -52,16 +52,16 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-Equal 4 $installed.Count 'Install installs each distinct target'
         Assert-Equal 'inherited-account' $env:CLAUDE_CONFIG_DIR 'Install restores inherited environment'
         $calls.Clear()
-        $null = Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Yes
+        $null = Invoke-LegionInstaller -Source $repo -Catalog $catalog -Yes
         Assert-Equal 0 @($calls | Where-Object { $_ -match '\|plugin\|(install|add)\|' }).Count 'Repeat install skips installed plugins'
 
         $installed.Clear()
         $calls.Clear()
-        $preview = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Update -DryRun)
+        $preview = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Update -DryRun)
         Assert-Equal 0 $installed.Count 'Update preview never mutates missing targets'
         Assert-True (($preview -join "`n") -match 'plugin marketplace add') 'Update previews marketplace install for missing plugin'
         $calls.Clear()
-        $null = Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Update -Yes
+        $null = Invoke-LegionInstaller -Source $repo -Catalog $catalog -Update -Yes
         $targets = @($calls | ForEach-Object { ($_ -split '\|')[0] } | Sort-Object -Unique)
         Assert-Equal ($expected -join '|') ($targets -join '|') 'Update and install use the same targets'
         Assert-Equal 4 $installed.Count 'Update installs every missing target'
@@ -69,11 +69,11 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-Equal 'inherited-account' $env:CODEX_HOME 'Update restores inherited environment'
         foreach ($update in @($false, $true)) {
             $calls.Clear()
-            $null = Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools claude -ConfigDir selected -Update:$update -DryRun
+            $null = Invoke-LegionInstaller -Source $repo -Catalog $catalog -Tools claude -ConfigDir selected -Update:$update -DryRun
             Assert-Equal 'claude:selected' (($calls | ForEach-Object { ($_ -split '\|')[0] } | Sort-Object -Unique) -join '|') 'Both modes honor tool and folder narrowing'
         }
         $state.Fail = $true
-        Assert-Throws { Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools claude -Yes } 'Install listing failure propagates'
+        Assert-Throws { Invoke-LegionInstaller -Source $repo -Catalog $catalog -Tools claude -Yes } 'Install listing failure propagates'
         Assert-Equal 'inherited-account' $env:CLAUDE_CONFIG_DIR 'Failed default install restores inherited environment'
     } finally {
         Set-InstallConfigEnvironment -Name CLAUDE_CONFIG_DIR -Value $savedClaude

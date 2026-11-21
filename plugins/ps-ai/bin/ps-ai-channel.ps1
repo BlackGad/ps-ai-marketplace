@@ -21,7 +21,7 @@ function Test-ChannelCommand {
 
 function Get-ChannelKind {
     param([string]$Kind)
-    $descriptor = @(Get-PsAiChannels | Where-Object id -CEQ $Kind)[0]
+    $descriptor = @(Get-LegionChannels | Where-Object id -CEQ $Kind)[0]
     if (-not $descriptor) { throw "unknown channel kind '$Kind'" }
     return $descriptor
 }
@@ -38,7 +38,7 @@ function Get-ChannelAccount {
 
 function Add-ChannelBinding {
     param($Data, [string]$Path, [string]$Id, [string]$Kind, [string]$Target, [string[]]$Accounts)
-    Assert-PsAiId -Id $Id
+    Assert-LegionId -Id $Id
     $descriptor = Get-ChannelKind $Kind
     foreach ($accountId in $Accounts) { $null = Get-ChannelAccount $Data $accountId $descriptor }
     $existing = @($Data.channels | Where-Object id -CEQ $Id)[0]
@@ -48,7 +48,7 @@ function Add-ChannelBinding {
         return "skip: channel $Id (already done)"
     }
     $Data.channels = @($Data.channels) + [pscustomobject]@{ id = $Id; kind = $Kind; target = $Target; accounts = $Accounts }
-    Write-PsAiPersonalisation -Data $Data -Path $Path
+    Write-LegionPersonalisation -Data $Data -Path $Path
     return "added: channel $Id"
 }
 
@@ -56,14 +56,14 @@ function Remove-ChannelBinding {
     param($Data, [string]$Path, [string]$Id)
     if (-not (@($Data.channels | Where-Object id -CEQ $Id).Count)) { return "skip: channel remove $Id (already done)" }
     $Data.channels = @($Data.channels | Where-Object id -CNE $Id)
-    Write-PsAiPersonalisation -Data $Data -Path $Path
+    Write-LegionPersonalisation -Data $Data -Path $Path
     return "removed: channel $Id"
 }
 
 # Reads files only; no CLI is started.
 function Get-ChannelCheck {
     param([string]$Kind, [string[]]$Accounts, [string]$HomeRoot)
-    $data = Read-PsAiJson -Path (Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json')
+    $data = Read-LegionJson -Path (Get-LegionHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json')
     $descriptor = Get-ChannelKind $Kind
     $supported = $descriptor.launch.PSObject.Properties.Name
     $command = $descriptor.ready.command
@@ -85,12 +85,12 @@ function Get-ChannelCheck {
 
 if ($channelNoRun) { return }
 
-$file = Get-PsAiHomePath -HomeRoot $request.HomeRoot -Path 'configuration/ps-ai-personalisation.json'
+$file = Get-LegionHomePath -HomeRoot $request.HomeRoot -Path 'configuration/ps-ai-personalisation.json'
 if ($request.Action -eq 'check') {
     Get-ChannelCheck -Kind $request.Kind -Accounts $request.Accounts -HomeRoot $request.HomeRoot
     return
 }
-$data = Read-PsAiJson -Path $file
+$data = Read-LegionJson -Path $file
 switch ($request.Action) {
     add { Add-ChannelBinding $data $file $request.Id $request.Kind $request.Target $request.Accounts }
     remove { Remove-ChannelBinding $data $file $request.Id }

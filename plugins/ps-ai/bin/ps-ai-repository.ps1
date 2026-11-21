@@ -41,7 +41,7 @@ function Get-MissingIgnoreLines {
     return @($Lines | Where-Object { $_ -cnotin ($content -split '\r?\n') })
 }
 
-function Add-PsAiIgnoreLines {
+function Add-LegionIgnoreLines {
     param([string]$Path, [string[]]$Lines)
     $missing = Get-MissingIgnoreLines -Path $Path -Lines $Lines
     if (-not $missing.Count) { return $false }
@@ -209,7 +209,7 @@ function Add-RulesBlock {
 
 function Assert-ValidProject {
     $path = Join-Path $legion 'configuration/project.json'
-    $issues = @(Invoke-PsAiValidation -Kind project -Path $path)
+    $issues = @(Invoke-LegionValidation -Kind project -Path $path)
     if ($issues.Count) { throw "project.json is not valid: $($issues -join '; ')" }
 }
 
@@ -252,9 +252,9 @@ function Save-SetupCommit {
     if ($LASTEXITCODE -ne 0) { throw 'Cannot commit setup files' }
 }
 
-$repoRoot = Get-PsAiCodeRoot -Path $Repo
+$repoRoot = Get-LegionCodeRoot -Path $Repo
 if (-not $repoRoot) { throw 'Repository setup needs a Git working tree' }
-$legion = Get-PsAiRepoPath -Repo $repoRoot -Path ''
+$legion = Get-LegionRepoPath -Repo $repoRoot -Path ''
 $innerGit = Join-Path $legion '.git'
 $changedPaths = @()   # setup files written by this run
 $keptPaths = @()      # setup files that already existed, relative to .legion
@@ -311,7 +311,7 @@ New-OrchestrationFiles -RulesName $rulesName
 Assert-ValidProject
 
 if ($Mode -eq 'Shared') {
-    if (Add-PsAiIgnoreLines -Path $ignorePath -Lines @('.legion/temp/', '.legion/docs/')) { $changedPaths += $ignorePath }
+    if (Add-LegionIgnoreLines -Path $ignorePath -Lines @('.legion/temp/', '.legion/docs/')) { $changedPaths += $ignorePath }
     if (-not (Test-RulesBlock $rulesPath)) {
         Add-RulesBlock $rulesPath
         $changedPaths += $rulesPath
@@ -323,8 +323,8 @@ if ($Mode -eq 'Shared') {
         $prepared = $true
     }
 } else {
-    if (Add-PsAiIgnoreLines -Path $excludePath -Lines @('.legion/')) { $prepared = $true }
-    if (Add-PsAiIgnoreLines -Path $ignorePath -Lines @('temp/', 'docs/')) { $changedPaths += $ignorePath }
+    if (Add-LegionIgnoreLines -Path $excludePath -Lines @('.legion/')) { $prepared = $true }
+    if (Add-LegionIgnoreLines -Path $ignorePath -Lines @('temp/', 'docs/')) { $changedPaths += $ignorePath }
     if (-not (Test-Path -LiteralPath $innerGit)) {
         git init --quiet $legion
         if ($LASTEXITCODE -ne 0) { throw 'Cannot initialize Private history' }

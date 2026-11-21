@@ -33,20 +33,20 @@ $repo = Split-Path $PSScriptRoot -Parent
         }
         'throw "stale refresh script invoked"' | Set-Content (Join-Path $oldPlugin 'bin/ps-ai-refresh.ps1')
         ('param($HomeRoot); $HomeRoot | Set-Content -LiteralPath ''' + $marker.Replace("'", "''") + '''') | Set-Content (Join-Path $newPlugin 'bin/ps-ai-refresh.ps1')
-        $null = Invoke-PsAiUpdateSteps -Entry $entry -ConfigDir selected-account
+        $null = Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account
         Assert-True (Test-Path -LiteralPath $marker) 'Successful update invokes freshly installed refresh script'
         Assert-Equal (Get-InstallHome) ((Get-Content $marker -Raw).Trim()) 'Refresh receives the selected owner home'
         Remove-Item $marker
         $state.Fail=$true
-        Assert-Throws { Invoke-PsAiUpdateSteps -Entry $entry -ConfigDir selected-account } 'Failed update propagates'
+        Assert-Throws { Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account } 'Failed update propagates'
         Assert-True (-not (Test-Path $marker)) 'Failed update never refreshes generated artifacts'
         $state.Fail=$false
         $state.Missing=$true
-        $null = Invoke-PsAiUpdateSteps -Entry $entry -ConfigDir selected-account -Yes
+        $null = Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account -Yes
         Assert-True (Test-Path $marker) 'Missing plugin is installed then its fresh artifacts are refreshed'
         Remove-Item $marker
         $state.Missing=$false
-        $null = Invoke-PsAiUpdateSteps -Entry $entry -ConfigDir selected-account -DryRun
+        $null = Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account -DryRun
         Assert-True (-not (Test-Path $marker)) 'Preview never invokes refresh'
         $state.Disappeared=$true
         New-Item -ItemType Directory -Path (Join-Path $sandbox 'selected-home/.claude/plugins/cache/ps-ai-marketplace/ps-ai') -Force | Out-Null
@@ -59,7 +59,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-True (-not (Test-Path $marker)) 'Leftover cache is never refreshed as an installed plugin'
         $state.Disappeared=$false
         Remove-Item (Join-Path $newPlugin 'bin/ps-ai-refresh.ps1')
-        Assert-Throws { Invoke-PsAiUpdateSteps -Entry $entry -ConfigDir selected-account } 'Unresolvable installed refresh script is reported'
+        Assert-Throws { Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account } 'Unresolvable installed refresh script is reported'
     } finally {
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
         if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe refresh fixture cleanup' }

@@ -11,7 +11,7 @@
     Assert-Equal 0 $noRunOutput.Count 'NoRun only defines functions'
     Assert-Equal $trackedTime ([IO.File]::GetLastWriteTimeUtc($indexPath)) 'NoRun does not write the index'
 
-    $tools = @(Get-PsAiTools)
+    $tools = @(Get-LegionTools)
     $bootstrap = Get-Content (Join-Path $repoRoot 'tools/bootstrap.json') -Raw | ConvertFrom-Json
     $rendered = Get-ToolsIndexContent -Tools $tools -Bootstrap $bootstrap
     Assert-True ($rendered -is [string]) 'Renderer returns one string'
@@ -71,7 +71,7 @@
         Assert-Throws { & $copyGenerator -Check } 'New tool makes the catalog stale'
         & $copyGenerator | Out-Null
         $extended = Get-Content -LiteralPath $copyIndex -Raw | ConvertFrom-Json
-        Assert-Equal (@(Get-PsAiTools -SkillsRoot (Join-Path $copyRoot 'plugins/ps-ai/skills')).id -join '|') ($extended.tools.id -join '|') 'A fourth skill enters the index without shared edits'
+        Assert-Equal (@(Get-LegionTools -SkillsRoot (Join-Path $copyRoot 'plugins/ps-ai/skills')).id -join '|') ($extended.tools.id -join '|') 'A fourth skill enters the index without shared edits'
         $fourthDescriptor = Get-Content (Join-Path $copyRoot 'plugins/ps-ai/skills/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
         Assert-Equal $fourthDescriptor.command ($extended.tools | Where-Object id -CEQ $fourthDescriptor.id).command 'Fourth tool executable comes from its descriptor'
         & $copyGenerator -Check | Out-Null
@@ -206,7 +206,7 @@
     )
     foreach ($bad in $invalid) {
         $fixtureText = $bad
-        Assert-Throws { Invoke-PsAiInstaller -Source 'example/market' -DryRun } 'Invalid catalog fails before bootstrap'
+        Assert-Throws { Invoke-LegionInstaller -Source 'example/market' -DryRun } 'Invalid catalog fails before bootstrap'
         Assert-Equal 0 $state.Bootstrap 'Invalid catalog never bootstraps'
     }
     foreach ($field in @('plugin','listing','bootstrap','windows')) {
@@ -220,13 +220,13 @@
         Assert-Throws { Get-InstallCatalog -Catalog $bad } 'Consumed object nodes cannot be arrays'
     }
     function Get-InstallSourceText { throw 'fixture metadata unavailable' }
-    Assert-Throws { Invoke-PsAiInstaller -Source 'example/market' -DryRun } 'Fetch failure stops before bootstrap'
+    Assert-Throws { Invoke-LegionInstaller -Source 'example/market' -DryRun } 'Fetch failure stops before bootstrap'
     Assert-Equal 0 $state.Bootstrap 'Fetch failure never bootstraps'
     $fixtureText = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw
     function Get-InstallSourceText { param($Url) $state.Reads++; return $fixtureText }
     $before = $state.Reads
     function Test-InstallStepDone { $false }
-    $null = Invoke-PsAiInstaller -Source 'example/market' -Tools claude -DryRun
+    $null = Invoke-LegionInstaller -Source 'example/market' -Tools claude -DryRun
     Assert-Equal ($before + 1) $state.Reads 'Dry run reads metadata exactly once'
     Assert-Equal 1 $state.Bootstrap 'Valid invocation reaches bootstrap once'
     . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun

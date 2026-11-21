@@ -46,7 +46,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     try {
         Write-FixturePlugin $folders[0] '0.7.0'
         Write-FixturePlugin $folders[1] '0.8.0'
-        $output = @(Invoke-PsAiInstaller -Tools claude -Catalog $catalog -Update)
+        $output = @(Invoke-LegionInstaller -Tools claude -Catalog $catalog -Update)
         Assert-True ($output -contains 'ps-ai 0.7.0 -> 0.8.0') 'UpdateShowsVersions: reports installed versions before and after'
         Assert-True ($output -contains 'skip: ps-ai 0.8.0 (already up to date)') 'MixedFoldersUpdate: reports an unchanged folder separately'
         Assert-Equal 1 $questions.Count 'UpdateAsksOnce: one question across mixed folders'
@@ -58,14 +58,14 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-True ($output -contains 'done: restart your sessions; run legion in the repository') 'Successful update gives the restart hint'
 
         $calls.Clear(); $questions.Clear()
-        $output = @(Invoke-PsAiInstaller -Tools claude -Catalog $catalog -Update -Yes)
+        $output = @(Invoke-LegionInstaller -Tools claude -Catalog $catalog -Update -Yes)
         Assert-Equal 2 @($output | Where-Object { $_ -eq 'skip: ps-ai 0.8.0 (already up to date)' }).Count 'UpdateAlreadyLatest: unchanged versions reported after tools run'
         Assert-Equal 2 @($calls | Where-Object { $_ -eq 'claude|plugin|update|ps-ai@ps-ai-marketplace' }).Count 'Same version never suppresses track updates'
         Assert-Equal 0 $questions.Count '-Yes suppresses the question'
 
         Remove-Item -LiteralPath (Join-Path (Join-Path $folders[1] $entry.plugin.installedRoot) 'plugin.json')
         $calls.Clear(); $questions.Clear(); $state.Answer='n'
-        $output = @(Invoke-PsAiInstaller -Tools claude -Catalog $catalog -Update)
+        $output = @(Invoke-LegionInstaller -Tools claude -Catalog $catalog -Update)
         Assert-True (($output -join "`n").Contains($folders[1])) 'Preview names the missing target'
         Assert-True (($output -join "`n").Contains('not installed')) 'Preview identifies a fresh install'
         Assert-Equal 1 $questions.Count 'Declining mixed update asks once'
@@ -73,18 +73,18 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-True ($output -contains 'Nothing changed. Run again with -Yes to apply.') 'Decline explains how to apply'
 
         $calls.Clear(); $questions.Clear()
-        $output = @(Invoke-PsAiInstaller -Tools claude -Catalog $catalog -Update -DryRun)
+        $output = @(Invoke-LegionInstaller -Tools claude -Catalog $catalog -Update -DryRun)
         Assert-Equal 0 $questions.Count 'Dry run never asks'
         Assert-Equal 0 @($calls | Where-Object { $_ -notmatch '\|list\|' }).Count 'Dry run only reads listings'
         Assert-True (-not (Test-Path -LiteralPath (Join-Path (Join-Path $folders[1] $entry.plugin.installedRoot) 'plugin.json'))) 'Dry run creates no missing copy'
 
         $calls.Clear(); $questions.Clear(); $state.Answer='y'
-        $output = @(Invoke-PsAiInstaller -Tools claude -Catalog $catalog -Update)
+        $output = @(Invoke-LegionInstaller -Tools claude -Catalog $catalog -Update)
         Assert-Equal 1 $questions.Count 'One yes covers updating and fresh installation'
         Assert-True ($calls -contains 'claude|plugin|install|ps-ai@ps-ai-marketplace') 'Missing folder is installed under the same yes'
         Assert-True ($output -contains 'ps-ai not installed -> 0.8.0') 'Fresh installation reports its resulting version'
         $calls.Clear()
-        $output = @(Invoke-PsAiInstaller -Tools claude -Catalog $catalog -Update -Yes)
+        $output = @(Invoke-LegionInstaller -Tools claude -Catalog $catalog -Update -Yes)
         Assert-Equal 0 @($calls | Where-Object { $_ -match '\|(add|install|remove)\|' }).Count 'FreshInstallThenUpdate: subsequent update keeps registration'
         Assert-Equal 2 @($output | Where-Object { $_ -eq 'skip: ps-ai 0.8.0 (already up to date)' }).Count 'FreshInstallThenUpdate: subsequent report is unchanged'
     } finally {

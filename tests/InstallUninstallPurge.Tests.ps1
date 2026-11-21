@@ -82,7 +82,7 @@ Test-PurgeScenario {
     $cache = New-PurgeFile '.claude/plugins/cache/ps-ai-marketplace/ps-ai/1.0/plugin.json'
     $data = New-PurgeFile 'override-copilot/plugin-data/ps-ai-marketplace/ps-ai/keep-until-purge'
     $state.Installed=$true
-    $preview = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -DryRun) -join "`n"
+    $preview = @(Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -DryRun) -join "`n"
     $legionFolder = Join-Path $fixtureHome '.legion'
     Assert-True ($preview.Contains("Remove folder: $legionFolder (2 files)")) 'Preview summarizes the legion folder with its file count'
     Assert-True ($preview.Contains("Remove entry: $settings")) 'Preview lists settings entries'
@@ -91,20 +91,20 @@ Test-PurgeScenario {
     Assert-Equal 0 $state.Writes.Count 'Dry run never calls CLI mutations'
     Assert-True (Test-Path $login) 'Dry run keeps login'
     $state.Answers=@('y','n')
-    $null = Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge
+    $null = Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge
     Assert-Equal 2 $state.Prompts.Count 'Purge has a separate confirmation after uninstall'
     Assert-True ($state.Prompts[1] -match 'Purge.*settings.*logins') 'Purge question names deleted settings and logins'
     Assert-True ($state.Writes.Count -gt 0) 'Normal uninstall runs first'
     Assert-True (Test-Path $login) 'Declined purge keeps legion'
     $state.Missing=$true
-    $output = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes 6>&1) -join "`n"
+    $output = @(Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes 6>&1) -join "`n"
     Assert-True (-not (Test-Path (Join-Path $fixtureHome '.legion'))) 'Purge removes entire legion home'
     Assert-True (-not (Test-Path $cache)) 'Physical default cache removed despite override and absent CLI'
     Assert-True (-not (Test-Path (Join-Path $fixtureHome 'override-copilot/plugin-data/ps-ai-marketplace'))) 'Purge removes Copilot data and empty marketplace parent'
     Assert-Equal '{"enabledPlugins":{"other@else":true},"theme":"dark"}' ([IO.File]::ReadAllText($settings)) 'Only ps-ai member and its comma removed'
     Assert-Equal 'repository data' ([IO.File]::ReadAllText($repoFile)) 'Repository legion folder preserved'
     Assert-True ($output.Contains('folders ps-ai no longer knows')) 'Prints hook baseline limitation'
-    $repeat = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes)
+    $repeat = @(Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes)
     Assert-True ($repeat -contains 'skip: purge (already done)') 'Repeated purge skips without writes'
 }
 
@@ -116,7 +116,7 @@ Test-PurgeScenario {
     $copilot = New-PurgeFile 'override-copilot/config.json' '{"installedPlugins":[{"name":"ps-ai","marketplace":"ps-ai-marketplace","cache_path":"unused"},{"name":"other","marketplace":"else"}],"other":123}'
     $tomlText = "# keep`r`nmodel = 'keep'`r`n[plugins.`"ps-ai@ps-ai-marketplace`"]`r`nenabled = false`r`n[plugins.`"other@else`"]`r`nenabled = true`r`n[marketplaces.ps-ai-marketplace]`r`nsource_type = 'git'`r`nsource = 'example/repo'`r`n[hooks.state.'ps-ai@ps-ai-marketplace:hooks/hooks.json:session_start:0:0']`r`ntrusted_hash = 'fake'`r`n[hooks.state.'other@else:hooks/hooks.json:session_start:0:0']`r`ntrusted_hash = 'keep'`r`n"
     $toml = New-PurgeFile 'custom-codex/config.toml' $tomlText
-    $null = Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes
+    $null = Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes
     Assert-Equal '{"version":2,"plugins":{"other@else":[{"scope":"user"}]}}' ([IO.File]::ReadAllText($claude)) 'Recorded config plugin inventory cleaned'
     Assert-Equal '{"other":{"keep":1}}' ([IO.File]::ReadAllText($market)) 'Physical default marketplace registry cleaned'
     Assert-Equal '{"installedPlugins":[{"name":"other","marketplace":"else"}],"other":123}' ([IO.File]::ReadAllText($copilot)) 'Copilot internal plugin record removed without rewriting unrelated state'
@@ -141,12 +141,12 @@ Test-PurgeScenario {
             $text = $textLines -join $ending
             $expected = $expectedLines -join $ending
             $file = New-PurgeFile 'override-copilot/settings.json' $text
-            $null = Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes
+            $null = Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes
             Assert-Equal $expected ([IO.File]::ReadAllText($file)) 'JSON/JSONC removes only the ps-ai member and preserves LF or CRLF bytes'
         }
         $file = New-PurgeFile 'override-copilot/settings.json' (@('{', '"enabledPlugins":{"ps-ai@ps-ai-marketplace":false,broken}', '}') -join $ending)
         $before = (Get-FileHash $file).Hash
-        $output = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes 6>&1) -join "`n"
+        $output = @(Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes 6>&1) -join "`n"
         Assert-Equal $before (Get-FileHash $file).Hash 'Unsafe JSONC left unchanged for either line ending'
         Assert-True ($output.Contains("Manual step: $file")) 'Unsafe JSONC reported for manual cleanup'
     }
@@ -161,15 +161,15 @@ Test-PurgeScenario {
     $separator = [string][IO.Path]::PathSeparator
     $env:PATH = @('keep-first', $bin, 'keep-middle', $portable, 'keep-last') -join $separator
     $null = New-PurgeFile '.legion/configuration/ps-ai-notes.md' 'notes'
-    $preview = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -DryRun) -join "`n"
+    $preview = @(Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -DryRun) -join "`n"
     Assert-True ($preview.IndexOf("Remove user PATH entry: $bin") -lt $preview.IndexOf('Remove folder:')) 'PATH entries listed before folder removal'
     Assert-True ($preview.Contains("Remove process PATH entry: $bin")) 'Process PATH changes listed'
     Assert-Equal 0 $state.PathWrites 'Preview keeps user PATH'
-    $null = Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes
+    $null = Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes
     Assert-Equal 'keep-first;keep-middle;keep-last;' $state.UserPath 'Only exact ps-ai user PATH entries removed'
     Assert-Equal (@('keep-first','keep-middle','keep-last') -join $separator) $env:PATH 'Only exact ps-ai process PATH entries removed'
     Assert-Equal 1 $state.PathWrites 'User PATH updated once'
-    $null = Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes
+    $null = Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes
     Assert-Equal 1 $state.PathWrites 'Repeat keeps PATH unchanged'
 }
 
@@ -196,14 +196,14 @@ Test-PurgeScenario {
     $otherCache = New-PurgeFile '.codex/plugins/cache/other-marketplace/other/1.0/plugin.json' 'other cache'
     $data = New-PurgeFile '.codex/plugins/data/ps-ai-ps-ai-marketplace/state.json'
     $checkout = New-PurgeFile '.codex/.tmp/marketplaces/ps-ai-marketplace/.git/config'
-    $null = Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes
+    $null = Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes
     Assert-True (-not (Test-Path $baseline)) 'Known Codex baseline removed'
     Assert-Equal 'unattributable hash' ([IO.File]::ReadAllText($unknown)) 'Unknown baseline preserved'
     Assert-True (-not (Test-Path $data)) 'Codex plugin data removed'
     Assert-True (-not (Test-Path $checkout)) 'Managed marketplace checkout removed'
     Assert-Equal 'other plugin' ([IO.File]::ReadAllText($otherData)) 'Other plugin data in same marketplace preserved'
     Assert-Equal 'other cache' ([IO.File]::ReadAllText($otherCache)) 'Other marketplace cache preserved'
-    $repeat = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes)
+    $repeat = @(Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes)
     Assert-True ($repeat -contains 'skip: purge (already done)') 'Unrelated marketplace data does not prevent repeat skip'
 }
 
@@ -214,7 +214,7 @@ Test-PurgeScenario {
             $file = New-PurgeFile 'override-copilot/settings.json'
             $text = @('// preserve BOM, Unicode and line endings', "{`"enabledPlugins`":{`"ps-ai@ps-ai-marketplace`":false},`"name`":`"caf$([char]0xe9)`"}", '') -join $ending
             [IO.File]::WriteAllText($file, $text, $encoding)
-            $null = Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes
+            $null = Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes
             $expected = [byte[]]($encoding.GetPreamble() + $encoding.GetBytes($text.Replace('"ps-ai@ps-ai-marketplace":false','')))
             Assert-Equal ([Convert]::ToBase64String($expected)) ([Convert]::ToBase64String([IO.File]::ReadAllBytes($file))) 'Settings edit keeps encoding, BOM, Unicode and LF or CRLF bytes'
         }
@@ -225,7 +225,7 @@ Test-PurgeScenario {
         $tomlText = ($prompt + @('[plugins."ps-ai@ps-ai-marketplace"]', 'enabled = false') + $otherTable) -join $ending
         $expected = ($prompt + $otherTable) -join $ending
         $file = New-PurgeFile 'override-codex/config.toml' $tomlText
-        $output = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes) -join "`n"
+        $output = @(Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes) -join "`n"
         Assert-Equal $expected ([IO.File]::ReadAllText($file)) 'TOML removes the real ps-ai table and preserves table-like prompt text with LF or CRLF'
         Assert-True (-not $output.Contains('Manual step:')) 'Valid TOML table removal needs no manual step for either line ending'
         $inlineCases = @(
@@ -235,7 +235,7 @@ Test-PurgeScenario {
         foreach ($lines in $inlineCases) {
             $file = New-PurgeFile 'override-codex/config.toml' ($lines -join $ending)
             $before = (Get-FileHash $file).Hash
-            $output = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes) -join "`n"
+            $output = @(Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes) -join "`n"
             Assert-Equal $before (Get-FileHash $file).Hash 'Unsupported inline TOML stays byte-for-byte unchanged with LF or CRLF'
             Assert-True ($output.Contains("Manual step: $file")) 'Unsupported inline TOML requires a manual step for either line ending'
             Assert-True (-not $output.Contains('skip: purge (already done)')) 'Manual steps never claim purge already complete'
@@ -249,7 +249,7 @@ Test-PurgeScenario {
     New-Item -ItemType Directory -Path (Split-Path $cache) -Force | Out-Null
     $linkType = if ($env:OS -eq 'Windows_NT') { 'Junction' } else { 'SymbolicLink' }
     $null = New-Item -ItemType $linkType -Path $cache -Target $outside
-    $output = @(Invoke-PsAiInstaller -Catalog $catalog -Uninstall -Purge -Yes 6>&1) -join "`n"
+    $output = @(Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes 6>&1) -join "`n"
     Assert-True ($output.Contains('linked path; left in place')) 'Linked cache reported as manual cleanup'
     Assert-True (Test-Path $cache) 'Purge never traverses linked cache'
     # Remove the link itself before recursive fixture cleanup, without following it.

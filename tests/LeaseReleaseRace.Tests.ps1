@@ -33,7 +33,7 @@ function Invoke-FixtureTakeover {
         Microsoft.PowerShell.Management\Remove-Item -LiteralPath $guardPath -Force
     }
 }
-function Get-PsAiLease {
+function Get-LegionLease {
     param([string]$Repo)
     $leasePath = Join-Path $Repo '.legion/temp/overseer.lock'
     if (-not (Test-Path -LiteralPath $leasePath)) { return @{ State = 'free'; Data = $null } }

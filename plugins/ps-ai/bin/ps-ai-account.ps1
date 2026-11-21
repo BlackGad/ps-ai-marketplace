@@ -22,20 +22,20 @@ $accountNoRun = $NoRun
 . (Join-Path $PSScriptRoot 'lib/foundry.ps1')
 . (Join-Path $PSScriptRoot 'lib/commands.ps1')
 
-function Assert-PsAiId {
+function Assert-LegionId {
     param([string]$Id)
     if ($Id -cnotmatch '^[a-z][a-z0-9-]*$') { throw "id '$Id' must match ^[a-z][a-z0-9-]*$" }
 }
 
-function Assert-PsAiNewId {
+function Assert-LegionNewId {
     param([string]$Id, $Data)
-    Assert-PsAiId -Id $Id
-    if ((Get-PsAiOwnerCommands).Contains($Id)) { throw "'$Id' is reserved for an owner command" }
+    Assert-LegionId -Id $Id
+    if ((Get-LegionOwnerCommands).Contains($Id)) { throw "'$Id' is reserved for an owner command" }
     if (@($Data.agents | Where-Object { $_.id -ceq $Id }).Count) { throw "account '$Id' already exists" }
     if (Get-Command $Id -CommandType Application -ErrorAction SilentlyContinue) { throw "'$Id' is already a command" }
 }
 
-function Update-PsAiChannelAccounts {
+function Update-LegionChannelAccounts {
     param($Data, [string]$OldId, [string]$NewId)
     foreach ($channel in $Data.channels) {
         if ($OldId -cin $channel.accounts -and -not $NewId -and @($channel.accounts).Count -eq 1) {
@@ -49,7 +49,7 @@ function Update-PsAiChannelAccounts {
     }
 }
 
-function Test-PsAiOwnedWrapper {
+function Test-LegionOwnedWrapper {
     param([string]$Path, [string]$Id)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
     $item = Get-Item -LiteralPath $Path -Force
@@ -64,17 +64,17 @@ function Test-PsAiOwnedWrapper {
     return [bool]([IO.File]::ReadAllLines($Path) -ccontains $header)
 }
 
-function Assert-PsAiWrapperPath {
+function Assert-LegionWrapperPath {
     param([string]$Path, [string]$Id)
     $current = [IO.Path]::GetFullPath($Path)
     while ($current) {
         if ((Test-Path -LiteralPath $current) -and ((Get-Item -LiteralPath $current -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "linked wrapper path '$Path'" }
         $current = Split-Path $current -Parent
     }
-    if ((Test-Path -LiteralPath $Path) -and -not (Test-PsAiOwnedWrapper $Path $Id)) { throw "wrapper collision '$Path'" }
+    if ((Test-Path -LiteralPath $Path) -and -not (Test-LegionOwnedWrapper $Path $Id)) { throw "wrapper collision '$Path'" }
 }
 
-function Write-PsAiPersonalisation {
+function Write-LegionPersonalisation {
     param($Data, [string]$Path)
     $original = if (Test-Path -LiteralPath $Path) { [System.IO.File]::ReadAllText($Path) } else { $null }
     if ($Data.PSObject.Properties['$schema']) {
@@ -83,7 +83,7 @@ function Write-PsAiPersonalisation {
     $json = $Data | ConvertTo-Json -Depth 100
     New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
     [System.IO.File]::WriteAllText($Path, $json + "`n", [System.Text.UTF8Encoding]::new($false))
-    $issues = @(Invoke-PsAiValidation -Kind personalisation -Path $Path)
+    $issues = @(Invoke-LegionValidation -Kind personalisation -Path $Path)
     if ($issues.Count) {
         if ($null -eq $original) { Remove-Item -LiteralPath $Path }
         else { [System.IO.File]::WriteAllText($Path, $original, [System.Text.UTF8Encoding]::new($false)) }
@@ -91,12 +91,12 @@ function Write-PsAiPersonalisation {
     }
 }
 
-function ConvertTo-PsAiShellLiteral {
+function ConvertTo-LegionShellLiteral {
     param([string]$Value)
     return "'" + $Value.Replace("'", "'" + '"' + "'" + '"' + "'") + "'"
 }
 
-function Write-PsAiGeneratedFile {
+function Write-LegionGeneratedFile {
     param([string]$Path, [string]$Content, [Collections.Generic.List[string]]$Changes, [switch]$Executable)
     $same = (Test-Path -LiteralPath $Path) -and [IO.File]::ReadAllText($Path) -ceq $Content
     $changed = -not $same
@@ -104,7 +104,7 @@ function Write-PsAiGeneratedFile {
         New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
         [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
     }
-    if ($Executable -and -not $IsWindows -and -not (Test-PsAiLauncherExecutable -Path $Path)) {
+    if ($Executable -and -not $IsWindows -and -not (Test-LegionLauncherExecutable -Path $Path)) {
         & chmod +x $Path
         if ($LASTEXITCODE -ne 0) { throw 'could not make the generated wrapper executable' }
         $changed = $true
@@ -112,9 +112,9 @@ function Write-PsAiGeneratedFile {
     if ($changed -and $null -ne $Changes) { $Changes.Add($Path) }
 }
 
-function Get-PsAiShellWrapperTarget {
+function Get-LegionShellWrapperTarget {
     param([string]$Path, [string]$Tool, [string]$ConfigDir)
-    $prefix = (Get-PsAiTool $Tool).configEnv + '=' + (ConvertTo-PsAiShellLiteral $ConfigDir) + ' exec '
+    $prefix = (Get-LegionTool $Tool).configEnv + '=' + (ConvertTo-LegionShellLiteral $ConfigDir) + ' exec '
     $line = [IO.File]::ReadAllLines($Path) | Select-Object -Last 1
     if (-not $line.StartsWith($prefix) -or -not $line.EndsWith(' "$@"')) { return $null }
     $literal = $line.Substring($prefix.Length, $line.Length - $prefix.Length - ' "$@"'.Length)
@@ -122,59 +122,59 @@ function Get-PsAiShellWrapperTarget {
     if (-not $literal.StartsWith("'") -or -not $literal.EndsWith("'")) { return $null }
     $escape = "'" + '"' + "'" + '"' + "'"
     $target = $literal.Substring(1, $literal.Length - 2).Replace($escape, "'")
-    if ((ConvertTo-PsAiShellLiteral $target) -ceq $literal) { return $target }
+    if ((ConvertTo-LegionShellLiteral $target) -ceq $literal) { return $target }
     return $null
 }
 
-function Get-PsAiWrapperTarget {
+function Get-LegionWrapperTarget {
     param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$ConfigDir)
-    $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
+    $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
     $candidates = [Collections.Generic.List[string]]::new()
     $sh = Join-Path $bin $Id
-    if (Test-PsAiOwnedWrapper $sh $Id) {
-        $target = Get-PsAiShellWrapperTarget -Path $sh -Tool $Tool -ConfigDir $ConfigDir
+    if (Test-LegionOwnedWrapper $sh $Id) {
+        $target = Get-LegionShellWrapperTarget -Path $sh -Tool $Tool -ConfigDir $ConfigDir
         if ($target) { $candidates.Add($target) }
     }
     $cmd = Join-Path $bin "$Id.cmd"
-    if ($IsWindows -and (Test-PsAiOwnedWrapper $cmd $Id)) {
+    if ($IsWindows -and (Test-LegionOwnedWrapper $cmd $Id)) {
         $line = [IO.File]::ReadAllLines($cmd) | Select-Object -Skip 3 -First 1
         if ($line -cmatch '^@(?:pwsh -NoProfile -File |call )?"([^"]+)" %\*$') { $candidates.Add($Matches[1].Replace('%%', '%')) }
     }
     if (-not $candidates.Count) {
         # With no launcher left, recover from the same stock command used for a new account.
         if ((Test-Path -LiteralPath $sh) -or (Test-Path -LiteralPath $cmd)) { return $null }
-        $stock = Get-Command (Get-PsAiTool $Tool).command -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        $stock = Get-Command (Get-LegionTool $Tool).command -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if (-not $stock) { return $null }
         $candidates.Add($stock.Source)
     }
     $target = $candidates[0]
-    foreach ($candidate in $candidates) { if (-not (Get-PsAiPathComparer).Equals($target, $candidate)) { return $null } }
+    foreach ($candidate in $candidates) { if (-not (Get-LegionPathComparer).Equals($target, $candidate)) { return $null } }
     # Check the executable and reject edited or conflicting surviving wrappers before recovery.
-    try { New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -ConfigDir $ConfigDir -RealCommand $target -CheckOnly }
+    try { New-LegionWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -ConfigDir $ConfigDir -RealCommand $target -CheckOnly }
     catch { return $null }
     return $target
 }
 
-function Get-PsAiNewAccountDir {
+function Get-LegionNewAccountDir {
     param([string]$Id, [string]$HomeRoot)
-    return Get-PsAiHomePath -HomeRoot $HomeRoot -Path "agents/$Id"
+    return Get-LegionHomePath -HomeRoot $HomeRoot -Path "agents/$Id"
 }
 
-function New-PsAiWrappers {
+function New-LegionWrappers {
     param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$RealCommand, [string]$ConfigDir, [switch]$CheckOnly, [Collections.Generic.List[string]]$Changes)
-    Assert-PsAiId $Id
+    Assert-LegionId $Id
     if (-not (Test-Path -LiteralPath $RealCommand -PathType Leaf)) { throw "target needed: $Id; ask the owner for an existing executable" }
-    $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
-    $folder = if ($ConfigDir) { $ConfigDir } else { Get-PsAiNewAccountDir -Id $Id -HomeRoot $HomeRoot }
+    $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
+    $folder = if ($ConfigDir) { $ConfigDir } else { Get-LegionNewAccountDir -Id $Id -HomeRoot $HomeRoot }
     if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }
     $folder = [IO.Path]::GetFullPath($folder)
-    foreach ($suffix in @('', '.cmd')) { Assert-PsAiWrapperPath (Join-Path $bin "$Id$suffix") $Id }
-    $canonical = Get-PsAiWrapperCommand $Id $HomeRoot
+    foreach ($suffix in @('', '.cmd')) { Assert-LegionWrapperPath (Join-Path $bin "$Id$suffix") $Id }
+    $canonical = Get-LegionWrapperCommand $Id $HomeRoot
     if ([IO.Path]::IsPathRooted($RealCommand) -and [IO.Path]::GetFullPath($RealCommand) -eq $canonical) { throw 'wrapper target would recurse' }
-    $envName = (Get-PsAiTool -Tool $Tool).configEnv
-    $target = ConvertTo-PsAiShellLiteral $RealCommand
+    $envName = (Get-LegionTool -Tool $Tool).configEnv
+    $target = ConvertTo-LegionShellLiteral $RealCommand
     if ([IO.Path]::GetExtension($RealCommand) -ieq '.ps1') { $target = 'pwsh -NoProfile -File ' + $target }
-    $sh = '#!/bin/sh' + "`n# Generated by ps-ai: account $Id`n" + ('{0}={1} exec {2} "$@"' -f $envName, (ConvertTo-PsAiShellLiteral $folder), $target) + "`n"
+    $sh = '#!/bin/sh' + "`n# Generated by ps-ai: account $Id`n" + ('{0}={1} exec {2} "$@"' -f $envName, (ConvertTo-LegionShellLiteral $folder), $target) + "`n"
     $shFile = Join-Path $bin $Id
     if ((Test-Path -LiteralPath $shFile) -and [IO.File]::ReadAllText($shFile) -cne $sh) { throw "wrapper collision '$shFile'" }
     if ($IsWindows) {
@@ -190,23 +190,23 @@ function New-PsAiWrappers {
     }
     if ($CheckOnly) { return }
     New-Item -ItemType Directory -Path $bin, $folder -Force | Out-Null
-    Write-PsAiGeneratedFile -Path $shFile -Content $sh -Executable -Changes $Changes
-    if ($IsWindows) { Write-PsAiGeneratedFile -Path $cmdFile -Content $cmd -Changes $Changes }
+    Write-LegionGeneratedFile -Path $shFile -Content $sh -Executable -Changes $Changes
+    if ($IsWindows) { Write-LegionGeneratedFile -Path $cmdFile -Content $cmd -Changes $Changes }
 }
 
 function Write-FoundryToolConfig {
     param($Agent, [string]$HomeRoot)
-    $tool = Get-PsAiTool -Tool $Agent.tool
-    $script = Get-PsAiToolScript -Tool $tool -Name foundry-config
+    $tool = Get-LegionTool -Tool $Agent.tool
+    $script = Get-LegionToolScript -Tool $tool -Name foundry-config
     if (-not $script) { return @{ Changed = $false; Path = $null } }
     return & $script -Agent $Agent -HomeRoot $HomeRoot
 }
 
-function Sync-PsAiFoundryRuntime {
+function Sync-LegionFoundryRuntime {
     param([string]$Tool, [string]$HomeRoot, [Collections.Generic.List[string]]$Changes)
-    $descriptor = Get-PsAiTool -Tool $Tool
+    $descriptor = Get-LegionTool -Tool $Tool
     if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
-    $runtime = [IO.Path]::GetFullPath((Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin/.ps-ai-runtime'))
+    $runtime = [IO.Path]::GetFullPath((Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin/.ps-ai-runtime'))
     $pluginRoot = Split-Path $PSScriptRoot -Parent
     $files = [ordered]@{}
     foreach ($name in @('lib/tools.ps1', 'lib/foundry.ps1', 'lib/paths.ps1')) {
@@ -234,27 +234,27 @@ function Sync-PsAiFoundryRuntime {
 
 function New-FoundryWrappers {
     param([string]$Id, [string]$HomeRoot, [string]$Tool, [Collections.Generic.List[string]]$Changes)
-    Assert-PsAiId $Id
-    foreach ($suffix in @('', '.cmd')) { Assert-PsAiWrapperPath (Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$Id$suffix") $Id }
-    $runner = Sync-PsAiFoundryRuntime -Tool $Tool -HomeRoot $HomeRoot -Changes $Changes
-    $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
-    $shPath = ConvertTo-PsAiShellLiteral $runner
+    Assert-LegionId $Id
+    foreach ($suffix in @('', '.cmd')) { Assert-LegionWrapperPath (Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$Id$suffix") $Id }
+    $runner = Sync-LegionFoundryRuntime -Tool $Tool -HomeRoot $HomeRoot -Changes $Changes
+    $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
+    $shPath = ConvertTo-LegionShellLiteral $runner
     $sh = '#!/bin/sh' + "`n# Generated by ps-ai: account $Id`n" + ('exec pwsh -NoProfile -File {0} -Agent {1} "$@"' -f $shPath, $Id) + "`n"
-    Write-PsAiGeneratedFile -Path (Join-Path $bin $Id) -Content $sh -Changes $Changes -Executable
+    Write-LegionGeneratedFile -Path (Join-Path $bin $Id) -Content $sh -Changes $Changes -Executable
     $cmd = "@rem Generated by ps-ai: account $Id`r`n@pwsh -NoProfile -File `"$($runner.Replace('%', '%%'))`" -Agent $Id %*`r`n"
-    Write-PsAiGeneratedFile -Path (Join-Path $bin "$Id.cmd") -Content $cmd -Changes $Changes
+    Write-LegionGeneratedFile -Path (Join-Path $bin "$Id.cmd") -Content $cmd -Changes $Changes
 }
 
-function Get-PsAiFoundryDiscovery {
+function Get-LegionFoundryDiscovery {
     param([string]$Endpoint, [string]$Tool)
-    $descriptor = Get-PsAiTool -Tool $Tool
+    $descriptor = Get-LegionTool -Tool $Tool
     if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
     $check = Test-FoundryToken -Login
     if (-not $check.Ok) { throw $check.Error }
     Get-FoundryDeployments -Endpoint $Endpoint -Tool $Tool
 }
 
-function Write-PsAiFoundryList {
+function Write-LegionFoundryList {
     param($Discovery, $Existing)
     $rows = @($Discovery.Deployments | ForEach-Object {
         $state = if ($_.name -cin @($Existing.name)) { 'kept' } else { 'new' }
@@ -269,7 +269,7 @@ function Write-PsAiFoundryList {
     @{ source = $Discovery.Source; error = $Discovery.Error; deployments = @($rows) } | ConvertTo-Json -Depth 100
 }
 
-function Select-PsAiFoundryStandard {
+function Select-LegionFoundryStandard {
     param([object[]]$Deployments, $Tool)
     $aliases = @($Tool.foundry.aliases | Where-Object { $_ -ne 'fable' })
     $available = @(
@@ -321,9 +321,9 @@ function Select-PsAiFoundryStandard {
     return $result
 }
 
-function New-PsAiFoundryProvider {
+function New-LegionFoundryProvider {
     param([string]$Endpoint, [string]$Tool, [string[]]$Deployments, [string]$Default, [string[]]$Aliases, [switch]$Standard, $Discovery, $Existing)
-    $descriptor = Get-PsAiTool -Tool $Tool
+    $descriptor = Get-LegionTool -Tool $Tool
     if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
     if ($Standard) {
         $discovered = @($Discovery.Deployments)
@@ -333,7 +333,7 @@ function New-PsAiFoundryProvider {
             }
             $discovered = @($discovered | Where-Object { $_.name -cin $Deployments })
         } else { $Deployments = @($discovered.name) }
-        $mapping = Select-PsAiFoundryStandard -Deployments $discovered -Tool $descriptor
+        $mapping = Select-LegionFoundryStandard -Deployments $discovered -Tool $descriptor
         if ($mapping.Unresolved.Count) {
             $unresolved = $mapping.Unresolved[0]
             $names = if ($unresolved.Candidates.Count) { $unresolved.Candidates -join ', ' } else { '(none discovered)' }
@@ -365,39 +365,39 @@ function New-PsAiFoundryProvider {
         [pscustomobject]$item
     })
     $provider = [pscustomobject]@{ kind = 'foundry'; endpoint = $Endpoint; default = $Default; deployments = $items }
-    $issues = @(Get-PsAiProviderIssues -Data ([pscustomobject]@{ agents = @([pscustomobject]@{ tool = $Tool; provider = $provider }) }))
+    $issues = @(Get-LegionProviderIssues -Data ([pscustomobject]@{ agents = @([pscustomobject]@{ tool = $Tool; provider = $provider }) }))
     if ($issues.Count) { throw ($issues -join '; ') }
     return $provider
 }
 
-function Move-PsAiWrappers {
+function Move-LegionWrappers {
     param([string]$OldId, [string]$NewId, [string]$HomeRoot)
-    $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
+    $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
     foreach ($suffix in @('', '.cmd')) {
         $old = Join-Path $bin "$OldId$suffix"
-        if (Test-PsAiOwnedWrapper $old $OldId) {
+        if (Test-LegionOwnedWrapper $old $OldId) {
             $target = Join-Path $bin "$NewId$suffix"
             if (Test-Path -LiteralPath $target) { throw "wrapper collision '$target'" }
             $content = [IO.File]::ReadAllText($old).Replace("Generated by ps-ai: account $OldId", "Generated by ps-ai: account $NewId").Replace("-Agent $OldId ", "-Agent $NewId ")
-            Write-PsAiGeneratedFile -Path $target -Content $content -Executable:($suffix -eq '')
+            Write-LegionGeneratedFile -Path $target -Content $content -Executable:($suffix -eq '')
             Remove-Item -LiteralPath $old -Force
         }
     }
 }
 
-function Remove-PsAiWrappers {
+function Remove-LegionWrappers {
     param([string]$Id, [string]$HomeRoot)
-    $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
+    $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
     foreach ($suffix in @('', '.cmd')) {
         $path = Join-Path $bin "$Id$suffix"
-        if (Test-PsAiOwnedWrapper $path $Id) { Remove-Item -LiteralPath $path -Force }
+        if (Test-LegionOwnedWrapper $path $Id) { Remove-Item -LiteralPath $path -Force }
     }
 }
 
-function Add-PsAiSubscriptionAccount {
+function Add-LegionSubscriptionAccount {
     param([string]$Id, [string]$Tool, [string]$Command, [string]$ConfigDir, [string]$HomeRoot, $Data, [string]$Path)
     $existing = @($Data.agents | Where-Object { $_.id -ceq $Id })[0]
-    $accountDir = if ($ConfigDir) { $ConfigDir } else { Get-PsAiNewAccountDir -Id $Id -HomeRoot $HomeRoot }
+    $accountDir = if ($ConfigDir) { $ConfigDir } else { Get-LegionNewAccountDir -Id $Id -HomeRoot $HomeRoot }
     if ($ConfigDir) {
         $folder = $ConfigDir
         if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }
@@ -408,29 +408,29 @@ function Add-PsAiSubscriptionAccount {
     if ($accountDir -match '^~[/\\]') { $accountDir = Join-Path $HomeRoot $accountDir.Substring(2) }
     $accountDir = [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($accountDir))
     $existingDir = if ($existing.configDir -match '^~[/\\]') { Join-Path $HomeRoot $existing.configDir.Substring(2) } else { $existing.configDir }
-    if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and (Get-PsAiPathComparer).Equals($existingDir, $accountDir)) {
-        if (-not $Command) { $Command = Get-PsAiWrapperTarget -Id $Id -Tool $Tool -HomeRoot $HomeRoot -ConfigDir $accountDir }
+    if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and (Get-LegionPathComparer).Equals($existingDir, $accountDir)) {
+        if (-not $Command) { $Command = Get-LegionWrapperTarget -Id $Id -Tool $Tool -HomeRoot $HomeRoot -ConfigDir $accountDir }
         if (-not $Command) { throw "target needed: $Id; ask the owner for the registered executable" }
         $changes = [Collections.Generic.List[string]]::new()
-        New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $Command -ConfigDir $accountDir -Changes $changes
+        New-LegionWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $Command -ConfigDir $accountDir -Changes $changes
         if ($changes.Count) { foreach ($launcher in $changes) { "wrote: launcher $launcher" } }
         else { "skip: account $Id (already done)" }
         return
     }
-    Assert-PsAiNewId -Id $Id -Data $Data
+    Assert-LegionNewId -Id $Id -Data $Data
 
-    $realCommand = if ($Command) { $Command } else { (Get-Command (Get-PsAiTool -Tool $Tool).command -ErrorAction Stop).Source }
+    $realCommand = if ($Command) { $Command } else { (Get-Command (Get-LegionTool -Tool $Tool).command -ErrorAction Stop).Source }
     foreach ($suffix in @('', '.cmd')) {
-        $destination = Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$Id$suffix"
+        $destination = Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$Id$suffix"
         if ($realCommand -eq "$Id$suffix" -or ([IO.Path]::IsPathRooted($realCommand) -and [IO.Path]::GetFullPath($realCommand) -eq [IO.Path]::GetFullPath($destination))) { throw 'wrapper target would recurse' }
     }
     $entry = [pscustomobject]@{
         id = $Id; tool = $Tool; configDir = $accountDir
     }
-    New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $realCommand -ConfigDir $accountDir -CheckOnly
+    New-LegionWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $realCommand -ConfigDir $accountDir -CheckOnly
     $Data.agents = @($Data.agents) + @($entry)
-    Write-PsAiPersonalisation -Data $Data -Path $Path
-    New-PsAiWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $realCommand -ConfigDir $accountDir
+    Write-LegionPersonalisation -Data $Data -Path $Path
+    New-LegionWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $realCommand -ConfigDir $accountDir
     if ($ConfigDir) { "Existing account folder kept at $ConfigDir; use '$Id' to open it." }
     else { "Run '$Id' in a terminal and log in once." }
 }
@@ -444,57 +444,57 @@ if ($Standard -and $Action -ne 'models' -and -not ($Action -eq 'add' -and $Provi
     throw '-Standard is only for Foundry add or models'
 }
 
-$file = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
+$file = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
 if (-not (Test-Path -LiteralPath $file)) {
     # A fresh machine has no settings; the first agent added creates them.
     if ($Action -notin @('add', 'register')) { throw 'No ps-ai settings yet; add an agent first.' }
     $data = '{"schemaVersion":1,"agents":[],"channels":[]}' | ConvertFrom-Json
-} else { $data = Read-PsAiJson -Path $file }
+} else { $data = Read-LegionJson -Path $file }
 switch ($Action) {
     add {
-        $descriptor = Get-PsAiTool -Tool $Tool
+        $descriptor = Get-LegionTool -Tool $Tool
         $existing = @($data.agents | Where-Object { $_.id -ceq $Id })[0]
         if ($Provider -eq 'foundry') {
             if ($ConfigDir) { throw '-ConfigDir is for existing subscription accounts; omit it for Foundry.' }
             if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
-            Assert-PsAiId -Id $Id
+            Assert-LegionId -Id $Id
 
             $Endpoint = ConvertTo-FoundryEndpoint -Url $Endpoint
             if (-not $List -and $existing -and $existing.tool -ceq $Tool -and $existing.provider.kind -ceq $Provider -and $existing.provider.endpoint -ceq $Endpoint) {
                 "skip: account $Id (already done)"
                 break
             }
-            $discovery = Get-PsAiFoundryDiscovery -Endpoint $Endpoint -Tool $Tool
-            if ($List) { Write-PsAiFoundryList -Discovery $discovery -Existing @(); break }
-            Assert-PsAiNewId -Id $Id -Data $data
-            $providerBlock = New-PsAiFoundryProvider -Endpoint $Endpoint -Tool $Tool -Deployments $Deployments -Default $Default -Aliases $Aliases -Standard:$Standard -Discovery $discovery
+            $discovery = Get-LegionFoundryDiscovery -Endpoint $Endpoint -Tool $Tool
+            if ($List) { Write-LegionFoundryList -Discovery $discovery -Existing @(); break }
+            Assert-LegionNewId -Id $Id -Data $data
+            $providerBlock = New-LegionFoundryProvider -Endpoint $Endpoint -Tool $Tool -Deployments $Deployments -Default $Default -Aliases $Aliases -Standard:$Standard -Discovery $discovery
             $entry = [pscustomobject]@{
-                id = $Id; tool = $Tool; configDir = (Get-PsAiNewAccountDir -Id $Id -HomeRoot $HomeRoot); provider = $providerBlock
+                id = $Id; tool = $Tool; configDir = (Get-LegionNewAccountDir -Id $Id -HomeRoot $HomeRoot); provider = $providerBlock
             }
-            foreach ($suffix in @('', '.cmd')) { Assert-PsAiWrapperPath (Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$Id$suffix") $Id }
+            foreach ($suffix in @('', '.cmd')) { Assert-LegionWrapperPath (Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$Id$suffix") $Id }
             $null = Write-FoundryToolConfig -Agent $entry -HomeRoot $HomeRoot
             $data.agents = @($data.agents) + @($entry)
-            Write-PsAiPersonalisation -Data $data -Path $file
+            Write-LegionPersonalisation -Data $data -Path $file
             New-FoundryWrappers -Id $Id -HomeRoot $HomeRoot -Tool $Tool
             "Run '$Id' in a terminal; it signs in to Azure through az when needed."
             break
         }
-        Add-PsAiSubscriptionAccount -Id $Id -Tool $Tool -Command $Command -ConfigDir $ConfigDir -HomeRoot $HomeRoot -Data $data -Path $file
+        Add-LegionSubscriptionAccount -Id $Id -Tool $Tool -Command $Command -ConfigDir $ConfigDir -HomeRoot $HomeRoot -Data $data -Path $file
     }
     models {
         $agent = @($data.agents | Where-Object { $_.id -ceq $Id })[0]
         if (-not $agent) { throw "unknown account '$Id'" }
         if ($agent.provider.kind -cne 'foundry') { throw "account '$Id' is not a Foundry agent" }
-        $discovery = Get-PsAiFoundryDiscovery -Endpoint $agent.provider.endpoint -Tool $agent.tool
-        if ($List) { Write-PsAiFoundryList -Discovery $discovery -Existing $agent.provider.deployments; break }
-        $providerBlock = New-PsAiFoundryProvider -Endpoint $agent.provider.endpoint -Tool $agent.tool -Deployments $Deployments -Default $Default -Aliases $Aliases -Standard:$Standard -Discovery $discovery -Existing $agent.provider.deployments
+        $discovery = Get-LegionFoundryDiscovery -Endpoint $agent.provider.endpoint -Tool $agent.tool
+        if ($List) { Write-LegionFoundryList -Discovery $discovery -Existing $agent.provider.deployments; break }
+        $providerBlock = New-LegionFoundryProvider -Endpoint $agent.provider.endpoint -Tool $agent.tool -Deployments $Deployments -Default $Default -Aliases $Aliases -Standard:$Standard -Discovery $discovery -Existing $agent.provider.deployments
         if (($providerBlock | ConvertTo-Json -Depth 100 -Compress) -ceq ($agent.provider | ConvertTo-Json -Depth 100 -Compress)) {
             "skip: models $Id (no changes)"
             break
         }
         $agent.provider = $providerBlock
         $null = Write-FoundryToolConfig -Agent $agent -HomeRoot $HomeRoot
-        Write-PsAiPersonalisation -Data $data -Path $file
+        Write-LegionPersonalisation -Data $data -Path $file
         New-FoundryWrappers -Id $Id -HomeRoot $HomeRoot -Tool $agent.tool
     }
     register {
@@ -503,7 +503,7 @@ switch ($Action) {
         if ($target -match '^~[/\\]') { $target = Join-Path $HomeRoot $target.Substring(2) }
         $target = (Get-Command $target -ErrorAction Stop).Source
         if (-not $target) { throw 'register target must be an executable file' }
-        if ($target -eq (Get-PsAiWrapperCommand $Id $HomeRoot)) { throw 'wrapper target would recurse' }
+        if ($target -eq (Get-LegionWrapperCommand $Id $HomeRoot)) { throw 'wrapper target would recurse' }
         & $PSCommandPath -Action add -Id $Id -Tool $Tool -Command $target -ConfigDir $ConfigDir -HomeRoot $HomeRoot
     }
     rename {
@@ -513,26 +513,26 @@ switch ($Action) {
             "skip: account rename $Id to $NewId (already done)"
             break
         }
-        Assert-PsAiNewId -Id $NewId -Data $data
+        Assert-LegionNewId -Id $NewId -Data $data
         $agent = @($data.agents | Where-Object { $_.id -ceq $Id })[0]
         if ($null -eq $agent) { throw "unknown account '$Id'" }
         foreach ($suffix in @('', '.cmd')) {
-            $destination = Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$NewId$suffix"
+            $destination = Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$NewId$suffix"
             if (Test-Path -LiteralPath $destination) { throw "wrapper collision '$destination'" }
         }
-        Update-PsAiChannelAccounts -Data $data -OldId $Id -NewId $NewId
+        Update-LegionChannelAccounts -Data $data -OldId $Id -NewId $NewId
         $agent.id = $NewId
-        Write-PsAiPersonalisation -Data $data -Path $file
-        Move-PsAiWrappers -OldId $Id -NewId $NewId -HomeRoot $HomeRoot
+        Write-LegionPersonalisation -Data $data -Path $file
+        Move-LegionWrappers -OldId $Id -NewId $NewId -HomeRoot $HomeRoot
         "Config folder kept at $($agent.configDir); rename it yourself only if you want to."
     }
     remove {
         $agent = @($data.agents | Where-Object { $_.id -ceq $Id })[0]
         if ($null -eq $agent) { "skip: account remove $Id (already done)"; break }
-        Update-PsAiChannelAccounts -Data $data -OldId $Id -NewId ''
+        Update-LegionChannelAccounts -Data $data -OldId $Id -NewId ''
         $data.agents = @($data.agents | Where-Object { $_.id -cne $Id })
-        Write-PsAiPersonalisation -Data $data -Path $file
-        Remove-PsAiWrappers -Id $Id -HomeRoot $HomeRoot
+        Write-LegionPersonalisation -Data $data -Path $file
+        Remove-LegionWrappers -Id $Id -HomeRoot $HomeRoot
         "Config folder kept at $($agent.configDir)."
     }
 }

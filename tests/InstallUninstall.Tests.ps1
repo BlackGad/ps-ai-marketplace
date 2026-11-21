@@ -84,7 +84,7 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
         # Use the actual runtime publisher, with no CLI or network boundary involved.
         & {
             . (Join-Path $repo 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
-            $null = Sync-PsAiFoundryRuntime -Tool codex -HomeRoot $sandbox
+            $null = Sync-LegionFoundryRuntime -Tool codex -HomeRoot $sandbox
         }
         $runtime = Join-Path $bin '.ps-ai-runtime'
         $published = @(Get-ChildItem -LiteralPath $runtime -Recurse -File -Force | ForEach-Object FullName)
@@ -100,7 +100,7 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
             Assert-True ((@(Get-UninstallFiles -Owner $caseOwner -ConfigDir (Join-Path $sandbox 'case-account'))) -notcontains (Join-Path $bin 'codex-a')) 'Unix selection keeps account launchers'
         } finally { $env:OS = $savedOS }
         Assert-True ((@(Get-UninstallFiles -Owner ([pscustomobject]@{agents=$agents}) -ConfigDir ($account + [IO.Path]::DirectorySeparatorChar))) -notcontains (Join-Path $bin 'codex-a.cmd')) 'Directory selection keeps account launchers'
-        $preview = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -DryRun)
+        $preview = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Uninstall -DryRun)
         Assert-True ($calls.Count -gt 0) 'Dry run checks installed state'
         Assert-Equal 0 $writes.Count 'Dry run never changes any CLI'
         Assert-Equal 0 $state.Prompts 'Dry run never asks'
@@ -109,13 +109,13 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
         Assert-True (-not (($preview -join "`n").Contains("Remove file: $(Join-Path $bin 'codex-a.cmd')"))) 'Preview excludes account launcher removals'
         Assert-True (Test-Path (Join-Path $runtime 'bin/ps-ai-foundry.ps1')) 'Preview preserves runtime'
 
-        $declined = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall)
+        $declined = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Uninstall)
         Assert-Equal 1 $state.Prompts 'Default confirmation happens once'
         Assert-Equal 0 $writes.Count 'Declined uninstall changes no CLI'
         Assert-True (Test-Path (Join-Path $bin 'codex-a.cmd')) 'Declined uninstall preserves launchers'
         $calls.Clear()
 
-        $null = Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools codex -ConfigDir $account -Uninstall -Yes
+        $null = Invoke-LegionInstaller -Source $repo -Catalog $catalog -Tools codex -ConfigDir $account -Uninstall -Yes
         Assert-Equal 2 $writes.Count 'Filters remove exactly one target'
         Assert-Equal 'codex|plugin|remove|ps-ai@ps-ai-marketplace' $writes[0] 'Disabled plugin uninstalls before marketplace'
         Assert-True ($calls[0].StartsWith("codex:$account|")) 'Explicit config scopes listing'
@@ -124,7 +124,7 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
         Assert-True (Test-Path (Join-Path $runtime 'bin/ps-ai-foundry.ps1')) 'Shared runtime stays while another owned launcher remains'
         $writes.Clear(); $calls.Clear()
 
-        $output = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -Yes)
+        $output = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Uninstall -Yes)
         Assert-Equal 12 $writes.Count 'Three defaults plus three unique account targets removed'
         foreach ($entry in $catalog.tools) {
             $inherited = Join-Path $sandbox 'inherited-account'
@@ -149,27 +149,27 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
         }
         $writes.Clear(); $calls.Clear()
         $state.Missing=$true
-        $repeat = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -Yes)
+        $repeat = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Uninstall -Yes)
         Assert-Equal 0 $writes.Count 'Repeat never removes absent plugin or marketplace'
         Assert-True (($repeat -join "`n") -match 'skip: .*\(not installed\)') 'Repeat prints not installed'
         $state.Missing=$false
         foreach ($failure in @('FailList','FailRemove')) {
             $state[$failure]=$true
-            Assert-Throws { Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools codex -ConfigDir (Join-Path $sandbox 'selected') -Uninstall -Yes } "$failure propagates"
+            Assert-Throws { Invoke-LegionInstaller -Source $repo -Catalog $catalog -Tools codex -ConfigDir (Join-Path $sandbox 'selected') -Uninstall -Yes } "$failure propagates"
             Assert-Equal (Join-Path $sandbox 'inherited-account') $env:CODEX_HOME 'Failure restores config env'
             $state[$failure]=$false
         }
         $calls.Clear()
-        Assert-Throws { Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Update -Uninstall -Yes } 'Update and uninstall are mutually exclusive'
+        Assert-Throws { Invoke-LegionInstaller -Source $repo -Catalog $catalog -Update -Uninstall -Yes } 'Update and uninstall are mutually exclusive'
         Assert-Equal 0 $calls.Count 'Invalid mode executes nothing'
 
         $state.OnlyMissing=$true
         $calls.Clear()
-        $missing = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Tools codex -Uninstall -Yes)
+        $missing = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Tools codex -Uninstall -Yes)
         Assert-Equal 0 $calls.Count 'Unavailable CLI never invoked'
         Assert-True (($missing -join "`n").Contains('skip: codex (not installed)')) 'Missing CLI skipped'
         '{' | Set-Content -LiteralPath $personalisation
-        Assert-Throws { Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Uninstall -Yes } 'Invalid owner records fail before removal'
+        Assert-Throws { Invoke-LegionInstaller -Source $repo -Catalog $catalog -Uninstall -Yes } 'Invalid owner records fail before removal'
         Assert-Equal 0 $calls.Count 'Malformed records never reach CLI boundary'
     } finally {
         foreach ($key in $saved.Keys) { [Environment]::SetEnvironmentVariable($key, $saved[$key], 'Process') }

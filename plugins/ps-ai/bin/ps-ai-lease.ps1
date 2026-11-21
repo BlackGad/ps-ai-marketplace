@@ -7,22 +7,22 @@ param(
 )
 
 . (Join-Path $PSScriptRoot 'lib/common.ps1')
-$path = Get-PsAiRepoPath -Repo $Repo -Path 'temp/overseer.lock'
+$path = Get-LegionRepoPath -Repo $Repo -Path 'temp/overseer.lock'
 $hostName = [System.Net.Dns]::GetHostName()
 
 if ($Action -eq 'status') {
-    $lease = Get-PsAiLease -Repo $Repo
+    $lease = Get-LegionLease -Repo $Repo
     $lease.State
     exit 0
 }
 
 $ownerProcess = if ($PSBoundParameters.ContainsKey('ProcessId')) {
     Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
-} else { Get-PsAiLeaseOwnerProcess }
+} else { Get-LegionLeaseOwnerProcess }
 $ProcessId = if ($ownerProcess) { $ownerProcess.Id } else { $ProcessId }
 $processStartedAt = if ($ownerProcess) { $ownerProcess.StartTime.ToUniversalTime().ToString('o') } else { $null }
 
-function Open-PsAiLeaseGuard {
+function Open-LegionLeaseGuard {
     param([string]$Path)
     $guardPath = "$Path.takeover"
     if ((Test-Path -LiteralPath $guardPath) -and
@@ -38,17 +38,17 @@ function Open-PsAiLeaseGuard {
 
 if ($Action -eq 'release') {
     if (-not (Test-Path -LiteralPath $path)) { 'skip: lease release (already done)'; exit 0 }
-    $guard = Open-PsAiLeaseGuard -Path $path
+    $guard = Open-LegionLeaseGuard -Path $path
     if (-not $guard) {
         [Console]::Error.WriteLine('lease change in progress in another session; retry')
         exit 1
     }
     try {
-        $lease = Get-PsAiLease -Repo $Repo
+        $lease = Get-LegionLease -Repo $Repo
         if ($lease.State -eq 'free') { 'skip: lease release (already done)'; exit 0 }
         if ($lease.Data -and $processStartedAt -and $lease.Data.host -ieq $hostName -and
             [int]$lease.Data.pid -eq $ProcessId -and $lease.Data.processStartedAt -and
-            (Test-PsAiSameStartTime ([datetime]$lease.Data.processStartedAt) $ownerProcess.StartTime)) {
+            (Test-LegionSameStartTime ([datetime]$lease.Data.processStartedAt) $ownerProcess.StartTime)) {
             Remove-Item -LiteralPath $path -Force
             'lease released'
             exit 0
@@ -61,13 +61,13 @@ if ($Action -eq 'release') {
     }
 }
 
-function Remove-PsAiStaleLease {
+function Remove-LegionStaleLease {
     # Only one session at a time may replace a stale lease, and only the exact stale lease it saw.
     param([string]$Path, $Seen)
-    $guard = Open-PsAiLeaseGuard -Path $Path
+    $guard = Open-LegionLeaseGuard -Path $Path
     if (-not $guard) { return $false }
     try {
-        $current = Get-PsAiLease -Repo $Repo
+        $current = Get-LegionLease -Repo $Repo
         if ($current.State -ne 'stale') { return $true }
         $unchanged = ($null -eq $Seen -and $null -eq $current.Data) -or
             ($null -ne $Seen -and $null -ne $current.Data -and $Seen.pid -eq $current.Data.pid -and $Seen.startedAt -eq $current.Data.startedAt)
@@ -93,7 +93,7 @@ for ($attempt = 0; $attempt -lt 2; $attempt++) {
         'lease taken'
         exit 0
     } catch [System.IO.IOException] {
-        $lease = Get-PsAiLease -Repo $Repo
+        $lease = Get-LegionLease -Repo $Repo
         if ($lease.State -eq 'held' -and $lease.Data.host -ieq $hostName -and [int]$lease.Data.pid -eq $ProcessId) {
             'skip: lease take (already done)'
             exit 0
@@ -111,7 +111,7 @@ for ($attempt = 0; $attempt -lt 2; $attempt++) {
             exit 1
         }
         if ($attempt -eq 0 -and $lease.State -eq 'stale') {
-            if (-not (Remove-PsAiStaleLease -Path $path -Seen $lease.Data)) {
+            if (-not (Remove-LegionStaleLease -Path $path -Seen $lease.Data)) {
                 [Console]::Error.WriteLine('lease takeover in progress in another session; retry')
                 exit 1
             }

@@ -189,7 +189,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     }
 
     # CLI process logs are runtime output; all ps-ai state must still be compared.
-    foreach ($repeatStep in 'Invoke-PsAiInstallRepeat', 'Invoke-SetupRepeat') {
+    foreach ($repeatStep in 'Invoke-LegionInstallRepeat', 'Invoke-SetupRepeat') {
         . Reset-Runner
         $repeatHome = Join-Path $tempRoot $repeatStep
         $script:Ctx.HomeRoot = $repeatHome
@@ -326,7 +326,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     . Reset-Runner -AllowFallback
     . Install-Fakes
     $script:behavior = { param($call) if ($call.Tool -eq 'codex') { throw "install.ps1 exited 1`nnetwork unreachable" }; 'ok' }
-    $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
+    $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
     Assert-Equal 'failed' $result.Result 'an ordinary installer failure is a failure, not a skip'
     Assert-True ($result.Message -like '*codex*network unreachable*') "the failure keeps the tool and the message: [$($result.Message)]"
     Assert-Equal 'claude,codex,copilot' (($calls | ForEach-Object { $_.Tool }) -join ',') 'the other tools were still installed'
@@ -336,7 +336,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     . Reset-Runner
     . Install-Fakes
     $script:behavior = { param($call) if ($call.Tool -eq 'codex') { throw $refusal }; 'ok' }
-    $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
+    $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
     Assert-Equal 'passed' $result.Result 'the other tools still pass'
     Assert-Equal 'codex' (@($script:Ctx.NotTested.Keys) -join ',') 'only codex is not tested'
     Assert-Equal 'claude,copilot' ((Get-IntegrationActiveTools) -join ',') 'later steps use the other two tools'
@@ -350,7 +350,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         . Reset-Runner
         . Install-Fakes
         $script:behavior = { param($call) if ($call.Tool -eq 'codex') { throw $refusal }; 'ok' }
-        $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
+        $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
         Assert-True (-not ($calls | Where-Object { $_.Source -like '*ps-ai-marketplace' -and $_.Source -ne $root })) 'the main-push environment alone enables no fallback'
         Assert-Equal 'codex' (@($script:Ctx.NotTested.Keys) -join ',') 'the release call skips codex'
     } finally { $env:GITHUB_REF = $savedRef; $env:GITHUB_EVENT_NAME = $savedEvent }
@@ -362,7 +362,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     $script:remoteChecks = 0
     function Get-IntegrationRemoteMain { $script:remoteChecks++; return 'abc123' }
     $script:behavior = { param($call) if ($call.Tool -eq 'codex' -and $call.Source -eq $root) { throw $refusal }; 'ok' }
-    $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
+    $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
     Assert-Equal 'passed' $result.Result 'the fallback passes'
     $fallback = @($calls | Where-Object { $_.Source -eq 'BlackGad/ps-ai-marketplace' })
     Assert-Equal 1 $fallback.Count 'only the refusing tool used the fallback'
@@ -376,7 +376,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     $script:remoteChecks = 0
     function Get-IntegrationRemoteMain { $script:remoteChecks++; if ($script:remoteChecks -eq 1) { return 'abc123' }; return 'def456' }
     $script:behavior = { param($call) if ($call.Tool -eq 'codex' -and $call.Source -eq $root) { throw $refusal }; 'ok' }
-    $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
+    $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
     Assert-Equal 'failed' $result.Result 'main moving during fallback installation fails provenance'
 
     # A moved main branch is a failure, not a different revision under test.
@@ -385,14 +385,14 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     function Get-IntegrationRevision { return 'abc123' }
     function Get-IntegrationRemoteMain { return 'def456' }
     $script:behavior = { param($call) if ($call.Tool -eq 'codex' -and $call.Source -eq $root) { throw $refusal }; 'ok' }
-    $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
+    $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
     Assert-Equal 'failed' $result.Result 'a fallback for another revision fails'
 
     # When every tool refuses without a fallback, the step is skipped.
     . Reset-Runner
     . Install-Fakes
     $script:behavior = { param($call) throw "install.ps1 exited 1`n$($call.Tool) exited 1`nlocal folder marketplace is not supported" }
-    $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
+    $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
     Assert-Equal 'skipped' $result.Result 'all tools refusing skips the step'
 
     # Another tool's refusal text does not excuse this tool.

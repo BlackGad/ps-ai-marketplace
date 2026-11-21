@@ -66,7 +66,7 @@ function Invoke-ClosedInput {
     throw "Unexpected fake command: $line"
 }
 # Reused registrations still refresh before plugin installation.
-Invoke-PsAiInstaller -Yes -Update:($Mode -eq 'update')
+Invoke-LegionInstaller -Yes -Update:($Mode -eq 'update')
 foreach ($entry in $entries) {
     if (-not $states[$entry.command].Installed) { throw "Fixture plugin was skipped: $($entry.id)" }
 }

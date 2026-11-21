@@ -12,7 +12,7 @@ param(
 
 function Get-ToolInstallData {
     param([string]$Tool)
-    $recipes = Get-PsAiInstallRecipes
+    $recipes = Get-LegionInstallRecipes
     if (-not $recipes.ContainsKey($Tool)) { throw "unknown tool '$Tool'" }
     return $recipes[$Tool]
 }
@@ -72,12 +72,12 @@ function Invoke-ToolDownload {
 function Get-ToolInstallRoot {
     param([string]$Tool)
     $null = Get-ToolInstallData -Tool $Tool
-    Get-PsAiHomePath -Path "tools/$Tool"
+    Get-LegionHomePath -Path "tools/$Tool"
 }
 
 function New-ToolDownloadPath {
     param([string]$Extension = 'txt')
-    $tempRoot = Get-PsAiHomePath -Path 'temp'
+    $tempRoot = Get-LegionHomePath -Path 'temp'
     New-Item -ItemType Directory -Path $tempRoot -Force -ErrorAction Stop | Out-Null
     Join-Path $tempRoot ("install-$([guid]::NewGuid().ToString('N')).$Extension")
 }
@@ -160,11 +160,11 @@ function Set-UserPath {
         $key.SetValue('Path', $Path, $kind)
     } finally { $key.Dispose() }
     # Notify Explorer so future terminals receive the changed persistent environment.
-    if (-not ('PsAi.InstallEnvironment' -as [type])) {
+    if (-not ('Legion.InstallEnvironment' -as [type])) {
         Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
-namespace PsAi {
+namespace Legion {
     public static class InstallEnvironment {
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         public static extern IntPtr SendMessageTimeout(IntPtr window, uint message,
@@ -174,7 +174,7 @@ namespace PsAi {
 '@
     }
     $result = [uintptr]::Zero
-    [PsAi.InstallEnvironment]::SendMessageTimeout([intptr]0xffff, 0x1a, [uintptr]::Zero, 'Environment', 2, 5000, [ref]$result) | Out-Null
+    [Legion.InstallEnvironment]::SendMessageTimeout([intptr]0xffff, 0x1a, [uintptr]::Zero, 'Environment', 2, 5000, [ref]$result) | Out-Null
 }
 
 function Resolve-ToolRelativePath {

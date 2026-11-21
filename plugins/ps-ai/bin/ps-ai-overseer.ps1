@@ -90,7 +90,7 @@ function Select-OnlyOverseerAccount {
 # The default channel is used only when exactly one binding fits.
 function Get-OverseerDefaultChannel {
     param($Personalisation, [string]$AccountId, [string]$Tool)
-    $kinds = @(Get-PsAiChannels | Where-Object { $Tool -cin $_.launch.PSObject.Properties.Name })
+    $kinds = @(Get-LegionChannels | Where-Object { $Tool -cin $_.launch.PSObject.Properties.Name })
     $fitting = @($Personalisation.channels | Where-Object { $AccountId -cin $_.accounts -and $_.kind -cin $kinds.id })
     if ($fitting.Count -eq 1) { return $fitting[0].id }
     return $null
@@ -99,7 +99,7 @@ function Get-OverseerDefaultChannel {
 # Launch history is per owner home and repository.
 function Get-OverseerLastLaunchFile {
     param([string]$HomeRoot)
-    return Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'state/overseer-launches.json'
+    return Get-LegionHomePath -HomeRoot $HomeRoot -Path 'state/overseer-launches.json'
 }
 
 function Get-OverseerRepoKey {
@@ -148,7 +148,7 @@ function Get-OverseerLaunch {
     param($Personalisation, [string]$AccountId, [string]$Tool, [string[]]$Channel, [string[]]$Arguments, [string]$HomeRoot = $HOME, [string]$Session, [string]$Resume)
     $selected = Select-OverseerAccount $Personalisation $AccountId $Tool
     $Tool = $selected.tool
-    $descriptor = Get-PsAiTool $Tool
+    $descriptor = Get-LegionTool $Tool
     $resolved = @()
     $common = $null
     foreach ($id in $Channel) {
@@ -159,7 +159,7 @@ function Get-OverseerLaunch {
     }
     if ($Channel.Count -and -not $common.Count) { throw 'selected channels cannot share one launch' }
     foreach ($id in $Channel) {
-        $destination = Resolve-PsAiChannel $Personalisation $id $Tool
+        $destination = Resolve-LegionChannel $Personalisation $id $Tool
         if ($AccountId -cnotin $destination.Accounts) { throw "account '$AccountId' is not bound to channel '$id'" }
         $resolved += $destination
     }
@@ -181,7 +181,7 @@ function Get-OverseerLaunch {
         $launchArgs.Add('--')
     }
     $launchArgs.Add('continue as the overseer')
-    return @{Command=(Get-PsAiWrapperCommand $AccountId $HomeRoot);Args=$launchArgs.ToArray()}
+    return @{Command=(Get-LegionWrapperCommand $AccountId $HomeRoot);Args=$launchArgs.ToArray()}
 }
 
 # Clear parent session markers and terminal overrides for a resumable interactive session.
@@ -233,10 +233,10 @@ function Start-OverseerLaunch {
 
 function Invoke-Overseer {
     param([string]$Repo, [string]$HomeRoot, [string]$Account, [string]$Tool, [string[]]$Channel, [string[]]$Arguments, [switch]$NoChannel, [switch]$DryRun, [switch]$Pick)
-    $Repo = Get-PsAiCodeRoot -Path $Repo
+    $Repo = Get-LegionCodeRoot -Path $Repo
     if (-not $Repo) { throw 'not a git repository; run legion inside one' }
-    $projectFile = Get-PsAiRepoPath -Repo $Repo -Path 'configuration/project.json'
-    $ownerFile = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
+    $projectFile = Get-LegionRepoPath -Repo $Repo -Path 'configuration/project.json'
+    $ownerFile = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
     # No accounts yet: stop before any question, writing nothing.
     if (-not (Test-Path -LiteralPath $ownerFile)) { throw 'No accounts yet. Add one: legion add claude' }
     if (-not (Test-Path -LiteralPath $projectFile)) {
@@ -248,10 +248,10 @@ function Invoke-Overseer {
         Invoke-OverseerRepositorySetup -Repo $Repo
     }
     foreach ($inputFile in @(@{Kind='personalisation';Path=$ownerFile},@{Kind='project';Path=$projectFile})) {
-        $issues = @(Invoke-PsAiValidation $inputFile.Kind $inputFile.Path)
+        $issues = @(Invoke-LegionValidation $inputFile.Kind $inputFile.Path)
         if ($issues.Count) { throw ($issues -join '; ') }
     }
-    $personalisation = Read-PsAiJson -Path $ownerFile
+    $personalisation = Read-LegionJson -Path $ownerFile
     # Bare start reuses the saved account, then the lease account; -Pick asks instead.
     # Saved channels and arguments apply only when the saved account leads.
     $ownerLaunch = -not $Account
@@ -263,7 +263,7 @@ function Invoke-Overseer {
     if ($bare -and -not $Pick) {
         $Account = $savedAccount
         if (-not $Account) {
-            $leaseAccount = (Get-PsAiLease -Repo $Repo).Data.account
+            $leaseAccount = (Get-LegionLease -Repo $Repo).Data.account
             if ($leaseAccount -cin $known) { $Account = $leaseAccount }
         }
     }
@@ -299,7 +299,7 @@ function Invoke-Overseer {
         # A failed launch must not be resumed next time.
         Save-OverseerLastLaunch @save -Session ''
         $failure = [Exception]::new("the launch failed with exit code $LASTEXITCODE")
-        $failure.Data['PsAiLaunchExitCode'] = [int]$LASTEXITCODE
+        $failure.Data['LegionLaunchExitCode'] = [int]$LASTEXITCODE
         throw $failure
     }
     # Reached only when the launch did not fail.
@@ -313,8 +313,8 @@ function Invoke-Overseer {
 if (-not $launcherNoRun) {
     try { Invoke-Overseer -Repo $Repo -HomeRoot $HomeRoot -Account $Account -Tool $Tool -Channel $Channel -Arguments $Arguments -NoChannel:$NoChannel -DryRun:$DryRun -Pick:$Pick }
     catch {
-        if (-not $_.Exception.Data.Contains('PsAiLaunchExitCode')) { throw }
+        if (-not $_.Exception.Data.Contains('LegionLaunchExitCode')) { throw }
         Write-Host $_.Exception.Message
-        exit ([int]$_.Exception.Data['PsAiLaunchExitCode'])
+        exit ([int]$_.Exception.Data['LegionLaunchExitCode'])
     }
 }

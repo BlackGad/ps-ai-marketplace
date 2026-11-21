@@ -11,7 +11,7 @@ try {
     $systemBin = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' }
     $env:PATH = @($fakeBin, $systemBin) -join [IO.Path]::PathSeparator
     $agents = @()
-    foreach ($descriptor in Get-PsAiTools) {
+    foreach ($descriptor in Get-LegionTools) {
         $cli = Join-Path $fakeBin $(if ($IsWindows) { "$($descriptor.command).cmd" } else { $descriptor.command })
         $text = if ($IsWindows) { '@echo %' + $descriptor.configEnv + '%' + "`r`n@exit /b 0`r`n" }
             else { '#!/bin/sh' + "`n" + 'printenv ' + $descriptor.configEnv + "`n" }
@@ -20,16 +20,16 @@ try {
         $agents += @{ id = "$($descriptor.id)-a"; tool = $descriptor.id; configDir = "~/.legion/agents/$($descriptor.id)-a" }
     }
     $settings = Join-Path $scratch '.legion/configuration/ps-ai-personalisation.json'
-    Write-PsAiPersonalisation -Data ([pscustomobject]@{ schemaVersion = 1; agents = $agents; channels = @() }) -Path $settings
+    Write-LegionPersonalisation -Data ([pscustomobject]@{ schemaVersion = 1; agents = $agents; channels = @() }) -Path $settings
     $original = [IO.File]::ReadAllText($settings)
     $first = @(& $refresh -HomeRoot $scratch)
     foreach ($agent in $agents) {
         $cli = Join-Path $fakeBin $(if ($IsWindows) { "$($agent.tool).cmd" } else { $agent.tool })
-        $folder = Get-PsAiNewAccountDir -Id $agent.id -HomeRoot $scratch
+        $folder = Get-LegionNewAccountDir -Id $agent.id -HomeRoot $scratch
         $wrapper = Join-Path $scratch ".legion/bin/$($agent.id)"
         Assert-True (Test-Path $wrapper) 'Refresh recreates missing account launchers from settings'
-        Assert-Equal $cli (Get-PsAiWrapperTarget -Id $agent.id -Tool $agent.tool -HomeRoot $scratch -ConfigDir $folder) 'Refresh points the account at the fake stock CLI'
-        Assert-True (Test-PsAiLauncherExecutable $wrapper) 'Refreshed launcher is executable'
+        Assert-Equal $cli (Get-LegionWrapperTarget -Id $agent.id -Tool $agent.tool -HomeRoot $scratch -ConfigDir $folder) 'Refresh points the account at the fake stock CLI'
+        Assert-True (Test-LegionLauncherExecutable $wrapper) 'Refreshed launcher is executable'
         if ($IsWindows) { $launched = & "$wrapper.cmd" }
         else { $launched = & $wrapper }
         Assert-Equal $folder $launched 'Recovered launcher runs the fake CLI with its account config folder'

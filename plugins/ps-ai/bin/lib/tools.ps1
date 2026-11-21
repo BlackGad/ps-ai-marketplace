@@ -1,17 +1,17 @@
-function ConvertFrom-PsAiJsonElement {
+function ConvertFrom-LegionJsonElement {
     param([System.Text.Json.JsonElement]$Element)
 
     switch ($Element.ValueKind) {
         Object {
             $values = [ordered]@{}
             foreach ($property in $Element.EnumerateObject()) {
-                $values[$property.Name] = ConvertFrom-PsAiJsonElement -Element $property.Value
+                $values[$property.Name] = ConvertFrom-LegionJsonElement -Element $property.Value
             }
             return [pscustomobject]$values
         }
         Array {
             $items = [System.Collections.Generic.List[object]]::new()
-            foreach ($item in $Element.EnumerateArray()) { $items.Add((ConvertFrom-PsAiJsonElement -Element $item)) }
+            foreach ($item in $Element.EnumerateArray()) { $items.Add((ConvertFrom-LegionJsonElement -Element $item)) }
             return ,$items.ToArray()
         }
         String { return $Element.GetString() }
@@ -26,32 +26,32 @@ function ConvertFrom-PsAiJsonElement {
     }
 }
 
-function ConvertFrom-PsAiToolJson {
+function ConvertFrom-LegionToolJson {
     param([string]$Json)
 
     # Keep argv strings intact on all PowerShell 7 versions, including date-like text.
     $document = [System.Text.Json.JsonDocument]::Parse($Json)
-    try { return ConvertFrom-PsAiJsonElement -Element $document.RootElement }
+    try { return ConvertFrom-LegionJsonElement -Element $document.RootElement }
     finally { $document.Dispose() }
 }
 
-function Assert-PsAiRegex {
+function Assert-LegionRegex {
     param([string]$Pattern, [string]$Field)
 
     try { $null = [regex]::new($Pattern) }
     catch { throw "invalid regex in $Field" }
 }
 
-function Assert-PsAiInstallPatterns {
+function Assert-LegionInstallPatterns {
     param($Install)
 
     foreach ($method in @('msi', 'zip')) {
         $download = $Install.windows.download.$method
-        if ($null -ne $download.assetPattern) { Assert-PsAiRegex -Pattern $download.assetPattern -Field "install.windows.download.$method.assetPattern" }
+        if ($null -ne $download.assetPattern) { Assert-LegionRegex -Pattern $download.assetPattern -Field "install.windows.download.$method.assetPattern" }
     }
 }
 
-function Get-PsAiTools {
+function Get-LegionTools {
     param([string]$SkillsRoot = (Join-Path $PSScriptRoot '../../skills'))
 
     $schemaPath = Join-Path $PSScriptRoot '../../schemas/tool.schema.json'
@@ -63,16 +63,16 @@ function Get-PsAiTools {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
         try {
             $json = [IO.File]::ReadAllText($path)
-            $tool = ConvertFrom-PsAiToolJson -Json $json
+            $tool = ConvertFrom-LegionToolJson -Json $json
         } catch { throw "invalid tool descriptor '$path': malformed JSON" }
         if ($tool.schemaVersion -ne 1) { throw "invalid tool descriptor '$path': unsupported schemaVersion" }
         if (-not (Test-Json -Json $json -SchemaFile $schemaPath -ErrorAction SilentlyContinue)) {
             throw "invalid tool descriptor '$path': schema validation failed"
         }
         if ($tool.plugin.listing.format -eq 'lines') {
-            Assert-PsAiRegex -Pattern $tool.plugin.listing.rejectPattern -Field 'plugin.listing.rejectPattern'
+            Assert-LegionRegex -Pattern $tool.plugin.listing.rejectPattern -Field 'plugin.listing.rejectPattern'
         }
-        Assert-PsAiInstallPatterns -Install $tool.install
+        Assert-LegionInstallPatterns -Install $tool.install
         $tool | Add-Member -NotePropertyName SkillRoot -NotePropertyValue $folder
         $tools.Add($tool)
     }
@@ -90,23 +90,23 @@ function Get-PsAiTools {
         if (-not (Test-Path -LiteralPath (Join-Path $tool.SkillRoot 'SKILL.md') -PathType Leaf)) {
             throw "tool '$($tool.id)' requires SKILL.md"
         }
-        if ($null -ne $tool.foundry) { $null = Get-PsAiToolScript -Tool $tool -Name foundry-launch }
+        if ($null -ne $tool.foundry) { $null = Get-LegionToolScript -Tool $tool -Name foundry-launch }
     }
     $tools.Sort([Comparison[object]]{ param($left, $right) [StringComparer]::Ordinal.Compare($left.id, $right.id) })
     $tools
 }
 
-function Get-PsAiTool {
+function Get-LegionTool {
     param([string]$Tool, [string]$SkillsRoot = (Join-Path $PSScriptRoot '../../skills'))
 
     if ($Tool -cnotmatch '^[a-z][a-z0-9-]*$') { throw "unknown tool '$Tool'" }
-    $tools = @(Get-PsAiTools -SkillsRoot $SkillsRoot)
+    $tools = @(Get-LegionTools -SkillsRoot $SkillsRoot)
     $selected = $tools | Where-Object { $_.id -ceq $Tool }
     if ($null -eq $selected) { throw "unknown tool '$Tool'" }
     return $selected
 }
 
-function Get-PsAiToolScript {
+function Get-LegionToolScript {
     param($Tool, [ValidateSet('foundry-launch', 'foundry-config')][string]$Name)
 
     if ($null -eq $Tool.foundry) { throw "tool '$($Tool.id)' does not support Foundry" }
@@ -116,23 +116,23 @@ function Get-PsAiToolScript {
     return $null
 }
 
-function Assert-PsAiInstallNeeds {
+function Assert-LegionInstallNeeds {
     param([string]$Tool, [string]$Platform, [hashtable]$Recipes, [string[]]$HelperIds, [string[]]$Trail = @())
 
     if ($Tool -cin $Trail) { throw "cyclic helper prerequisites: $(($Trail + $Tool) -join ' -> ')" }
     foreach ($need in $Recipes[$Tool].$Platform.needs) {
         if ($need -cnotin $HelperIds) { throw "unknown helper prerequisite '$need' for '$Tool'" }
-        Assert-PsAiInstallNeeds -Tool $need -Platform $Platform -Recipes $Recipes -HelperIds $HelperIds -Trail (@($Trail) + $Tool)
+        Assert-LegionInstallNeeds -Tool $need -Platform $Platform -Recipes $Recipes -HelperIds $HelperIds -Trail (@($Trail) + $Tool)
     }
 }
 
-function Get-PsAiInstallRecipes {
+function Get-LegionInstallRecipes {
     param(
         [string]$SkillsRoot = (Join-Path $PSScriptRoot '../../skills'),
         [string]$HelpersPath = (Join-Path $PSScriptRoot '../install-tool/helpers.json')
     )
 
-    $tools = @(Get-PsAiTools -SkillsRoot $SkillsRoot)
+    $tools = @(Get-LegionTools -SkillsRoot $SkillsRoot)
     # Helpers are read only for installation; the private launch runtime omits them.
     $resolvedHelpersPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($HelpersPath)
     $json = [IO.File]::ReadAllText($resolvedHelpersPath)
@@ -147,10 +147,10 @@ function Get-PsAiInstallRecipes {
     if (-not (Test-Json -Json $json -Schema $helpersSchema -ErrorAction SilentlyContinue)) {
         throw "invalid helper recipes '$HelpersPath': schema validation failed"
     }
-    $helpers = ConvertFrom-PsAiToolJson -Json $json
+    $helpers = ConvertFrom-LegionToolJson -Json $json
     $recipes = @{}
     foreach ($helper in $helpers.PSObject.Properties) {
-        Assert-PsAiInstallPatterns -Install $helper.Value
+        Assert-LegionInstallPatterns -Install $helper.Value
         $recipes[$helper.Name] = $helper.Value
     }
     foreach ($tool in $tools) {
@@ -160,7 +160,7 @@ function Get-PsAiInstallRecipes {
     $helperIds = [string[]]@($helpers.PSObject.Properties.Name)
     foreach ($id in $recipes.Keys) {
         foreach ($platform in @('macos', 'linux')) {
-            Assert-PsAiInstallNeeds -Tool $id -Platform $platform -Recipes $recipes -HelperIds $helperIds
+            Assert-LegionInstallNeeds -Tool $id -Platform $platform -Recipes $recipes -HelperIds $helperIds
         }
     }
     return $recipes

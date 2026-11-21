@@ -4,11 +4,11 @@ $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGu
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 $saved = @{}
 $aliases = @('OPUS', 'SONNET', 'HAIKU', 'FABLE')
-$names = @('PS_AI_FAKE_TOOL_LOG', 'PS_AI_FAKE_TOOL_EXIT') + @($aliases | ForEach-Object { 'ANTHROPIC_DEFAULT_' + $_ + '_MODEL' })
+$names = @('LEGION_FAKE_TOOL_LOG', 'LEGION_FAKE_TOOL_EXIT') + @($aliases | ForEach-Object { 'ANTHROPIC_DEFAULT_' + $_ + '_MODEL' })
 foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
 try {
-    $env:PS_AI_FAKE_TOOL_LOG = Join-Path $tempRoot 'child.json'
-    $env:PS_AI_FAKE_TOOL_EXIT = '0'
+    $env:LEGION_FAKE_TOOL_LOG = Join-Path $tempRoot 'child.json'
+    $env:LEGION_FAKE_TOOL_EXIT = '0'
     foreach ($alias in $aliases) { [Environment]::SetEnvironmentVariable('ANTHROPIC_DEFAULT_' + $alias + '_MODEL', 'parent-' + $alias) }
     $claudeAgent = @{ tool = 'claude'; configDir = '~/.legion/agents/claude-dev'; provider = @{
         endpoint = 'https://res-a.cognitiveservices.azure.com'; default = 'claude-opus-x'
@@ -17,7 +17,7 @@ try {
     $launch = Get-FoundryLaunch -Agent $claudeAgent -HomeRoot $tempRoot
     $code = Invoke-FoundryTool -Command (Join-Path $PSScriptRoot 'fixtures/fake-tools/claude.ps1') -Arguments @() -Launch $launch
     Assert-Equal 0 $code 'Claude fake child succeeds'
-    $child = Get-Content -LiteralPath $env:PS_AI_FAKE_TOOL_LOG -Raw | ConvertFrom-Json
+    $child = Get-Content -LiteralPath $env:LEGION_FAKE_TOOL_LOG -Raw | ConvertFrom-Json
     Assert-Equal 'claude-opus-x' $child.environment.ANTHROPIC_DEFAULT_OPUS_MODEL 'Selected alias replaces inherited mapping'
     foreach ($alias in @('SONNET', 'HAIKU', 'FABLE')) {
         $name = 'ANTHROPIC_DEFAULT_' + $alias + '_MODEL'

@@ -387,7 +387,7 @@ function Invoke-InstallCommand {
     }
 }
 
-function Invoke-PsAiInstallSteps {
+function Invoke-LegionInstallSteps {
     param([string]$Tool, [string]$Source, [string]$ConfigEnv, [string]$ConfigDir, [switch]$DryRun, [ValidateSet('release','main')][string]$Ref = 'release')
     $commands = Get-InstallCommands -Tool $Tool -Source $Source -Ref $Ref
     $entry = Get-InstallTool -Tool $Tool
@@ -661,7 +661,7 @@ function Get-UninstallFiles {
     }
     if (-not $unselectedLauncher) {
         if (-not $KeepOwnerCommands) { $paths += Get-InstallOwnerCommandPaths -Bin $bin }
-        # Exact files published by Sync-PsAiFoundryRuntime; never remove the directory tree.
+        # Exact files published by Sync-LegionFoundryRuntime; never remove the directory tree.
         $runtime = Join-Path $bin '.ps-ai-runtime'
         foreach ($name in @('bin/lib/tools.ps1', 'bin/lib/foundry.ps1', 'bin/lib/paths.ps1', 'bin/ps-ai-foundry.ps1', 'schemas/tool.schema.json')) {
             $paths += Join-Path $runtime $name
@@ -1055,7 +1055,7 @@ function Invoke-InstallPurgePlan {
     }
 }
 
-function Invoke-PsAiPurge {
+function Invoke-LegionPurge {
     param([string]$ConfigDir, [switch]$DryRun, [switch]$Yes)
     $plan = Get-InstallPurgePlan -ConfigDir $ConfigDir
     Show-InstallPurgePlan -Plan $plan
@@ -1069,7 +1069,7 @@ function Invoke-PsAiPurge {
     if ($plan.ManualSteps.Count) { 'Purge needs the manual steps above.' } else { 'done: purge' }
 }
 
-function Invoke-PsAiUninstall {
+function Invoke-LegionUninstall {
     param([string[]]$Tools, [string]$ConfigDir, [switch]$DryRun, [switch]$Yes)
     $homeRoot = Get-InstallHome
     $script:installUninstallDeclined = $false
@@ -1190,7 +1190,7 @@ function Invoke-PsAiUninstall {
     'You can delete kept data by hand if you no longer need it.'
 }
 
-function Invoke-PsAiUpdateSteps {
+function Invoke-LegionUpdateSteps {
     param($Entry, [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, [string]$Source = 'BlackGad/ps-ai-marketplace', [ValidateSet('release','main')][string]$Ref = 'release', [string]$PluginRoot)
     $configEnv = $Entry.configEnv
     $previous = [Environment]::GetEnvironmentVariable($configEnv, 'Process')
@@ -1200,7 +1200,7 @@ function Invoke-PsAiUpdateSteps {
         if (-not $PSBoundParameters.ContainsKey('PluginRoot')) { $PluginRoot = Get-InstallPluginRoot -Entry $Entry -ConfigDir $ConfigDir }
         $before = if ($PluginRoot) { (Get-Content -LiteralPath (Join-Path $PluginRoot 'plugin.json') -Raw | ConvertFrom-Json).version } else { 'not installed' }
         if (-not $PluginRoot) {
-            Invoke-PsAiInstallSteps -Tool $Entry.id -Source $Source -ConfigEnv $configEnv -ConfigDir $ConfigDir -DryRun:$DryRun -Ref $Ref
+            Invoke-LegionInstallSteps -Tool $Entry.id -Source $Source -ConfigEnv $configEnv -ConfigDir $ConfigDir -DryRun:$DryRun -Ref $Ref
         } else {
             foreach ($arguments in @($Entry.plugin.marketplaceUpdate, $Entry.plugin.update)) {
                 if (-not $arguments.Count) { continue }
@@ -1271,9 +1271,9 @@ function Get-InstallPluginRoot {
                 if ($plugin.version) { $installedVersion = [string]$plugin.version }
             }
         } else {
-            $isPsAi = $false
+            $isLegion = $false
             foreach ($line in $result.Output) {
-                if ($Entry.id -ceq 'copilot' -and $isPsAi -and $line -match '^\s+from (.+?)\s*$') {
+                if ($Entry.id -ceq 'copilot' -and $isLegion -and $line -match '^\s+from (.+?)\s*$') {
                     # Copilot lists a live directory marketplace instead of an installed copy.
                     $marketplaceRoot = $Matches[1]
                     try {
@@ -1283,8 +1283,8 @@ function Get-InstallPluginRoot {
                         }
                     } catch { }
                 }
-                $isPsAi = $line -match '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' -and $line -notmatch 'not installed'
-                if (-not $isPsAi) { continue }
+                $isLegion = $line -match '(^|[\s`])ps-ai@ps-ai-marketplace(\s|`|"|$)' -and $line -notmatch 'not installed'
+                if (-not $isLegion) { continue }
                 $version = Get-InstallVersion $line
                 if ($version) { $installedVersion = $version }
                 if ($line -match '\s((?:[A-Za-z]:[/\\]|/).+?)\s*$') { $paths += $Matches[1] }
@@ -1360,14 +1360,14 @@ function Set-InstallUserPath {
         if ($key.GetValueNames() -icontains 'Path') { $kind = $key.GetValueKind('Path') }
         $key.SetValue('Path', $Path, $kind)
     } finally { $key.Dispose() }
-    if (-not ('PsAiInstall.Environment' -as [type])) {
-        Add-Type -Namespace PsAiInstall -Name Environment -MemberDefinition @'
+    if (-not ('LegionInstall.Environment' -as [type])) {
+        Add-Type -Namespace LegionInstall -Name Environment -MemberDefinition @'
 [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
 public static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UIntPtr parameter, string value, uint flags, uint timeout, out UIntPtr result);
 '@
     }
     $result = [UIntPtr]::Zero
-    [void][PsAiInstall.Environment]::SendMessageTimeout([IntPtr]0xffff, 0x1a, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
+    [void][LegionInstall.Environment]::SendMessageTimeout([IntPtr]0xffff, 0x1a, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
 }
 
 function Test-InstallPathEntry {
@@ -1480,14 +1480,14 @@ function Ensure-InstallPowerShell {
     return $true
 }
 
-function Invoke-PsAiInstaller {
+function Invoke-LegionInstaller {
     param([string[]]$Tools, [string]$Source = 'BlackGad/ps-ai-marketplace', [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, $Catalog, [ValidateSet('release','main')][string]$Ref = 'release', [switch]$Update, [switch]$Uninstall, [switch]$Purge)
     if ($Update -and $Uninstall) { throw 'Choose either -Update or -Uninstall.' }
     if ($Purge -and -not $Uninstall) { throw '-Purge requires -Uninstall.' }
     $script:installCatalog = Get-InstallCatalog -Source $Source -Ref $Ref -Catalog $Catalog
     if ($Uninstall) {
-        Invoke-PsAiUninstall -Tools $Tools -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes
-        if ($Purge -and -not $script:installUninstallDeclined) { Invoke-PsAiPurge -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes }
+        Invoke-LegionUninstall -Tools $Tools -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes
+        if ($Purge -and -not $script:installUninstallDeclined) { Invoke-LegionPurge -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes }
         return
     }
     if (-not $Tools -or $Tools.Count -eq 0) {
@@ -1521,7 +1521,7 @@ function Invoke-PsAiInstaller {
         }
         $Source = Resolve-InstallSource -Source $Source
         foreach ($target in $targets) {
-            Invoke-PsAiUpdateSteps -Entry $target.Entry -ConfigDir $target.Folder -PluginRoot $target.Root -Source $Source -Ref $Ref -DryRun:$DryRun -Yes
+            Invoke-LegionUpdateSteps -Entry $target.Entry -ConfigDir $target.Folder -PluginRoot $target.Root -Source $Source -Ref $Ref -DryRun:$DryRun -Yes
         }
         if (-not $DryRun) { 'done: restart your sessions; run legion in the repository' }
         return
@@ -1552,7 +1552,7 @@ function Invoke-PsAiInstaller {
         $entry = Get-InstallTool -Tool $tool
         $configEnv = $entry.configEnv
         foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
-            Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $folder -DryRun:$DryRun -Ref $Ref
+            Invoke-LegionInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $folder -DryRun:$DryRun -Ref $Ref
             if (-not $DryRun) {
                 try {
                     $root = Get-InstallPluginRoot -Entry $entry -ConfigDir $folder
@@ -1588,5 +1588,5 @@ if (-not $NoRun) {
         $PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'tools.json') -PathType Leaf)) {
         $catalog = Get-InstallCatalog -Catalog (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'tools.json') -Raw | ConvertFrom-Json)
     }
-    Invoke-PsAiInstaller -Tools $Tools -Source $Source -Ref $Ref -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes -Update:$Update -Uninstall:$Uninstall -Purge:$Purge -Catalog $catalog
+    Invoke-LegionInstaller -Tools $Tools -Source $Source -Ref $Ref -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes -Update:$Update -Uninstall:$Uninstall -Purge:$Purge -Catalog $catalog
 }

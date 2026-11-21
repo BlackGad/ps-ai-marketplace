@@ -124,7 +124,7 @@ function Get-LegionCall {
 function Copy-LegionInstaller {
     . (Join-Path $PSScriptRoot 'lib/paths.ps1')
     $homeRoot = if ($script:LegionHomeRoot) { $script:LegionHomeRoot } else { $HOME }
-    $folder = Get-PsAiHomePath -Path ('temp/installer-' + [guid]::NewGuid().ToString('N')) -HomeRoot $homeRoot
+    $folder = Get-LegionHomePath -Path ('temp/installer-' + [guid]::NewGuid().ToString('N')) -HomeRoot $homeRoot
     New-Item -ItemType Directory -Path $folder -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $script:LegionBin '../install.ps1'), (Join-Path $script:LegionBin '../tools.json') -Destination $folder
     return $folder
@@ -153,7 +153,7 @@ function Invoke-LegionScript {
         $script:LegionExit = $global:LASTEXITCODE
     } catch {
         Write-Host $_.Exception.Message
-        $script:LegionExit = if ($_.Exception.Data.Contains('PsAiLaunchExitCode')) { [int]$_.Exception.Data['PsAiLaunchExitCode'] } else { 1 }
+        $script:LegionExit = if ($_.Exception.Data.Contains('LegionLaunchExitCode')) { [int]$_.Exception.Data['LegionLaunchExitCode'] } else { 1 }
     } finally {
         if ($installerFolder -and (Test-Path -LiteralPath $installerFolder)) { Remove-Item -LiteralPath $installerFolder -Recurse -Force -ErrorAction SilentlyContinue }
     }

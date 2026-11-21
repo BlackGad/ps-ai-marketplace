@@ -25,11 +25,11 @@ $repo = Split-Path $PSScriptRoot -Parent
         }
         return @{ExitCode=0; Output=@()}
     }
-    $null = Invoke-PsAiInstallSteps -Tool claude -Source 'BlackGad/ps-ai-marketplace' -ConfigEnv CLAUDE_CONFIG_DIR -ConfigDir 'selected account'
+    $null = Invoke-LegionInstallSteps -Tool claude -Source 'BlackGad/ps-ai-marketplace' -ConfigEnv CLAUDE_CONFIG_DIR -ConfigDir 'selected account'
     Assert-True $state.Refreshed 'Fresh GitHub marketplace is refreshed before plugin install'
     Assert-Equal 'claude|plugin|install|ps-ai@ps-ai-marketplace' $calls[-1] 'Plugin install follows refresh'
     $calls.Clear()
     $state.FailRefresh=$true
-    Assert-Throws { Invoke-PsAiInstallSteps -Tool claude -Source 'BlackGad/ps-ai-marketplace' -ConfigEnv CLAUDE_CONFIG_DIR -ConfigDir 'selected account' } 'Failed marketplace refresh stops plugin install'
+    Assert-Throws { Invoke-LegionInstallSteps -Tool claude -Source 'BlackGad/ps-ai-marketplace' -ConfigEnv CLAUDE_CONFIG_DIR -ConfigDir 'selected account' } 'Failed marketplace refresh stops plugin install'
     Assert-True (-not ($calls -contains 'claude|plugin|install|ps-ai@ps-ai-marketplace')) 'Plugin never installs from a failed refresh'
 }

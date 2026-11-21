@@ -44,7 +44,7 @@ $script:installCatalog = Get-Content (Join-Path $Repo 'tests/fixtures/install/ca
         $bad = $catalog | ConvertTo-Json -Depth 100 | ConvertFrom-Json
         $bad.bootstrap.windows.$field = $null
         $message = ''
-        try { Invoke-PsAiInstaller -Catalog $bad -DryRun } catch { $message=$_.Exception.Message }
+        try { Invoke-LegionInstaller -Catalog $bad -DryRun } catch { $message=$_.Exception.Message }
         Assert-True ($message -match 'invalid catalog field') 'Windows PowerShell invalid bootstrap stops before action'
     }
 }
@@ -241,7 +241,7 @@ function Invoke-ClosedInput {
     return @{ ExitCode=0; Output=@("ps-ai@ps-ai-marketplace installed, enabled $fixturePlugin") }
 }
 $env:CODEX_HOME = 'inherited-account'
-$null = Invoke-PsAiInstaller -Source $fixtureHome -Tools codex -Update -Yes
+$null = Invoke-LegionInstaller -Source $fixtureHome -Tools codex -Update -Yes
 if ($state.Calls -ne 8 -or $state.Default -ne 4 -or $state.Account -ne 4) { throw 'Incorrect update target count' }
 if ($env:CODEX_HOME -ne 'inherited-account') { throw 'Caller config environment changed' }
 'standalone update passed'
@@ -271,7 +271,7 @@ if ($env:CODEX_HOME -ne 'inherited-account') { throw 'Caller config environment 
     # No CLI discovery must show hints and return normally, without touching any real CLI.
     function Ensure-InstallPowerShell { return $true }
     function Test-InstallCommandAvailable { param($Name) return $false }
-    $noTools = @(Invoke-PsAiInstaller -Catalog $script:installCatalog) -join "`n"
+    $noTools = @(Invoke-LegionInstaller -Catalog $script:installCatalog) -join "`n"
     foreach ($hint in @('irm https://claude.ai/install.ps1 | iex','npm install -g @openai/codex','npm install -g @github/copilot')) {
         Assert-True ($noTools.Contains($hint)) 'No installed CLI prints official install hint'
     }

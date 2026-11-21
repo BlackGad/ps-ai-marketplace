@@ -10,17 +10,17 @@ $repo = Split-Path $PSScriptRoot -Parent
         foreach ($old in @('C:/Users/example/.codex/plugins/cache/ps-ai-marketplace/ps-ai/0.4.1/schemas/personalisation.schema.json', '/home/example/.claude/plugins/cache/ps-ai-marketplace/ps-ai/0.4.1/schemas/personalisation.schema.json', $stable)) {
             $data.'$schema' = $old
             $data | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $path
-            Write-PsAiPersonalisation -Data $data -Path $path
+            Write-LegionPersonalisation -Data $data -Path $path
             $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
             Assert-Equal $stable $saved.'$schema' 'Personalisation rewrite stores a stable schema reference'
         }
         $data.PSObject.Properties.Remove('$schema')
-        Write-PsAiPersonalisation -Data $data -Path $path
-        Assert-Equal 0 @(Invoke-PsAiValidation -Kind personalisation -Path $path).Count 'Schema metadata is optional'
+        Write-LegionPersonalisation -Data $data -Path $path
+        Assert-Equal 0 @(Invoke-LegionValidation -Kind personalisation -Path $path).Count 'Schema metadata is optional'
         $data | Add-Member '$schema' 'https://invalid.example/never-fetch-this.json'
         $data.schemaVersion = 999
         $data | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $path
-        Assert-True (@(Invoke-PsAiValidation -Kind personalisation -Path $path).Count -gt 0) 'Validation uses bundled schema regardless of schema metadata'
+        Assert-True (@(Invoke-LegionValidation -Kind personalisation -Path $path).Count -gt 0) 'Validation uses bundled schema regardless of schema metadata'
     } finally {
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
         if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe fixture cleanup' }

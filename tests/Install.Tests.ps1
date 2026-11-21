@@ -17,7 +17,7 @@ foreach ($tool in @('claude', 'codex', 'copilot')) {
 }
 $previewLines = @(& {
     function Test-InstallStepDone { $false }
-    Invoke-PsAiInstaller -Tools claude -Source 'local source' -ConfigDir X -DryRun -Catalog (Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw | ConvertFrom-Json)
+    Invoke-LegionInstaller -Tools claude -Source 'local source' -ConfigDir X -DryRun -Catalog (Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw | ConvertFrom-Json)
 })
 Assert-True $? 'Injected dry run succeeds'
 Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin marketplace add "local source"') 'Dry run marketplace command'
@@ -45,7 +45,7 @@ Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install 
     $previous = $env:CODEX_HOME
     try {
         $env:CODEX_HOME = 'default-account'
-        $null = Invoke-PsAiInstaller -Tools codex -Source $root -ConfigDir selected-account -Yes
+        $null = Invoke-LegionInstaller -Tools codex -Source $root -ConfigDir selected-account -Yes
         Assert-Equal 4 $calls.Count 'Fake install checks and performs both steps'
         Assert-True ($calls -contains 'codex|plugin|add|ps-ai@ps-ai-marketplace') 'Fake install performs plugin write'
         Assert-Equal 'default-account' $env:CODEX_HOME 'Install restores caller account'
@@ -90,9 +90,9 @@ function Invoke-InstallCommand {
     $script:installedSteps[$Command -join '|'] = $true
     'installed'
 }
-$firstInstall = @(Invoke-PsAiInstallSteps -Tool codex -Source 'local source' -ConfigEnv CODEX_HOME -ConfigDir 'fixture-account')
+$firstInstall = @(Invoke-LegionInstallSteps -Tool codex -Source 'local source' -ConfigEnv CODEX_HOME -ConfigDir 'fixture-account')
 Assert-Equal 3 @($firstInstall | Where-Object { $_ -eq 'installed' }).Count 'First install adds and refreshes marketplace, then installs plugin'
-$secondInstall = @(Invoke-PsAiInstallSteps -Tool codex -Source 'local source' -ConfigEnv CODEX_HOME -ConfigDir 'fixture-account')
+$secondInstall = @(Invoke-LegionInstallSteps -Tool codex -Source 'local source' -ConfigEnv CODEX_HOME -ConfigDir 'fixture-account')
 Assert-Equal 2 @($secondInstall | Where-Object { $_ -match '^skip: .*\(already done\)$' }).Count 'Second install skips both steps'
 
 # Listing checks must inspect the selected account rather than the caller's default account.

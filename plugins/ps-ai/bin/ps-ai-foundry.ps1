@@ -10,16 +10,16 @@ $toolArguments = @($args)
 
 function Get-FoundryLaunch {
     param($Agent, [string]$HomeRoot, $Token)
-    $tool = Get-PsAiTool -Tool $Agent.tool
-    $script = Get-PsAiToolScript -Tool $tool -Name foundry-launch
+    $tool = Get-LegionTool -Tool $Agent.tool
+    $script = Get-LegionToolScript -Tool $tool -Name foundry-launch
     return & $script -Agent $Agent -HomeRoot $HomeRoot -Token $Token
 }
 
 function Get-FoundryToolCommand {
     param([string]$Tool, [string]$HomeRoot)
-    $descriptor = Get-PsAiTool -Tool $Tool
+    $descriptor = Get-LegionTool -Tool $Tool
     if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
-    $bin = [IO.Path]::GetFullPath((Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'))
+    $bin = [IO.Path]::GetFullPath((Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'))
     $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     foreach ($command in @(Get-Command $descriptor.command -CommandType Application,ExternalScript -All -ErrorAction SilentlyContinue)) {
         $folder = [IO.Path]::GetFullPath((Split-Path $command.Source -Parent))
@@ -93,7 +93,7 @@ function Write-FoundryProviderFile {
 if (-not $NoRun) {
     $launch = $null
     try {
-        $file = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
+        $file = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
         $data = [IO.File]::ReadAllText($file).TrimStart([char]0xFEFF) | ConvertFrom-Json -Depth 100 -ErrorAction Stop
         $selected = @($data.agents | Where-Object { $_.id -ceq $Agent })[0]
         if (-not $selected) { throw "unknown account '$Agent'" }

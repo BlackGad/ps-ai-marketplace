@@ -17,7 +17,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         try {
             $options = @{ Tools=@('claude','codex','copilot'); Catalog=$script:installCatalog; DryRun=$true }
             if ($case.Ref -eq 'main') { $options.Ref = 'main' }
-            $preview = @(Invoke-PsAiInstaller @options)
+            $preview = @(Invoke-LegionInstaller @options)
             Assert-True ($preview -contains "claude plugin marketplace add $($case.Claude)") "$($case.Name): Claude pins the branch"
             Assert-True ($preview -contains "codex plugin marketplace add $($case.Codex)") "$($case.Name): Codex pins the branch"
             Assert-True ($preview -contains "copilot plugin marketplace add $($case.Claude)") "$($case.Name): Copilot pins the branch"

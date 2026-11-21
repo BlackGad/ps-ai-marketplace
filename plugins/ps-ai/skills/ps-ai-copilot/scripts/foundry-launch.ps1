@@ -6,7 +6,7 @@ $folder = [string]$Agent.configDir
 if ($folder.StartsWith('~/')) { $folder = Join-Path $HomeRoot $folder.Substring(2) }
 $launch = @{ Set = @{}; Clear = [string[]]@(); ProvidersFile = $null; ProvidersJson = $null; Notice = $null }
 if (-not $Token) { $Token = Get-FoundryToken }
-$tempFolder = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'temp'
+$tempFolder = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'temp'
 $now = [DateTimeOffset]::UtcNow
 $guidPattern = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 if (Test-Path -LiteralPath $tempFolder) {

@@ -19,8 +19,8 @@ function Write-StatusAccounts {
     foreach ($agent in $Settings.agents) {
         $folder = $agent.configDir
         if ($folder.StartsWith('~/') -or $folder.StartsWith('~\')) { $folder = Join-Path $HomeRoot $folder.Substring(2) }
-        $tool = Get-PsAiTool -Tool $agent.tool
-        $version = Get-PsAiInstalledVersion -ConfigDir $folder -Tool $tool
+        $tool = Get-LegionTool -Tool $agent.tool
+        $version = Get-LegionInstalledVersion -ConfigDir $folder -Tool $tool
         if (-not $version) { $version = 'missing' }
         "  $($agent.id)  $($agent.tool)  $($agent.configDir)  ps-ai $version"
     }
@@ -29,7 +29,7 @@ function Write-StatusAccounts {
 function Write-StatusCommands {
     param([string]$Bin)
 
-    $commands = Get-PsAiOwnerCommands
+    $commands = Get-LegionOwnerCommands
     $missing = @()
     $blocked = @()
     $stale = @()
@@ -37,11 +37,11 @@ function Write-StatusCommands {
     foreach ($name in $commands.Keys) {
         $files = @($name)
         if ($IsWindows) { $files += "$name.cmd" }
-        $states = @($files | ForEach-Object { Get-PsAiOwnerCommandState -Path (Join-Path $Bin $_) -Script $commands[$name] })
+        $states = @($files | ForEach-Object { Get-LegionOwnerCommandState -Path (Join-Path $Bin $_) -Script $commands[$name] })
         if ($states -contains 'blocked') { $blocked += $name }
         elseif ($states -contains 'missing') { $missing += $name }
         elseif ($states -contains 'stale') { $stale += $name }
-        elseif (@($files | Where-Object { -not (Test-PsAiLauncherExecutable -Path (Join-Path $Bin $_)) }).Count) { $permissions += $name }
+        elseif (@($files | Where-Object { -not (Test-LegionLauncherExecutable -Path (Join-Path $Bin $_)) }).Count) { $permissions += $name }
     }
     if ($blocked.Count) { 'commands: blocked ' + ($blocked -join ', ') }
     if ($missing.Count) { 'commands: missing ' + ($missing -join ', ') }
@@ -53,7 +53,7 @@ function Write-StatusCommands {
 function Write-StatusRepository {
     param([string]$Repo)
 
-    $legion = Get-PsAiRepoPath -Repo $Repo -Path ''
+    $legion = Get-LegionRepoPath -Repo $Repo -Path ''
     foreach ($file in @('configuration/project.json', 'configuration/workflow.md', 'scripts/index.md')) {
         if (-not (Test-Path -LiteralPath (Join-Path $legion $file) -PathType Leaf)) { 'repo none'; return }
     }
@@ -68,21 +68,21 @@ function Write-StatusRepository {
         if ($LASTEXITCODE -ne 0) { 'repo none'; return }
     } catch { 'repo none'; return }
     finally { $global:LASTEXITCODE = $previousExit }
-    $lease = Get-PsAiLease -Repo $Repo
+    $lease = Get-LegionLease -Repo $Repo
     $handoff = if (Test-Path -LiteralPath (Join-Path $legion 'state/handoff.md') -PathType Leaf) { 'yes' } else { 'no' }
     "repo $mode   lease: $($lease.State)   handoff: $handoff"
 }
 
 # Main: inspect settings, commands and repository without starting a CLI or changing files.
 if (-not $statusNoRun) {
-    $file = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
+    $file = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
     $settings = $null
     if (Test-Path -LiteralPath $file -PathType Leaf) {
-        $settings = Read-PsAiJson -Path $file
+        $settings = Read-LegionJson -Path $file
         Write-StatusAccounts -Settings $settings -HomeRoot $HomeRoot
     } else { 'no ps-ai settings yet' }
-    $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
-    $onPath = if (Test-PsAiPathEntry -Path $env:PATH -Folder $bin) { 'yes' } else { 'no' }
+    $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
+    $onPath = if (Test-LegionPathEntry -Path $env:PATH -Folder $bin) { 'yes' } else { 'no' }
     "path ~/.legion/bin on PATH: $onPath"
     Write-StatusCommands -Bin $bin
     foreach ($channel in $settings.channels) {

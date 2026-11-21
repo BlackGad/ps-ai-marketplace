@@ -7,15 +7,15 @@ param(
 . (Join-Path $PSScriptRoot 'lib/tools.ps1')
 . (Join-Path $PSScriptRoot 'lib/channels.ps1')
 
-function Read-PsAiJson {
+function Read-LegionJson {
     param([string]$Path)
     $raw = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $Path))
     return ($raw.TrimStart([char]0xFEFF) | ConvertFrom-Json -Depth 100 -ErrorAction Stop)
 }
 
-function Get-PsAiReferenceIssues {
+function Get-LegionReferenceIssues {
     param($Data)
-    $tools = @(Get-PsAiTools)
+    $tools = @(Get-LegionTools)
     $ids = @()
     foreach ($agent in $Data.agents) {
         if ($agent.id -cin $ids) { "agents: duplicate id '$($agent.id)'" }
@@ -31,7 +31,7 @@ function Get-PsAiReferenceIssues {
         }
         if ($Data.channels.Count) {
             try {
-                $descriptor = @(Get-PsAiChannels | Where-Object id -CEQ $channel.kind)[0]
+                $descriptor = @(Get-LegionChannels | Where-Object id -CEQ $channel.kind)[0]
                 if (-not $descriptor) { throw "unknown channel kind '$($channel.kind)'" }
                 foreach ($id in $channel.accounts) {
                     $agent = @($Data.agents | Where-Object id -CEQ $id)[0]
@@ -44,9 +44,9 @@ function Get-PsAiReferenceIssues {
     }
 }
 
-function Get-PsAiProviderIssues {
+function Get-LegionProviderIssues {
     param($Data)
-    $tools = @(Get-PsAiTools)
+    $tools = @(Get-LegionTools)
     for ($i = 0; $i -lt @($Data.agents).Count; $i++) {
         $agent = $Data.agents[$i]
         $provider = $agent.provider
@@ -73,7 +73,7 @@ function Get-PsAiProviderIssues {
     }
 }
 
-function Invoke-PsAiValidation {
+function Invoke-LegionValidation {
     param([string]$Kind, [string]$Path)
     try {
         $json = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $Path)).TrimStart([char]0xFEFF)
@@ -90,8 +90,8 @@ function Invoke-PsAiValidation {
             return
         }
         if ($Kind -eq 'personalisation') {
-            Get-PsAiReferenceIssues -Data $data
-            Get-PsAiProviderIssues -Data $data
+            Get-LegionReferenceIssues -Data $data
+            Get-LegionProviderIssues -Data $data
         }
     } catch {
         $message = ($_.Exception.Message -replace '\s+', ' ').Trim()
@@ -100,7 +100,7 @@ function Invoke-PsAiValidation {
 }
 
 if (-not $NoRun) {
-    $issues = @(Invoke-PsAiValidation -Kind $Kind -Path $Path)
+    $issues = @(Invoke-LegionValidation -Kind $Kind -Path $Path)
     if ($issues.Count -gt 0) {
         $issues | Write-Output
         exit 1

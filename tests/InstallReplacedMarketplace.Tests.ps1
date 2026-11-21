@@ -26,12 +26,12 @@ $repo = Split-Path $PSScriptRoot -Parent
             if ($Command -contains 'example/new-source' -or $Command -contains 'example/new-source#stable') { $state.Added=$true }
             return @{ExitCode=0; Output=@()}
         }
-        $null = Invoke-PsAiInstallSteps -Tool $entry.id -Source 'example/new-source' -ConfigEnv $entry.configEnv -ConfigDir 'selected account'
+        $null = Invoke-LegionInstallSteps -Tool $entry.id -Source 'example/new-source' -ConfigEnv $entry.configEnv -ConfigDir 'selected account'
         Assert-True ($writes -contains ((@($entry.command) + $entry.plugin.install) -join '|')) "$($entry.id) newly added marketplace reinstalls an existing cached plugin"
         Assert-Equal 3 $writes.Count "$($entry.id) runs add, refresh and install from descriptor"
         Assert-Equal ((@($entry.command) + $entry.plugin.marketplaceUpdate) -join '|') $writes[1] 'Refresh uses tool data'
         $writes.Clear()
-        $repeat = @(Invoke-PsAiInstallSteps -Tool $entry.id -Source 'example/new-source' -ConfigEnv $entry.configEnv -ConfigDir 'selected account')
+        $repeat = @(Invoke-LegionInstallSteps -Tool $entry.id -Source 'example/new-source' -ConfigEnv $entry.configEnv -ConfigDir 'selected account')
         Assert-Equal 0 $writes.Count 'Matching marketplace and installed plugin remain idempotent'
         Assert-Equal 2 @($repeat | Where-Object { $_ -match '^skip: ' }).Count 'Repeat skips both steps'
     }

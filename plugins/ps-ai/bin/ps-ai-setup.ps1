@@ -35,14 +35,14 @@ function Set-SetupUserPath {
         $key.SetValue('Path', $Value, $kind)
     } finally { $key.Dispose() }
     # Notify other Windows applications without requiring a sign-out.
-    if (-not ('PsAiSetup.Environment' -as [type])) {
-        Add-Type -Namespace PsAiSetup -Name Environment -MemberDefinition @'
+    if (-not ('LegionSetup.Environment' -as [type])) {
+        Add-Type -Namespace LegionSetup -Name Environment -MemberDefinition @'
 [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
 public static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UIntPtr parameter, string value, uint flags, uint timeout, out UIntPtr result);
 '@
     }
     $result = [UIntPtr]::Zero
-    [void][PsAiSetup.Environment]::SendMessageTimeout([IntPtr]0xffff, 0x1a, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
+    [void][LegionSetup.Environment]::SendMessageTimeout([IntPtr]0xffff, 0x1a, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
 }
 
 function Get-SetupMachinePath {
@@ -85,7 +85,7 @@ function Invoke-SetupProcess {
             if (-not $path) { continue }
             foreach ($entry in $path.Split(';', [StringSplitOptions]::RemoveEmptyEntries)) {
                 $expanded = [Environment]::ExpandEnvironmentVariables($entry)
-                if (-not (Test-PsAiPathEntry -Path $start.Environment['PATH'] -Folder $expanded)) { $start.Environment['PATH'] += ";$expanded" }
+                if (-not (Test-LegionPathEntry -Path $start.Environment['PATH'] -Folder $expanded)) { $start.Environment['PATH'] += ";$expanded" }
             }
         }
     }
@@ -127,7 +127,7 @@ function Invoke-SetupInstaller {
     $arguments = @('-NoProfile', '-File', $Installer, '-Tools', $Tool, '-ConfigDir', $ConfigDir, '-HomeRoot', $script:SetupHomeRoot, '-Update', '-Yes')
     if ($script:SetupSource) { $arguments += @('-Source', $script:SetupSource) }
     $result = Invoke-SetupProcess -Arguments $arguments
-    $log = Get-PsAiHomePath -HomeRoot $script:SetupHomeRoot -Path "temp/setup-install-$Tool.log"
+    $log = Get-LegionHomePath -HomeRoot $script:SetupHomeRoot -Path "temp/setup-install-$Tool.log"
     New-Item -ItemType Directory -Path (Split-Path $log) -Force | Out-Null
     [IO.File]::WriteAllText($log, $result.Output)
     return [int]$result.Code
@@ -154,19 +154,19 @@ function New-SetupAccountRow {
     param($Agent, $Tool, [string]$HomeRoot, [switch]$Requested, [switch]$New, [switch]$Adopted)
     $folder = Resolve-SetupFolder $Agent.configDir $HomeRoot
     # Login is owner-only; infer the guidance from our managed folder without reading credentials.
-    $managed = Get-PsAiNewAccountDir -Id $Agent.id -HomeRoot $HomeRoot
+    $managed = Get-LegionNewAccountDir -Id $Agent.id -HomeRoot $HomeRoot
     $nextStep = if (-not $Adopted -and -not $Agent.provider -and $folder -ceq $managed) { "log in: run $($Agent.id)" } else { 'ready' }
     $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
     $missingWrappers = @($suffixes | Where-Object {
-        -not (Test-PsAiLauncherExecutable -Path (Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$($Agent.id)$_"))
+        -not (Test-LegionLauncherExecutable -Path (Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$($Agent.id)$_"))
     }).Count -gt 0
     $target = $null
-    if ($missingWrappers -and -not $New -and -not $Agent.provider) { $target = Get-PsAiWrapperTarget -Id $Agent.id -Tool $Tool.id -HomeRoot $HomeRoot -ConfigDir $folder }
+    if ($missingWrappers -and -not $New -and -not $Agent.provider) { $target = Get-LegionWrapperTarget -Id $Agent.id -Tool $Tool.id -HomeRoot $HomeRoot -ConfigDir $folder }
     if ($missingWrappers -and -not $New -and -not $Agent.provider -and -not $target) { $nextStep = "target needed: $($Agent.id); ask the owner for the registered executable" }
     return [pscustomobject]@{
         Id = $Agent.id; Tool = $Tool; Folder = $folder
         Requested = [bool]$Requested; New = [bool]$New; Adopted = [bool]$Adopted
-        Version = (Get-PsAiInstalledVersion -ConfigDir $folder -Tool $Tool)
+        Version = (Get-LegionInstalledVersion -ConfigDir $folder -Tool $Tool)
         NextStep = $nextStep; Usable = (-not $nextStep.StartsWith('target needed:'))
         MissingWrappers = $missingWrappers; WrapperTarget = $target; Provider = $Agent.provider
     }
@@ -184,7 +184,7 @@ function Get-SetupAddedAccount {
         $folder = Resolve-SetupFolder $folder $HomeRoot
         if (-not (Test-Path -LiteralPath $folder -PathType Container)) { throw 'Existing account config folder does not exist.' }
         if (-not $Id) {
-            $comparer = Get-PsAiPathComparer
+            $comparer = Get-LegionPathComparer
             $sameFolder = @($Data.agents | Where-Object {
                 $_.tool -ceq $toolId -and -not $_.provider -and $comparer.Equals((Resolve-SetupFolder $_.configDir $HomeRoot), $folder)
             })[0]
@@ -192,11 +192,11 @@ function Get-SetupAddedAccount {
         }
     }
     if (-not $Id) { $Id = Get-SetupNextId -Tool $toolId -Data $Data }
-    if (-not $folder) { $folder = Get-PsAiNewAccountDir -Id $Id -HomeRoot $HomeRoot }
+    if (-not $folder) { $folder = Get-LegionNewAccountDir -Id $Id -HomeRoot $HomeRoot }
     $existing = @($Data.agents | Where-Object { $_.id -ceq $Id })[0]
     if ($existing) {
-        if ($existing.tool -cne $toolId -or $existing.provider -or -not (Get-PsAiPathComparer).Equals((Resolve-SetupFolder $existing.configDir $HomeRoot), $folder)) { throw "account '$Id' already exists with other values" }
-    } else { Assert-PsAiNewId -Id $Id -Data $Data }
+        if ($existing.tool -cne $toolId -or $existing.provider -or -not (Get-LegionPathComparer).Equals((Resolve-SetupFolder $existing.configDir $HomeRoot), $folder)) { throw "account '$Id' already exists with other values" }
+    } else { Assert-LegionNewId -Id $Id -Data $Data }
     $agent = [pscustomobject]@{ id = $Id; tool = $toolId; configDir = $folder }
     return New-SetupAccountRow -Agent $agent -Tool $Tools[$toolId] -HomeRoot $HomeRoot -Requested -New:(!$existing) -Adopted:($colon -ge 0)
 }
@@ -224,16 +224,16 @@ function Get-SetupAccounts {
 
 function Get-SetupCommands {
     param([string]$HomeRoot)
-    foreach ($entry in (Get-PsAiOwnerCommands).GetEnumerator()) {
+    foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
         $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
         foreach ($suffix in $suffixes) {
-            $path = Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$($entry.Key)$suffix"
-            $state = Get-PsAiOwnerCommandState -Path $path -Script $entry.Value
-            if ($state -eq 'owned' -and (Get-PsAiShimHomeArgument -HomeRoot $HomeRoot -Windows:($suffix -eq '.cmd'))) {
-                $target = Read-PsAiOwnerCommandTarget -Path $path -Script $entry.Value
+            $path = Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$($entry.Key)$suffix"
+            $state = Get-LegionOwnerCommandState -Path $path -Script $entry.Value
+            if ($state -eq 'owned' -and (Get-LegionShimHomeArgument -HomeRoot $HomeRoot -Windows:($suffix -eq '.cmd'))) {
+                $target = Read-LegionOwnerCommandTarget -Path $path -Script $entry.Value
                 if ($target.Arguments -inotcontains '-HomeRoot') { $state = 'unbound' }
             }
-            if ($state -eq 'owned' -and -not (Test-PsAiLauncherExecutable -Path $path)) { $state = 'permission' }
+            if ($state -eq 'owned' -and -not (Test-LegionLauncherExecutable -Path $path)) { $state = 'permission' }
             [pscustomobject]@{ Name = $entry.Key; Script = $entry.Value; Path = $path; Windows = ($suffix -eq '.cmd'); State = $state }
         }
     }
@@ -241,10 +241,10 @@ function Get-SetupCommands {
 
 function Get-SetupPlan {
     param([string[]]$Add, [string]$Id, [string]$HomeRoot)
-    $settings = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
-    $data = if (Test-Path -LiteralPath $settings) { Read-PsAiJson $settings } else { [pscustomobject]@{ schemaVersion = 1; agents = @(); channels = @() } }
+    $settings = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
+    $data = if (Test-Path -LiteralPath $settings) { Read-LegionJson $settings } else { [pscustomobject]@{ schemaVersion = 1; agents = @(); channels = @() } }
     $tools = [ordered]@{}
-    foreach ($tool in Get-PsAiTools) { $tools[$tool.id] = $tool }
+    foreach ($tool in Get-LegionTools) { $tools[$tool.id] = $tool }
     $accounts = @(Get-SetupAccounts -Add $Add -Id $Id -Data $data -Tools $tools -HomeRoot $HomeRoot)
     $usable = @($accounts | Where-Object Usable)
     $needsStockCommand = @($usable | Where-Object { -not $_.WrapperTarget })
@@ -252,20 +252,20 @@ function Get-SetupPlan {
     foreach ($tool in $tools.Values) {
         if ($tool.id -cin @($needsStockCommand.Tool.id) -and -not (Test-SetupCommand -Name $tool.command)) { $missing += $tool }
     }
-    $bin = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'bin'
+    $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
     $path = if ($IsWindows) { Get-SetupUserPath } else { $env:PATH }
-    $version = (Read-PsAiJson (Join-Path $script:SetupPluginRoot 'plugin.json')).version
+    $version = (Read-LegionJson (Join-Path $script:SetupPluginRoot 'plugin.json')).version
     return @{
         HomeRoot = $HomeRoot; Settings = $settings; Data = $data; Accounts = $accounts; MissingTools = $missing
         Notes = (Join-Path (Split-Path $settings) 'ps-ai-notes.md'); Bin = $bin
-        Commands = @(Get-SetupCommands -HomeRoot $HomeRoot); NeedsPath = (-not (Test-PsAiPathEntry -Path $path -Folder $bin))
+        Commands = @(Get-SetupCommands -HomeRoot $HomeRoot); NeedsPath = (-not (Test-LegionPathEntry -Path $path -Folder $bin))
         Version = $version
     }
 }
 
 function Get-SetupPathHint {
     param($Plan)
-    return 'add to your shell profile: export PATH=' + (ConvertTo-PsAiShellLiteral $Plan.Bin) + ':"$PATH"'
+    return 'add to your shell profile: export PATH=' + (ConvertTo-LegionShellLiteral $Plan.Bin) + ':"$PATH"'
 }
 
 function Test-SetupToolInstalled {
@@ -326,11 +326,11 @@ function Write-SetupPlan {
 function Initialize-SetupFiles {
     param($Plan)
     if (Test-Path -LiteralPath $Plan.Settings) { 'skip: settings (already done)' }
-    else { Write-PsAiPersonalisation -Data $Plan.Data -Path $Plan.Settings }
+    else { Write-LegionPersonalisation -Data $Plan.Data -Path $Plan.Settings }
     if (Test-Path -LiteralPath $Plan.Notes) { 'skip: notes (already done)' }
     else {
         $template = Join-Path $script:SetupPluginRoot 'skills/ps-ai-personalisation/references/notes-template.md'
-        Write-PsAiGeneratedFile -Path $Plan.Notes -Content ([IO.File]::ReadAllText($template))
+        Write-LegionGeneratedFile -Path $Plan.Notes -Content ([IO.File]::ReadAllText($template))
     }
 }
 
@@ -352,8 +352,8 @@ function Install-SetupTools {
 
 function Add-SetupAccounts {
     param($Plan)
-    $file = Get-PsAiHomePath -HomeRoot $Plan.HomeRoot -Path 'configuration/ps-ai-personalisation.json'
-    $data = Read-PsAiJson -Path $file
+    $file = Get-LegionHomePath -HomeRoot $Plan.HomeRoot -Path 'configuration/ps-ai-personalisation.json'
+    $data = Read-LegionJson -Path $file
     foreach ($row in $Plan.Accounts) {
         if (-not $row.Usable) { continue }
         if ($row.Provider -and $row.MissingWrappers) {
@@ -363,11 +363,11 @@ function Add-SetupAccounts {
         }
         if ($row.Requested -or $row.MissingWrappers) {
             $arguments = @{ Id = $row.Id; Tool = $row.Tool.id; HomeRoot = $Plan.HomeRoot; Data = $data; Path = $file }
-            $managed = Get-PsAiNewAccountDir -Id $row.Id -HomeRoot $Plan.HomeRoot
-            if ($row.Adopted -or -not (Get-PsAiPathComparer).Equals($row.Folder, $managed)) { $arguments.ConfigDir = $row.Folder }
+            $managed = Get-LegionNewAccountDir -Id $row.Id -HomeRoot $Plan.HomeRoot
+            if ($row.Adopted -or -not (Get-LegionPathComparer).Equals($row.Folder, $managed)) { $arguments.ConfigDir = $row.Folder }
             if ($row.New) { $arguments.Command = Find-SetupCommand -Name $row.Tool.command }
             elseif ($row.MissingWrappers) { $arguments.Command = $row.WrapperTarget }
-            try { $result = @(Add-PsAiSubscriptionAccount @arguments) }
+            try { $result = @(Add-LegionSubscriptionAccount @arguments) }
             catch { throw (ConvertTo-SetupOneLine $_.Exception.Message) }
             if (-not $row.New) { $result }
         } else { "skip: account $($row.Id) (already done)" }
@@ -377,20 +377,20 @@ function Add-SetupAccounts {
 
 function Write-SetupCommands {
     param($Plan)
-    foreach ($name in (Get-PsAiOwnerCommands).Keys) {
+    foreach ($name in (Get-LegionOwnerCommands).Keys) {
         $files = @($Plan.Commands | Where-Object Name -CEQ $name)
         foreach ($file in $files) {
             if ($file.State -eq 'permission') {
-                Write-PsAiGeneratedFile -Path $file.Path -Content ([IO.File]::ReadAllText($file.Path)) -Executable
+                Write-LegionGeneratedFile -Path $file.Path -Content ([IO.File]::ReadAllText($file.Path)) -Executable
                 continue
             }
             if ($file.State -notin @('missing', 'stale', 'unbound')) { continue }
             $runner = Join-Path $script:SetupBin $file.Script
-            if ($file.State -eq 'unbound') { $runner = (Read-PsAiOwnerCommandTarget -Path $file.Path -Script $file.Script).Path }
+            if ($file.State -eq 'unbound') { $runner = (Read-LegionOwnerCommandTarget -Path $file.Path -Script $file.Script).Path }
             # Existing commands keep owner flags, and live commands keep their target.
-            $text = if ($file.State -in @('stale', 'unbound')) { Update-PsAiOwnerCommandText -Text ([IO.File]::ReadAllText($file.Path)) -Script $file.Script -Runner $runner -Windows:$file.Windows -HomeRoot $Plan.HomeRoot }
-                else { Get-PsAiShimText -Script $runner -Windows:$file.Windows -HomeRoot $Plan.HomeRoot }
-            Write-PsAiGeneratedFile -Path $file.Path -Content $text -Executable
+            $text = if ($file.State -in @('stale', 'unbound')) { Update-LegionOwnerCommandText -Text ([IO.File]::ReadAllText($file.Path)) -Script $file.Script -Runner $runner -Windows:$file.Windows -HomeRoot $Plan.HomeRoot }
+                else { Get-LegionShimText -Script $runner -Windows:$file.Windows -HomeRoot $Plan.HomeRoot }
+            Write-LegionGeneratedFile -Path $file.Path -Content $text -Executable
         }
         # Blocked commands are reported once, in the final table.
         if (@($files | Where-Object State -EQ owned).Count) { "skip: command $name (already done)" }
@@ -408,14 +408,14 @@ function Set-SetupPath {
         $updated = if ($current) { $current.TrimEnd(';') + ';' + $Plan.Bin } else { $Plan.Bin }
         Set-SetupUserPath -Value $updated
     } else { 'skip: path (already done)' }
-    if (-not (Test-PsAiPathEntry -Path $env:PATH -Folder $Plan.Bin)) { $env:PATH += ";$($Plan.Bin)" }
+    if (-not (Test-LegionPathEntry -Path $env:PATH -Folder $Plan.Bin)) { $env:PATH += ";$($Plan.Bin)" }
 }
 
 function Install-SetupPlugins {
     param($Plan)
     $installer = $null
     $installerChecked = $false
-    $results = [Collections.Generic.Dictionary[string,int]]::new((Get-PsAiPathComparer))
+    $results = [Collections.Generic.Dictionary[string,int]]::new((Get-LegionPathComparer))
     foreach ($row in $Plan.Accounts) {
         if (-not $row.Usable) { continue }
         # Setup installs ps-ai only where it is missing; moving versions is the update flow's job.
@@ -428,7 +428,7 @@ function Install-SetupPlugins {
             } catch { $results[$key] = 1 }
         }
         if ($results[$key] -ne 0) { $row.NextStep = "install failed: log in with $($row.Id), then finish setup" }
-        $row.Version = Get-PsAiInstalledVersion -ConfigDir $row.Folder -Tool $row.Tool
+        $row.Version = Get-LegionInstalledVersion -ConfigDir $row.Folder -Tool $row.Tool
     }
 }
 

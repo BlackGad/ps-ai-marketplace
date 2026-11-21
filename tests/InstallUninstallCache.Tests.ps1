@@ -16,13 +16,13 @@ $repo = Split-Path $PSScriptRoot -Parent
                 New-FixtureCache $other
                 New-FixtureCache $unselected
                 $state.Plugin=$true; $state.Marketplace=$true
-                $null = Invoke-PsAiInstaller -Catalog $catalog -Tools $tool -ConfigDir $config -Uninstall -DryRun
+                $null = Invoke-LegionInstaller -Catalog $catalog -Tools $tool -ConfigDir $config -Uninstall -DryRun
                 Assert-True (Test-Path -LiteralPath $cache) 'Preview preserves cache'
-                $null = Invoke-PsAiInstaller -Catalog $catalog -Tools $tool -ConfigDir $config -Uninstall -Yes
+                $null = Invoke-LegionInstaller -Catalog $catalog -Tools $tool -ConfigDir $config -Uninstall -Yes
                 Assert-True (-not (Test-Path -LiteralPath $cache)) 'Successful uninstall removes every cached version and marketplace cache folder'
                 Assert-True (Test-Path -LiteralPath $other) 'Other marketplace cache remains'
                 Assert-True (Test-Path -LiteralPath $unselected) 'Other config cache remains'
-                $repeat = @(Invoke-PsAiInstaller -Catalog $catalog -Tools $tool -ConfigDir $config -Uninstall)
+                $repeat = @(Invoke-LegionInstaller -Catalog $catalog -Tools $tool -ConfigDir $config -Uninstall)
                 Assert-True ($repeat -contains 'Nothing to uninstall.') 'Clean repeat has no work'
             }
         }
@@ -32,19 +32,19 @@ $repo = Split-Path $PSScriptRoot -Parent
         foreach ($failure in @('FailRemove','KeepListed','FailVerify')) {
             $state.Plugin=$true; $state.Marketplace=$true; $state[$failure]=$true
             $writes.Clear()
-            Assert-Throws { Invoke-PsAiInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes } "$failure refuses cleanup"
+            Assert-Throws { Invoke-LegionInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes } "$failure refuses cleanup"
             Assert-True (Test-Path -LiteralPath $cache) "$failure preserves cache"
             $state[$failure]=$false
         }
         $state.Plugin=$false; $state.Marketplace=$false
         $state.Answer='n'
-        $preview = @(Invoke-PsAiInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall)
+        $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall)
         Assert-True (($preview -join "`n").Contains("Remove cache folder: $cache")) 'Leftover cache alone is planned'
         Assert-True (Test-Path -LiteralPath $cache) 'Declining keeps leftover cache'
-        $null = Invoke-PsAiInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes
+        $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes
         Assert-True (-not (Test-Path -LiteralPath $cache)) 'Already uninstalled plugin leftovers can be cleaned'
         New-Item -ItemType Directory -Path $cache -Force | Out-Null
-        $null = Invoke-PsAiInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes
+        $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes
         Assert-True (-not (Test-Path -LiteralPath $cache)) 'Empty cache folder is cleaned'
 
         $entry = $catalog.tools | Where-Object id -CEQ codex
@@ -64,7 +64,7 @@ $repo = Split-Path $PSScriptRoot -Parent
             if ($nested) { New-Item -ItemType Directory -Path $cache -Force | Out-Null }
             $link = if ($nested) { Join-Path $cache 'linked-version' } else { $cache }
             New-Item -ItemType $linkType -Path $link -Target $outside -ErrorAction Stop | Out-Null
-            $null = Invoke-PsAiInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes
+            $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes
             Assert-True (Test-Path -LiteralPath (Join-Path $outside 'fixture.txt')) 'Linked owner data remains'
             Assert-True (Test-Path -LiteralPath $link) 'Linked cache is skipped'
             Remove-Item -LiteralPath $link -Force
@@ -76,7 +76,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $futureCache = Join-Path $folder 'private/cache/ps-ai-store'
         New-FixtureCache $futureCache
         $state.Plugin=$true; $state.Marketplace=$true
-        $null = Invoke-PsAiInstaller -Catalog $catalog -Tools fourth -ConfigDir $folder -Uninstall -Yes
+        $null = Invoke-LegionInstaller -Catalog $catalog -Tools fourth -ConfigDir $folder -Uninstall -Yes
         Assert-True (-not (Test-Path -LiteralPath $futureCache)) 'Future tools use their exact declared cache path'
     } finally { Remove-UninstallSandbox }
 }

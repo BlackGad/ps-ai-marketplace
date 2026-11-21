@@ -55,26 +55,26 @@ foreach ($case in $Cases) {
             switch ($case) {
                 'InstallRunsRefresh' {
                     function Get-UpdateConfigDirs { @('fixture-one','fixture-two') }
-                    $null = Invoke-PsAiInstaller @options -Yes
+                    $null = Invoke-LegionInstaller @options -Yes
                     Assert-Equal 2 $refreshes.Count 'InstallRunsRefresh: refresh runs once for each installed folder'
                     $command = Join-Path $scratch '.legion/bin/legion'
                     Assert-True (Test-Path -LiteralPath $command) 'InstallRunsRefresh: plain install creates legion'
                     Assert-True ((Get-Content -LiteralPath $command -Raw).Replace('\','/').Contains($plugin.Replace('\','/'))) 'InstallRunsRefresh: legion points at the installed copy'
                 }
                 'InstallQuestionNamesPath' {
-                    $null = Invoke-PsAiInstaller @options
+                    $null = Invoke-LegionInstaller @options
                     Assert-Equal 'Install ps-ai for claude now, and add ~/.legion/bin to your PATH? [y/N]' ($questions -join '|') 'InstallQuestionNamesPath: one question covers PATH'
                     Assert-Equal 1 $state.Writes 'InstallQuestionNamesPath: consent adds user PATH once'
                     Assert-True (Test-Path -LiteralPath (Join-Path $scratch '.legion/bin') -PathType Container) 'InstallQuestionNamesPath: command folder exists'
                     $questions.Clear()
-                    $null = Invoke-PsAiInstaller @options
+                    $null = Invoke-LegionInstaller @options
                     Assert-Equal 'Install ps-ai for claude now? [y/N]' ($questions -join '|') 'InstallQuestionNamesPath: existing PATH needs no PATH question'
                     Assert-Equal 1 $state.Writes 'InstallQuestionNamesPath: repeat does not rewrite PATH'
                 }
                 'InstallMissingPowerShell' {
                     $state.Ready=$false
                     $state.Answer='n'
-                    $declined = @(Invoke-PsAiInstaller @options 6>&1)
+                    $declined = @(Invoke-LegionInstaller @options 6>&1)
                     Assert-Equal 1 $questions.Count 'InstallMissingPowerShell: one question covers prerequisites'
                     Assert-True (($declined -join "`n").Contains('PowerShell 7 is missing.')) 'InstallMissingPowerShell: preview names prerequisite'
                     Assert-Equal 0 $state.Winget 'InstallMissingPowerShell: declining installs no prerequisite'
@@ -82,7 +82,7 @@ foreach ($case in $Cases) {
                     Assert-Equal 0 $installed.Count 'InstallMissingPowerShell: declining installs no plugin'
                     $questions.Clear()
                     $state.Answer='y'
-                    $approved = @(Invoke-PsAiInstaller @options 6>&1)
+                    $approved = @(Invoke-LegionInstaller @options 6>&1)
                     Assert-Equal 1 $questions.Count 'InstallMissingPowerShell: no second prerequisite question'
                     Assert-Equal 1 @($approved | Where-Object { "$_" -eq 'PowerShell 7 is missing.' }).Count 'InstallMissingPowerShell: prerequisite preview appears once'
                     Assert-Equal 1 $state.Winget 'InstallMissingPowerShell: the single yes installs PowerShell'
@@ -90,23 +90,23 @@ foreach ($case in $Cases) {
                     $state.Ready=$false
                     function Invoke-InstallWinget { $state.Winget++; 1 }
                     $questions.Clear()
-                    $null = Invoke-PsAiInstaller @options
+                    $null = Invoke-LegionInstaller @options
                     Assert-Equal 1 $questions.Count 'InstallMissingPowerShell: ZIP fallback needs no second question'
                     Assert-Equal 1 $state.Zip 'InstallMissingPowerShell: the same yes covers ZIP fallback'
                 }
                 'InstallUnixPathHint' {
                     $env:OS='fixture-unix'
-                    $output = @(Invoke-PsAiInstaller @options -Yes)
+                    $output = @(Invoke-LegionInstaller @options -Yes)
                     Assert-True ($output -contains 'add to your shell profile: export PATH="$HOME/.legion/bin:$PATH"') 'InstallUnixPathHint: prints the shell profile line'
                     Assert-Equal 0 $state.Writes 'InstallUnixPathHint: no user PATH write'
                     Assert-Equal $savedPath $env:PATH 'InstallUnixPathHint: no process PATH write'
                     $env:PATH = (Join-Path $scratch '.legion/bin') + [IO.Path]::PathSeparator + $savedPath
-                    $repeat = @(Invoke-PsAiInstaller @options -Yes)
+                    $repeat = @(Invoke-LegionInstaller @options -Yes)
                     Assert-True (-not ($repeat -match '^add to your shell profile:')) 'InstallUnixPathHint: no hint when already on PATH'
                 }
                 'InstallNextStep' {
                     foreach ($track in @('release','main')) {
-                        $output = @(Invoke-PsAiInstaller @options -Ref $track -Yes)
+                        $output = @(Invoke-LegionInstaller @options -Ref $track -Yes)
                         Assert-Equal "installed: ps-ai 0.8.0 ($track)" $output[-2] 'InstallNextStep: installed plugin version and track'
                         Assert-Equal 'next: legion add claude (or legion in a repository)' $output[-1] 'InstallNextStep: explains the next action'
                     }
@@ -114,14 +114,14 @@ foreach ($case in $Cases) {
                 'NonInteractiveInstall' {
                     $state.Ready=$false
                     $state.Answer=''
-                    $output = @(Invoke-PsAiInstaller @options 6>&1)
+                    $output = @(Invoke-LegionInstaller @options 6>&1)
                     Assert-True ($output -contains 'Nothing changed. Run again with -Yes to apply.') 'NonInteractiveInstall: empty redirected answer explains no changes'
                     Assert-Equal 0 $state.Writes 'NonInteractiveInstall: no PATH write'
                     Assert-Equal 0 $state.Winget 'NonInteractiveInstall: no prerequisite install'
                     Assert-Equal 0 $installed.Count 'NonInteractiveInstall: no plugin install'
                     Assert-True (-not (Test-Path -LiteralPath (Join-Path $scratch '.legion'))) 'NonInteractiveInstall: nothing generated'
                     $questions.Clear()
-                    $null = Invoke-PsAiInstaller @options -DryRun
+                    $null = Invoke-LegionInstaller @options -DryRun
                     Assert-Equal 0 $questions.Count 'NonInteractiveInstall: dry run never prompts'
                     Assert-Equal 0 $state.Writes 'NonInteractiveInstall: dry run never writes PATH'
                 }

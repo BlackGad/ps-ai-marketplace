@@ -6,11 +6,11 @@ param(
 
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
 
-function Get-PsAiUpdateHome {
+function Get-LegionUpdateHome {
     return [Environment]::GetFolderPath('UserProfile')
 }
 
-function Get-PsAiUpdateText {
+function Get-LegionUpdateText {
     param([string]$Url, [Net.Http.HttpClient]$Client = [Net.Http.HttpClient]::new())
     try {
         $Client.Timeout = [TimeSpan]::FromSeconds(3)
@@ -21,14 +21,14 @@ function Get-PsAiUpdateText {
     } finally { $Client.Dispose() }
 }
 
-function Get-PsAiUpdate {
+function Get-LegionUpdate {
     param([string]$PluginRoot = (Split-Path $PSScriptRoot -Parent), [switch]$Force)
     try {
         $manifest = Get-Content -LiteralPath (Join-Path $PluginRoot 'plugin.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         if ($manifest.name -ne 'ps-ai') { throw 'Invalid installed manifest' }
         $installed = [semver]::Parse([string]$manifest.version)
         $source = 'BlackGad/ps-ai-marketplace'
-        $cachePath = Get-PsAiHomePath -HomeRoot (Get-PsAiUpdateHome) -Path 'temp/ps-ai-update.json'
+        $cachePath = Get-LegionHomePath -HomeRoot (Get-LegionUpdateHome) -Path 'temp/ps-ai-update.json'
         $cached = $null
         if (-not $Force -and (Test-Path -LiteralPath $cachePath -PathType Leaf)) {
             try {
@@ -44,7 +44,7 @@ function Get-PsAiUpdate {
         if (-not $cached) {
             $cached = [pscustomobject]@{ Source=$source; CheckedAt=[DateTimeOffset]::UtcNow.ToString('o'); Available=$null; Failed=$false }
             try {
-                $text = Get-PsAiUpdateText -Url "https://raw.githubusercontent.com/$source/stable/plugins/ps-ai/plugin.json"
+                $text = Get-LegionUpdateText -Url "https://raw.githubusercontent.com/$source/stable/plugins/ps-ai/plugin.json"
                 $latest = $text | ConvertFrom-Json -ErrorAction Stop
                 if ($latest.name -ne 'ps-ai') { throw 'Invalid marketplace manifest' }
                 $null = [semver]::Parse([string]$latest.version)
@@ -70,10 +70,10 @@ function Get-PsAiUpdate {
     }
 }
 
-function Invoke-PsAiUpdateCheck {
+function Invoke-LegionUpdateCheck {
     param([string]$PluginRoot = (Split-Path $PSScriptRoot -Parent), [switch]$Force)
     try {
-        $result = Get-PsAiUpdate -PluginRoot $PluginRoot -Force:$Force
+        $result = Get-LegionUpdate -PluginRoot $PluginRoot -Force:$Force
         if ($result -and -not $result.Newer) {
             "ps-ai $($result.Installed) is up to date."
         } elseif ($result) {
@@ -87,6 +87,6 @@ function Invoke-PsAiUpdateCheck {
 }
 
 if (-not $NoRun) {
-    if ($Check) { Invoke-PsAiUpdateCheck -Force:$Force }
+    if ($Check) { Invoke-LegionUpdateCheck -Force:$Force }
     else { 'Usage: ps-ai-update.ps1 -Check [-Force]' }
 }

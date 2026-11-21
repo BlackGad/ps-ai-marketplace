@@ -5,7 +5,7 @@ New-Item -ItemType Directory $scratch -Force | Out-Null
 function Check-Owner($Data) {
     $path = Join-Path $scratch 'owner.json'
     $Data | ConvertTo-Json -Depth 100 | Set-Content $path
-    @(Invoke-PsAiValidation personalisation $path)
+    @(Invoke-LegionValidation personalisation $path)
 }
 # MinimalOwnerAndProject
 Assert-Equal 0 @(Check-Owner @{schemaVersion=1;agents=@();channels=@()}).Count 'Empty lean owner validates'
@@ -15,7 +15,7 @@ foreach ($key in @('schemaVersion','agents','channels')) {
 }
 $path = Join-Path $scratch 'project.json'
 '{"schemaVersion":1}' | Set-Content $path
-Assert-Equal 0 @(Invoke-PsAiValidation project $path).Count 'Minimal project validates'
+Assert-Equal 0 @(Invoke-LegionValidation project $path).Count 'Minimal project validates'
 # NestedUnknownFieldDiagnostic
 foreach ($extra in @(
     '{"extra":true,"schemaVersion":1,"agents":[],"channels":[]}',

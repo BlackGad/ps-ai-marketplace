@@ -46,7 +46,7 @@ $repo = Split-Path $PSScriptRoot -Parent
                 $options = @{Catalog=$catalog;Tools=@($entry.id);DryRun=$true}
                 if ($mode -eq 'update') { $options.Update=$true }
                 if ($mode -eq 'uninstall') { $options.Uninstall=$true }
-                $preview = @(Invoke-PsAiInstaller @options)
+                $preview = @(Invoke-LegionInstaller @options)
                 # An uninstall also reads the other CLIs to find installs that stay; this test is about the selected tool.
                 $selectedCalls = @($calls | Where-Object { $_.StartsWith("$($entry.id):") })
                 Assert-Equal 1 @($selectedCalls | Select-Object -Unique).Count "$mode selects one real folder"

@@ -27,18 +27,18 @@ $repo = Split-Path $PSScriptRoot -Parent
         return @{ ExitCode=0; Output=@() }
     }
     try {
-        $preview = @(Invoke-PsAiInstallSteps -Tool codex -Source $repo -ConfigEnv CODEX_HOME -ConfigDir $folder -DryRun)
+        $preview = @(Invoke-LegionInstallSteps -Tool codex -Source $repo -ConfigEnv CODEX_HOME -ConfigDir $folder -DryRun)
         Assert-True (($preview -join "`n") -like '*plugin marketplace add*') 'Missing Codex home previews a fresh install'
         Assert-True (-not (Test-Path -LiteralPath $folder)) 'Preview leaves the missing home untouched'
         Assert-Equal 0 $state.Mutations 'Preview never runs a mutating CLI command'
-        $null = Invoke-PsAiInstallSteps -Tool codex -Source $repo -ConfigEnv CODEX_HOME -ConfigDir $folder
+        $null = Invoke-LegionInstallSteps -Tool codex -Source $repo -ConfigEnv CODEX_HOME -ConfigDir $folder
         Assert-True $state.Installed 'Fresh logged-out Codex home installs ps-ai'
         $mutations = $state.Mutations
-        $repeat = @(Invoke-PsAiInstallSteps -Tool codex -Source $repo -ConfigEnv CODEX_HOME -ConfigDir $folder)
+        $repeat = @(Invoke-LegionInstallSteps -Tool codex -Source $repo -ConfigEnv CODEX_HOME -ConfigDir $folder)
         Assert-Equal $mutations $state.Mutations 'Repeat install makes no changes'
         Assert-True (($repeat -join "`n") -like '*skip:*') 'Repeat install reports already done'
         $state.FailListing = $true
-        Assert-Throws { Invoke-PsAiInstallSteps -Tool codex -Source $repo -ConfigEnv CODEX_HOME -ConfigDir $folder } 'Other Codex listing errors still fail'
+        Assert-Throws { Invoke-LegionInstallSteps -Tool codex -Source $repo -ConfigEnv CODEX_HOME -ConfigDir $folder } 'Other Codex listing errors still fail'
     } finally {
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
         if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe cleanup' }

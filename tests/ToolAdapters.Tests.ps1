@@ -102,7 +102,7 @@
                     if ($seeded) {
                         Assert-Equal 'dark' $settings.theme 'Claude preserves unrelated settings'
                         Assert-Equal 'café' $settings.custom.label 'Claude preserves nested Unicode settings'
-                        $savedSettings = ConvertFrom-PsAiToolJson -Json $configText
+                        $savedSettings = ConvertFrom-LegionToolJson -Json $configText
                         Assert-Equal '2026-11-18T16:01:00+03:00' $savedSettings.custom.lastViewed 'Claude preserves unrelated timestamp strings and offsets'
                     }
                 } else {

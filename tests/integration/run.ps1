@@ -265,7 +265,7 @@ function Set-IntegrationConfigEnvironment {
 
 function Get-IntegrationPluginVersion {
     param([string]$Tool, [string]$Folder)
-    return Get-PsAiInstalledVersion -ConfigDir $Folder -Tool (Get-IntegrationToolInfo $Tool)
+    return Get-LegionInstalledVersion -ConfigDir $Folder -Tool (Get-IntegrationToolInfo $Tool)
 }
 
 function Get-CheckoutVersion {
@@ -402,7 +402,7 @@ function Invoke-CliInstallRepeat {
 }
 
 # Step 2: one install.ps1 run per tool, so one tool's refusal never hides the others.
-function Invoke-PsAiInstall {
+function Invoke-LegionInstall {
     param([string]$Tool, $Target)
     $arguments = @('-Source', $Target.Source, '-Tools', $Tool, '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
     if ($Target.Ref) { $arguments += @('-Ref', $Target.Ref) }
@@ -427,7 +427,7 @@ function Install-IntegrationTool {
     param([string]$Tool)
     $checkout = @{ Source = $script:Ctx.Checkout; Ref = '' }
     try {
-        $lines = Invoke-PsAiInstall $Tool $checkout
+        $lines = Invoke-LegionInstall $Tool $checkout
         $script:Ctx.Targets[$Tool] = $checkout
         return $lines
     } catch {
@@ -443,14 +443,14 @@ function Install-IntegrationTool {
     $remote = Get-IntegrationRemoteMain
     if ($remote -ne $revision) { throw "$Tool needs the published source, but main is $remote and the tested revision is $revision" }
     $fallback = @{ Source = $script:MarketplaceRepo; Ref = 'main' }
-    $lines = Invoke-PsAiInstall $Tool $fallback
+    $lines = Invoke-LegionInstall $Tool $fallback
     $remote = Get-IntegrationRemoteMain
     if ($remote -ne $revision) { throw "$Tool installed the published source, but main moved to $remote and the tested revision is $revision" }
     $script:Ctx.Targets[$Tool] = $fallback
     return $lines
 }
 
-function Invoke-PsAiInstallFirst {
+function Invoke-LegionInstallFirst {
     $lines = @()
     $errors = @()
     foreach ($tool in $script:IntegrationTools) {
@@ -472,9 +472,9 @@ function Invoke-PsAiInstallFirst {
     return $lines
 }
 
-function Invoke-PsAiInstallRepeat {
+function Invoke-LegionInstallRepeat {
     $lines = @()
-    foreach ($tool in (Get-IntegrationActiveTools)) { $lines += Invoke-PsAiInstall $tool $script:Ctx.Targets[$tool] }
+    foreach ($tool in (Get-IntegrationActiveTools)) { $lines += Invoke-LegionInstall $tool $script:Ctx.Targets[$tool] }
     Assert-IntegrationText $lines 'skip:'
     Assert-TreeUnchanged $script:Ctx.HomeSnapshot (Get-IntegrationHomeSnapshot)
     return $lines
@@ -505,7 +505,7 @@ function Invoke-SetupFirst {
     }
     $bin = Join-Path $script:Ctx.HomeRoot '.legion/bin'
     Assert-IntegrationTrue (@(Get-ChildItem -LiteralPath $bin -File -ErrorAction SilentlyContinue).Count -gt 0) 'no owner commands in .legion/bin'
-    Assert-AccountsHavePsAi $settings.Data.agents
+    Assert-AccountsHaveLegion $settings.Data.agents
     if ($IsWindows) {
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
         Assert-IntegrationTrue ($userPath.Split(';') -contains $bin) '.legion/bin is not on the user PATH'
@@ -516,7 +516,7 @@ function Invoke-SetupFirst {
     return $lines
 }
 
-function Assert-AccountsHavePsAi {
+function Assert-AccountsHaveLegion {
     param([object[]]$Agents)
     $expected = Get-CheckoutVersion
     foreach ($agent in $Agents) {
@@ -540,7 +540,7 @@ function Invoke-AddFirst {
     $agent = @($settings.Data.agents | Where-Object id -eq 'ci-extra')
     Assert-IntegrationTrue ($agent.Count -eq 1) 'account ci-extra was not recorded'
     Assert-IntegrationTrue (Test-Path -LiteralPath (Resolve-IntegrationFolder $agent[0].configDir) -PathType Container) 'ci-extra folder was not created'
-    Assert-AccountsHavePsAi $agent
+    Assert-AccountsHaveLegion $agent
     $script:Ctx.AgentCount = @($settings.Data.agents).Count
     return $lines
 }
@@ -740,14 +740,14 @@ function Assert-IntegrationLaunchersRun {
 }
 
 # Steps 9 and 10: the owner's scenario, uninstall then install again.
-function Invoke-PsAiInstallAgain {
+function Invoke-LegionInstallAgain {
     $lines = @()
-    foreach ($tool in (Get-IntegrationActiveTools)) { $lines += Invoke-PsAiInstall $tool $script:Ctx.Targets[$tool] }
+    foreach ($tool in (Get-IntegrationActiveTools)) { $lines += Invoke-LegionInstall $tool $script:Ctx.Targets[$tool] }
     return $lines
 }
 
 function Invoke-ReinstallFirst {
-    $lines = Invoke-PsAiInstallAgain
+    $lines = Invoke-LegionInstallAgain
     $expected = Get-CheckoutVersion
     foreach ($target in (Get-IntegrationUninstallTargets)) {
         $found = Get-IntegrationPluginVersion $target.Tool $target.Folder
@@ -760,7 +760,7 @@ function Invoke-ReinstallFirst {
 }
 
 function Invoke-ReinstallRepeat {
-    $lines = Invoke-PsAiInstallAgain
+    $lines = Invoke-LegionInstallAgain
     Assert-IntegrationText $lines 'skip:'
     Assert-TreeUnchanged $script:Ctx.HomeSnapshot (Get-IntegrationHomeSnapshot)
     return $lines
@@ -770,7 +770,7 @@ function Invoke-RestoreLaunchersFirst {
     foreach ($id in Get-IntegrationAccountIds) {
         foreach ($path in Get-IntegrationLauncherPaths $id) { Remove-Item -LiteralPath $path -Force }
     }
-    $lines = Invoke-PsAiInstallAgain
+    $lines = Invoke-LegionInstallAgain
     Assert-IntegrationLaunchersExist
     Assert-IntegrationLaunchersRun
     $script:Ctx.HomeSnapshot = Get-IntegrationHomeSnapshot
@@ -778,7 +778,7 @@ function Invoke-RestoreLaunchersFirst {
 }
 
 function Invoke-RestoreLaunchersRepeat {
-    $lines = Invoke-PsAiInstallAgain
+    $lines = Invoke-LegionInstallAgain
     Assert-IntegrationText $lines 'skip:'
     Assert-TreeUnchanged $script:Ctx.HomeSnapshot (Get-IntegrationHomeSnapshot)
     return $lines
@@ -864,7 +864,7 @@ function Get-IntegrationSteps {
         }
     }
     $cliSteps = @($script:IntegrationTools | ForEach-Object { "install-cli-$_" })
-    $steps += @{ Name = 'install-ps-ai'; DependsOn = $cliSteps; First = { Invoke-PsAiInstallFirst }; Repeat = { Invoke-PsAiInstallRepeat } }
+    $steps += @{ Name = 'install-ps-ai'; DependsOn = $cliSteps; First = { Invoke-LegionInstallFirst }; Repeat = { Invoke-LegionInstallRepeat } }
     $steps += @{ Name = 'setup'; DependsOn = @('install-ps-ai'); First = { Invoke-SetupFirst }; Repeat = { Invoke-SetupRepeat } }
     $steps += @{ Name = 'add'; DependsOn = @('setup'); First = { Invoke-AddFirst }; Repeat = { Invoke-AddRepeat } }
     $steps += @{ Name = 'remove'; DependsOn = @('add'); First = { Invoke-RemoveFirst }; Repeat = { Invoke-RemoveRepeat } }

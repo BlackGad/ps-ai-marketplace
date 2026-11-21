@@ -10,7 +10,7 @@ try {
     # Each helper exits before the next starts; their non-shell ancestor stays alive.
     & pwsh -NoProfile -File $script -Action take -Repo $repo -Tool codex -Account session | Out-Null
     . (Join-Path $root 'plugins/ps-ai/bin/lib/common.ps1')
-    Assert-Equal 'held' (Get-PsAiLease -Repo $repo).State 'A short-lived helper leases for its long-lived parent'
+    Assert-Equal 'held' (Get-LegionLease -Repo $repo).State 'A short-lived helper leases for its long-lived parent'
     $path = Join-Path $repo '.legion/temp/overseer.lock'
     $saved = Get-Content $path -Raw | ConvertFrom-Json
     Assert-True ([bool]$saved.processStartedAt) 'Lease records owner process lifetime'
@@ -33,17 +33,17 @@ $ErrorActionPreference = 'Stop'
 while (-not (Test-Path -LiteralPath $Ready)) { Start-Sleep -Milliseconds 25 }
 . (Join-Path $Root 'tests/Assert.ps1')
 . (Join-Path $Root 'plugins/ps-ai/bin/lib/common.ps1')
-$env:PS_AI_TEST_LEASE_SCRIPT = $LeaseScript
-$env:PS_AI_TEST_LEASE_REPO = $Repo
-& $Bash -c 'pwsh -NoProfile -File "$PS_AI_TEST_LEASE_SCRIPT" -Action take -Repo "$PS_AI_TEST_LEASE_REPO" -Tool codex -Account session'
+$env:LEGION_TEST_LEASE_SCRIPT = $LeaseScript
+$env:LEGION_TEST_LEASE_REPO = $Repo
+& $Bash -c 'pwsh -NoProfile -File "$LEGION_TEST_LEASE_SCRIPT" -Action take -Repo "$LEGION_TEST_LEASE_REPO" -Tool codex -Account session'
 Assert-Equal 0 $LASTEXITCODE 'Bash helper takes the session lease'
-Assert-Equal 'held' (Get-PsAiLease -Repo $Repo).State 'A short-lived bash helper leases for its long-lived parent'
+Assert-Equal 'held' (Get-LegionLease -Repo $Repo).State 'A short-lived bash helper leases for its long-lived parent'
 $lease = Get-Content (Join-Path $Repo '.legion/temp/overseer.lock') -Raw | ConvertFrom-Json
 Assert-Equal $PID $lease.pid 'Shell-only ancestry uses the surviving session, not bash or the helper'
-Assert-True (Test-PsAiSameStartTime (Get-Process -Id $PID).StartTime $lease.processStartedAt) 'Lease start time belongs to the selected session'
-& $Bash -c 'pwsh -NoProfile -File "$PS_AI_TEST_LEASE_SCRIPT" -Action release -Repo "$PS_AI_TEST_LEASE_REPO"'
+Assert-True (Test-LegionSameStartTime (Get-Process -Id $PID).StartTime $lease.processStartedAt) 'Lease start time belongs to the selected session'
+& $Bash -c 'pwsh -NoProfile -File "$LEGION_TEST_LEASE_SCRIPT" -Action release -Repo "$LEGION_TEST_LEASE_REPO"'
 Assert-Equal 0 $LASTEXITCODE 'Another bash helper releases the session lease'
-Assert-Equal 'free' (Get-PsAiLease -Repo $Repo).State 'Bash release removes the session lease'
+Assert-Equal 'free' (Get-LegionLease -Repo $Repo).State 'Bash release removes the session lease'
 'bash session passed'
 '@ | Set-Content -LiteralPath $sessionScript
         $launcher = Join-Path $tempRoot 'launch.ps1'
@@ -78,12 +78,12 @@ $session.Id | Set-Content -LiteralPath $PidFile
     foreach ($leaseHost in @($saved.host, 'fixture-foreign-host')) {
         $invalid.host = $leaseHost
         $invalid | ConvertTo-Json | Set-Content $path
-        Assert-Equal 'stale' (Get-PsAiLease -Repo $repo).State 'A lease without process identity is invalid on any host'
+        Assert-Equal 'stale' (Get-LegionLease -Repo $repo).State 'A lease without process identity is invalid on any host'
     }
     $saved.pid = $PID
     $saved.processStartedAt = (Get-Process -Id $PID).StartTime.ToUniversalTime().AddSeconds(-1).ToString('o')
     $saved | ConvertTo-Json | Set-Content $path
-    Assert-Equal 'stale' (Get-PsAiLease -Repo $repo).State 'Reused PID with a different start time is stale'
+    Assert-Equal 'stale' (Get-LegionLease -Repo $repo).State 'Reused PID with a different start time is stale'
     & $script -Action release -Repo $repo -ProcessId $PID 2>$null | Out-Null
     Assert-True (Test-Path $path) 'Reused PID cannot release the old process lock'
     Remove-Item -LiteralPath $path
@@ -107,10 +107,10 @@ exit $result
     Assert-Equal ([System.Net.Dns]::GetHostName()) $lease.host 'Lease records DNS host'
     . $hook -NoRun
     $repo = Join-Path $tempRoot 'repo'
-    Assert-Equal 'stale' (Get-PsAiLease -Repo $repo).State "Hook sees the exited process as stale; outputs: $((Get-Content $outputs -Raw) -join '|'); errors: $((Get-Content $errors -Raw) -join '|')"
+    Assert-Equal 'stale' (Get-LegionLease -Repo $repo).State "Hook sees the exited process as stale; outputs: $((Get-Content $outputs -Raw) -join '|'); errors: $((Get-Content $errors -Raw) -join '|')"
     & $script -Action take -Repo $repo -Tool codex -Account $lease.account -ProcessId $PID | Out-Null
     Assert-Equal 0 $LASTEXITCODE 'Stale lease can be taken'
-    Assert-Equal 'held' (Get-PsAiLease -Repo $repo).State 'Hook sees a live lease'
+    Assert-Equal 'held' (Get-LegionLease -Repo $repo).State 'Hook sees a live lease'
     $again = & $script -Action take -Repo $repo -Tool codex -Account $lease.account -ProcessId $PID
     Assert-Equal 0 $LASTEXITCODE 'Current holder may take twice'
     Assert-True (@($again) -match 'skip:') 'Second take is a skip'

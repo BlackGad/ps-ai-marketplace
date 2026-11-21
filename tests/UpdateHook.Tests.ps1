@@ -11,8 +11,8 @@ try {
     '{"name":"ps-ai","version":"0.3.0"}' | Set-Content (Join-Path $plugin 'plugin.json')
     # Replace only the download and home boundaries in the child-process copy.
     @'
-function Get-PsAiUpdateHome { Join-Path $PSScriptRoot '../../home' }
-function Get-PsAiUpdateText {
+function Get-LegionUpdateHome { Join-Path $PSScriptRoot '../../home' }
+function Get-LegionUpdateText {
     param([string]$Url)
     Add-Content (Join-Path $PSScriptRoot '../downloads.txt') 'download'
     $text = Get-Content (Join-Path $PSScriptRoot '../response.txt') -Raw

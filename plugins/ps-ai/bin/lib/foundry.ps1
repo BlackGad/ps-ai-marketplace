@@ -52,7 +52,7 @@ function Test-FoundryToken {
 
 function Get-FoundryDeployments {
     param([string]$Endpoint, [string]$Tool)
-    $descriptor = Get-PsAiTool -Tool $Tool
+    $descriptor = Get-LegionTool -Tool $Tool
     if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
     $prefix = $descriptor.foundry.deploymentPrefix
     $resourceName = Get-FoundryResourceName -Endpoint $Endpoint

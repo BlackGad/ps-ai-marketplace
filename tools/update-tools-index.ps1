@@ -34,7 +34,7 @@ function Get-ToolsIndexContent {
 
 if ($NoRun) { return }
 
-$tools = @(Get-PsAiTools)
+$tools = @(Get-LegionTools)
 # Only the standalone installer consumes this bootstrap recipe.
 $bootstrapJson = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'bootstrap.json') -Raw
 $schema = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../plugins/ps-ai/schemas/tool.schema.json') -Raw | ConvertFrom-Json -AsHashtable
@@ -47,8 +47,8 @@ $bootstrapSchema = @{
     properties = @{windows = $windows}
 } | ConvertTo-Json -Depth 100
 if (-not (Test-Json -Json $bootstrapJson -Schema $bootstrapSchema -ErrorAction SilentlyContinue)) { throw 'invalid PowerShell bootstrap recipe' }
-$bootstrap = ConvertFrom-PsAiToolJson -Json $bootstrapJson
-Assert-PsAiInstallPatterns -Install $bootstrap
+$bootstrap = ConvertFrom-LegionToolJson -Json $bootstrapJson
+Assert-LegionInstallPatterns -Install $bootstrap
 $content = Get-ToolsIndexContent -Tools $tools -Bootstrap $bootstrap
 $bytes = [Text.UTF8Encoding]::new($false).GetBytes($content)
 $path = Join-Path $PSScriptRoot '../plugins/ps-ai/tools.json'

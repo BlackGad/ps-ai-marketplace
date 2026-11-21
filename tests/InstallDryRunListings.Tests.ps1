@@ -30,15 +30,15 @@ $repo = Split-Path $PSScriptRoot -Parent
         @{ExitCode=0; Output=$output; ErrorOutput=@()}
     }
     try {
-        $preview = @(Invoke-PsAiInstaller -Catalog $catalog -DryRun)
+        $preview = @(Invoke-LegionInstaller -Catalog $catalog -DryRun)
         Assert-Equal 7 $calls.Count 'Install DryRun reads registrations, checkout health and installed plugins'
         Assert-Equal 6 @($preview | Where-Object { $_ -match '^skip: .*already done' }).Count 'Install DryRun proves matching sources and enabled plugins'
         $calls.Clear()
-        $preview = @(Invoke-PsAiInstaller -Catalog $catalog -Update -DryRun)
+        $preview = @(Invoke-LegionInstaller -Catalog $catalog -Update -DryRun)
         Assert-Equal 3 $calls.Count 'Update DryRun checks installed state for every tool'
         Assert-True ($preview -contains 'claude plugin update ps-ai@ps-ai-marketplace') 'Update DryRun detects captured Claude user plugin'
         function Invoke-ClosedInput { @{ExitCode=0; Output=@('[]'); ErrorOutput=@()} }
-        $preview = @(Invoke-PsAiInstaller -Tools claude -Catalog $catalog -Update -DryRun)
+        $preview = @(Invoke-LegionInstaller -Tools claude -Catalog $catalog -Update -DryRun)
         Assert-True ($preview -contains 'claude plugin marketplace add BlackGad/ps-ai-marketplace#stable') 'Update DryRun proposes registering missing marketplace'
         Assert-True ($preview -contains 'claude plugin install ps-ai@ps-ai-marketplace') 'Update DryRun proposes installing absent plugin'
         Assert-True (-not ($preview -contains 'claude plugin update ps-ai@ps-ai-marketplace')) 'Update DryRun never proposes updating absent plugin'

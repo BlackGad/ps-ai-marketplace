@@ -6,8 +6,8 @@ Route channel operations through `skills/ps-ai-<kind>/SKILL.md`; stop if missing
 
 | Field | Operational consumer and purpose |
 | --- | --- |
-| `$schema` | `Write-PsAiPersonalisation` normalizes the stable editor URL; runtime uses the bundled schema. |
-| `schemaVersion` | `Invoke-PsAiValidation` checks the bundled runtime format. |
+| `$schema` | `Write-LegionPersonalisation` normalizes the stable editor URL; runtime uses the bundled schema. |
+| `schemaVersion` | `Invoke-LegionValidation` checks the bundled runtime format. |
 | `agents[].id` | Account operations select identity; the launcher derives a canonical wrapper. |
 | `agents[].tool` | Tool discovery chooses account, Foundry and launch adapters. |
 | `agents[].configDir` | Account wrappers, Foundry adapters and root installer select the account folder. Use a concrete folder, never `default`. |
@@ -17,7 +17,7 @@ Route channel operations through `skills/ps-ai-<kind>/SKILL.md`; stop if missing
 | `provider.deployments[].name` | Foundry picker and adapters use wire deployment IDs. |
 | `provider.deployments[].model` | The model-mapping adapter maps model IDs. |
 | `provider.deployments[].alias` | The alias adapter maps supported aliases. |
-| `channels[].id/kind/target/accounts` | `Resolve-PsAiChannel` selects the descriptor, destination and eligible accounts; the launcher validates bindings. |
+| `channels[].id/kind/target/accounts` | `Resolve-LegionChannel` selects the descriptor, destination and eligible accounts; the launcher validates bindings. |
 
 Require `schemaVersion: 1`, `agents` and `channels`. Both arrays may be empty. Accounts require `id/tool/configDir`; provider is optional. Channels require `id/kind/target/accounts`; bindings are nonempty, unique and refer to supported accounts. IDs are lowercase hyphenated names, unique in each array. Descriptors determine supported tools and kinds.
 

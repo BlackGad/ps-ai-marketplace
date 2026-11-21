@@ -1,6 +1,6 @@
 # Shared by setup consent and the CLI installer. The descriptors own prerequisites and commands.
 function Get-ToolRecipe {
-    param([string]$Tool, [ValidateSet('windows','macos','linux')][string]$Platform, $Recipes = (Get-PsAiInstallRecipes))
+    param([string]$Tool, [ValidateSet('windows','macos','linux')][string]$Platform, $Recipes = (Get-LegionInstallRecipes))
     $data = $Recipes[$Tool]
     if (-not $data) { throw "unknown tool '$Tool'" }
     if ($Platform -eq 'windows') {
@@ -10,7 +10,7 @@ function Get-ToolRecipe {
 }
 
 function Get-ToolInstallHints {
-    param([string]$Tool, [string]$Platform, [scriptblock]$CommandAvailable, [scriptblock]$ToolInstalled, $Recipes = (Get-PsAiInstallRecipes))
+    param([string]$Tool, [string]$Platform, [scriptblock]$CommandAvailable, [scriptblock]$ToolInstalled, $Recipes = (Get-LegionInstallRecipes))
     $recipe = Get-ToolRecipe -Tool $Tool -Platform $Platform -Recipes $Recipes
     foreach ($need in $recipe.Needs) {
         if (-not (& $ToolInstalled $need)) {

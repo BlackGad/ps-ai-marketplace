@@ -1,9 +1,9 @@
 . (Join-Path $PSScriptRoot 'paths.ps1')
 . (Join-Path $PSScriptRoot 'tools.ps1')
 
-function Get-PsAiLease {
+function Get-LegionLease {
     param([string]$Repo)
-    $path = Get-PsAiRepoPath -Repo $Repo -Path 'temp/overseer.lock'
+    $path = Get-LegionRepoPath -Repo $Repo -Path 'temp/overseer.lock'
     if (-not (Test-Path -LiteralPath $path)) { return @{ State = 'free'; Data = $null } }
     try {
         for ($readAttempt = 0; $readAttempt -lt 5; $readAttempt++) {
@@ -21,7 +21,7 @@ function Get-PsAiLease {
         if ($data.host -ine [System.Net.Dns]::GetHostName()) { return @{ State = 'foreign'; Data = $data } }
         $process = Get-Process -Id ([int]$data.pid) -ErrorAction SilentlyContinue
         if ($process -and
-            (Test-PsAiSameStartTime $process.StartTime ([datetime]$data.processStartedAt))) {
+            (Test-LegionSameStartTime $process.StartTime ([datetime]$data.processStartedAt))) {
             return @{ State = 'held'; Data = $data }
         }
         return @{ State = 'stale'; Data = $data }
@@ -33,7 +33,7 @@ function Get-PsAiLease {
     }
 }
 
-function Get-PsAiLeaseOwnerProcess {
+function Get-LegionLeaseOwnerProcess {
     # Prefer the agent CLI over its shell helpers. A terminal session can have
     # only shell ancestors after its launcher exits; keep the oldest live one.
     $process = (Get-Process -Id $PID).Parent
@@ -46,9 +46,9 @@ function Get-PsAiLeaseOwnerProcess {
     if (-not $process) { throw 'cannot find the agent session process; pass -ProcessId explicitly' }
     return $process
 }
-function Get-PsAiWrapperCommand {
+function Get-LegionWrapperCommand {
     param([string]$Id, [string]$HomeRoot = $HOME)
     if ($Id -cnotmatch '^[a-z][a-z0-9-]*$') { throw 'invalid account id' }
     $name = if ($IsWindows) { "$Id.cmd" } else { $Id }
-    return [IO.Path]::GetFullPath((Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$name"))
+    return [IO.Path]::GetFullPath((Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$name"))
 }

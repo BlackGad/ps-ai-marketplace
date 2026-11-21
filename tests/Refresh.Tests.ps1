@@ -12,11 +12,11 @@ try {
         foreach ($name in @('legion', 'ps-ai-setup', 'ps-ai-status', 'ps-ai-overseer')) {
             $path = Join-Path $alternateHome ".legion/bin/$name"
             Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "RefreshCreatesMissing creates $name"
-            Assert-True (Test-PsAiLauncherExecutable -Path $path) "RefreshCreatesMissing makes $name executable"
+            Assert-True (Test-LegionLauncherExecutable -Path $path) "RefreshCreatesMissing makes $name executable"
             Assert-Equal $IsWindows (Test-Path -LiteralPath "$path.cmd") 'RefreshCreatesMissing creates missing batch shims only on Windows'
             $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
             foreach ($suffix in $suffixes) {
-                $target = Read-PsAiOwnerCommandTarget -Path "$path$suffix" -Script "$name.ps1"
+                $target = Read-LegionOwnerCommandTarget -Path "$path$suffix" -Script "$name.ps1"
                 Assert-Equal (Join-Path $root "plugins/ps-ai/bin/$name.ps1") $target.Path 'RefreshCreatesMissing targets the installed script'
                 Assert-Equal 1 (@($target.Arguments | Where-Object { $_ -eq '-HomeRoot' }).Count) 'RefreshAlternateHome binds the new shim once'
                 Assert-Equal $alternateHome ($target.Arguments[1].Trim("'" + '"')) 'RefreshAlternateHome binds the selected home'
@@ -79,7 +79,7 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/ps-ai-overseer.ps1' -Acco
     & $refresh -HomeRoot $tempRoot | Out-Null
     $homeFlag = & {
         . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
-        '-HomeRoot ' + (ConvertTo-PsAiShellLiteral $tempRoot)
+        '-HomeRoot ' + (ConvertTo-LegionShellLiteral $tempRoot)
     }
     Assert-True ((Get-Content $shim -Raw).Contains($homeFlag)) 'R4 B4 refresh binds an older unbound command to the selected home'
     & $refresh -HomeRoot $tempRoot | Out-Null
@@ -91,7 +91,7 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/ps-ai-overseer.ps1' -Acco
     }
     & {
         . (Join-Path $runtime 'ps-ai-foundry.ps1') -NoRun
-        Assert-Equal 'claude' (@(Get-PsAiTools).id -join '|') 'Refreshed runner loads libraries and discovers its copied skill with the copied schema'
+        Assert-Equal 'claude' (@(Get-LegionTools).id -join '|') 'Refreshed runner loads libraries and discovers its copied skill with the copied schema'
     }
     Assert-True ((Get-Content (Join-Path $bin 'foundry-a') -Raw).Contains('.ps-ai-runtime')) 'Refresh regenerates owned Foundry wrapper'
     foreach ($path in @($shim,$cmdShim)) {
