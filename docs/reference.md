@@ -123,7 +123,9 @@ Codex hook approvals for folders legion no longer knows cannot be identified and
 
 ## First run
 
-Owner files use `~/.legion/configuration/personalisation.json` and `configuration/notes.md`; the update cache is `temp/update.json`, installer scratch uses `temp/install-<guid>`, and Foundry launchers use `bin/.runtime/`. Setup, refresh and install move the older prefixed settings and notes, preserving bytes except the settings schema URL. Conflicting copies stop migration with one manual step; identical old copies are removed. The old settings name remains readable before migration. Refresh replaces generated launcher headers and known runtime files while preserving unrelated files.
+Versions before legion must be uninstalled and set up again; compatibility with those versions is not provided before 1.0.
+
+Owner files use `~/.legion/configuration/personalisation.json` and `configuration/notes.md`; the update cache is `temp/update.json`, installer scratch uses `temp/install-<guid>`, and Foundry launchers use `bin/.runtime/`.
 
 After installing legion, ask any tool to add accounts, or run setup from a clone or installed plugin folder:
 

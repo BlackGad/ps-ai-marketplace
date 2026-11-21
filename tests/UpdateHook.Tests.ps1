@@ -24,15 +24,9 @@ function Get-LegionUpdateText {
     $hook = Join-Path $plugin 'hooks/detect-mode.ps1'
     $savedRole = $env:LEGION_ROLE
     $savedTask = $env:LEGION_TASK
-    $oldRoleName = 'PS_AI' + '_ROLE'
-    $oldTaskName = 'PS_AI' + '_TASK'
-    $savedOldRole = [Environment]::GetEnvironmentVariable($oldRoleName, 'Process')
-    $savedOldTask = [Environment]::GetEnvironmentVariable($oldTaskName, 'Process')
     try {
         $env:LEGION_ROLE = ''
         $env:LEGION_TASK = ''
-        [Environment]::SetEnvironmentVariable($oldRoleName, '', 'Process')
-        [Environment]::SetEnvironmentVariable($oldTaskName, '', 'Process')
         Assert-Equal '{}' (& pwsh -NoProfile -File $hook -Repo $fixtureRepo -Format context-json) 'Ad hoc mode has no notice'
         Assert-True (-not (Test-Path (Join-Path $plugin 'downloads.txt'))) 'Ad hoc never checks'
         "## Goal and milestone`nM1`n## Current task`ntask 1`n" | Set-Content (Join-Path $fixtureRepo '.legion/state/handoff.md')
@@ -53,16 +47,10 @@ function Get-LegionUpdateText {
         $json = & pwsh -NoProfile -File $hook -Repo $fixtureRepo -Format context-json | ConvertFrom-Json
         Assert-Equal ($text -join "`n") $json.additionalContext 'JSON includes same notice'
         Assert-Equal 1 @(Get-Content (Join-Path $plugin 'downloads.txt')).Count 'Hook uses daily cache'
-        [Environment]::SetEnvironmentVariable($oldRoleName, 'legion', 'Process')
-        [Environment]::SetEnvironmentVariable($oldTaskName, 'task.md', 'Process')
-        $oldContext = (& pwsh -NoProfile -File $hook -Repo $fixtureRepo -Format context-json | ConvertFrom-Json).additionalContext
-        Assert-Equal ($text -join "`n") $oldContext 'Retired variables retain normal update behavior'
-        [Environment]::SetEnvironmentVariable($oldRoleName, '', 'Process')
-        [Environment]::SetEnvironmentVariable($oldTaskName, '', 'Process')
         $env:LEGION_ROLE = 'legion'
         $env:LEGION_TASK = 'task.md'
         $oldRoleContext = (& pwsh -NoProfile -File $hook -Repo $fixtureRepo -Format context-json | ConvertFrom-Json).additionalContext
-        Assert-Equal ($text -join "`n") $oldRoleContext 'Retired role value retains normal update behavior'
+        Assert-Equal ($text -join "`n") $oldRoleContext 'Unknown role retains normal update behavior'
         $env:LEGION_ROLE = ''
         $env:LEGION_TASK = ''
         foreach ($version in @('0.3.0','0.2.0')) {
@@ -81,8 +69,6 @@ function Get-LegionUpdateText {
     } finally {
         $env:LEGION_ROLE = $savedRole
         $env:LEGION_TASK = $savedTask
-        [Environment]::SetEnvironmentVariable($oldRoleName, $savedOldRole, 'Process')
-        [Environment]::SetEnvironmentVariable($oldTaskName, $savedOldTask, 'Process')
     }
 } finally {
     $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/restructure')) + [IO.Path]::DirectorySeparatorChar

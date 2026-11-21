@@ -6,18 +6,15 @@ function Get-LegionHomePath {
 # Owner-file names live here; standalone install.ps1 carries the same small helpers.
 function Get-LegionOwnerPath {
     param([ValidateSet('Settings', 'Notes', 'Update', 'Runtime', 'Install')][string]$Name,
-        [string]$HomeRoot = $HOME, [switch]$Existing, [switch]$Legacy)
+        [string]$HomeRoot = $HOME)
     $names = @{
-        Settings = @('configuration/personalisation.json', 'configuration/ps-ai-personalisation.json')
-        Notes = @('configuration/notes.md', 'configuration/ps-ai-notes.md')
-        Update = @('temp/update.json', 'temp/ps-ai-update.json')
-        Runtime = @('bin/.runtime', 'bin/.ps-ai-runtime')
-        Install = @('temp/install-', 'temp/ps-ai-install-')
+        Settings = 'configuration/personalisation.json'
+        Notes = 'configuration/notes.md'
+        Update = 'temp/update.json'
+        Runtime = 'bin/.runtime'
+        Install = 'temp/install-'
     }
-    $new = Get-LegionHomePath -HomeRoot $HomeRoot -Path $names[$Name][0]
-    $old = Get-LegionHomePath -HomeRoot $HomeRoot -Path $names[$Name][1]
-    if ($Legacy -or ($Existing -and -not (Test-Path -LiteralPath $new) -and (Test-Path -LiteralPath $old))) { return $old }
-    return $new
+    return Join-Path (Join-Path $HomeRoot '.legion') $names[$Name]
 }
 
 function Set-LegionTextPreservingEncoding {
@@ -50,57 +47,6 @@ function Test-LegionOwnerPathSafe {
         $current = Split-Path $current -Parent
     }
     return $true
-}
-
-function Move-LegionOwnerFiles {
-    param([string]$HomeRoot = $HOME)
-    $messages = @()
-    # Check both pairs before moving either; a conflict must leave the whole setup alone.
-    foreach ($name in @('Settings', 'Notes')) {
-        $old = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name $name -Legacy
-        $new = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name $name
-        foreach ($path in @($old, $new)) {
-            if (-not (Test-LegionOwnerPathSafe -Path $path)) {
-                return @{ Blocked = $true; Messages = @('Manual step: owner files contain linked paths; resolve them before migrating.') }
-            }
-        }
-        if ((Test-Path -LiteralPath $old) -and (Test-Path -LiteralPath $new) -and
-            (Get-FileHash -LiteralPath $old).Hash -cne (Get-FileHash -LiteralPath $new).Hash) {
-            return @{ Blocked = $true; Messages = @('Manual step: old and new owner files differ; reconcile them before migrating. Nothing changed.') }
-        }
-    }
-    foreach ($name in @('Settings', 'Notes')) {
-        $old = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name $name -Legacy
-        $new = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name $name
-        if (-not (Test-Path -LiteralPath $old)) { continue }
-        if (Test-Path -LiteralPath $new) { Remove-Item -LiteralPath $old -Force }
-        else { Move-Item -LiteralPath $old -Destination $new }
-        $messages += "migrated: owner $name"
-        if ($name -eq 'Settings') {
-            $text = [IO.File]::ReadAllText($new)
-            $text = [regex]::Replace($text, '("\$schema"\s*:\s*")[^"]*(")', '${1}https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/legion/schemas/personalisation.schema.json${2}')
-            Set-LegionTextPreservingEncoding -Path $new -Text $text
-        }
-    }
-    $temp = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'temp'
-    $oldUpdate = Split-Path (Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Update -Legacy) -Leaf
-    $oldInstallPrefix = [regex]::Escape((Split-Path (Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Install -Legacy) -Leaf))
-    if (Test-Path -LiteralPath $temp -PathType Container) {
-        foreach ($item in Get-ChildItem -LiteralPath $temp -Force) {
-            if ($item.Name -cne $oldUpdate -and $item.Name -cnotmatch ('^' + $oldInstallPrefix + '[a-fA-F0-9]{32}$')) { continue }
-            $current = $item.FullName
-            $linked = $false
-            while ($current) {
-                if ((Get-Item -LiteralPath $current -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { $linked = $true; break }
-                $current = Split-Path $current -Parent
-            }
-            if ($linked -or ($item.PSIsContainer -and @(Get-ChildItem -LiteralPath $item.FullName -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count)) { continue }
-            Remove-Item -LiteralPath $item.FullName -Recurse -Force
-            $messages += 'removed: old installer temporary files'
-        }
-    }
-    if (-not $messages.Count) { $messages = @('skip: owner file migration (already done)') }
-    return @{ Blocked = $false; Messages = $messages }
 }
 
 function Get-LegionRepoPath {

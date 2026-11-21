@@ -594,7 +594,6 @@ try {
     Assert-Equal 0 (@((Read-LegionJson $settings).agents).Count) 'Failed wrapper validation records no account'
     Assert-Equal 0 $installs.Count 'Account add failure stops before plugin installs'
     Assert-Equal 0 $pathWrites.Count 'Account add failure stops before PATH writes'
-    Assert-True (-not (Test-Path (Join-Path $testHome '.legion/bin/ps-ai-setup'))) 'Account add failure stops before owner commands'
 
     Reset-SetupTest 'partial'
     Invoke-Setup -HomeRoot $testHome -Add claude -Id claude1 -Yes | Out-Null

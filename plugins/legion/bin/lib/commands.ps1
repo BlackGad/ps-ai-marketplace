@@ -9,49 +9,6 @@ function Get-LegionOwnerCommands {
     }
 }
 
-# The three commands that `legion setup`, `legion status` and bare `legion` replace.
-function Get-LegionRetiredCommands {
-    return [ordered]@{
-        'ps-ai-setup' = 'legion-setup.ps1'
-        'ps-ai-status' = 'legion-status.ps1'
-        'ps-ai-overseer' = 'legion-overseer.ps1'
-    }
-}
-
-# Retired command files in bin; Generated is false when the owner edited the file.
-function Get-LegionRetiredCommandFiles {
-    param([string]$HomeRoot)
-
-    foreach ($entry in (Get-LegionRetiredCommands).GetEnumerator()) {
-        foreach ($suffix in @('', '.cmd')) {
-            $path = Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$($entry.Key)$suffix"
-            if (-not (Test-Path -LiteralPath $path)) { continue }
-            # Owner flags (anything but "$@", %* and -HomeRoot <folder>) mean the owner changed the launcher.
-            $target = Read-LegionOwnerCommandTarget -Path $path -Script $entry.Value
-            $generated = $false
-            if ($target) {
-                $extra = @($target.Arguments | Where-Object { $_ -notin @('"$@"', '%*', '-HomeRoot') })
-                $generated = $extra.Count -le $(if ($target.Arguments -contains '-HomeRoot') { 1 } else { 0 })
-            }
-            [pscustomobject]@{ Name = $entry.Key + $suffix; Path = $path; Generated = $generated }
-        }
-    }
-}
-
-# Delete generated copies of the retired commands; an edited copy stays and is named as a manual step.
-function Remove-LegionRetiredCommands {
-    param([string]$HomeRoot)
-
-    $files = @(Get-LegionRetiredCommandFiles -HomeRoot $HomeRoot)
-    foreach ($file in $files) {
-        if ($file.Generated) {
-            Remove-Item -LiteralPath $file.Path -Force
-            "removed: old command $($file.Name) (use legion instead)"
-        } else { "manual step: delete $($file.Path) yourself; you edited it, so it was kept (use legion instead)" }
-    }
-    if (-not $files.Count) { 'skip: old commands (already done)' }
-}
-
 function Get-LegionShimText {
     param([string]$Script, [switch]$Windows, [string]$HomeRoot)
 

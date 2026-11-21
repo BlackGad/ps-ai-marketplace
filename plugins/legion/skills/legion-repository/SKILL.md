@@ -1,6 +1,6 @@
 ---
 name: legion-repository
-description: Use when the owner asks to set up or migrate orchestration in a repository, the overseer finds no .legion/configuration, or a fixed repository step lacks a listed script.
+description: Use when the owner asks to set up orchestration in a repository, the overseer finds no .legion/configuration, or a fixed repository step lacks a listed script.
 ---
 
 # Repository orchestration setup
@@ -16,7 +16,6 @@ This planner creates and updates repository facts. Load `legion-personalisation`
 - Scripts check current state first; a repeat reports completed work as skipped and changes nothing.
 - Repository choices live in workflow, personal preferences in notes, account and channel data in owner settings.
 - Private keeps the [rules block](references/rules-file-lines.md) in workflow and never edits tracked repo files; Shared adds it to the repo's rules file.
-- Never move tracked files during migration without presenting the plan and waiting for owner approval.
 
 ## Choose where notes live
 
@@ -29,7 +28,6 @@ For an existing setup, retain its mode only when the Git checks in [layout.md](r
 
 ## Create or update
 
-On the overseer's next start in an existing repository, check its orchestration rules and project schema link for old names. Offer the small name update, show the diff, and change it only after the owner's yes, following [migrate.md](references/migrate.md).
 1. Check the layout and gate with the owner: the mode above, which rules file is authoritative if unclear, and the one command that gates a task, if any. Offer missing Git tools through [tools.md](references/tools.md).
-2. Run the setup script once as [setup.md](references/setup.md) says; it creates everything and commits it. For an existing layout use [migrate.md](references/migrate.md): map it, show diffs, ask before moving tracked files.
+2. Run the setup script once as [setup.md](references/setup.md) says; it creates missing files and commits the setup.
 3. Re-read the result. Confirm every configured step resolves to an indexed script and `project.json` validated.

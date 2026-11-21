@@ -8,24 +8,3 @@ foreach ($folder in Get-ChildItem -LiteralPath $skills -Directory) {
     $name = [regex]::Match((Get-Content -LiteralPath $skillFile -Raw), '(?m)^name:\s*(\S+)\s*$').Groups[1].Value
     Assert-Equal $folder.Name $name "Skill $($folder.Name) name matches its folder"
 }
-
-# Old names are built from pieces so this file does not mention them. Owner file names such as
-# personalisation.json are not skill names and are renamed separately.
-$oldSkills = 'claude', 'codex', 'copilot', 'knowledge', 'legion', 'overseer', 'personalisation', 'repository', 'telegram', 'update'
-$oldPattern = ('legion-(' + ($oldSkills -join '|') + ')(?!\.json)') + '|' + 'bin/legion-'
-$leftovers = @()
-foreach ($file in (& git -C $repo ls-files)) {
-    if ($file -eq 'CHANGELOG.md' -or $file -eq 'tests/SkillNames.Tests.ps1') { continue }
-    $path = Join-Path $repo $file
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
-    $bytes = [IO.File]::ReadAllBytes($path)
-    if ($bytes -contains 0) { continue }
-    $text = [Text.Encoding]::UTF8.GetString($bytes)
-    $lines = $text -split "`n"
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        # The retired owner commands keep their names until they are removed.
-        if ($lines[$i] -match 'legion-(setup|status)') { continue }
-        if ($lines[$i] -match $oldPattern) { $leftovers += "${file}:$($i + 1)" }
-    }
-}
-Assert-Equal @() $leftovers "No old skill or script names remain: $($leftovers -join ', ')"

@@ -75,7 +75,7 @@ function Write-StatusRepository {
 
 # Main: inspect settings, commands and repository without starting a CLI or changing files.
 if (-not $statusNoRun) {
-    $file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings -Existing
+    $file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings
     $settings = $null
     if (Test-Path -LiteralPath $file -PathType Leaf) {
         $settings = Read-LegionJson -Path $file

@@ -66,7 +66,7 @@ $multiline = ''
 $arrayDepth = 0
 $skipValue = $false
 $tableKey = '(?:model_providers|"model_providers"|''model_providers'')'
-$providerKey = '(?:legion-foundry|"legion-foundry"|''legion-foundry''|ps-ai-foundry|"ps-ai-foundry"|''ps-ai-foundry'')'
+$providerKey = '(?:legion-foundry|"legion-foundry"|''legion-foundry'')'
 $authKey = '(?:auth|"auth"|''auth'')'
 $providerTable = '^\s*\[\s*' + $tableKey + '\s*\.\s*(?<provider>' + $providerKey + ')(?<auth>\s*\.\s*' + $authKey + ')?\s*\]\s*(?:#.*)?$'
 foreach ($match in [regex]::Matches($original, '[^\r\n]*(?:\r\n|\n|\r|$)')) {
@@ -80,8 +80,6 @@ foreach ($match in [regex]::Matches($original, '[^\r\n]*(?:\r\n|\n|\r|$)')) {
         if ($table.Success) {
             $section = if ($table.Groups['auth'].Success) { 'auth' } else { 'provider' }
             $visited += $section
-            $span = $table.Groups['provider']
-            $line = $line.Remove($span.Index, $span.Length).Insert($span.Index, $span.Value.Replace('ps-ai-foundry', 'legion-foundry'))
         }
     }
     $assignment = [regex]::Match($line, '^(?<prefix>\s*(?<key>\w+|"\w+"|''\w+'')\s*=\s*)(?<rest>[^\r\n]*)(?<ending>\r\n|\n|\r|$)$')
@@ -95,8 +93,7 @@ foreach ($match in [regex]::Matches($original, '[^\r\n]*(?:\r\n|\n|\r|$)')) {
         $desired = $values[$section][$key]
         if ($value.Success) {
             $actual = $value.Groups['value'].Value
-            if ($key -eq 'model_provider' -and $actual -cmatch '^["'']ps-ai-foundry["'']$') { $desired = $actual.Replace('ps-ai-foundry', 'legion-foundry') }
-            elseif ($actual.Trim('"', "'") -ceq $desired.Trim('"', "'")) { $desired = $actual }
+            if ($actual.Trim('"', "'") -ceq $desired.Trim('"', "'")) { $desired = $actual }
             elseif ($key -eq 'args') {
                 try {
                     $actualArray = ConvertFrom-Json -InputObject $actual -ErrorAction Stop

@@ -110,8 +110,7 @@ Test-PurgeScenario {
 
 Test-PurgeScenario {
     $state.Missing=$true
-    $null = New-PurgeFile '.legion/configuration/ps-ai-personalisation.json' '{"agents":[{"tool":"claude","configDir":"~/custom-claude"},{"tool":"codex","configDir":"~/custom-codex"}]}'
-    $null = New-PurgeFile '.legion/configuration/ps-ai-notes.md' 'legacy notes'
+    $null = New-PurgeFile '.legion/configuration/personalisation.json' '{"agents":[{"tool":"claude","configDir":"~/custom-claude"},{"tool":"codex","configDir":"~/custom-codex"}]}'
     $null = New-PurgeFile '.legion/configuration/notes.md' 'current notes'
     $claude = New-PurgeFile 'custom-claude/plugins/installed_plugins.json' '{"version":2,"plugins":{"legion@ps-legion-marketplace":[{"scope":"user"}],"other@else":[{"scope":"user"}]}}'
     $market = New-PurgeFile '.claude/plugins/known_marketplaces.json' '{"ps-legion-marketplace":{"source":{"source":"github"}},"other":{"keep":1}}'

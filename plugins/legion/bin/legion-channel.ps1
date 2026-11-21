@@ -63,7 +63,7 @@ function Remove-ChannelBinding {
 # Reads files only; no CLI is started.
 function Get-ChannelCheck {
     param([string]$Kind, [string[]]$Accounts, [string]$HomeRoot)
-    $data = Read-LegionJson -Path (Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings -Existing)
+    $data = Read-LegionJson -Path (Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings)
     $descriptor = Get-ChannelKind $Kind
     $supported = $descriptor.launch.PSObject.Properties.Name
     $command = $descriptor.ready.command
@@ -85,7 +85,7 @@ function Get-ChannelCheck {
 
 if ($channelNoRun) { return }
 
-$file = Get-LegionOwnerPath -HomeRoot $request.HomeRoot -Name Settings -Existing
+$file = Get-LegionOwnerPath -HomeRoot $request.HomeRoot -Name Settings
 if ($request.Action -eq 'check') {
     Get-ChannelCheck -Kind $request.Kind -Accounts $request.Accounts -HomeRoot $request.HomeRoot
     return

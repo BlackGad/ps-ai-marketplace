@@ -93,7 +93,7 @@ function Write-FoundryProviderFile {
 if (-not $NoRun) {
     $launch = $null
     try {
-        $file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings -Existing
+        $file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings
         $data = [IO.File]::ReadAllText($file).TrimStart([char]0xFEFF) | ConvertFrom-Json -Depth 100 -ErrorAction Stop
         $selected = @($data.agents | Where-Object { $_.id -ceq $Agent })[0]
         if (-not $selected) { throw "unknown account '$Agent'" }

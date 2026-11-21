@@ -35,13 +35,9 @@ function Get-LegionUpdateText { throw 'offline fixture' }
     $mode = Get-LegionMode -Repo $fixtureRepo -Environment @{ LEGION_ROLE = 'member' }
     Assert-Equal 'none' $mode.Mode 'Missing task disables member mode'
     Assert-Equal 'legion: LEGION_ROLE=member without LEGION_TASK; ignored.' $mode.Text 'Missing task warning'
-    # Construct retired names so the old-name scan stays useful after the rename.
-    $oldEnvironment = @{ ('PS_AI' + '_ROLE') = 'legion'; ('PS_AI' + '_TASK') = 'x.md' }
-    foreach ($environment in @($oldEnvironment, @{ LEGION_ROLE = 'legion'; LEGION_TASK = 'x.md' })) {
-        $mode = Get-LegionMode -Repo $fixtureRepo -Environment $environment
-        Assert-Equal 'orchestrated' $mode.Mode 'Retired role settings use normal repo detection'
-        Assert-Equal $null $mode.Task 'Retired role settings supply no member task'
-    }
+    $mode = Get-LegionMode -Repo $fixtureRepo -Environment @{ LEGION_ROLE = 'legion'; LEGION_TASK = 'x.md' }
+    Assert-Equal 'orchestrated' $mode.Mode 'Unknown role uses normal repo detection'
+    Assert-Equal $null $mode.Task 'Unknown role supplies no member task'
     $mode = Get-LegionMode -Repo $fixtureRepo -Environment @{}
     Assert-Equal 'orchestrated' $mode.Mode 'Handoff enables hint'
     Assert-Equal 'free' $mode.Lease 'No lease is free'

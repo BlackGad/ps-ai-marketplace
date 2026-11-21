@@ -69,8 +69,8 @@ try {
         $script:installCatalog = Get-InstallCatalog -Source $repo
         function Write-RepairFixture {
             Get-LegionShimText -Script (Join-Path $scratch 'gone/bin/legion.ps1') | Set-Content -LiteralPath (Join-Path $bin 'legion')
-            Get-LegionShimText -Script $live | Set-Content -LiteralPath (Join-Path $bin 'ps-ai-status')
-            'mine' | Set-Content -LiteralPath (Join-Path $bin 'ps-ai-setup')
+            Get-LegionShimText -Script $live | Set-Content -LiteralPath (Join-Path $bin 'custom-status')
+            'mine' | Set-Content -LiteralPath (Join-Path $bin 'custom-setup')
         }
         $refreshes = [Collections.Generic.List[string]]::new()
         function Invoke-InstallRefresh { param($Entry, [string]$ConfigDir) $refreshes.Add("$($Entry.id):$ConfigDir") }
@@ -104,8 +104,8 @@ try {
         Repair-InstallOwnerCommands -Planned @($deadLegion)
         Assert-Equal 0 $refreshes.Count 'No survivor means no refresh'
         Assert-Equal $false (Test-Path -LiteralPath $deadLegion) 'A planned dead command is removed when no install is left'
-        Assert-True (Test-Path -LiteralPath (Join-Path $bin 'ps-ai-status')) 'A working command stays'
-        Assert-True (Test-Path -LiteralPath (Join-Path $bin 'ps-ai-setup')) 'A foreign file stays'
+        Assert-True (Test-Path -LiteralPath (Join-Path $bin 'custom-status')) 'A working command stays'
+        Assert-True (Test-Path -LiteralPath (Join-Path $bin 'custom-setup')) 'A foreign file stays'
 
         Write-RepairFixture
         $kept = @(Repair-InstallOwnerCommands)
