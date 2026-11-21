@@ -27,7 +27,7 @@ try {
     $git = (Get-Command git -CommandType Application | Select-Object -First 1).Source
     $env:PATH = (Split-Path $pwsh) + [IO.Path]::PathSeparator + (Split-Path $git) + [IO.Path]::PathSeparator + $(if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/usr/bin' })
     Push-Location $repo
-    try { $output = @(& $public start --no-channel 2>&1) }
+    try { $output = @(& $public --no-channel 2>&1) }
     finally { Pop-Location }
     Assert-Equal 5 $LASTEXITCODE 'G5 public legion command preserves native launch exit 5'
     Assert-True (-not ($output -match '^launched ')) 'G5 failed public launch prints no success'

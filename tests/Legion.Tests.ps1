@@ -36,45 +36,51 @@ try {
     Assert-True (-not $call.Splat.ContainsKey('Repo')) 'remove has no Repo'
     Assert-Equal $false $call.AsksToApply 'remove does not ask'
 
-    $call = Get-LegionCall -Words @('start', '--no-channel')
-    Assert-Equal 'ps-ai-overseer.ps1' $call.Script 'start calls the overseer script'
-    Assert-Equal $cwd $call.Splat.Repo 'start repo is the current folder'
-    Assert-Equal $true $call.Splat.NoChannel 'start --no-channel'
-    Assert-True (-not $call.Splat.ContainsKey('Account')) 'start has no account by default'
-    $call = Get-LegionCall -Words @('start', 'codex1')
-    Assert-Equal 'codex1' $call.Splat.Account 'start account'
-    Assert-True (-not $call.Splat.ContainsKey('NoChannel')) 'start without flag has no NoChannel'
-    $call = Get-LegionCall -Words @('start', '-Account', 'claude1')
-    Assert-Equal 'claude1' $call.Splat.Account 'start -Account names the account'
-    Assert-True (-not $call.Splat.ContainsKey('NoChannel')) 'start -Account keeps the channel'
-    foreach ($flag in @('--account', '-Account')) {
-        try { $null = Get-LegionCall -Words @('start', $flag); throw 'Expected missing account failure' }
-        catch { Assert-Equal "legion start: $flag requires an account" $_.Exception.Message 'Account flag needs a value' }
-        Assert-Throws { Get-LegionCall -Words @('start', 'claude1', $flag) } 'An earlier argument is not the account flag value'
-        Assert-Throws { Get-LegionCall -Words @('start', $flag, '--no-channel') } 'Another flag is not an account value'
+    $call = Get-LegionCall -Words @()
+    Assert-Equal 'ps-ai-overseer.ps1' $call.Script 'bare legion calls the overseer script'
+    Assert-Equal $cwd $call.Splat.Repo 'bare legion repo is the current folder'
+    Assert-Equal 1 $call.Splat.Count 'bare legion passes only the repository'
+    $call = Get-LegionCall -Words @('--no-channel')
+    Assert-Equal $true $call.Splat.NoChannel 'bare legion --no-channel'
+    $call = Get-LegionCall -Words @('pick')
+    Assert-Equal $true $call.Splat.Pick 'pick asks'
+    Assert-True (-not $call.Splat.ContainsKey('NoChannel')) 'pick keeps the channel'
+    $call = Get-LegionCall -Words @('pick', '--no-channel')
+    Assert-True ($call.Splat.Pick -and $call.Splat.NoChannel) 'pick --no-channel'
+    Assert-Throws { Get-LegionCall -Words @('--account', 'claude1') } 'bare legion takes no account flag'
+    Assert-Throws { Get-LegionCall -Words @('pick', 'claude1') } 'pick takes no argument'
+    foreach ($removed in @('start', 'repo')) {
+        try { $null = Get-LegionCall -Words @($removed); throw 'Expected unknown command' }
+        catch { Assert-Equal "legion: unknown command '$removed'" $_.Exception.Message "$removed is gone" }
     }
+
+    $call = Get-LegionCall -Words @('update')
+    Assert-Equal $true $call.Installer 'update runs the installer'
+    Assert-Equal $true $call.Splat.Update 'update passes Update'
+    Assert-True (-not $call.Splat.ContainsKey('Yes')) 'update asks in the installer'
+    Assert-Equal $true (Get-LegionCall -Words @('update', '--yes')).Splat.Yes 'update --yes'
+    Assert-Throws { Get-LegionCall -Words @('update', 'main') } 'there is no update main'
+    $call = Get-LegionCall -Words @('uninstall')
+    Assert-True ($call.Installer -and $call.Splat.Uninstall) 'uninstall runs the installer'
 
     $call = Get-LegionCall -Words @('status')
     Assert-Equal 'ps-ai-status.ps1' $call.Script 'status script'
     Assert-Equal $cwd $call.Splat.Repo 'status repo'
-    $call = Get-LegionCall -Words @('repo')
-    Assert-Equal 'ps-ai-repository.ps1' $call.Script 'repo script'
-    Assert-Equal $cwd $call.Splat.Repo 'repo repo'
 
     Assert-Equal $null (Get-LegionCall -Words @('help')) 'help gives no call'
-    Assert-Equal $null (Get-LegionCall -Words @()) 'no words give no call'
 
     # --- Help text ---
     $expectedHelp = @'
 legion - ps-ai commands
 
+  legion [--no-channel]                start the overseer here; it resumes the last conversation
+  legion pick [--no-channel]           choose which account leads the overseer
   legion setup [--yes]                 finish setup: settings, commands, ps-ai in every account
   legion add <tool> [<folder>] [--yes] add a claude, codex or copilot account (new or existing folder)
   legion remove <id>                   remove an account (its folder is kept)
   legion status                        show accounts, commands, channels and this repository
-  legion repo                          set up ps-ai in this repository
-  legion start [<account>]             start the overseer here; bare start repeats the last launch
-  legion start --no-channel            start the overseer without a channel
+  legion update [--yes]                update ps-ai to the newest version of the track it was installed from
+  legion uninstall [--yes]             remove ps-ai
   legion help                          show this list
 
 setup and add show the plan and ask before changing anything; --yes applies without asking.
@@ -86,9 +92,9 @@ setup and add show the plan and ask before changing anything; --yes applies with
     $exitFile = Join-Path $scratch 'exit.txt'
     $planFile = Join-Path $scratch 'plan.txt'
     $standInText = @'
-param([string[]]$Add, [string]$Id, [string]$Action, [string]$Repo, [string]$Account, [string]$HomeRoot, [switch]$Yes, [switch]$NoChannel)
+param([string[]]$Add, [string]$Id, [string]$Action, [string]$Repo, [string]$Account, [string]$HomeRoot, [switch]$Yes, [switch]$NoChannel, [switch]$Pick)
 $scratch = Split-Path $PSScriptRoot -Parent
-$entry = @{ Add = @($Add); Id = $Id; Action = $Action; Repo = $Repo; Account = $Account; HomeRoot = $HomeRoot; Yes = [bool]$Yes; NoChannel = [bool]$NoChannel }
+$entry = @{ Add = @($Add); Id = $Id; Action = $Action; Repo = $Repo; Account = $Account; HomeRoot = $HomeRoot; Yes = [bool]$Yes; NoChannel = [bool]$NoChannel; Pick = [bool]$Pick }
 Add-Content -LiteralPath (Join-Path $scratch 'record.json') -Value ($entry | ConvertTo-Json -Compress)
 Get-Content -LiteralPath (Join-Path $scratch 'plan.txt')
 $code = (Get-Content -LiteralPath (Join-Path $scratch 'exit.txt')).Trim()
@@ -118,28 +124,16 @@ if ($code -ne 'none') { exit [int]$code }
     # --- Dispatch ---
     Copy-Item -LiteralPath $legionScript -Destination (Join-Path $standIns 'legion.ps1')
     $pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
-    foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'), @('start', '--no-channel'))) {
+    foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'), @('--no-channel'), @('pick'))) {
         Reset-StandIns -Exit 'none'
         & $pwsh -NoProfile -File (Join-Path $standIns 'legion.ps1') -HomeRoot $scratch @words | Out-Null
         Assert-Equal 0 $LASTEXITCODE 'R4 B4 public legion entry accepts the bound home and verb flags'
         Assert-Equal $scratch (Get-Records)[0].HomeRoot 'R4 B4 public legion entry forwards the bound home'
     }
-    foreach ($flag in @('-Account', '--account')) {
-        Reset-StandIns -Exit 'none'
-        & $pwsh -NoProfile -File (Join-Path $standIns 'legion.ps1') -HomeRoot $scratch start $flag claude1 | Out-Null
-        Assert-Equal 0 $LASTEXITCODE 'Public start accepts an account flag'
-        Assert-Equal 'claude1' (Get-Records)[0].Account 'Public start forwards the account flag value'
-        Assert-Equal $false (Get-Records)[0].NoChannel 'Account flag does not disable channels'
-    }
-    Reset-StandIns -Exit 'none'
-    $output = @(& $pwsh -NoProfile -File (Join-Path $standIns 'legion.ps1') -HomeRoot $scratch start --account)
-    Assert-Equal 1 $LASTEXITCODE 'Public start rejects an account flag without a value'
-    Assert-True ($output -contains 'legion start: --account requires an account') 'Missing account error explains the required value'
-    Assert-Equal 0 (Get-Records).Count 'Missing account never starts an overseer'
     & {
         . $legionScript -HomeRoot $scratch
         $script:LegionBin = $standIns
-        foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'), @('status'), @('remove', 'codex1'), @('start', '--no-channel'))) {
+        foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'), @('status'), @('remove', 'codex1'), @('--no-channel'))) {
             Reset-StandIns -Exit 'none'
             Invoke-Legion -Words $words | Out-Null
             Assert-Equal $scratch (Get-Records)[0].HomeRoot 'R4 B4 legion carries the bound home through dispatch'
@@ -156,9 +150,9 @@ if ($code -ne 'none') { exit [int]$code }
     Assert-Equal $true $records[0].Yes 'Yes switch arrives bound'
 
     Reset-StandIns -Exit 'none'
-    Invoke-Quiet @('start', 'codex1', '--no-channel') | Out-Null
+    Invoke-Quiet @('pick', '--no-channel') | Out-Null
     $record1 = (Get-Records)[0]
-    Assert-Equal 'codex1' $record1.Account 'Account arrives'
+    Assert-Equal $true $record1.Pick 'Pick switch arrives bound'
     Assert-Equal $true $record1.NoChannel 'NoChannel switch arrives bound'
     Assert-Equal $cwd $record1.Repo 'Repo arrives'
 
@@ -183,7 +177,7 @@ if ($code -ne 'none') { exit [int]$code }
     Set-Content -LiteralPath (Join-Path $standIns 'ps-ai-status.ps1') -Value $standInText
 
     # --- Rejections: help text, exit 1, nothing runs ---
-    foreach ($words in @(@('frobnicate'), @('remove'), @('add', 'claude', 'x', 'extra'), @('status', '--yes'), @('setup', '--no-channel'), @('remove', 'a', '--yes'), @('start', 'a', 'b'), @('add'))) {
+    foreach ($words in @(@('frobnicate'), @('remove'), @('add', 'claude', 'x', 'extra'), @('status', '--yes'), @('setup', '--no-channel'), @('remove', 'a', '--yes'), @('start'), @('repo'), @('pick', 'a'), @('update', 'main'), @('add'))) {
         Reset-StandIns
         $exit = Invoke-Quiet $words
         Assert-Equal 1 $exit ("Rejected: " + ($words -join ' '))
@@ -192,8 +186,44 @@ if ($code -ne 'none') { exit [int]$code }
     }
     Reset-StandIns
     Assert-Equal 0 (Invoke-Quiet @('help')) 'Help exits zero'
-    Assert-Equal 0 (Invoke-Quiet @()) 'No verb exits zero'
-    Assert-Equal 0 (Get-Records).Count 'Help runs nothing'
+        Assert-Equal 0 (Get-Records).Count 'Help runs nothing'
+
+    # --- update and uninstall: a private copy of the installer ---
+    $installerText = @'
+param([switch]$Update, [switch]$Uninstall, [switch]$Yes, [string]$HomeRoot)
+$catalog = Join-Path $PSScriptRoot 'tools.json'
+$entry = @{ Path = $PSCommandPath; Update = [bool]$Update; Uninstall = [bool]$Uninstall; Yes = [bool]$Yes; HomeRoot = $HomeRoot; Catalog = (Get-Content -LiteralPath $catalog -Raw).Trim() }
+if ($Uninstall) {
+    # The uninstall deletes the installed source folder, then reads the copied catalog.
+    Remove-Item -LiteralPath (Join-Path $HomeRoot 'source') -Recurse -Force
+    $entry.Catalog = (Get-Content -LiteralPath $catalog -Raw).Trim()
+}
+$entry | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $HomeRoot 'installer-record.json')
+if ($Uninstall) { exit 4 }
+'@
+    $sourceFolder = Join-Path $scratch 'source'
+    New-Item -ItemType Directory -Path (Join-Path $sourceFolder 'bin') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $sourceFolder 'install.ps1') -Value $installerText
+    Set-Content -LiteralPath (Join-Path $sourceFolder 'tools.json') -Value 'catalog-text'
+    $script:LegionBin = Join-Path $sourceFolder 'bin'
+    $installerRecord = Join-Path $scratch 'installer-record.json'
+    $script:LegionHomeRoot = $scratch
+    Invoke-Quiet @('update') | Out-Null
+    $copied = Get-Content -LiteralPath $installerRecord -Raw | ConvertFrom-Json
+    Assert-True ($copied.Path.StartsWith((Join-Path $scratch '.legion/temp/installer-'))) 'update runs the copy under the selected home'
+    Assert-True ($copied.Update -and -not $copied.Uninstall -and -not $copied.Yes) 'update arrives as -Update'
+    Assert-Equal $scratch $copied.HomeRoot 'update gets the selected home'
+    Assert-Equal 'catalog-text' $copied.Catalog 'the copy has its own tools.json'
+    Assert-True (-not (Test-Path -LiteralPath (Split-Path $copied.Path))) 'the copied installer folder is removed afterwards'
+
+    Invoke-Quiet @('uninstall', '--yes') | Out-Null
+    $copied = Get-Content -LiteralPath $installerRecord -Raw | ConvertFrom-Json
+    Assert-True ($copied.Uninstall -and $copied.Yes) 'uninstall arrives as -Uninstall -Yes'
+    Assert-Equal 'catalog-text' $copied.Catalog 'the catalog is read from the copy after the source is deleted'
+    Assert-Equal 4 $script:LegionExit 'the installer exit code comes out'
+    Assert-True (-not (Test-Path -LiteralPath $sourceFolder)) 'the stand-in deleted its source folder'
+    $script:LegionHomeRoot = $null
+    $script:LegionBin = $standIns
 
     # --- Apply flow: replace the seams ---
     $script:Interactive = $true
