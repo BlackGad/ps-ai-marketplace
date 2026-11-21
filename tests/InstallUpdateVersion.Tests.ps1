@@ -109,3 +109,27 @@ $repo = Split-Path $PSScriptRoot -Parent
     function Invoke-ClosedInput { @{ExitCode=1; Output=@(); ErrorOutput=@('unrelated listing failure')} }
     Assert-Throws { Get-InstallPluginRoot -Entry $entry -ConfigDir $missingFolder } 'Unrelated Codex listing errors still stop the update'
 }
+
+& {
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
+    $script:installCatalog = Get-InstallCatalog -Source $repo
+    $entry = Get-InstallTool claude
+    $sandbox = Join-Path $repo ('.agents/temp/nested-manifests-' + [guid]::NewGuid().ToString('N'))
+    $cache = Join-Path $sandbox $entry.plugin.installedRoot
+    function Invoke-ClosedInput { @{ExitCode=0; Output=@('[{"id":"ps-ai@ps-ai-marketplace","enabled":true}]')} }
+    try {
+        $manifest = '{"name":"ps-ai","version":"0.8.0"}'
+        foreach ($folder in @('0.8.0', '0.8.0/.claude-plugin', '0.8.0/.codex-plugin')) {
+            New-Item -ItemType Directory -Path (Join-Path $cache $folder) -Force | Out-Null
+            $manifest | Set-Content -LiteralPath (Join-Path $cache "$folder/plugin.json")
+        }
+        Assert-Equal (Join-Path $cache '0.8.0') (Get-InstallPluginRoot -Entry $entry -ConfigDir $sandbox) 'Nested tool manifests are not separate copies'
+        New-Item -ItemType Directory -Path (Join-Path $cache '0.9.0') -Force | Out-Null
+        $manifest | Set-Content -LiteralPath (Join-Path $cache '0.9.0/plugin.json')
+        Assert-Throws { Get-InstallPluginRoot -Entry $entry -ConfigDir $sandbox } 'Two real copies stay ambiguous'
+    } finally {
+        $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
+        if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe nested fixture cleanup' }
+        Remove-Item -LiteralPath $sandbox -Recurse -Force
+    }
+}

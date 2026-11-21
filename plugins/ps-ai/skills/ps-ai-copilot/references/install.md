@@ -16,4 +16,4 @@ On macOS and Linux the recipe needs Node.js and runs `npm install -g @github/cop
 
 If winget is unavailable or fails, the installer exits 2 and presents explicit `msi`/`zip` choices. Ask for the owner's choice and approval before adding `-Method` and `-Yes`. Never install a package manager implicitly. Previews make no downloads. Existing CLI detection and approved retries preserve PATH placeholders and registry type.
 
-Manual ps-ai installation, only when setup cannot do it, uses `copilot plugin marketplace add BlackGad/ps-ai-marketplace`, then `copilot plugin install ps-ai@ps-ai-marketplace` in the selected account environment. No optional wiki installation recipe is provided here.
+Manual ps-ai installation, only when setup cannot do it, uses `copilot plugin marketplace add BlackGad/ps-ai-marketplace#stable`, then `copilot plugin install ps-ai@ps-ai-marketplace` in the selected account environment. No optional wiki installation recipe is provided here.

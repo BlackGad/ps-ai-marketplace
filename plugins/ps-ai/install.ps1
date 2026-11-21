@@ -922,7 +922,9 @@ function Get-InstallPluginRoot {
             if ($configRoot -match '^~[/\\]') { $configRoot = Join-Path $homeRoot $configRoot.Substring(2) }
             $cacheRoot = Join-Path $configRoot $Entry.plugin.installedRoot
             if (Test-Path -LiteralPath $cacheRoot -PathType Container) {
-                $paths = @(Get-ChildItem -LiteralPath $cacheRoot -Filter plugin.json -File -Recurse -ErrorAction Stop | ForEach-Object { $_.DirectoryName })
+                $manifestFolders = @('.claude-plugin', '.codex-plugin')
+                $paths = @(Get-ChildItem -LiteralPath $cacheRoot -Filter plugin.json -File -Recurse -ErrorAction Stop |
+                    Where-Object { (Split-Path $_.DirectoryName -Leaf) -cnotin $manifestFolders } | ForEach-Object { $_.DirectoryName })
             }
         }
         $roots = @()
@@ -1174,9 +1176,14 @@ function Invoke-PsAiInstaller {
         foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
             Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $folder -DryRun:$DryRun -Ref $Ref
             if (-not $DryRun) {
-                $root = Get-InstallPluginRoot -Entry $entry -ConfigDir $folder
-                Invoke-InstallRefresh -Entry $entry -ConfigDir $folder -PluginRoot $root
-                $pluginVersion = (Get-Content -LiteralPath (Join-Path $root 'plugin.json') -Raw | ConvertFrom-Json).version
+                try {
+                    $root = Get-InstallPluginRoot -Entry $entry -ConfigDir $folder
+                    $pluginVersion = (Get-Content -LiteralPath (Join-Path $root 'plugin.json') -Raw | ConvertFrom-Json).version
+                    Invoke-InstallRefresh -Entry $entry -ConfigDir $folder -PluginRoot $root
+                } catch {
+                    $label = if ($folder) { $folder } else { 'default config' }
+                    "commands not refreshed for $tool in $label; run legion setup"
+                }
             }
         }
         if (-not $DryRun) {

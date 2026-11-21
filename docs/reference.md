@@ -81,21 +81,21 @@ Run these in the selected account's environment. Setup normally installs ps-ai b
 Claude Code:
 
 ```text
-claude plugin marketplace add BlackGad/ps-ai-marketplace
+claude plugin marketplace add BlackGad/ps-ai-marketplace#stable
 claude plugin install ps-ai@ps-ai-marketplace
 ```
 
 Codex CLI:
 
 ```text
-codex plugin marketplace add BlackGad/ps-ai-marketplace
+codex plugin marketplace add BlackGad/ps-ai-marketplace --ref stable
 codex plugin add ps-ai@ps-ai-marketplace
 ```
 
 Copilot CLI:
 
 ```text
-copilot plugin marketplace add BlackGad/ps-ai-marketplace
+copilot plugin marketplace add BlackGad/ps-ai-marketplace#stable
 copilot plugin install ps-ai@ps-ai-marketplace
 ```
 

@@ -7,10 +7,24 @@ git init --quiet $tempRoot 2>&1 | Out-Null
 # Piped input is redirected input: the launcher cannot ask, so it prints the question and stops.
 $lines = @('' | & pwsh -NoProfile -File $script -HomeRoot $tempRoot -Repo $tempRoot 2>&1)
 Assert-True ($LASTEXITCODE -ne 0) 'Bare launcher without configuration fails'
-Assert-True (($lines -join "`n").Contains('This repository is not set up. Set it up (private)? [Y/n]')) 'Redirected not-set-up launcher prints the question'
+Assert-True (($lines -join "`n").Contains('No accounts yet. Add one: legion add claude')) 'Fresh home stops with how to add an account'
+Assert-True (-not (($lines -join "`n").Contains('not set up'))) 'Fresh home asks no set-up question'
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $tempRoot '.legion'))) 'Fresh home writes nothing'
 Assert-True (-not ($lines -match 'Usage:')) 'Bare launcher prints no usage line'
+New-Item -ItemType Directory (Join-Path $tempRoot '.legion/configuration') -Force | Out-Null
+'{"schemaVersion":1,"agents":[{"id":"claude-a","tool":"claude","configDir":"~/a"}],"channels":[]}' | Set-Content (Join-Path $tempRoot '.legion/configuration/ps-ai-personalisation.json')
+$lines = @('' | & pwsh -NoProfile -File $script -HomeRoot $tempRoot -Repo $tempRoot 2>&1)
+Assert-True ($LASTEXITCODE -ne 0) 'Bare launcher in an unset-up repository fails'
+Assert-True (($lines -join "`n").Contains('This repository is not set up. Set it up (private)? [Y/n]')) 'Redirected not-set-up launcher prints the question'
+Remove-Item -LiteralPath (Join-Path $tempRoot '.legion') -Recurse -Force
 . $script -NoRun -HomeRoot $tempRoot
 function Test-OverseerInteractive { return $false }
+foreach ($case in @(@('',$true),@('y',$true),@(' YES ',$true),@('Yes',$true),@('n',$false),@('no',$false),@('yep',$false),@('maybe',$false),@('ok',$false))) {
+    $script:answer = $case[0]
+    function Read-Host { param($Prompt) $script:answer }
+    Assert-Equal $case[1] (Read-OverseerYes -Question 'Q?') "Read-OverseerYes answer '$($case[0])'"
+}
+Remove-Item Function:\Read-Host
 $owner =[pscustomobject]@{schemaVersion=1;agents=@(
     @{id='claude-a';tool='claude';configDir='~/a'},
     @{id='claude-b';tool='claude';configDir='~/b'},
@@ -261,7 +275,17 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     Assert-True ($state.Launch.Args -contains '--channels') 'Explicit channel bypasses a saved no-channel launch'
     $null = Invoke-Overseer @run -NoChannel -Tool claude
     Assert-True ($state.Launch.Args -cnotcontains '--channels') 'Explicit NoChannel and tool bypass saved channels'
-    Assert-Throws { Invoke-Overseer @run -NoChannel } 'NoChannel alone does not reuse the saved account'
+    Save-OverseerLastLaunch -Repo $runRepo -HomeRoot $runHome -Account claude1 -Channel @('my-telegram') -Arguments @('--model', 'keep')
+    $text = @(Invoke-Overseer @run -NoChannel)
+    Assert-Equal ('launched claude1 (claude) in ' + $runRepo) ($text -join '|') 'NoChannel alone restores the saved account without a channel'
+    Assert-True ('--model' -cin $state.Launch.Args -and 'keep' -cin $state.Launch.Args) 'NoChannel alone keeps the saved arguments'
+    Assert-True ('--channels' -cnotin $state.Launch.Args) 'NoChannel alone clears the saved channel'
+    Assert-Equal 0 @((Get-OverseerLastLaunch -Repo $runRepo -HomeRoot $runHome).channels).Count 'NoChannel launch saves no channel'
+    Save-OverseerLastLaunch -Repo $runRepo -HomeRoot $runHome -Account claude1 -Channel @('my-telegram') -Arguments @('--model', 'keep')
+    $state.Interactive = $true; $state.Answer = 'claude1'
+    $null = Invoke-Overseer @run -Pick -NoChannel
+    $state.Interactive = $false
+    Assert-True ('keep' -cin $state.Launch.Args -and '--channels' -cnotin $state.Launch.Args) 'Pick NoChannel picking the saved account keeps arguments and clears the channel'
     Assert-Throws { Invoke-Overseer @run -Arguments @('--model', 'other') } 'Arguments alone do not reuse the saved account'
     $null = Invoke-Overseer @run -Account codex1 -Channel @()
     $null = Invoke-Overseer @run -Account claude1 -Channel @()

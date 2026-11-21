@@ -23,7 +23,7 @@ function Test-OverseerInteractive {
 
 function Read-OverseerYes {
     param([string]$Question)
-    return (Read-Host $Question) -notmatch '^\s*n'
+    return (Read-Host $Question) -match '^\s*(y|yes)?\s*$'
 }
 
 function Format-OverseerChoices {
@@ -236,6 +236,9 @@ function Invoke-Overseer {
     $Repo = Get-PsAiCodeRoot -Path $Repo
     if (-not $Repo) { throw 'not a git repository; run legion inside one' }
     $projectFile = Get-PsAiRepoPath -Repo $Repo -Path 'configuration/project.json'
+    $ownerFile = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
+    # No accounts yet: stop before any question, writing nothing.
+    if (-not (Test-Path -LiteralPath $ownerFile)) { throw 'No accounts yet. Add one: legion add claude' }
     if (-not (Test-Path -LiteralPath $projectFile)) {
         $question = 'This repository is not set up. Set it up (private)? [Y/n]'
         if ($DryRun) { return $question }
@@ -244,7 +247,6 @@ function Invoke-Overseer {
         if (-not (Read-OverseerYes -Question $question)) { return 'Nothing changed.' }
         Invoke-OverseerRepositorySetup -Repo $Repo
     }
-    $ownerFile = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
     foreach ($inputFile in @(@{Kind='personalisation';Path=$ownerFile},@{Kind='project';Path=$projectFile})) {
         $issues = @(Invoke-PsAiValidation $inputFile.Kind $inputFile.Path)
         if ($issues.Count) { throw ($issues -join '; ') }
@@ -253,7 +255,8 @@ function Invoke-Overseer {
     # Bare start reuses the saved account, then the lease account; -Pick asks instead.
     # Saved channels and arguments apply only when the saved account leads.
     $ownerLaunch = -not $Account
-    $bare = -not ($Account -or $Tool -or $Channel.Count -or $Arguments.Count -or $NoChannel)
+    # -NoChannel alone still counts as a bare start: it restores the saved launch, then clears the channel.
+    $bare = -not ($Account -or $Tool -or $Channel.Count -or $Arguments.Count)
     $known = @($personalisation.agents.id)
     $last = Get-OverseerLastLaunch -Repo $Repo -HomeRoot $HomeRoot
     $savedAccount = if ($last -and $last.account -cin $known) { $last.account }
@@ -266,7 +269,7 @@ function Invoke-Overseer {
     }
     $selected = Select-OverseerAccount -Personalisation $personalisation -Account $Account -Tool $Tool -Channel $Channel -Last $savedAccount
     if ($bare -and $selected.id -ceq $savedAccount) {
-        $Channel = @($last.channels)
+        $Channel = if ($NoChannel) { @() } else { @($last.channels) }
         $Arguments = @($last.arguments)
         $NoChannel = -not $Channel.Count
     }
