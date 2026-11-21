@@ -315,6 +315,8 @@ function Write-SetupPlan {
         $hint = if ($IsWindows) { "add $($Plan.Bin) to your user PATH" } else { Get-SetupPathHint -Plan $Plan }
         $lines.Add("  path     $hint")
     }
+    $retired = @(Get-LegionRetiredCommandFiles -HomeRoot $Plan.HomeRoot | Where-Object Generated)
+    if ($retired.Count) { $lines.Add("  remove   old commands $($retired.Name -join ', ') (use legion instead)") }
     $blocked = @($Plan.Commands | Where-Object State -EQ blocked | Select-Object -ExpandProperty Name -Unique)
     foreach ($name in $blocked) { "blocked: command $name (another file is there)" }
     if (-not $lines.Count) { 'Nothing to do.'; return }
@@ -456,6 +458,7 @@ function Invoke-Setup {
     Install-SetupTools -Plan $plan
     Add-SetupAccounts -Plan $plan
     Write-SetupCommands -Plan $plan
+    Remove-LegionRetiredCommands -HomeRoot $HomeRoot
     Set-SetupPath -Plan $plan
     Install-SetupPlugins -Plan $plan
     Write-SetupTable -Plan $plan

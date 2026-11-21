@@ -34,7 +34,7 @@ function Invoke-ClosedInput {
 $bin = Join-Path $fixtureHome '.legion/bin'
 New-Item -ItemType Directory -Path $bin -Force | Out-Null
 '#!/bin/sh
-exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Content (Join-Path $bin 'ps-ai-overseer')
+exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-Path $bin 'legion')
 'owner file' | Set-Content (Join-Path $bin 'unrelated')
 $cache = Join-Path $fixtureHome '.codex/plugins/cache/ps-ai-marketplace'
 $other = Join-Path $fixtureHome '.codex/plugins/cache/other-marketplace'
@@ -47,9 +47,9 @@ foreach ($name in @('Get-InstallHome','Get-InstallSourceText','Ensure-InstallPow
 }
 $scriptText = (Get-Content -LiteralPath $Installer -Raw).Replace('if (-not $NoRun) {', $overrides + 'if (-not $NoRun) {')
 $preview = @(& ([scriptblock]::Create($scriptText)) -Uninstall -DryRun -Tools codex)
-if ($state.Writes -ne 0 -or -not (Test-Path (Join-Path $bin 'ps-ai-overseer')) -or -not (Test-Path $cache)) { throw 'Dry run changed state' }
+if ($state.Writes -ne 0 -or -not (Test-Path (Join-Path $bin 'legion')) -or -not (Test-Path $cache)) { throw 'Dry run changed state' }
 & ([scriptblock]::Create($scriptText)) -Uninstall -Yes -Tools codex
-if ($state.Writes -ne 2 -or (Test-Path (Join-Path $bin 'ps-ai-overseer'))) { throw 'Uninstall did not remove plugin, marketplace and launcher' }
+if ($state.Writes -ne 2 -or (Test-Path (Join-Path $bin 'legion'))) { throw 'Uninstall did not remove plugin, marketplace and launcher' }
 if (-not (Test-Path (Join-Path $bin 'unrelated'))) { throw 'Uninstall removed owner file' }
 if ((Test-Path $cache) -or -not (Test-Path (Join-Path $other 'keep.txt'))) { throw 'Cache cleanup was not scoped to the marketplace' }
 $repeat = @(& ([scriptblock]::Create($scriptText)) -Uninstall -Tools codex)

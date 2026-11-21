@@ -52,7 +52,7 @@ For options, use the script-block form in PowerShell. This example selects an ex
 
 Use `-Tools <tool-id>` (or an array of ids) to choose tools, `-Source <owner/repository>` to override the GitHub marketplace source, and `-DryRun` to print the steps without changing anything. `-HomeRoot <folder>` uses that folder as the home for `~/.legion` and the files the installer writes, for a test or an alternate home. The default is your real home. The default source is `BlackGad/ps-ai-marketplace`. `-Ref release|main` picks the track (default `release`, the `stable` branch); to switch between release and main, uninstall, then install. A working-tree script uses its sibling `tools.json` unless `-Source` is supplied. Remote dry runs read that metadata once. It does not change the marketplace source passed to the CLI. Install and update dry runs execute read-only listings to detect existing registrations and plugins; displayed add and update commands are previews.
 
-To adopt a signed-in account folder, run `legion add codex <existing folder>` or `ps-ai-setup -Add 'codex:<existing folder>'`. The folder must exist; setup keeps its settings and login, records it and creates a shortcut. Setup installs a missing CLI, and ps-ai only where a folder has none, under the same approval; moving an installed ps-ai to a new version is the update flow's job. Adopting the same folder again reuses its account. Only the owner logs in if the CLI asks. An existing shortcut can instead be recorded through the tool's account guide.
+To adopt a signed-in account folder, run `legion add codex <existing folder>`. The folder must exist; setup keeps its settings and login, records it and creates a shortcut. Setup installs a missing CLI, and ps-ai only where a folder has none, under the same approval; moving an installed ps-ai to a new version is the update flow's job. Adopting the same folder again reuses its account. Only the owner logs in if the CLI asks. An existing shortcut can instead be recorded through the tool's account guide.
 
 ### Version checks and catalog revisions
 
@@ -136,7 +136,7 @@ Plan (nothing changed yet):
   create   settings and notes in ~/.legion/configuration
   add      claude1 (claude) new folder ~/.legion/agents/claude1
   install  ps-ai into ~/.legion/agents/claude1
-  commands write ps-ai-setup, ps-ai-status, ps-ai-overseer, legion in ~/.legion/bin
+  commands write legion in ~/.legion/bin
   path     add ~/.legion/bin to your user PATH
 Run again with -Yes to apply.
 ```
@@ -148,16 +148,16 @@ After approving the plan, run it again with `-Yes`. Setup installs a missing CLI
 
 It also writes account wrappers and the four commands below. On Windows it adds `~/.legion/bin` to your user PATH; on macOS and Linux it prints the line to add to your shell profile. It never edits that profile. Open a new terminal if needed.
 
-Run `ps-ai-status` or `legion status` before making changes. Before setup, outside an orchestrated repository, status prints:
+Run `legion status` before making changes. Before setup, outside an orchestrated repository, status prints:
 
 ```text
 no ps-ai settings yet
 path ~/.legion/bin on PATH: no
-commands: missing ps-ai-setup, ps-ai-status, ps-ai-overseer, legion
+commands: missing legion
 repo none
 ```
 
-`ps-ai-setup` without `-Add` finishes setup for recorded accounts. `legion setup` does the same. A completed plan prints `Nothing to do.` The plan shows prerequisite repairs, such as a Node.js that is on PATH but does not run, on its `cli` line, so apply does nothing the plan did not show. With `-HomeRoot <home>`, the commands setup writes carry that home, so `ps-ai-setup`, `ps-ai-status`, `ps-ai-overseer` and `legion` read that home and not the real one. A default-home install is unchanged. Adding the same tool again without an explicit id creates another account; adopting the same folder again reuses its account. When the plan needs the remote installer, it names the download.
+`legion setup` finishes setup for recorded accounts and deletes the old `ps-ai-setup`, `ps-ai-status` and `ps-ai-overseer` commands when ps-ai made them (an edited one stays and is named as a manual step). A completed plan prints `Nothing to do.` The plan shows prerequisite repairs, such as a Node.js that is on PATH but does not run, on its `cli` line, so apply does nothing the plan did not show. With `-HomeRoot <home>`, the commands setup writes carry that home, so `legion` reads that home and not the real one. A default-home install is unchanged. Adding the same tool again without an explicit id creates another account; adopting the same folder again reuses its account. When the plan needs the remote installer, it names the download.
 
 ### Legion commands
 
@@ -217,7 +217,7 @@ To opt out, leave legion unused. To limit its use, route legion only to accounts
 | What | Where | Git history |
 | --- | --- | --- |
 | Personalisation and notes | `~/.legion/configuration/` | no |
-| Account wrappers and `ps-ai-setup`, `ps-ai-status`, `ps-ai-overseer`, `legion` | `~/.legion/bin/` | no |
+| Account wrappers and `legion` | `~/.legion/bin/` | no |
 | New account config folders (adopted folders keep their names) | `~/.legion/agents/<id>/` | no |
 | Portable prerequisite tools | `~/.legion/tools/<tool>/` | no |
 | Cross-project knowledge wiki (optional, llm-wiki) | `~/.legion/knowledge/` | no |

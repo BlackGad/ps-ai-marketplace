@@ -48,7 +48,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         New-Item -ItemType Directory -Path (Join-Path $path 'bin') -Force | Out-Null
         '{"name":"ps-ai","version":"0.5.5"}' | Set-Content -LiteralPath (Join-Path $path 'plugin.json')
         '' | Set-Content -LiteralPath (Join-Path $path 'bin/ps-ai-refresh.ps1')
-        foreach ($name in @('legion', 'ps-ai-status', 'ps-ai-overseer')) {
+        foreach ($name in @('legion')) {
             '' | Set-Content -LiteralPath (Join-Path $path "bin/$name.ps1")
         }
         $installed["$Tool|$Key"] = $true
@@ -63,7 +63,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         New-Item -ItemType Directory -Path $bin -Force | Out-Null
         # Codex in its default folder is the install being uninstalled; the commands point into its cache.
         $codexRoot = New-FakePlugin -Tool codex -Key default -ConfigFolder (Join-Path $sandbox '.codex')
-        foreach ($command in @('legion', 'ps-ai-status')) {
+        foreach ($command in @('legion')) {
             Get-LegionShimText -Script (Join-Path $codexRoot "bin/$command.ps1") | Set-Content -LiteralPath (Join-Path $bin $command)
         }
     }
@@ -107,7 +107,6 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-True (-not $preview.Contains((Join-Path $bin 'legion'))) 'The plan does not remove commands a survivor needs'
         $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -Yes
         Assert-True (Test-Path -LiteralPath (Join-Path $bin 'legion')) 'Commands stay while the default CLI folder still has ps-ai'
-        Assert-True (Test-Path -LiteralPath (Join-Path $bin 'ps-ai-status')) 'Every command stays while a survivor exists'
         Assert-Equal (Join-Path $defaultPlugin 'bin/legion.ps1') (Read-LegionOwnerCommandTarget -Path (Join-Path $bin 'legion') -Script legion.ps1).Path 'A default survivor supplies the working command target'
         Assert-Equal 0 $refreshed.Count 'Repair does not rewrite sibling commands through refresh'
 
@@ -119,7 +118,6 @@ $repo = Split-Path $PSScriptRoot -Parent
         $dead = Join-Path $bin 'legion'
         $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -DryRun) -join "`n"
         Assert-True ($preview -match [regex]::Escape("Remove dead command: $dead")) 'The plan lists the command that loses its script'
-        Assert-True ($preview -match [regex]::Escape("Remove dead command: $(Join-Path $bin 'ps-ai-status')")) 'The plan lists every dead command'
         Assert-True (Test-Path -LiteralPath $dead) 'A dry run removes nothing'
         $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -Yes
         Assert-Equal $false (Test-Path -LiteralPath $dead) 'A planned dead command is removed'
@@ -142,22 +140,14 @@ $repo = Split-Path $PSScriptRoot -Parent
         Reset-Scenario
         $named = Join-Path $sandbox '.legion/agents/claude-b'
         $root = New-FakePlugin -Tool claude -Key ([IO.Path]::GetFullPath($named)) -ConfigFolder $named
-        Remove-Item -LiteralPath (Join-Path $root 'bin/legion.ps1'), (Join-Path $root 'bin/ps-ai-status.ps1')
+        Remove-Item -LiteralPath (Join-Path $root 'bin/legion.ps1')
         Add-AccountWrapper -Id claude-b -Folder '~/.legion/agents/claude-b'
-        foreach ($batch in @($false, $true)) {
-            $text = Get-LegionShimText -Script (Join-Path $sandbox '.codex/plugins/cache/ps-ai-marketplace/ps-ai/0.5.5/bin/ps-ai-overseer.ps1') -Windows:$batch
-            $text.Replace(' "$@"', ' -NoChannel "$@"').Replace(' %*', ' -NoChannel %*') | Set-Content -LiteralPath (Join-Path $bin "ps-ai-overseer$(if ($batch) { '.cmd' })")
-        }
         Get-LegionShimText -Script (Join-Path $sandbox '.codex/plugins/cache/ps-ai-marketplace/ps-ai/0.5.5/bin/legion.ps1') -Windows | Set-Content -LiteralPath (Join-Path $bin 'legion.cmd')
         $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -DryRun) -join "`n"
         foreach ($name in @('legion', 'legion.cmd')) { Assert-True ($preview.Contains("Remove dead command: $(Join-Path $bin $name)")) 'An older survivor cannot provide legion' }
         $listed.Clear()
         $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -Yes
         foreach ($name in @('legion', 'legion.cmd')) { Assert-Equal $false (Test-Path -LiteralPath (Join-Path $bin $name)) 'Unsupported commands are removed' }
-        foreach ($name in @('ps-ai-overseer', 'ps-ai-overseer.cmd')) {
-            Assert-Equal (Join-Path $root 'bin/ps-ai-overseer.ps1') (Read-LegionOwnerCommandTarget -Path (Join-Path $bin $name) -Script ps-ai-overseer.ps1).Path 'The survivor provides the working target'
-            Assert-True ((Get-Content -LiteralPath (Join-Path $bin $name) -Raw).Contains(' -NoChannel ')) 'Owner flags survive repair'
-        }
         Assert-Equal 0 @(Get-InstallDeadCommandPaths).Count 'Retargeted commands work'
         Assert-Equal 1 @($listed | Where-Object { $_ -ceq "claude|$named" }).Count 'The survivor is resolved once per folder'
         Assert-Equal 0 $refreshed.Count 'No survivor refresh runs'
@@ -180,7 +170,7 @@ $repo = Split-Path $PSScriptRoot -Parent
             $upper = Join-Path $sandbox 'Work'
             $lower = Join-Path $sandbox 'work'
             $root = New-FakePlugin -Tool claude -Key $upper -ConfigFolder $upper
-            foreach ($name in @('legion', 'ps-ai-status')) { Get-LegionShimText -Script (Join-Path $root "bin/$name.ps1") | Set-Content -LiteralPath (Join-Path $bin $name) }
+            foreach ($name in @('legion')) { Get-LegionShimText -Script (Join-Path $root "bin/$name.ps1") | Set-Content -LiteralPath (Join-Path $bin $name) }
             Assert-Equal 0 @(Get-InstallDeadCommandPaths -RemovedFolders @($lower)).Count 'Unix containment keeps a case-distinct live target'
             if (Test-Path -LiteralPath $lower) { Write-Output 'skip: CaseDistinctUnixFolders (case-insensitive filesystem)'; return }
             $null = New-FakePlugin -Tool claude -Key $lower -ConfigFolder $lower

@@ -43,5 +43,7 @@ foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
         Write-LegionGeneratedFile -Path $path -Content $updated -Changes $changes -Executable:($suffix -eq '')
     }
 }
+$retired = @(Remove-LegionRetiredCommands -HomeRoot $HomeRoot)
+if ($retired -notlike 'skip:*') { $retired }
 if ($changes.Count) { 'ps-ai generated runtimes and launchers refreshed' }
 else { 'skip: ps-ai generated runtimes and launchers (already done)' }

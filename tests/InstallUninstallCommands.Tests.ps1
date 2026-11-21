@@ -6,7 +6,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     try {
         $bin = Join-Path $sandbox '.legion/bin'
         New-Item -ItemType Directory -Path $bin -Force | Out-Null
-        $commands = [ordered]@{ 'legion' = 'legion.ps1'; 'ps-ai-setup' = 'ps-ai-setup.ps1'; 'ps-ai-status' = 'ps-ai-status.ps1' }
+        $commands = [ordered]@{ 'legion' = 'legion.ps1' }
         foreach ($name in $commands.Keys) {
             "#!/bin/sh`nexec pwsh -NoProfile -File '/plugin/bin/$($commands[$name])' `"`$@`"" | Set-Content (Join-Path $bin $name)
             "@pwsh -NoProfile -File `"C:\plugin\bin\$($commands[$name])`" %*" | Set-Content (Join-Path $bin "$name.cmd")
@@ -47,7 +47,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         foreach ($name in $commands.Keys) { Assert-True (Test-Path (Join-Path $bin $name)) "A foreign $name is kept" }
 
         # C-2: uninstalling one account leaves the commands for another; ones that lost their script are removed, not left dead.
-        foreach ($name in @('legion', 'ps-ai-setup', 'ps-ai-status')) { Remove-Item -LiteralPath (Join-Path $bin $name), (Join-Path $bin "$name.cmd") -Force -ErrorAction SilentlyContinue }
+        foreach ($name in @('legion')) { Remove-Item -LiteralPath (Join-Path $bin $name), (Join-Path $bin "$name.cmd") -Force -ErrorAction SilentlyContinue }
         $personalisation = Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json'
         New-Item -ItemType Directory -Path (Split-Path $personalisation) -Force | Out-Null
         @{ agents = @(@{ id = 'codex-b'; tool = 'codex'; configDir = '~/.legion/agents/codex-b' }) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $personalisation

@@ -59,7 +59,7 @@ Say “Update ps-ai” or “Uninstall ps-ai,” or run `legion update` or `legi
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Uninstall
 ```
 
-Uninstall keeps your `ps-ai-setup`, `ps-ai-status`, `ps-ai-overseer` and `legion` commands working through another ps-ai install if one is left. If none is left, it removes them.
+Uninstall keeps your `legion` command working through another ps-ai install if one is left. If none is left, it removes it. Install and setup also delete the old `ps-ai-setup`, `ps-ai-status` and `ps-ai-overseer` commands when ps-ai made them; one you edited stays, and the output names it so you can delete it yourself.
 
 > [!IMPORTANT]
 > Uninstall then install is an upgrade: it keeps your settings, notes, account folders and account launchers. **Purge removes every ps-ai trace**, including settings, notes and legion-made logins. It lists everything and asks first.

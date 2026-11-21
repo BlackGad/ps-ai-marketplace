@@ -78,7 +78,7 @@ function Select-OnlyOverseerAccount {
     }
     if ($eligible.Count -eq 1) { return $eligible[0] }
     if (-not @($Personalisation.agents).Count) { throw 'No accounts yet. Add one: legion add claude' }
-    if ($eligible.Count -eq 0) { throw 'no account fits; run ps-ai-setup first' }
+    if ($eligible.Count -eq 0) { throw 'no account fits; run legion setup first' }
     if (Test-OverseerInteractive) {
         $id = Read-OverseerChoice -Accounts $eligible -Channels $Personalisation.channels -Last $Last
         return $eligible | Where-Object id -CEQ $id

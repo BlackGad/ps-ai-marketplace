@@ -487,7 +487,7 @@ try {
     Reset-SetupTest 'empty'
     $before = Get-SetupTree $testHome
     $plan = @(Invoke-Setup -HomeRoot $testHome)
-    foreach ($text in @('Plan (nothing changed yet):', '  create   settings and notes', '  commands write ps-ai-setup, ps-ai-status, ps-ai-overseer, legion', '  path     ', 'Run again with -Yes to apply.')) {
+    foreach ($text in @('Plan (nothing changed yet):', '  create   settings and notes', '  commands write legion', '  path     ', 'Run again with -Yes to apply.')) {
         Assert-SetupText $plan $text 'Fresh empty plan has the contract lines'
     }
     Assert-Equal $before (Get-SetupTree $testHome) 'Plan changes no home bytes or timestamps'
@@ -652,24 +652,34 @@ try {
     Reset-SetupTest 'commands'
     $bin = Join-Path $testHome '.legion/bin'
     New-Item -ItemType Directory -Path $bin -Force | Out-Null
-    $owned = Join-Path $bin 'ps-ai-status'
-    $liveScript = Join-Path $testHome 'cache/bin/ps-ai-status.ps1'
+    $owned = Join-Path $bin 'legion'
+    $liveScript = Join-Path $testHome 'cache/bin/legion.ps1'
     New-Item -ItemType Directory -Path (Split-Path $liveScript) -Force | Out-Null
     '' | Set-Content -LiteralPath $liveScript
     $oldText = (Get-LegionShimText -Script $liveScript).Replace(' "$@"', ' --owner-flag "$@"')
     [IO.File]::WriteAllText($owned, $oldText)
-    $staleText = (Get-LegionShimText -Script '/gone/cache/bin/ps-ai-setup.ps1').Replace(' "$@"', ' --keep "$@"')
-    [IO.File]::WriteAllText((Join-Path $bin 'ps-ai-setup'), $staleText)
-    [IO.File]::WriteAllText((Join-Path $bin 'legion'), 'owner command')
-    $plan = @(Invoke-Setup -HomeRoot $testHome)
-    Assert-SetupText $plan 'commands rewrite ps-ai-setup' 'C-2: the plan names a stale command'
     $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
     Assert-Equal ($oldText.Replace(' --owner-flag', (Get-LegionShimHomeArgument -HomeRoot $testHome) + ' --owner-flag')) ([IO.File]::ReadAllText($owned)) 'R5 B4 existing live command gains its home binding and keeps its target and flags'
-    $rewritten = [IO.File]::ReadAllText((Join-Path $bin 'ps-ai-setup'))
-    Assert-True ($rewritten.Contains((Join-Path $root 'plugins/ps-ai/bin/ps-ai-setup.ps1')) -and $rewritten.Contains('--keep')) 'C-2: a stale command is retargeted and keeps owner flags'
-    Assert-Equal 'owner command' ([IO.File]::ReadAllText((Join-Path $bin 'legion'))) 'Unrelated command stays unchanged'
     $repeat = @(Invoke-Setup -HomeRoot $testHome -Yes)
-    Assert-SetupText $repeat 'skip: command ps-ai-status (already done)' 'R5 B4 bound live command reports skip on repeat'
+    Assert-SetupText $repeat 'skip: command legion (already done)' 'R5 B4 bound live command reports skip on repeat'
+
+    Reset-SetupTest 'stale-command'
+    $bin = Join-Path $testHome '.legion/bin'
+    New-Item -ItemType Directory -Path $bin -Force | Out-Null
+    $staleText = (Get-LegionShimText -Script '/gone/cache/bin/legion.ps1').Replace(' "$@"', ' --keep "$@"')
+    [IO.File]::WriteAllText((Join-Path $bin 'legion'), $staleText)
+    $plan = @(Invoke-Setup -HomeRoot $testHome)
+    Assert-SetupText $plan 'commands rewrite legion' 'C-2: the plan names a stale command'
+    $null = Invoke-Setup -HomeRoot $testHome -Yes
+    $rewritten = [IO.File]::ReadAllText((Join-Path $bin 'legion'))
+    Assert-True ($rewritten.Contains((Join-Path $root 'plugins/ps-ai/bin/legion.ps1')) -and $rewritten.Contains('--keep')) 'C-2: a stale command is retargeted and keeps owner flags'
+
+    Reset-SetupTest 'blocked-command'
+    $bin = Join-Path $testHome '.legion/bin'
+    New-Item -ItemType Directory -Path $bin -Force | Out-Null
+    [IO.File]::WriteAllText((Join-Path $bin 'legion'), 'owner command')
+    $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
+    Assert-Equal 'owner command' ([IO.File]::ReadAllText((Join-Path $bin 'legion'))) 'Unrelated command stays unchanged'
     Assert-SetupText $output 'Blocked commands: legion' 'Blocked command is listed after table'
     Assert-Equal 1 @($output | Where-Object { $_ -like '*legion*another file*' -or $_ -like 'Blocked commands:*' }).Count 'N3 a blocked command is reported once on apply'
     Reset-SetupTest 'finder-failure'

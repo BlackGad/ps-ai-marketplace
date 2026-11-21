@@ -4,8 +4,9 @@ $library = Join-Path $root 'plugins/ps-ai/bin/lib/commands.ps1'
 Assert-True (Test-Path -LiteralPath $library) 'Owner-command library exists'
 . $library
 $commands = Get-LegionOwnerCommands
-Assert-Equal 'ps-ai-setup|ps-ai-status|ps-ai-overseer|legion' ($commands.Keys -join '|') 'Four command names in order'
-Assert-Equal 'ps-ai-setup.ps1|ps-ai-status.ps1|ps-ai-overseer.ps1|legion.ps1' ($commands.Values -join '|') 'Command targets'
+Assert-Equal 'legion' ($commands.Keys -join '|') 'Legion is the only owner command'
+Assert-Equal 'legion.ps1' ($commands.Values -join '|') 'Command targets'
+Assert-Equal 'ps-ai-setup|ps-ai-status|ps-ai-overseer' ((Get-LegionRetiredCommands).Keys -join '|') 'Retired commands'
 
 $scratch = Join-Path $root ('.agents/temp/commands-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null

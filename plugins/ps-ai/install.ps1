@@ -496,7 +496,7 @@ function Get-UpdateConfigDirs {
 
 # The owner commands ps-ai creates, and the bin script each one calls.
 function Get-InstallOwnerCommands {
-    return [ordered]@{ 'ps-ai-setup' = 'ps-ai-setup.ps1'; 'ps-ai-status' = 'ps-ai-status.ps1'; 'ps-ai-overseer' = 'ps-ai-overseer.ps1'; 'legion' = 'legion.ps1' }
+    return [ordered]@{ 'legion' = 'legion.ps1' }
 }
 
 # Same rule as lib/commands.ps1 (this file is standalone): the whole file is the generated launcher,
