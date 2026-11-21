@@ -12,7 +12,7 @@ Installer options, CLI guides and repository details for maintainers and power u
 On Windows, run this in Windows PowerShell 5.1 or PowerShell 7 (`pwsh`):
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1)))
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1)))
 ```
 
 The script checks for PowerShell 7, which the plugin needs at runtime. If it is missing on Windows, the script shows `winget install --id Microsoft.PowerShell -e` and asks before installing. If winget is missing or fails, it offers the official per-user ZIP, verifies its SHA-256 digest, extracts it to `~/.legion/tools/pwsh/`, and adds that folder to the process PATH, and to the user PATH only after you agree. Before installing legion, the script asks once: `Install legion for <tools> now? [y/N]`. Use `-Yes` to skip every question. `-Update`, `-Uninstall` and `-DryRun` do not ask this question. `-Update` asks its own question for a folder where legion is missing (see Install and update targets).
@@ -20,7 +20,7 @@ The script checks for PowerShell 7, which the plugin needs at runtime. If it is 
 On macOS or Linux, [install PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) first, then run:
 
 ```sh
-pwsh -c '& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1)))'
+pwsh -c '& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1)))'
 ```
 
 By default, the script installs legion for every installed coding CLI, using the targets below. If none is installed, it prints the official CLI install commands and stops successfully. Install one and rerun the script. Repeated runs skip completed steps and preserve hook approval.
@@ -39,7 +39,7 @@ Uninstall keeps its existing selection: selected installed CLIs' defaults and re
 Run `legion update` to update all selected targets, or the command below when `legion` is not available. Run `legion` in the repository afterward to load the new skills.
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Update
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Update
 ```
 
 ### Installer parameters
@@ -47,10 +47,10 @@ Run `legion update` to update all selected targets, or the command below when `l
 For options, use the script-block form in PowerShell. This example selects an extra account:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools <tool-id> -ConfigDir <account folder>
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Tools <tool-id> -ConfigDir <account folder>
 ```
 
-Use `-Tools <tool-id>` (or an array of ids) to choose tools, `-Source <owner/repository>` to override the GitHub marketplace source, and `-DryRun` to print the steps without changing anything. `-HomeRoot <folder>` uses that folder as the home for `~/.legion` and the files the installer writes, for a test or an alternate home. The default is your real home. The default source is `BlackGad/ps-ai-marketplace`. `-Ref release|main` picks the track (default `release`, the `stable` branch); to switch between release and main, uninstall, then install. A working-tree script uses its sibling `tools.json` unless `-Source` is supplied. Remote dry runs read that metadata once. It does not change the marketplace source passed to the CLI. Install and update dry runs execute read-only listings to detect existing registrations and plugins; displayed add and update commands are previews.
+Use `-Tools <tool-id>` (or an array of ids) to choose tools, `-Source <owner/repository>` to override the GitHub marketplace source, and `-DryRun` to print the steps without changing anything. `-HomeRoot <folder>` uses that folder as the home for `~/.legion` and the files the installer writes, for a test or an alternate home. The default is your real home. The default source is `BlackGad/ps-legion-marketplace`. `-Ref release|main` picks the track (default `release`, the `stable` branch); to switch between release and main, uninstall, then install. A working-tree script uses its sibling `tools.json` unless `-Source` is supplied. Remote dry runs read that metadata once. It does not change the marketplace source passed to the CLI. Install and update dry runs execute read-only listings to detect existing registrations and plugins; displayed add and update commands are previews.
 
 To adopt a signed-in account folder, run `legion add codex <existing folder>`. The folder must exist; setup keeps its settings and login, records it and creates a shortcut. Setup installs a missing CLI, and legion only where a folder has none, under the same approval; moving an installed legion to a new version is the update flow's job. Adopting the same folder again reuses its account. Only the owner logs in if the CLI asks. An existing shortcut can instead be recorded through the tool's account guide.
 
@@ -61,7 +61,7 @@ Overseer sessions check for a newer legion version once a day and show a notice 
 To follow `main` instead of releases, add `-Ref main` to the install line. To switch between release and main later, uninstall, then install:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Ref main
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Ref main
 ```
 
 ### Prerequisites and CLI guides
@@ -81,21 +81,21 @@ Run these in the selected account's environment. Setup normally installs legion 
 Claude Code:
 
 ```text
-claude plugin marketplace add BlackGad/ps-ai-marketplace#stable
+claude plugin marketplace add BlackGad/ps-legion-marketplace#stable
 claude plugin install legion@ps-legion-marketplace
 ```
 
 Codex CLI:
 
 ```text
-codex plugin marketplace add BlackGad/ps-ai-marketplace --ref stable
+codex plugin marketplace add BlackGad/ps-legion-marketplace --ref stable
 codex plugin add legion@ps-legion-marketplace
 ```
 
 Copilot CLI:
 
 ```text
-copilot plugin marketplace add BlackGad/ps-ai-marketplace#stable
+copilot plugin marketplace add BlackGad/ps-legion-marketplace#stable
 copilot plugin install legion@ps-legion-marketplace
 ```
 
@@ -106,7 +106,7 @@ Codex hooks need one-time trust through `/hooks` in the selected account. Reinst
 Uninstall then install is an upgrade: your settings, notes, account folders and account launchers stay in place.
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Uninstall
 ```
 
 Shows the targets and generated files before asking. Use `-Yes` to skip the prompt, `-DryRun` to preview, or `-Tools` and `-ConfigDir` to narrow targets. Removes legion and its marketplace registration, plus its copied runtime when no unselected account launcher needs it. Keeps account launchers in `~/.legion/bin`; subscription launchers only select the config folder and call the CLI. The `legion` owner command in `~/.legion/bin` (plus `legion.cmd` on Windows) keeps working through another legion install if one remains; otherwise uninstall removes it. Unrelated files stay. Keeps `~/.legion/configuration` (settings and notes), `~/.legion/agents` (account folders and logins), repositories, and the CLIs themselves. Reinstall recreates missing subscription account launchers from settings using the stock CLI on PATH, skipping accounts whose CLI is unavailable. Removing a single account still deletes its launchers.
@@ -114,7 +114,7 @@ Shows the targets and generated files before asking. Use `-Yes` to skip the prom
 For a full removal, run `legion uninstall --purge` or:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Uninstall -Purge
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Uninstall -Purge
 ```
 
 Purge runs uninstall first, then lists everything it will delete and asks a separate question. It removes all of `~/.legion`, including settings, notes, account folders, legion-made logins and launchers. It removes legion's plugin files, marketplace registration, caches, data and settings entries from every recorded tool folder and every default tool folder, even when a CLI is missing. On Windows it also removes the legion bin and portable PowerShell entries from user and current process PATH. Repositories, the CLIs and other tool settings stay. Purge covers all accounts even if `-Tools` or `-ConfigDir` narrowed the preceding uninstall. `-Yes` answers both questions; `-DryRun` lists the plan and removes nothing. Settings that cannot be safely edited are left unchanged and printed as manual steps.

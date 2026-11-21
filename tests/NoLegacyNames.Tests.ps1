@@ -7,7 +7,6 @@ $violations = @(
     foreach ($file in $files) {
         if ($file -eq 'CHANGELOG.md' -or -not (Test-Path -LiteralPath (Join-Path $repoRoot $file) -PathType Leaf)) { continue }
         $text = [IO.File]::ReadAllText((Join-Path $repoRoot $file))
-        $text = $text.Replace(('BlackGad/ps' + '-ai-marketplace'), 'repository-address')
         if ($text -match $pattern -or $file -match $pattern) { $file }
     }
 )

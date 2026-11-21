@@ -364,7 +364,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     $script:behavior = { param($call) if ($call.Tool -eq 'codex' -and $call.Source -eq $root) { throw $refusal }; 'ok' }
     $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
     Assert-Equal 'passed' $result.Result 'the fallback passes'
-    $fallback = @($calls | Where-Object { $_.Source -eq 'BlackGad/ps-ai-marketplace' })
+    $fallback = @($calls | Where-Object { $_.Source -eq 'BlackGad/ps-legion-marketplace' })
     Assert-Equal 1 $fallback.Count 'only the refusing tool used the fallback'
     Assert-Equal 'codex' $fallback[0].Tool 'the fallback was for codex'
     Assert-True ((@($fallback[0].Words) -join ' ') -like '*-Ref main*') 'the fallback installs main'

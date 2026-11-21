@@ -18,7 +18,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $folder = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
         $calls.Add("$($entry.id):$folder")
         $output = if ($Command -contains 'marketplace') {
-            Get-FixtureMarketplaceListing -Tool $entry.id -Source 'BlackGad/ps-ai-marketplace'
+            Get-FixtureMarketplaceListing -Tool $entry.id -Source 'BlackGad/ps-legion-marketplace'
         } elseif ($entry.plugin.listing.format -eq 'json') {
             ConvertTo-Json -InputObject @(@{id='legion@ps-legion-marketplace';enabled=$true;installPath=$fixturePlugin}) -Compress
         } else { "legion@ps-legion-marketplace enabled $fixturePlugin" }

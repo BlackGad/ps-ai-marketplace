@@ -11,7 +11,7 @@ foreach ($entry in $entries) { $states[$entry.command] = @{Added=$false; Refresh
 $fixturePlugin = New-InstallFixturePlugin -Path (Join-Path $fixtureHome 'installed')
 function Get-InstallSourceText {
     param($Url)
-    if ($Url -ne 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/stable/plugins/legion/tools.json') { throw 'Unexpected catalog URL' }
+    if ($Url -ne 'https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/stable/plugins/legion/tools.json') { throw 'Unexpected catalog URL' }
     $catalogText
 }
 function Test-InstallCommandAvailable { param($Name) $Name -in @('claude','codex','copilot') }
@@ -48,7 +48,7 @@ function Invoke-ClosedInput {
         } elseif ($entry.id -eq 'claude') { $output = @('[]') }
         return @{ExitCode=0; Output=$output}
     }
-    if ($line -eq ((Get-InstallCommands -Tool $entry.id -Source 'BlackGad/ps-ai-marketplace')[0] -join '|')) {
+    if ($line -eq ((Get-InstallCommands -Tool $entry.id -Source 'BlackGad/ps-legion-marketplace')[0] -join '|')) {
         $state.Added=$true
         return @{ExitCode=0; Output=@()}
     }

@@ -40,7 +40,7 @@ Assert-Equal $signatures[1] $signatures[0] 'BootstrapParamsMatchInstaller: names
                 if ($branch -eq 'main') { $extra = @('-Ref','main') }
                 $result = Invoke-ClosedInput -Command (@($runtime, '-NoProfile', '-File', $runner, '-Installer', $bootstrap, '-Plugin', $plugin, '-Fixture', $scratch, '-CliPath', $fakeBin) + $extra)
                 Assert-Equal 0 $result.ExitCode "BootstrapReleaseUrl: $($result.ErrorOutput -join ' ')"
-                Assert-True ($result.Output -contains "download=https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/$branch/plugins/legion/install.ps1") "BootstrapReleaseUrl: $branch code is downloaded"
+                Assert-True ($result.Output -contains "download=https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/$branch/plugins/legion/install.ps1") "BootstrapReleaseUrl: $branch code is downloaded"
             }
             $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', $bootstrap, '-Plugin', $plugin, '-Fixture', $scratch, '-CliPath', $fakeBin, '-NoRelease')
             Assert-True ($result.ExitCode -ne 0) 'BootstrapNoRelease: failed release stops'

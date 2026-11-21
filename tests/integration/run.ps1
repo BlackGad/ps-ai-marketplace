@@ -209,7 +209,7 @@ function Get-IntegrationHomeSnapshot {
 
 $script:Ctx = @{}
 $script:IntegrationTools = @('claude', 'codex', 'copilot')
-$script:MarketplaceRepo = 'BlackGad/ps-ai-marketplace'
+$script:MarketplaceRepo = 'BlackGad/ps-legion-marketplace'
 
 # Runs a repository script in its own pwsh. Plain values are quoted, -Names are not, arrays become a,b,c.
 function Invoke-IntegrationScript {

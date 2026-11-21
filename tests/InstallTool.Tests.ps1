@@ -100,7 +100,7 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
     $fixtureInstallerScope = 'caller'
     function Invoke-RestMethod {
         param([string]$Uri)
-        Assert-Equal 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1' $Uri 'README downloads the remote installer'
+        Assert-Equal 'https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1' $Uri 'README downloads the remote installer'
         '$fixtureInstallerScope = "installer"; "fixture-installer-ran"'
     }
     $result = . ([scriptblock]::Create($windowsExample.Groups[1].Value))

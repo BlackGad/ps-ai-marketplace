@@ -11,8 +11,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         throw "Unexpected CLI call: $($Command -join ' ')"
     }
     foreach ($case in @(
-        @{ Name='ReleaseAddsStable'; Ref='release'; Claude='BlackGad/ps-ai-marketplace#stable'; Codex='BlackGad/ps-ai-marketplace --ref stable' }
-        @{ Name='MainAddsMain'; Ref='main'; Claude='BlackGad/ps-ai-marketplace#main'; Codex='BlackGad/ps-ai-marketplace --ref main' }
+        @{ Name='ReleaseAddsStable'; Ref='release'; Claude='BlackGad/ps-legion-marketplace#stable'; Codex='BlackGad/ps-legion-marketplace --ref stable' }
+        @{ Name='MainAddsMain'; Ref='main'; Claude='BlackGad/ps-legion-marketplace#main'; Codex='BlackGad/ps-legion-marketplace --ref main' }
     )) {
         try {
             $options = @{ Tools=@('claude','codex','copilot'); Catalog=$script:installCatalog; DryRun=$true }

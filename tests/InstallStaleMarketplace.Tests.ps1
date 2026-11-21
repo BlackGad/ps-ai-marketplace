@@ -10,7 +10,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-Equal $sandbox $env:CODEX_HOME 'Stale marketplace recovery uses selected account'
         $line = $Command -join '|'
         if ($line -eq 'codex|plugin|marketplace|list|--json') {
-            return @{ ExitCode=0; Output=@(@{ marketplaces=@(@{ name='ps-legion-marketplace'; root=$checkout; marketplaceSource=@{sourceType='git';source='https://github.com/BlackGad/ps-ai-marketplace.git'} }) } | ConvertTo-Json -Depth 10 -Compress) }
+            return @{ ExitCode=0; Output=@(@{ marketplaces=@(@{ name='ps-legion-marketplace'; root=$checkout; marketplaceSource=@{sourceType='git';source='https://github.com/BlackGad/ps-legion-marketplace.git'} }) } | ConvertTo-Json -Depth 10 -Compress) }
         }
         if ($line -eq 'codex|plugin|list') {
             $output = if ($state.Installed) { @('legion@ps-legion-marketplace installed, enabled') } else { @() }
@@ -28,21 +28,21 @@ $repo = Split-Path $PSScriptRoot -Parent
     }
     try {
         New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
-        $null = Invoke-LegionInstallSteps -Tool codex -Source 'BlackGad/ps-ai-marketplace' -ConfigEnv CODEX_HOME -ConfigDir $sandbox
+        $null = Invoke-LegionInstallSteps -Tool codex -Source 'BlackGad/ps-legion-marketplace' -ConfigEnv CODEX_HOME -ConfigDir $sandbox
         Assert-Equal 'codex|plugin|marketplace|upgrade,codex|plugin|add|legion@ps-legion-marketplace' ($state.Calls -join ',') 'Missing root refreshes before plugin install without re-registering'
         $state.Calls.Clear()
-        $null = Invoke-LegionInstallSteps -Tool codex -Source 'BlackGad/ps-ai-marketplace' -ConfigEnv CODEX_HOME -ConfigDir $sandbox
+        $null = Invoke-LegionInstallSteps -Tool codex -Source 'BlackGad/ps-legion-marketplace' -ConfigEnv CODEX_HOME -ConfigDir $sandbox
         Assert-Equal 0 $state.Calls.Count 'Healthy repeat does not mutate the account'
         $state.Installed = $false
-        $null = Invoke-LegionInstallSteps -Tool codex -Source 'BlackGad/ps-ai-marketplace' -ConfigEnv CODEX_HOME -ConfigDir $sandbox
+        $null = Invoke-LegionInstallSteps -Tool codex -Source 'BlackGad/ps-legion-marketplace' -ConfigEnv CODEX_HOME -ConfigDir $sandbox
         Assert-Equal 'codex|plugin|marketplace|upgrade' $state.Calls[0] 'Missing plugin refreshes an existing checkout'
         $state.Calls.Clear()
         Remove-Item -LiteralPath $checkout
-        $preview = @(Invoke-LegionInstallSteps -Tool codex -Source 'BlackGad/ps-ai-marketplace' -ConfigEnv CODEX_HOME -ConfigDir $sandbox -DryRun)
+        $preview = @(Invoke-LegionInstallSteps -Tool codex -Source 'BlackGad/ps-legion-marketplace' -ConfigEnv CODEX_HOME -ConfigDir $sandbox -DryRun)
         Assert-True (@($preview) -match 'plugin marketplace upgrade') 'Dry run previews stale-root refresh even with an installed plugin'
         Assert-Equal 0 $state.Calls.Count 'Dry run makes no mutations'
         $state.FailRefresh = $true
-        Assert-Throws { Invoke-LegionInstallSteps -Tool codex -Source 'BlackGad/ps-ai-marketplace' -ConfigEnv CODEX_HOME -ConfigDir $sandbox } 'Failed refresh stops installation'
+        Assert-Throws { Invoke-LegionInstallSteps -Tool codex -Source 'BlackGad/ps-legion-marketplace' -ConfigEnv CODEX_HOME -ConfigDir $sandbox } 'Failed refresh stops installation'
         Assert-Equal 1 $state.Calls.Count 'Refresh failure never reaches plugin install'
     } finally {
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar

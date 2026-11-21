@@ -7,7 +7,7 @@ The update uses `codex plugin marketplace upgrade` without a marketplace selecto
 After the owner logs in to the selected account, use the account-specific [installer flow](accounts.md). For a manual install in that account's environment:
 
 ```text
-codex plugin marketplace add BlackGad/ps-ai-marketplace --ref stable
+codex plugin marketplace add BlackGad/ps-legion-marketplace --ref stable
 codex plugin add legion@ps-legion-marketplace
 ```
 
