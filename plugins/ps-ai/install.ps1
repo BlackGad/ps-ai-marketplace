@@ -1017,15 +1017,18 @@ function Ensure-InstallPowerShell {
         }
         return $true
     }
-    Write-Host 'PowerShell 7 is missing.'
     if (-not $OnWindows) {
+        Write-Host 'PowerShell 7 is missing.'
         Write-Host 'Install PowerShell 7: https://learn.microsoft.com/powershell/scripting/install/installing-powershell'
         return $false
     }
-    Write-Host ('winget install --id ' + $script:installCatalog.bootstrap.windows.wingetId + ' -e')
-    Write-Host 'ZIP fallback: latest official PowerShell ZIP, verified with its SHA-256 digest, to ~/.legion/tools/pwsh/ (user and process PATH).'
+    if (-not $Yes -or $DryRun) {
+        Write-Host 'PowerShell 7 is missing.'
+        Write-Host ('winget install --id ' + $script:installCatalog.bootstrap.windows.wingetId + ' -e')
+        Write-Host 'ZIP fallback: latest official PowerShell ZIP, verified with its SHA-256 digest, to ~/.legion/tools/pwsh/ (user and process PATH).'
+    }
     if ($DryRun) { return $false }
-    if (-not $Yes -and (Read-Host 'Install PowerShell 7 now? [y/N]') -notmatch '^(?i:y|yes)$') { return $false }
+    if (-not (Confirm-InstallChange -Yes:$Yes -Question 'Install PowerShell 7 now? [y/N]')) { return $false }
     if (Test-InstallCommandAvailable -Name winget) {
         try {
             $exitCode = Invoke-InstallWinget
@@ -1042,7 +1045,6 @@ function Ensure-InstallPowerShell {
             Write-Host 'winget did not make PowerShell 7 available.'
         } catch { Write-Host 'winget failed to install PowerShell 7.' }
     } else { Write-Host 'winget is missing.' }
-    if (-not $Yes -and (Read-Host 'Install PowerShell 7 from the official per-user ZIP now? [y/N]') -notmatch '^(?i:y|yes)$') { return $false }
     Install-PowerShellZip
     return $true
 }
@@ -1054,10 +1056,6 @@ function Invoke-PsAiInstaller {
     if ($Uninstall) {
         Invoke-PsAiUninstall -Tools $Tools -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes
         return
-    }
-    if (-not $Update) {
-        $ready = Ensure-InstallPowerShell -DryRun:$DryRun -Yes:$Yes
-        if (-not $ready -and -not $DryRun) { return }
     }
     if (-not $Tools -or $Tools.Count -eq 0) {
         $Tools = @($script:installCatalog.tools | Where-Object { Test-InstallCommandAvailable -Name $_.command } | ForEach-Object { $_.id })
@@ -1095,7 +1093,26 @@ function Invoke-PsAiInstaller {
         if (-not $DryRun) { 'done: restart your sessions; run legion in the repository' }
         return
     }
-    if (-not $DryRun -and -not (Confirm-InstallChange -Yes:$Yes -Question "Install ps-ai for $($Tools -join ', ') now? [y/N]")) { return }
+    "Install ps-ai for $($Tools -join ', ')"
+    $ready = Ensure-InstallPowerShell -DryRun
+    $onWindows = $env:OS -eq 'Windows_NT'
+    if (-not $ready -and -not $onWindows -and -not $DryRun) { return }
+    $bin = Get-InstallLegionPath 'bin'
+    $pathQuestion = ''
+    if ($onWindows -and -not (Test-InstallPathEntry -Path (Get-InstallUserPath) -Entry $bin -Separator ';')) {
+        $pathQuestion = ', and add ~/.legion/bin to your PATH'
+    }
+    if (-not $DryRun) {
+        if (-not (Confirm-InstallChange -Yes:$Yes -Question "Install ps-ai for $($Tools -join ', ') now${pathQuestion}? [y/N]")) {
+            'Nothing changed. Run again with -Yes to apply.'
+            return
+        }
+        if (-not (Ensure-InstallPowerShell -Yes)) { return }
+        if ($onWindows) {
+            New-Item -ItemType Directory -Path $bin -Force | Out-Null
+            Add-InstallPowerShellPath -Path $bin
+        }
+    }
     $results = @()
     $Source = Resolve-InstallSource -Source $Source
     foreach ($tool in $Tools) {
@@ -1103,6 +1120,11 @@ function Invoke-PsAiInstaller {
         $configEnv = $entry.configEnv
         foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
             Invoke-PsAiInstallSteps -Tool $tool -Source $Source -ConfigEnv $configEnv -ConfigDir $folder -DryRun:$DryRun -Ref $Ref
+            if (-not $DryRun) {
+                $root = Get-InstallPluginRoot -Entry $entry -ConfigDir $folder
+                Invoke-InstallRefresh -Entry $entry -ConfigDir $folder -PluginRoot $root
+                $pluginVersion = (Get-Content -LiteralPath (Join-Path $root 'plugin.json') -Raw | ConvertFrom-Json).version
+            }
         }
         if (-not $DryRun) {
             $version = (& $entry.command --version 2>$null | Select-Object -First 1)
@@ -1111,7 +1133,14 @@ function Invoke-PsAiInstaller {
         }
         if ($entry.hooks.hint) { $entry.hooks.hint }
     }
-    if (-not $DryRun) { $results | Format-Table Tool, Version, Plugin, Hooks -AutoSize }
+    if (-not $DryRun) {
+        $results | Format-Table Tool, Version, Plugin, Hooks -AutoSize
+        if (-not $onWindows -and -not (Test-InstallPathEntry -Path $env:PATH -Entry $bin -Separator ([string][IO.Path]::PathSeparator))) {
+            'add to your shell profile: export PATH="$HOME/.legion/bin:$PATH"'
+        }
+        "installed: ps-ai $pluginVersion ($Ref)"
+        'next: legion add claude (or legion in a repository)'
+    }
 }
 
 if (-not $NoRun) {

@@ -36,6 +36,9 @@ $repo = Split-Path $PSScriptRoot -Parent
         function Get-InstallPowerShellCommand { return @{ Source = $portable } }
         function Get-InstallPortablePowerShell { return $portable }
         function Add-InstallPowerShellPath { param($Path) $script:pathWrites++ }
+        function Get-InstallUserPath { Get-InstallLegionPath 'bin' }
+        function Invoke-InstallRefresh { }
+        function Get-InstallPluginRoot { Join-Path $repo 'plugins/ps-ai' }
         function Get-UpdateConfigDirs { param($Tool, $ConfigDir) ,@('') }
         function Resolve-InstallSource { param($Source) return $Source }
         function Test-InstallCommandAvailable { param($Name) $true }

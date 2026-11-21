@@ -26,6 +26,11 @@ Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install 
 & {
     . $script -NoRun
     function Ensure-InstallPowerShell { return $true }
+    function Get-InstallHome { Join-Path $root '.agents/temp/install-selected-account' }
+    function Get-InstallUserPath { Get-InstallLegionPath 'bin' }
+    function Add-InstallPowerShellPath { }
+    function Invoke-InstallRefresh { }
+    function Get-InstallPluginRoot { Join-Path $root 'plugins/ps-ai' }
     function codex { param($Version) Assert-Equal '--version' $Version 'Fake CLI only handles version'; 'fixture-version' }
     $calls = [Collections.Generic.List[string]]::new()
     function Invoke-ClosedInput {

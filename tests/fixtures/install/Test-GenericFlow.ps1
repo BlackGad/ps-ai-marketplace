@@ -29,7 +29,7 @@ function Invoke-ClosedInput {
     }
     if ($line -eq ((@($entry.command) + $entry.plugin.list) -join '|')) {
         $output = @()
-        if ($Mode -in @('cached','update')) {
+        if ($Mode -in @('cached','update') -or $state.Installed) {
             if ($entry.id -eq 'claude') {
                 $output = @'
 [
