@@ -470,7 +470,7 @@ function Get-InstallOwnerCommands {
 
 # Same rule as lib/commands.ps1 (this file is standalone): the whole file is the generated launcher,
 # one line whose -File argument is the script, and a .cmd file writes % as %%.
-# Returns the script path the command calls, or nothing when the file is not a ps-ai command.
+# Returns the script path and its span, or nothing when the file is not a ps-ai command.
 function Get-InstallOwnerCommandTarget {
     param([string]$Path, [string]$Script)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
@@ -484,9 +484,26 @@ function Get-InstallOwnerCommandTarget {
     if ([IO.Path]::GetExtension($Path) -ieq '.cmd') { $argument = '(?<argument>"[^"\r\n]*"|%\*|[\w.=:/\\-]+)' }
     $tail = $text.Substring($match.Length)
     if ($tail -notmatch ('\A(?:[ \t]+' + $argument + ')*\s*\z')) { return }
-    $target = $match.Groups['target'].Value -replace '''([^'']*)''|"([^"]*)"', '$1$2'
+    $word = $match.Groups['target']
+    $target = $word.Value -replace '''([^'']*)''|"([^"]*)"', '$1$2'
     if ([IO.Path]::GetExtension($Path) -ieq '.cmd') { $target = $target.Replace('%%', '%') }
-    if ($target.Replace('\', '/').EndsWith("/bin/$Script", [StringComparison]::Ordinal)) { return $target }
+    $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if ($target.Replace('\', '/').EndsWith("/bin/$Script", $comparison)) {
+        return [pscustomobject]@{ Path=$target; Start=$word.Index; Length=$word.Length }
+    }
+}
+
+# Retarget only the generated script argument, keeping the owner's flags verbatim.
+function Set-InstallOwnerCommandTarget {
+    param([string]$Path, [string]$Script, [string]$Runner)
+    $target = Get-InstallOwnerCommandTarget -Path $Path -Script $Script
+    if (-not $target) { return }
+    $literal = if ([IO.Path]::GetExtension($Path) -ieq '.cmd') { '"' + $Runner.Replace('%', '%%') + '"' }
+        else { "'" + $Runner.Replace("'", "'`"'`"'") + "'" }
+    $text = [IO.File]::ReadAllText($Path)
+    $bin = [IO.Path]::GetFullPath((Get-InstallLegionPath 'bin'))
+    if (-not (Test-InstallGeneratedPathSafe -Path $Path -Bin $bin)) { return }
+    [IO.File]::WriteAllText($Path, $text.Substring(0, $target.Start) + $literal + $text.Substring($target.Start + $target.Length))
 }
 
 function Test-InstallOwnerCommandFile {
@@ -515,11 +532,12 @@ function Get-InstallDeadCommandPaths {
             $path = Join-Path $bin $name
             $target = Get-InstallOwnerCommandTarget -Path $path -Script $owner[$command]
             if (-not $target) { continue }
-            $scriptGone = -not (Test-Path -LiteralPath $target -PathType Leaf)
+            $scriptGone = -not (Test-Path -LiteralPath $target.Path -PathType Leaf)
             $insideRemoved = $false
+            $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
             foreach ($folder in $RemovedFolders) {
                 $prefix = [IO.Path]::GetFullPath($folder).TrimEnd('\', '/') +[IO.Path]::DirectorySeparatorChar
-                if ([IO.Path]::GetFullPath($target).StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { $insideRemoved = $true }
+                if ([IO.Path]::GetFullPath($target.Path).StartsWith($prefix, $comparison)) { $insideRemoved = $true }
             }
             if (($scriptGone -or $insideRemoved) -and (Test-InstallGeneratedPathSafe -Path $path -Bin $bin)) { $path }
         }
@@ -535,10 +553,22 @@ function Get-UninstallSurvivors {
     }
     foreach ($entry in $script:installCatalog.tools) {
         if (-not (Test-InstallCommandAvailable -Name $entry.command)) { continue }
-        foreach ($folder in (Get-UpdateConfigDirs -Tool $entry.id)) {
-            if ($removed -contains (Get-InstallFolderKey -Entry $entry -Folder $folder)) { continue }
-            if (-not (Test-InstallStepDone -Command (@($entry.command) + $entry.plugin.install) -Kind plugin -ConfigEnv $entry.configEnv -ConfigDir $folder -IncludeDisabled)) { continue }
-            [pscustomobject]@{ Entry = $entry; Folder = $folder }
+        $folders = Get-UpdateConfigDirs -Tool $entry.id
+        # An environment override does not hide an install in the physical default folder.
+        if ($entry.plugin.defaultConfigDir) { $folders += Resolve-InstallConfigDir $entry.plugin.defaultConfigDir }
+        $seen = @()
+        foreach ($folder in $folders) {
+            $key = Get-InstallFolderKey -Entry $entry -Folder $folder
+            if ($removed -ccontains $key -or $seen -ccontains $key) { continue }
+            $seen += $key
+            try {
+                $root = Get-InstallPluginRoot -Entry $entry -ConfigDir $folder
+                if ($root) { [pscustomobject]@{ Entry=$entry; Folder=$folder; Root=$root } }
+            } catch {
+                Write-Host "kept: shared commands (could not read $($entry.id) plugins; check them after uninstall)"
+                # A null root records uncertainty, so neither removal nor repair can touch shared commands.
+                [pscustomobject]@{ Entry=$entry; Folder=$folder; Root=$null }
+            }
         }
     }
 }
@@ -556,14 +586,19 @@ function Get-InstallFolderKey {
 # Only the commands the plan listed are removed; anything else that went dead is reported and kept.
 function Repair-InstallOwnerCommands {
     param($Survivors = @(), [string[]]$Planned = @())
-    $dead = @(Get-InstallDeadCommandPaths)
-    if (-not $dead.Count) { return }
-    if ($Survivors.Count) {
-        Invoke-InstallRefresh -Entry $Survivors[0].Entry -ConfigDir $Survivors[0].Folder
-        return
-    }
-    foreach ($path in $dead) {
-        if ($Planned -contains $path) { Remove-Item -LiteralPath $path -Force -ErrorAction Stop; "Removed command: $path" }
+    if (@($Survivors | Where-Object { -not $_.Root }).Count) { return }
+    $owner = Get-InstallOwnerCommands
+    foreach ($path in (Get-InstallDeadCommandPaths)) {
+        $scriptName = $owner[([IO.Path]::GetFileName($path) -replace '\.cmd$', '')]
+        $runner = $Survivors | ForEach-Object { Join-Path $_.Root "bin/$scriptName" } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+        if ($runner) { Set-InstallOwnerCommandTarget -Path $path -Script $scriptName -Runner $runner }
+        elseif ($Planned -ccontains $path) {
+            # Re-read ownership and links immediately before deleting a planned command.
+            if (@(Get-InstallDeadCommandPaths) -ccontains $path) {
+                Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+                "Removed command: $path"
+            }
+        }
         else { "Kept command: $path (its script is gone; it was not in the plan)" }
     }
 }
@@ -610,15 +645,22 @@ function Get-UninstallFiles {
     }
 }
 
-# A linked file or directory belongs to its owner; do not follow it outside bin.
+# A linked file or ancestor belongs to its owner; check through the selected home.
 function Test-InstallGeneratedPathSafe {
     param([string]$Path, [string]$Bin)
     $currentPath = [IO.Path]::GetFullPath($Path)
-    if (-not $currentPath.StartsWith($Bin + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe generated file path' }
-    while ($currentPath.Length -ge $Bin.Length) {
-        $current = Get-Item -LiteralPath $currentPath -Force -ErrorAction Stop
-        if ($current.Attributes -band [IO.FileAttributes]::ReparsePoint) { return $false }
-        if ($currentPath -eq $Bin) { break }
+    $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if (-not $currentPath.StartsWith($Bin + [IO.Path]::DirectorySeparatorChar, $comparison)) { throw 'Unsafe generated file path' }
+    $homeRoot = [IO.Path]::GetFullPath((Get-InstallHome)).TrimEnd('\', '/')
+    if (-not $currentPath.StartsWith($homeRoot + [IO.Path]::DirectorySeparatorChar, $comparison)) { throw 'Unsafe generated file path' }
+    while ($currentPath.Length -ge $homeRoot.Length) {
+        $current = Get-Item -LiteralPath $currentPath -Force -ErrorAction SilentlyContinue
+        if (-not $current) { return $false }
+        if ($current.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            Write-Host "skip: $Path (linked folder)"
+            return $false
+        }
+        if ([string]::Equals($currentPath, $homeRoot, $comparison)) { break }
         $currentPath = Split-Path $currentPath -Parent
     }
     return $true
@@ -696,16 +738,24 @@ function Invoke-PsAiUninstall {
         }
     }
     # Find the installs that stay before removing anything; their commands must keep working.
-    $survivors = @(Get-UninstallSurvivors -Targets $targets)
+    $bin = [IO.Path]::GetFullPath((Get-InstallLegionPath 'bin'))
+    $survivors = @()
+    if (@(Get-InstallOwnerCommandPaths -Bin $bin).Count) { $survivors = @(Get-UninstallSurvivors -Targets $targets) }
+    $uncertain = @($survivors | Where-Object { -not $_.Root }).Count -gt 0
     $files = @(Get-UninstallFiles -Tools $Tools -ConfigDir $ConfigDir -Owner $owner -KeepOwnerCommands:($survivors.Count -gt 0))
     foreach ($path in $files) { "Remove file: $path" }
     if (-not $files.Count) { 'skip: ps-ai generated files (not installed)' }
     $hasWork = $targets.Count -or $files.Count
-    # With no survivor, a command that loses its script has nothing to move to, so it is removed.
+    # A survivor can keep only commands whose script it actually provides.
     $plannedDead = @()
-    if ($hasWork -and -not $survivors.Count) {
+    if ($hasWork -and -not $uncertain) {
         $removedFolders = @($targets | Where-Object Cache | ForEach-Object { $_.Cache })
-        $plannedDead = @(Get-InstallDeadCommandPaths -RemovedFolders $removedFolders | Where-Object { $files -notcontains $_ })
+        $ownerCommands = Get-InstallOwnerCommands
+        $plannedDead = @(Get-InstallDeadCommandPaths -RemovedFolders $removedFolders | Where-Object {
+            $scriptName = $ownerCommands[([IO.Path]::GetFileName($_) -replace '\.cmd$', '')]
+            $provided = @($survivors | Where-Object { Test-Path -LiteralPath (Join-Path $_.Root "bin/$scriptName") -PathType Leaf }).Count
+            $files -cnotcontains $_ -and -not $provided
+        })
     }
     foreach ($path in $plannedDead) { "Remove dead command: $path" }
     'Channel plugins and their state remain in place.'
@@ -734,9 +784,12 @@ function Invoke-PsAiUninstall {
         }
         $bin = [IO.Path]::GetFullPath((Get-InstallLegionPath 'bin'))
         foreach ($path in $files) {
+            # The preview is not ownership: a file or any ancestor may have changed since then.
+            if (@(Get-UninstallFiles -Tools $Tools -ConfigDir $ConfigDir -Owner $owner -KeepOwnerCommands:($survivors.Count -gt 0)) -cnotcontains $path) { continue }
             Remove-Item -LiteralPath $path -Force -ErrorAction Stop
             $parent = Split-Path $path -Parent
             while ($parent.Length -gt $bin.Length -and -not @(Get-ChildItem -LiteralPath $parent -Force -ErrorAction Stop).Count) {
+                if (-not (Test-InstallGeneratedPathSafe -Path $parent -Bin $bin)) { break }
                 Remove-Item -LiteralPath $parent -ErrorAction Stop
                 $parent = Split-Path $parent -Parent
             }

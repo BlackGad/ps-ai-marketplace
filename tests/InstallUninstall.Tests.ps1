@@ -32,7 +32,9 @@ $repo = Split-Path $PSScriptRoot -Parent
         $line = $Command -join '|'
         if ($line -eq "$($entry.command)|plugin|list$(if ($entry.id -eq 'claude') { '|--json' })") {
             if ($state.FailList) { return @{ExitCode=7;Output=@()} }
-            $output = if ($state.Missing) { if ($entry.id -eq 'claude') { '[]' } else { 'ps-ai@ps-ai-marketplace not installed' } }
+            # The physical default folders hold no ps-ai here; only the named accounts do.
+            $absent = $state.Missing -or $folder -match '[\\/]\.(claude|codex|copilot)$'
+            $output = if ($absent) { if ($entry.id -eq 'claude') { '[]' } else { 'ps-ai@ps-ai-marketplace not installed' } }
                 elseif ($entry.id -eq 'claude') { '[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]' }
                 else { 'ps-ai@ps-ai-marketplace installed (disabled)' }
             return @{ExitCode=0;Output=@($output)}
