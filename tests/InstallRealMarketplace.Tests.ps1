@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $fixtures = Join-Path $PSScriptRoot 'fixtures/install/listings'
     foreach ($tool in @('claude', 'codex', 'copilot')) {
@@ -14,7 +14,7 @@ $repo = Split-Path $PSScriptRoot -Parent
             @{ExitCode=0; Output=$lines; ErrorOutput=@('unrelated warning')}
         }
         $command = (Get-InstallCommands -Tool $tool -Source 'example/requested-source')[0]
-        Assert-True (Test-InstallStepDone -Command $command) "$tool existing registration is reused regardless of source"
+        Assert-True (Test-InstallStepDone -Command $command -Kind marketplace) "$tool existing registration is reused regardless of source"
     }
     foreach ($invalid in @(@{'bad-name'='1'}, @{FIXTURE_FLAG=$true})) {
         $catalog = Get-InstallCatalog -Source $repo

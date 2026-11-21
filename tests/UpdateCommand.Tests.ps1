@@ -7,6 +7,5 @@ $repo = Split-Path $PSScriptRoot -Parent
     function New-Item { }
     function Set-Content { }
     $result = Get-PsAiUpdate -Force
-    Assert-True ($result.Command.Contains('BlackGad/ps-ai-marketplace/main/install.ps1')) 'Upstream installer URL is used'
-    Assert-True ($result.Command.Contains("-Source 'BlackGad/ps-ai-marketplace'")) 'Upstream source reaches the downloaded installer catalog'
+    Assert-Equal 'legion update' $result.Command 'UpdateCommandIsLegion'
 }

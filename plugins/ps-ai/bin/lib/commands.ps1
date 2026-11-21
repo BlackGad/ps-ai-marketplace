@@ -18,7 +18,7 @@ function Get-PsAiShimText {
     # Load the existing quoting helper only when generating a shim, so status stays read-only and lean.
     . (Join-Path $PSScriptRoot '../ps-ai-account.ps1') -NoRun -HomeRoot $HomeRoot
     $homeArgument = Get-PsAiShimHomeArgument -HomeRoot $HomeRoot -Windows:$Windows
-    if ($Windows) { return '@pwsh -NoProfile -File "' + $Script.Replace('%', '%%') + '"' + $homeArgument + ' %*' + "`r`n" }
+    if ($Windows) { return '@pwsh -NoProfile -File "' + $Script.Replace('%', '%%') + '"' + $homeArgument + ' %* & (goto) 2>nul & exit /b' + "`r`n" }
     return "#!/bin/sh`n" + 'exec pwsh -NoProfile -File ' + (ConvertTo-PsAiShellLiteral $Script) + $homeArgument + ' "$@"' + "`n"
 }
 
@@ -35,6 +35,8 @@ function Get-PsAiShimHomeArgument {
 # The whole file is the generated launcher: an optional shebang, then one line
 # [exec |@]pwsh <options> -File <script path> <owner flags>. Any other code makes it the owner's file.
 # Owner flags are plain words, quoted words, "$@" and %*. install.ps1 keeps its own copy of this rule.
+# The .cmd line ends with '& (goto) 2>nul & exit /b': uninstall deletes the .cmd, and (goto) ends the batch so cmd
+# never reads the deleted file again; exit /b then returns the script's status (the line is parsed before it runs).
 
 # -Batch: a .cmd file writes % as %%, so decode it before looking for the file.
 function Get-PsAiOwnerCommandTarget {
@@ -46,9 +48,10 @@ function Get-PsAiOwnerCommandTarget {
     if (-not $match.Success) { return $null }
     # Batch double quotes keep dollar signs literal; shell double quotes expand them.
     $argument = '(?<argument>(?:''[^''\r\n]*''|"[^"$`\r\n]*")+|"\$@"|\$@|%\*|[\w.=:/\\-]+)'
-    if ($Batch) { $argument = '(?<argument>"[^"\r\n]*"|%\*|[\w.=:/\\-]+)' }
+    $batchExit = ''
+    if ($Batch) { $argument = '(?<argument>"[^"\r\n]*"|%\*|[\w.=:/\\-]+)'; $batchExit = '(?:[ \t]+&[ \t]+\(goto\)[ \t]+2>nul[ \t]+&[ \t]+exit[ \t]+/b)?' }
     $tail = $Text.Substring($match.Length)
-    $tailMatch = [regex]::Match($tail, '\A(?:[ \t]+' + $argument + ')*\s*\z')
+    $tailMatch = [regex]::Match($tail, '\A(?:[ \t]+' + $argument + ')*' + $batchExit + '\s*\z')
     if (-not $tailMatch.Success) { return $null }
     $word = $match.Groups['target']
     # Drop the shell quotes; the generated form joins quoted pieces such as 'a'"'"'b'.

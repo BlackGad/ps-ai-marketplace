@@ -1,4 +1,4 @@
-. (Join-Path $repo 'install.ps1') -NoRun
+. (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
 . (Join-Path $PSScriptRoot 'MarketplaceListing.ps1')
 $catalog = Get-InstallCatalog -Source $repo
 $sandbox = Join-Path $repo ('.agents/temp/uninstall-clean-' + [guid]::NewGuid().ToString('N'))
@@ -6,6 +6,12 @@ New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
 $state = @{ Only=''; Plugin=$true; Marketplace=$true; FailRemove=$false; KeepListed=$false; FailVerify=$false; Answer='n'; Prompts=0 }
 $writes = [Collections.Generic.List[string]]::new()
 $calls = [Collections.Generic.List[string]]::new()
+# Each call records the tool's config variable as '<tool>=<folder>', so tests see which folder it reached.
+$callEnvironments = [Collections.Generic.List[string]]::new()
+# The sandbox is not the real profile, so a tool's default folder is <sandbox>/<defaultConfigDir>; installed tools have it.
+foreach ($tool in $catalog.tools) {
+    New-Item -ItemType Directory -Path (Join-Path $sandbox $tool.plugin.defaultConfigDir.Substring(2)) -Force | Out-Null
+}
 . (Join-Path $PSScriptRoot 'InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
 function Ensure-InstallPowerShell { throw 'Uninstall must not install prerequisites' }
 function Read-Host { $state.Prompts++; $state.Answer }
@@ -14,6 +20,7 @@ function Invoke-ClosedInput {
     $line = $Command -join '|'
     $calls.Add($line)
     $entry = $catalog.tools | Where-Object command -CEQ $Command[0]
+    $callEnvironments.Add($entry.id + '=' + [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process'))
     if ($line -ceq ((@($entry.command) + $entry.plugin.list) -join '|')) {
         if ($state.FailVerify -and $writes.Count) { return @{ExitCode=7;Output=@()} }
         # Only: when set, just that tool has ps-ai installed, so the others are not survivors.

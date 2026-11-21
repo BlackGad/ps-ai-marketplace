@@ -1,7 +1,7 @@
 $repo = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
 & {
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/uninstall-' + [guid]::NewGuid().ToString('N'))
     $bin = Join-Path $sandbox '.legion/bin'
@@ -12,6 +12,8 @@ $repo = Split-Path $PSScriptRoot -Parent
     $writes = [Collections.Generic.List[string]]::new()
     $state = @{ Missing=$false; FailList=$false; FailRemove=$false; Answer='n'; Prompts=0; OnlyMissing=$false }
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
+    # The sandbox is not the real profile, so each tool's default folder lives in it and exists when installed.
+    foreach ($tool in $catalog.tools) { New-Item -ItemType Directory -Path (Join-Path $sandbox $tool.plugin.defaultConfigDir.Substring(2)) -Force | Out-Null }
     function Ensure-InstallPowerShell { throw 'Uninstall must not install prerequisites' }
     # Retargeting dead commands through a surviving install is covered in InstallOwnerCommands; here it only must not run a real refresh.
     function Invoke-InstallRefresh { param($Entry, [string]$ConfigDir) }
@@ -32,7 +34,9 @@ $repo = Split-Path $PSScriptRoot -Parent
         $line = $Command -join '|'
         if ($line -eq "$($entry.command)|plugin|list$(if ($entry.id -eq 'claude') { '|--json' })") {
             if ($state.FailList) { return @{ExitCode=7;Output=@()} }
-            $output = if ($state.Missing) { if ($entry.id -eq 'claude') { '[]' } else { 'ps-ai@ps-ai-marketplace not installed' } }
+            # The physical default folders hold no ps-ai here; only the named accounts do.
+            $absent = $state.Missing -or $folder -match '[\\/]\.(claude|codex|copilot)$'
+            $output = if ($absent) { if ($entry.id -eq 'claude') { '[]' } else { 'ps-ai@ps-ai-marketplace not installed' } }
                 elseif ($entry.id -eq 'claude') { '[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]' }
                 else { 'ps-ai@ps-ai-marketplace installed (disabled)' }
             return @{ExitCode=0;Output=@($output)}
@@ -174,7 +178,7 @@ exec pwsh -NoProfile -File ''/plugin/bin/ps-ai-overseer.ps1'' "$@"' | Set-Conten
 }
 
 & {
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
     foreach ($field in @('uninstall','marketplaceRemove')) {
         $bad = $catalog | ConvertTo-Json -Depth 100 | ConvertFrom-Json

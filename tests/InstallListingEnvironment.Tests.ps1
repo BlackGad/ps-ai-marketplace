@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $realProcess = ${function:Invoke-ClosedInput}
     $saved = [Environment]::GetEnvironmentVariable('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', 'Process')
@@ -14,8 +14,9 @@ $repo = Split-Path $PSScriptRoot -Parent
     try {
         $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '0'
         $commands = Get-InstallCommands -Tool claude -Source 'BlackGad/ps-ai-marketplace'
-        foreach ($command in $commands) {
-            Assert-True (Test-InstallStepDone -Command $command) 'Both listings receive descriptor environment that suppresses cache-writing background traffic'
+        for ($index = 0; $index -lt $commands.Count; $index++) {
+            $kind = if ($index -eq 0) { 'marketplace' } else { 'plugin' }
+            Assert-True (Test-InstallStepDone -Command $commands[$index] -Kind $kind) 'Both listings receive descriptor environment that suppresses cache-writing background traffic'
             Assert-Equal '0' $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 'Listing environment only affects child process'
         }
     } finally {

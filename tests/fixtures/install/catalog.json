@@ -30,6 +30,7 @@
         "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-ai-marketplace", "--scope", "user"],
         "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
         "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
+        "marketplaceAddRef": ["plugin", "marketplace", "add", "{source}#{ref}"],
         "marketplaceAdd": [
           "plugin",
           "marketplace",
@@ -75,6 +76,7 @@
         "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-ai-marketplace"],
         "marketplaceUpdate": ["plugin", "marketplace", "upgrade"],
         "update": ["plugin", "add", "ps-ai@ps-ai-marketplace"],
+        "marketplaceAddRef": ["plugin", "marketplace", "add", "{source}", "--ref", "{ref}"],
         "marketplaceAdd": [
           "plugin",
           "marketplace",
@@ -118,6 +120,7 @@
         "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-ai-marketplace", "--force"],
         "marketplaceUpdate": ["plugin", "marketplace", "update", "ps-ai-marketplace"],
         "update": ["plugin", "update", "ps-ai@ps-ai-marketplace"],
+        "marketplaceAddRef": ["plugin", "marketplace", "add", "{source}#{ref}"],
         "marketplaceAdd": [
           "plugin",
           "marketplace",

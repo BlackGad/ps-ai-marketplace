@@ -8,6 +8,18 @@ function Get-PsAiRepoPath {
     return Join-Path (Join-Path $Repo '.legion') $Path
 }
 
+# The code worktree root: the parent of a Private .legion repository, or $null outside Git.
+function Get-PsAiCodeRoot {
+    param([string]$Path)
+    $root = git -C $Path rev-parse --show-toplevel 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    if ((Split-Path $root -Leaf) -eq '.legion') {
+        $root = git -C (Split-Path $root -Parent) rev-parse --show-toplevel 2>$null
+        if ($LASTEXITCODE -ne 0) { return $null }
+    }
+    return [IO.Path]::GetFullPath($root)
+}
+
 function Get-PsAiPathComparer {
     if ($IsWindows) { return [StringComparer]::OrdinalIgnoreCase }
     return [StringComparer]::Ordinal

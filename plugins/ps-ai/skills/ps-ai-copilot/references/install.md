@@ -1,6 +1,6 @@
 # Copilot CLI installation hint
 
-After updating ps-ai, tell the owner to restart the session to load the new skills. Follow [run.md](run.md) to resume work with the same account and repository folder.
+After updating ps-ai, tell the owner to run `legion` in the repository to load the new skills.
 
 When `copilot` is missing, run `pwsh -NoProfile -File <plugin>/bin/ps-ai-install-tool.ps1 -Tool copilot` to inspect status and the platform-specific official install command internally. Show commands only when requested or when the owner must run them themselves. Ask the owner whether to install Copilot CLI; offer Node.js only where the platform recipe requires it. Only after an explicit yes, run the same command with `-Yes`; it checks installed state before changing anything. If the owner declines, stop the account flow for this session.
 
@@ -16,4 +16,4 @@ On macOS and Linux the recipe needs Node.js and runs `npm install -g @github/cop
 
 If winget is unavailable or fails, the installer exits 2 and presents explicit `msi`/`zip` choices. Ask for the owner's choice and approval before adding `-Method` and `-Yes`. Never install a package manager implicitly. Previews make no downloads. Existing CLI detection and approved retries preserve PATH placeholders and registry type.
 
-Manual ps-ai installation, only when setup cannot do it, uses `copilot plugin marketplace add BlackGad/ps-ai-marketplace`, then `copilot plugin install ps-ai@ps-ai-marketplace` in the selected account environment. No optional wiki installation recipe is provided here.
+Manual ps-ai installation, only when setup cannot do it, uses `copilot plugin marketplace add BlackGad/ps-ai-marketplace#stable`, then `copilot plugin install ps-ai@ps-ai-marketplace` in the selected account environment. No optional wiki installation recipe is provided here.

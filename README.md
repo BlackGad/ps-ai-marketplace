@@ -28,7 +28,7 @@ Different tools and providers give independent reviews another perspective. The 
 
 1. **Install.** Run the install command above. In Codex, open `/hooks` once per account and approve the ps-ai hooks.
 2. **Add accounts.** Open your AI tool and say “Add a Codex agent called `<name>`” or “Add my existing Claude account from `<account folder>`.” You can also say “summon a minion”. Setup asks only which accounts to add. One yes approves installing ps-ai into the selected accounts. You log in yourself for new accounts. Existing folders keep their settings and login.
-3. **Start work.** Open a session in your repository and describe what you want done. Ask to set up orchestration if needed, then say “Continue.” Before the first legion task, the overseer asks once about running without a sandbox and saves your answer in notes. Future sessions continue from the handoff.
+3. **Start work.** Run `legion` in your repository; it sets up orchestration if needed and reopens the last conversation. Describe what you want done, then say “Continue.” Before the first legion task, the overseer asks once about running without a sandbox and saves your answer in notes. Future sessions continue from the handoff.
 
 Add preferences later in your own words. Say “use Telegram” when you want a channel.
 
@@ -49,7 +49,7 @@ Open your AI tool and say:
 
 ## Update and uninstall
 
-Say “Update ps-ai” or “Uninstall ps-ai.” Your tool guides you through approval; one update covers all accounts ps-ai knows. By hand, run the matching one-liner in PowerShell:
+Say “Update ps-ai” or “Uninstall ps-ai,” or run `legion update` or `legion uninstall`. One update covers all accounts ps-ai knows. If `legion` is not available, run the matching one-liner in PowerShell:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Update

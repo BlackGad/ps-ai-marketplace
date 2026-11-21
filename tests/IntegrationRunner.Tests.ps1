@@ -356,15 +356,25 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     . Reset-Runner -AllowFallback
     . Install-Fakes
     function Get-IntegrationRevision { return 'abc123' }
-    function Get-IntegrationRemoteMain { return 'abc123' }
+    $script:remoteChecks = 0
+    function Get-IntegrationRemoteMain { $script:remoteChecks++; return 'abc123' }
     $script:behavior = { param($call) if ($call.Tool -eq 'codex' -and $call.Source -eq $root) { throw $refusal }; 'ok' }
     $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
     Assert-Equal 'passed' $result.Result 'the fallback passes'
     $fallback = @($calls | Where-Object { $_.Source -eq 'BlackGad/ps-ai-marketplace' })
     Assert-Equal 1 $fallback.Count 'only the refusing tool used the fallback'
     Assert-Equal 'codex' $fallback[0].Tool 'the fallback was for codex'
-    Assert-True ((@($fallback[0].Words) -join ' ') -like '*-SourceRef abc123*') 'the fallback is bound to the tested revision'
+    Assert-True ((@($fallback[0].Words) -join ' ') -like '*-Ref main*') 'the fallback installs main'
+    Assert-Equal 2 $script:remoteChecks 'the fallback checks main before and after installation'
     Assert-Equal 0 $script:Ctx.NotTested.Count 'a fallback tool is tested'
+
+    . Reset-Runner -AllowFallback
+    . Install-Fakes
+    $script:remoteChecks = 0
+    function Get-IntegrationRemoteMain { $script:remoteChecks++; if ($script:remoteChecks -eq 1) { return 'abc123' }; return 'def456' }
+    $script:behavior = { param($call) if ($call.Tool -eq 'codex' -and $call.Source -eq $root) { throw $refusal }; 'ok' }
+    $result = Invoke-IntegrationBlock { Invoke-PsAiInstallFirst }
+    Assert-Equal 'failed' $result.Result 'main moving during fallback installation fails provenance'
 
     # A moved main branch is a failure, not a different revision under test.
     . Reset-Runner -AllowFallback

@@ -23,8 +23,8 @@ Assert-True (Test-Path -LiteralPath $checker) 'Shared update checker exists'
         Assert-Equal '0.2.0' $result.Installed 'Installed version comes from running copy'
         Assert-Equal '0.3.0' $result.Available 'Latest version is downloaded'
         Assert-True $result.Newer 'Newer release detected'
-        Assert-Equal 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/plugin.json' $downloads[0] 'Default GitHub manifest'
-        Assert-Equal "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Source 'BlackGad/ps-ai-marketplace' -Update" $result.Command 'Script-block update command'
+        Assert-Equal 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/stable/plugins/ps-ai/plugin.json' $downloads[0] 'Update check reads the stable manifest'
+        Assert-Equal 'legion update' $result.Command 'Update command is legion update'
         $before = Get-Content $cache -Raw
         $null = Get-PsAiUpdate -PluginRoot $plugin
         Assert-Equal 1 $downloads.Count 'Same day uses cache'
@@ -50,7 +50,7 @@ Assert-True (Test-Path -LiteralPath $checker) 'Shared update checker exists'
         New-Item -ItemType Directory -Path (Join-Path $sandbox 'marketplace/.claude-plugin') | Out-Null
         '{"name":"ps-ai-marketplace","plugins":[{"name":"ps-ai","source":"./plugins/ps-ai"}]}' | Set-Content (Join-Path $sandbox 'marketplace/.claude-plugin/marketplace.json')
         "[remote `"origin`"]`n url = https://github.com/example/marketplace.git`n" | Set-Content (Join-Path $sandbox 'marketplace/.git/config')
-        Assert-True ((Get-PsAiUpdate -PluginRoot $plugin -Force).Command.Contains('BlackGad/ps-ai-marketplace/main/install.ps1')) 'Checks keep the upstream update source'
+        Assert-Equal 'legion update' (Get-PsAiUpdate -PluginRoot $plugin -Force).Command 'Checks keep the legion update command'
 
         Remove-Item -LiteralPath $cache
         $remote.Fail = $true
@@ -70,7 +70,7 @@ Assert-True (Test-Path -LiteralPath $checker) 'Shared update checker exists'
         $lines = @(Invoke-PsAiUpdateCheck -PluginRoot $plugin -Force)
         Assert-Equal 'ps-ai installed: 0.3.0' $lines[0] 'Explicit check prints installed'
         Assert-Equal 'ps-ai available: 0.4.0' $lines[1] 'Explicit check prints available'
-        Assert-True ($lines[2].EndsWith(' -Update')) 'Explicit check prints update command'
+        Assert-Equal 'legion update' $lines[2] 'Explicit check prints update command'
         $remote.Text = '{"name":"ps-ai","version":"0.3.0"}'
         $lines = @(Invoke-PsAiUpdateCheck -PluginRoot $plugin -Force)
         Assert-Equal 'ps-ai 0.3.0 is up to date.' ($lines -join '|') 'Up-to-date check prints no update command'

@@ -334,7 +334,7 @@ function Invoke-IntegrationCli {
 function Test-IntegrationListing {
     param([string]$Tool, [string[]]$Lines, [switch]$IncludeDisabled)
     return & {
-        . (Join-Path $script:Ctx.Checkout 'install.ps1') -NoRun
+        . (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/install.ps1') -NoRun
         $script:installCatalog = Get-InstallCatalog -Source $script:Ctx.Checkout
         Test-InstallListing -Kind plugin -Tool $Tool -Lines $Lines -IncludeDisabled:$IncludeDisabled
     }
@@ -373,7 +373,7 @@ function Invoke-CliInstallScript {
 function Get-IntegrationToolVersion {
     param([string]$Tool)
     # Load the standalone installer's parser in this scope, without running the installer.
-    . (Join-Path $PSScriptRoot '../../install.ps1') -NoRun
+    . (Join-Path $PSScriptRoot '../../plugins/ps-ai/install.ps1') -NoRun
     $command = Resolve-IntegrationCommand (Get-IntegrationToolInfo $Tool).command
     $output = @(& $command --version 2>&1 | ForEach-Object { "$_" }) -join "`n"
     Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "$Tool --version exited $LASTEXITCODE"
@@ -405,8 +405,8 @@ function Invoke-CliInstallRepeat {
 function Invoke-PsAiInstall {
     param([string]$Tool, $Target)
     $arguments = @('-Source', $Target.Source, '-Tools', $Tool, '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
-    if ($Target.SourceRef) { $arguments += @('-SourceRef', $Target.SourceRef) }
-    return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'install.ps1') $arguments
+    if ($Target.Ref) { $arguments += @('-Ref', $Target.Ref) }
+    return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/install.ps1') $arguments
 }
 
 # Only the affected CLI's own refusal of a local folder counts; any other message is a real failure.
@@ -425,7 +425,7 @@ function Get-IntegrationRemoteMain {
 
 function Install-IntegrationTool {
     param([string]$Tool)
-    $checkout = @{ Source = $script:Ctx.Checkout; SourceRef = '' }
+    $checkout = @{ Source = $script:Ctx.Checkout; Ref = '' }
     try {
         $lines = Invoke-PsAiInstall $Tool $checkout
         $script:Ctx.Targets[$Tool] = $checkout
@@ -442,8 +442,10 @@ function Install-IntegrationTool {
     $revision = Get-IntegrationRevision
     $remote = Get-IntegrationRemoteMain
     if ($remote -ne $revision) { throw "$Tool needs the published source, but main is $remote and the tested revision is $revision" }
-    $fallback = @{ Source = $script:MarketplaceRepo; SourceRef = $revision }
+    $fallback = @{ Source = $script:MarketplaceRepo; Ref = 'main' }
     $lines = Invoke-PsAiInstall $Tool $fallback
+    $remote = Get-IntegrationRemoteMain
+    if ($remote -ne $revision) { throw "$Tool installed the published source, but main moved to $remote and the tested revision is $revision" }
     $script:Ctx.Targets[$Tool] = $fallback
     return $lines
 }
@@ -673,7 +675,7 @@ function Assert-IntegrationUninstalled {
 }
 
 function Invoke-UninstallScript {
-    return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'install.ps1') @('-Uninstall', '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
+    return Invoke-IntegrationScript (Join-Path $script:Ctx.Checkout 'plugins/ps-ai/install.ps1') @('-Uninstall', '-Yes', '-HomeRoot', $script:Ctx.HomeRoot)
 }
 
 function Invoke-UninstallFirst {

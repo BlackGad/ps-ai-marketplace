@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
     $expected = @{
         claude = @('plugin|marketplace|update|ps-ai-marketplace', 'plugin|update|ps-ai@ps-ai-marketplace')
@@ -19,7 +19,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 }
 
 & {
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/restructure/update-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path (Join-Path $sandbox '.legion/configuration') -Force | Out-Null
@@ -33,6 +33,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     )
     @{agents=$agents} | ConvertTo-Json | Set-Content -LiteralPath $personalisation
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
+    $fixturePlugin = New-InstallFixturePlugin -Path (Join-Path $sandbox 'installed')
     function Invoke-InstallRefresh { } # The installed-script boundary has dedicated coverage.
     function Ensure-InstallPowerShell { throw 'Update must not install prerequisites' }
     function Get-InstallSourceText { throw 'Tests must not use network' }
@@ -51,11 +52,12 @@ $repo = Split-Path $PSScriptRoot -Parent
             if ($state.FailList) { return @{ExitCode=7; Output=@('list failed')} }
             if ($state.Missing) { return @{ExitCode=0; Output=@($(if ($entry.id -eq 'claude') { '[]' }))} }
             # Disabled plugins still have an installed copy that needs refreshing.
-            $output = if ($entry.id -eq 'claude') { '[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]' }
-                else { 'ps-ai@ps-ai-marketplace installed (disabled)' }
+            $output = if ($entry.id -eq 'claude') { ConvertTo-Json -InputObject @(@{id='ps-ai@ps-ai-marketplace';enabled=$false;installPath=$fixturePlugin}) -Compress }
+                else { "ps-ai@ps-ai-marketplace installed (disabled) $fixturePlugin" }
             return @{ExitCode=0; Output=@($output)}
         }
         if ($state.FailUpdate) { return @{ExitCode=8; Output=@('update failed')} }
+        if ($Command[2] -eq 'install') { $state.Missing=$false }
         return @{ExitCode=0; Output=@('refreshed')}
     }
     $saved = @{}
@@ -65,8 +67,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         [Environment]::SetEnvironmentVariable($entry.configEnv, 'inherited-account', 'Process')
     }
     try {
-        $output = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Update)
-        Assert-Equal 21 $calls.Count 'Seven distinct targets each list and run two refresh steps'
+        $output = @(Invoke-PsAiInstaller -Source $repo -Catalog $catalog -Update -Yes)
+        Assert-Equal 28 $calls.Count 'Seven distinct targets each list before and after two refresh steps'
         foreach ($entry in $catalog.tools) {
             $inherited = [IO.Path]::GetFullPath('inherited-account')
             Assert-True ($calls -contains "$($entry.id):$inherited|$($entry.command)|plugin|list$(if ($entry.id -eq 'claude') { '|--json' })") 'Default config honors inherited account override'
@@ -86,11 +88,11 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-True (($preview -join "`n").Contains('custom account')) 'Dry run includes recorded accounts'
 
         $calls.Clear()
-        $null = Invoke-PsAiInstaller -Tools copilot -ConfigDir 'selected account' -Source $repo -Catalog $catalog -Update
-        Assert-Equal 3 $calls.Count 'Tools and ConfigDir narrow to exactly one target'
+        $null = Invoke-PsAiInstaller -Tools copilot -ConfigDir 'selected account' -Source $repo -Catalog $catalog -Update -Yes
+        Assert-Equal 4 $calls.Count 'Tools and ConfigDir narrow to exactly one target'
         Assert-True ($calls[2].StartsWith('copilot:selected account|')) 'Selected folder scopes mutation'
 
-        # K6: -Update skips the question, but installing a missing plugin is a fresh install and needs consent.
+        # One update question also covers installing a missing plugin.
         $calls.Clear()
         $state.Missing = $true
         $script:answer = 'n'
@@ -99,7 +101,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         $declined = @(Invoke-PsAiInstaller -Tools claude -ConfigDir absent -Source $repo -Catalog $catalog -Update)
         Assert-Equal 1 $script:questions 'A missing plugin asks before a fresh install'
         Assert-Equal 0 @($calls | Where-Object { $_ -match '\|(add|install)\|' }).Count 'A declined install adds no marketplace and installs nothing'
-        Assert-True (($declined -join "`n") -match 'skip: claude ps-ai in absent \(not installed\)') 'A declined install says what was skipped'
+        Assert-True (($declined -join "`n") -match 'Update ps-ai for claude in absent \(not installed\)') 'Preview names the missing install before declining'
+        Assert-True ($declined -contains 'Nothing changed. Run again with -Yes to apply.') 'A declined update explains that nothing changed'
         $calls.Clear()
         $script:questions = 0
         $null = Invoke-PsAiInstaller -Tools claude -ConfigDir absent -Source $repo -Catalog $catalog -Update -DryRun
@@ -130,8 +133,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         } finally { $env:OS = $savedOS }
         Remove-Item -LiteralPath $personalisation
         $calls.Clear()
-        $null = Invoke-PsAiInstaller -Tools claude -Source $repo -Catalog $catalog -Update
-        Assert-Equal 3 $calls.Count 'Missing account records still refresh default'
+        $null = Invoke-PsAiInstaller -Tools claude -Source $repo -Catalog $catalog -Update -Yes
+        Assert-Equal 4 $calls.Count 'Missing account records still refresh default'
 
         $calls.Clear()
         '{' | Set-Content -LiteralPath $personalisation

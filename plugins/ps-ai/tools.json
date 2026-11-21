@@ -26,6 +26,12 @@
         "defaultConfigDir": "~/.claude",
         "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
         "cacheDir": "plugins/cache/ps-ai-marketplace",
+        "marketplaceAddRef": [
+          "plugin",
+          "marketplace",
+          "add",
+          "{source}#{ref}"
+        ],
         "marketplaceAdd": [
           "plugin",
           "marketplace",
@@ -97,6 +103,14 @@
         "defaultConfigDir": "~/.codex",
         "installedRoot": "plugins/cache/ps-ai-marketplace/ps-ai",
         "cacheDir": "plugins/cache/ps-ai-marketplace",
+        "marketplaceAddRef": [
+          "plugin",
+          "marketplace",
+          "add",
+          "{source}",
+          "--ref",
+          "{ref}"
+        ],
         "marketplaceAdd": [
           "plugin",
           "marketplace",
@@ -164,6 +178,12 @@
         "defaultConfigDir": "~/.copilot",
         "installedRoot": "installed-plugins",
         "cacheDir": "installed-plugins/ps-ai-marketplace",
+        "marketplaceAddRef": [
+          "plugin",
+          "marketplace",
+          "add",
+          "{source}#{ref}"
+        ],
         "marketplaceAdd": [
           "plugin",
           "marketplace",

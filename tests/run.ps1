@@ -4,7 +4,7 @@ param([string]$JUnitPath)
 $failed = 0
 $passed = 0
 $cases = @()
-$catalogPath = Join-Path $PSScriptRoot '../tools.json'
+$catalogPath = Join-Path $PSScriptRoot '../plugins/ps-ai/tools.json'
 $configEnvs = @()
 if (Test-Path -LiteralPath $catalogPath) {
     $configEnvs = (Get-Content $catalogPath -Raw | ConvertFrom-Json).tools.configEnv

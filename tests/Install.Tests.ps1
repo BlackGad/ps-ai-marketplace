@@ -1,6 +1,6 @@
 $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
-$script = Join-Path $root 'install.ps1'
+$script = Join-Path $root 'plugins/ps-ai/install.ps1'
 . $script -NoRun
 $script:installCatalog = Get-InstallCatalog -Source $root
 $expected = @{
@@ -26,6 +26,11 @@ Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install 
 & {
     . $script -NoRun
     function Ensure-InstallPowerShell { return $true }
+    function Get-InstallHome { Join-Path $root '.agents/temp/install-selected-account' }
+    function Get-InstallUserPath { Get-InstallLegionPath 'bin' }
+    function Add-InstallPowerShellPath { }
+    function Invoke-InstallRefresh { }
+    function Get-InstallPluginRoot { Join-Path $root 'plugins/ps-ai' }
     function codex { param($Version) Assert-Equal '--version' $Version 'Fake CLI only handles version'; 'fixture-version' }
     $calls = [Collections.Generic.List[string]]::new()
     function Invoke-ClosedInput {
@@ -120,5 +125,5 @@ try {
     $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
     $fourth.plugin.marketplaceAdd = @('register','{source}','prefix-{source}')
     $script:installCatalog.tools += $fourth
-    Assert-Equal 'fourth-cli|register|local source|prefix-{source}' ((Get-InstallCommands -Tool fourth -Source 'local source')[0] -join '|') 'Only entire source arguments are substituted'
+    Assert-Equal 'fourth-cli|register|local source|prefix-local source' ((Get-InstallCommands -Tool fourth -Source 'local source')[0] -join '|') 'Source tokens are replaced within arguments'
 }

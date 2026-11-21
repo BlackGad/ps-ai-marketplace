@@ -36,7 +36,7 @@ Plain install and `-Update` select the same targets:
 
 Uninstall keeps its existing selection: selected installed CLIs' defaults and recorded account folders, or only `-ConfigDir` when supplied, plus matching ps-ai generated files. It skips absent plugins and marketplace registrations and preserves account settings and logins.
 
-Run the command below to update all selected targets. Restart the session afterward to load the new skills (Codex: resume).
+Run `legion update` to update all selected targets, or the command below when `legion` is not available. Run `legion` in the repository afterward to load the new skills.
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Update
@@ -50,18 +50,18 @@ For options, use the script-block form in PowerShell. This example selects an ex
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Tools <tool-id> -ConfigDir <account folder>
 ```
 
-Use `-Tools <tool-id>` (or an array of ids) to choose tools, `-Source <owner/repository>` to override the GitHub marketplace source, and `-DryRun` to print the steps without changing anything. `-HomeRoot <folder>` uses that folder as the home for `~/.legion` and the files the installer writes, for a test or an alternate home. The default is your real home. The default source is `BlackGad/ps-ai-marketplace`. `-SourceRef` selects its catalog revision (default `main`). A working-tree script uses its sibling `tools.json` unless `-Source` or `-SourceRef` is supplied. Remote dry runs read that metadata once. It does not change the marketplace source passed to the CLI. Install and update dry runs execute read-only listings to detect existing registrations and plugins; displayed add and update commands are previews.
+Use `-Tools <tool-id>` (or an array of ids) to choose tools, `-Source <owner/repository>` to override the GitHub marketplace source, and `-DryRun` to print the steps without changing anything. `-HomeRoot <folder>` uses that folder as the home for `~/.legion` and the files the installer writes, for a test or an alternate home. The default is your real home. The default source is `BlackGad/ps-ai-marketplace`. `-Ref release|main` picks the track (default `release`, the `stable` branch); to switch between release and main, uninstall, then install. A working-tree script uses its sibling `tools.json` unless `-Source` is supplied. Remote dry runs read that metadata once. It does not change the marketplace source passed to the CLI. Install and update dry runs execute read-only listings to detect existing registrations and plugins; displayed add and update commands are previews.
 
 To adopt a signed-in account folder, run `legion add codex <existing folder>` or `ps-ai-setup -Add 'codex:<existing folder>'`. The folder must exist; setup keeps its settings and login, records it and creates a shortcut. Setup installs a missing CLI, and ps-ai only where a folder has none, under the same approval; moving an installed ps-ai to a new version is the update flow's job. Adopting the same folder again reuses its account. Only the owner logs in if the CLI asks. An existing shortcut can instead be recorded through the tool's account guide.
 
 ### Version checks and catalog revisions
 
-Overseer sessions check for a newer ps-ai version once a day and show a notice when one is available. Say "check ps-ai updates" for a fresh check, or "update ps-ai" to see the update command and approve running it. Checks never install updates. Release tags exist from `v0.6.0` onward. Update checks read the `plugin.json` on `main`, which changes only when a release pull request is merged, so a notice always means a published release. Checks and generated update commands follow `main` in `BlackGad/ps-ai-marketplace`, including after an installation using a tagged installer or catalog. The shared checker is `pwsh -NoProfile -File <plugin>/bin/ps-ai-update.ps1 -Check [-Force]`; `-Force` refreshes `~/.legion/temp/ps-ai-update.json` and reports check failures.
+Overseer sessions check for a newer ps-ai version once a day and show a notice when one is available. Say "check ps-ai updates" for a fresh check, or "update ps-ai" to see the update command and approve running it. Checks never install updates. Release tags exist from `v0.6.0` onward. Update checks read the `plugin.json` on the `stable` branch, which moves only when a release is published, so a notice always means a published release. The notice names `legion update`. The shared checker is `pwsh -NoProfile -File <plugin>/bin/ps-ai-update.ps1 -Check [-Force]`; `-Force` refreshes `~/.legion/temp/ps-ai-update.json` and reports check failures.
 
-To run a specific installer and matching catalog revision, replace `<release-tag>` with a published release tag. This does not pin the installed plugin or future updates:
+To follow `main` instead of releases, add `-Ref main` to the install line. To switch between release and main later, uninstall, then install:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/<release-tag>/install.ps1))) -SourceRef <release-tag> -Tools <tool-id>
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Ref main
 ```
 
 ### Prerequisites and CLI guides
@@ -81,21 +81,21 @@ Run these in the selected account's environment. Setup normally installs ps-ai b
 Claude Code:
 
 ```text
-claude plugin marketplace add BlackGad/ps-ai-marketplace
+claude plugin marketplace add BlackGad/ps-ai-marketplace#stable
 claude plugin install ps-ai@ps-ai-marketplace
 ```
 
 Codex CLI:
 
 ```text
-codex plugin marketplace add BlackGad/ps-ai-marketplace
+codex plugin marketplace add BlackGad/ps-ai-marketplace --ref stable
 codex plugin add ps-ai@ps-ai-marketplace
 ```
 
 Copilot CLI:
 
 ```text
-copilot plugin marketplace add BlackGad/ps-ai-marketplace
+copilot plugin marketplace add BlackGad/ps-ai-marketplace#stable
 copilot plugin install ps-ai@ps-ai-marketplace
 ```
 
@@ -157,20 +157,21 @@ repo none
 | `legion add <tool> [<folder>] [--yes]` | Add a claude, codex or copilot account, using a new or existing folder |
 | `legion remove <id>` | Remove an account; keep its folder |
 | `legion status` | Show accounts, commands, channels and this repository |
-| `legion repo` | Set up ps-ai in this repository |
-| `legion start [<account>]` | Start the overseer here, with Telegram if bound |
-| `legion start --no-channel` | Start the overseer without a channel |
+| `legion [--no-channel]` | Start the overseer here, set up if needed; resumes the last conversation (see [launcher defaults](../plugins/ps-ai/skills/ps-ai-personalisation/references/launcher.md)) |
+| `legion pick [--no-channel]` | Choose which account leads the overseer |
+| `legion update [--yes]` | Update ps-ai along the track it was installed from |
+| `legion uninstall [--yes]` | Remove ps-ai |
 | `legion help` | Show this list |
 
-`setup` and `add` show the plan, then ask `Apply? [Y/n]` in an interactive terminal (Enter accepts). `--yes` applies without asking; redirected input only prints the plan. For example, `legion add claude`, `legion remove claude1` and `legion start codex1`.
+`setup` and `add` show the plan, then ask `Apply? [Y/n]` in an interactive terminal (Enter accepts). `--yes` applies without asking; redirected input only prints the plan. For example, `legion add claude`, `legion remove claude1` and `legion pick`.
 
-Open `my-project` and describe the work. `legion repo` creates Private orchestration by default; ask the tool for [Private or Shared](../plugins/ps-ai/skills/ps-ai-repository/SKILL.md#choose-where-notes-live) storage and a repository check command when needed. State preferences later; they are saved in notes. Channels are set up only on request, such as “use Telegram”.
+Open `my-project` and describe the work. A bare `legion` creates Private orchestration by default; ask the tool for [Private or Shared](../plugins/ps-ai/skills/ps-ai-repository/SKILL.md#choose-where-notes-live) storage and a repository check command when needed. State preferences later; they are saved in notes. Channels are set up only on request, such as “use Telegram”.
 
 The console and each connected channel are equal. Owner questions go to all of them; an answer in any one resolves the question, with confirmation in the others. A request arriving through a channel is acknowledged there at once, followed by the real answer. Progress and completion notices go to all connected channels and the console.
 
 Legion and review runs pass no model flag by default. Each CLI uses that account's own default model. A model flag is passed only when owner notes name one, such as “use astra for reviews”. Routing chooses agents without model discovery or model lists. Without owner preferences, the overseer follows [task routing](../plugins/ps-ai/skills/ps-ai-overseer/references/task-loop.md) and chooses a different tool/provider for independent reviews. It says which agent was chosen. Owner preferences always win.
 
-To open an overseer session, run `legion start` or `ps-ai-overseer`. One eligible account is selected automatically; otherwise choose one, such as `legion start codex1`. A single fitting Telegram binding is used by default. Use `legion start --no-channel` to skip it, or `ps-ai-overseer -Account claude1 -Channel my-telegram` to choose a binding.
+To open an overseer session, run `legion`. See the [launcher guide](../plugins/ps-ai/skills/ps-ai-personalisation/references/launcher.md) for saved launches, account selection and channel defaults. Choose an account with `legion pick`; use `legion --no-channel` to skip the default channel.
 
 Foundry agents use one Azure endpoint per agent, such as `https://<resource>.cognitiveservices.azure.com`, and the owner's `az` login. Setup can adopt an existing folder without changing its provider settings. For an explicit provider configuration request, use the matching account guide with values already supplied by the owner. Model preferences for work remain in notes.
 
@@ -214,7 +215,7 @@ To opt out, leave legion unused. To limit its use, route legion only to accounts
 | Local specs and plans | `<repo>/.legion/docs/specs/`, `plans/` | no |
 | Agent scratch files | `<repo>/.legion/temp/` | no |
 
-The [repository layout](../plugins/ps-ai/skills/ps-ai-repository/references/layout.md) defines ignores and Git ownership. Private is identified by a `.legion/.git` folder. Its outer ignore is local to Git and shared across worktrees. Shared uses the code repo's `.gitignore` and rules file. `legion repo` creates the setup files; for explicit choices use `pwsh -NoProfile -File <plugin>/bin/ps-ai-repository.ps1 -Repo <repo> [-Mode Private|Shared] [-Gate '<check command>']`. Handoff, history, and roadmap commits use the Git repository that owns `.legion/state`.
+The [repository layout](../plugins/ps-ai/skills/ps-ai-repository/references/layout.md) defines ignores and Git ownership. Private is identified by a `.legion/.git` folder. Its outer ignore is local to Git and shared across worktrees. Shared uses the code repo's `.gitignore` and rules file. a bare `legion` creates the setup files; for explicit choices use `pwsh -NoProfile -File <plugin>/bin/ps-ai-repository.ps1 -Repo <repo> [-Mode Private|Shared] [-Gate '<check command>']`. Handoff, history, and roadmap commits use the Git repository that owns `.legion/state`.
 
 ## Skills
 

@@ -1,4 +1,33 @@
-param([string]$Installer, [string]$Repo)
+param([string]$Installer, [string]$Repo, [switch]$NoRun)
+
+function New-InstallTextRunner {
+    param([string]$Path)
+    @'
+param($Installer, $Plugin, $Fixture, $Mode = 'text', $Tool = 'claude', $CliPath, $Ref, [switch]$NoRelease)
+$ErrorActionPreference = 'Stop'
+if ($CliPath) { $env:PATH = $CliPath }
+foreach ($name in @('CLAUDE_CONFIG_DIR','CODEX_HOME','COPILOT_HOME')) { Remove-Item "Env:$name" -ErrorAction Ignore }
+$script:downloads = 0
+function Get-InstallSourceText {
+    param($Url)
+    if ($Url -notin @('https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/stable/plugins/ps-ai/install.ps1', 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/ps-ai/install.ps1')) { throw "Unexpected URL: $Url" }
+    $script:downloads++
+    Write-Host "download=$Url"
+    if ($NoRelease) { throw 'Fixture release unavailable' }
+    Get-Content -LiteralPath $Plugin -Raw
+}
+function Invoke-WebRequest { throw 'Unexpected network access' }
+$arguments = @{ DryRun = $true; HomeRoot = $Fixture }
+if ($Ref) { $arguments.Ref = $Ref }
+if ($Mode -ne 'catalog') { $arguments.Tools = @($Tool); $arguments.Source = $Fixture }
+else { $env:PATH = '' }
+if ($Mode -eq 'text') { & ([scriptblock]::Create((Get-Content -LiteralPath $Installer -Raw))) @arguments }
+else { & $Installer @arguments }
+"downloads=$script:downloads"
+'@ | Set-Content -LiteralPath $Path
+}
+
+if ($NoRun) { return }
 $fixtureInstaller = $Installer
 . $fixtureInstaller -NoRun
 $script:installCatalog = Get-Content (Join-Path $Repo 'tests/fixtures/install/catalog.json') -Raw | ConvertFrom-Json
@@ -124,7 +153,7 @@ param($Tool)
 if ($args -contains 'marketplace') {
     if ($Tool -eq 'codex') { '{"marketplaces":[]}' } else { '[]' }
 } elseif ($Tool -eq 'claude') { '[]' }
-else { 'ps-ai@ps-ai-marketplace installed, enabled' }
+else { 'ps-ai@ps-ai-marketplace installed, enabled ' + (Join-Path (Split-Path $PSScriptRoot -Parent) 'installed-update') }
 '@ | Set-Content -LiteralPath $listingScript
     if ($env:OS -eq 'Windows_NT') {
         foreach ($tool in @('claude','codex','copilot')) {
@@ -142,12 +171,14 @@ else { 'ps-ai@ps-ai-marketplace installed, enabled' }
     $standalone = Join-Path $sandbox 'install.ps1'
     Copy-Item -LiteralPath $fixtureInstaller -Destination $standalone
     Copy-Item -LiteralPath (Join-Path $Repo 'tests/fixtures/install/catalog.json') -Destination (Join-Path $sandbox 'tools.json')
+    New-Item -ItemType Directory -Path (Join-Path $sandbox 'plugins/ps-ai') -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $sandbox 'tools.json') -Destination (Join-Path $sandbox 'plugins/ps-ai/tools.json')
     $runner = Join-Path $sandbox 'invoke-text.ps1'
     # The child reads the fixture home's accounts, never the real personalisation file.
     New-Item -ItemType Directory -Path (Join-Path $sandbox '.legion/configuration') -Force | Out-Null
     '{"agents":[{"id":"codex-fixture","tool":"codex","configDir":"~/.legion/agents/codex-fixture"}]}' | Set-Content -LiteralPath (Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json')
-    'param($Installer); & ([scriptblock]::Create((Get-Content -Raw $Installer))) -DryRun -Tools codex -Source (Split-Path $Installer) -HomeRoot (Split-Path $Installer)' | Set-Content -LiteralPath $runner
-    $result = Invoke-ClosedInput -Command @($fixturePwshExe, '-NoProfile', '-File', $runner, '-Installer', $standalone)
+    New-InstallTextRunner -Path $runner
+    $result = Invoke-ClosedInput -Command @($fixturePwshExe, '-NoProfile', '-File', $runner, '-Installer', $standalone, '-Fixture', $sandbox, '-Tool', 'codex')
     $output = $result.Output
     Assert-Equal 0 $result.ExitCode 'Script text runs standalone without repository context'
     Assert-True (($output -join "`n").Contains('codex-fixture')) 'P2: the child uses the fixture home, not the real personalisation file'
@@ -196,6 +227,9 @@ function Get-InstallHome { $fixtureHome }
 function Invoke-InstallRefresh { } # Dedicated refresh tests exercise the installed script process.
 function Ensure-InstallPowerShell { throw 'Update attempted prerequisite installation' }
 function Test-InstallCommandAvailable { param($Name) $Name -eq 'codex' }
+$fixturePlugin = Join-Path $fixtureHome 'installed-update'
+New-Item -ItemType Directory -Path $fixturePlugin -Force | Out-Null
+'{"name":"ps-ai","version":"0.3.0"}' | Set-Content -LiteralPath (Join-Path $fixturePlugin 'plugin.json')
 $state = @{ Calls=0; Default=0; Account=0 }
 function Invoke-ClosedInput {
     param($Command)
@@ -204,11 +238,11 @@ function Invoke-ClosedInput {
     elseif ($env:CODEX_HOME -eq (Join-Path $fixtureHome '.legion/agents/codex-a')) { $state.Account++ }
     else { throw 'Incorrect config target' }
     if ($Command[2] -eq 'remove') { throw 'Update removed plugin approval' }
-    return @{ ExitCode=0; Output=@('ps-ai@ps-ai-marketplace installed, enabled') }
+    return @{ ExitCode=0; Output=@("ps-ai@ps-ai-marketplace installed, enabled $fixturePlugin") }
 }
 $env:CODEX_HOME = 'inherited-account'
-$null = Invoke-PsAiInstaller -Source $fixtureHome -Tools codex -Update
-if ($state.Calls -ne 6 -or $state.Default -ne 3 -or $state.Account -ne 3) { throw 'Incorrect update target count' }
+$null = Invoke-PsAiInstaller -Source $fixtureHome -Tools codex -Update -Yes
+if ($state.Calls -ne 8 -or $state.Default -ne 4 -or $state.Account -ne 4) { throw 'Incorrect update target count' }
 if ($env:CODEX_HOME -ne 'inherited-account') { throw 'Caller config environment changed' }
 'standalone update passed'
 '@ | Set-Content -LiteralPath $runner
@@ -223,7 +257,7 @@ if ($env:CODEX_HOME -ne 'inherited-account') { throw 'Caller config environment 
         @('@echo off', ('"' + $fixturePwshExe + '" -NoProfile -File "%~dp0listing.ps1" codex %*')) |
             Set-Content -LiteralPath (Join-Path $fakeBin 'codex.cmd')
     } else {
-        "#!/bin/sh`nprintf '%s\n' 'ps-ai@ps-ai-marketplace installed, enabled'" | Set-Content -LiteralPath (Join-Path $fakeBin 'codex')
+        "#!/bin/sh`nexec pwsh -NoProfile -File '$listingScript' codex `"`$@`"" | Set-Content -LiteralPath (Join-Path $fakeBin 'codex')
     }
     'param($Installer); & ([scriptblock]::Create((Get-Content -Raw $Installer))) -Update -DryRun -Tools codex -ConfigDir selected -Source (Split-Path $Installer)' |
         Set-Content -LiteralPath $runner

@@ -3,6 +3,8 @@ $repo = Split-Path $PSScriptRoot -Parent
     . (Join-Path $PSScriptRoot 'fixtures/install/UninstallSandbox.ps1')
     try {
         $state.Plugin=$false; $state.Marketplace=$false
+        # Only paths that exist are listed, so start with no default tool folders.
+        foreach ($tool in $catalog.tools) { Remove-Item -LiteralPath (Join-Path $sandbox $tool.plugin.defaultConfigDir.Substring(2)) -Recurse -Force }
         $output = @(Invoke-PsAiInstaller -Catalog $catalog -ConfigDir (Join-Path $sandbox 'missing') -Uninstall -Yes)
         Assert-Equal 0 @($output | Where-Object { $_ -match '^Kept .*: ' }).Count 'No nonexistent paths in kept summary'
         $configuration = Join-Path $sandbox '.legion/configuration'

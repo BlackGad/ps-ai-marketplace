@@ -1,11 +1,11 @@
 # Claude plugins
 
-After updating ps-ai, tell the owner to restart the session to load the new skills. Follow [run.md](run.md) to resume work with the same account and repository folder.
+After updating ps-ai, tell the owner to run `legion` in the repository to load the new skills.
 
 After the owner logs in to the selected account, use the account-specific [installer flow](accounts.md). For a manual install in that account's environment:
 
 ```text
-claude plugin marketplace add BlackGad/ps-ai-marketplace
+claude plugin marketplace add BlackGad/ps-ai-marketplace#stable
 claude plugin install ps-ai@ps-ai-marketplace
 ```
 

@@ -252,12 +252,8 @@ function Save-SetupCommit {
     if ($LASTEXITCODE -ne 0) { throw 'Cannot commit setup files' }
 }
 
-$repoRoot = git -C $Repo rev-parse --show-toplevel
-if ($LASTEXITCODE -ne 0) { throw 'Repository setup needs a Git working tree' }
-if ((Split-Path $repoRoot -Leaf) -eq '.legion') {
-    $repoRoot = git -C (Split-Path $repoRoot -Parent) rev-parse --show-toplevel
-    if ($LASTEXITCODE -ne 0) { throw 'Repository setup needs a parent code repository' }
-}
+$repoRoot = Get-PsAiCodeRoot -Path $Repo
+if (-not $repoRoot) { throw 'Repository setup needs a Git working tree' }
 $legion = Get-PsAiRepoPath -Repo $repoRoot -Path ''
 $innerGit = Join-Path $legion '.git'
 $changedPaths = @()   # setup files written by this run

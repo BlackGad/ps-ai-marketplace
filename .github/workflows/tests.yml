@@ -52,11 +52,13 @@ jobs:
           ref: ${{ inputs.sha || github.sha }}
       - shell: powershell
         run: |
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\install.ps1", [ref]$null, [ref]$errors) | Out-Null
-          if ($errors) {
-            $errors | ForEach-Object { Write-Error $_.Message }
-            exit 1
+          foreach ($file in @('install.ps1', 'plugins/ps-ai/install.ps1')) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $file), [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              exit 1
+            }
           }
 
   pr-title:

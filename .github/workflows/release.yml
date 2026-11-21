@@ -21,6 +21,7 @@ jobs:
       issues: write
     outputs:
       pr: ${{ steps.release.outputs.pr }}
+      sha: ${{ steps.release.outputs.sha }}
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
@@ -29,6 +30,29 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  stable:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.release-please.outputs.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if ($env:SHA -notmatch '^[0-9a-f]{40}$') { throw 'missing or invalid released commit SHA' }
+          gh api "repos/$env:REPOSITORY/git/ref/heads/stable" --silent 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh api -X PATCH "repos/$env:REPOSITORY/git/refs/heads/stable" -f sha=$env:SHA -F force=false
+          } else {
+            gh api -X POST "repos/$env:REPOSITORY/git/refs" -f ref=refs/heads/stable -f sha=$env:SHA
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'could not move stable to the released commit' }
 
   resolve-release-pr:
     needs: release-please

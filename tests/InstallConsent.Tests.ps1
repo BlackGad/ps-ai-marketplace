@@ -22,7 +22,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $env:PATH = @($fixtureBin, $PSHOME, $systemBin) -join [IO.Path]::PathSeparator
         Assert-Equal $codex (Get-Command codex -CommandType Application).Source 'R4 B6 consent uses the fixture executable'
         # B4: the home chosen with -HomeRoot is the home for every install path, including the refresh.
-        . (Join-Path $repo 'install.ps1') -NoRun -HomeRoot $fixtureHome
+        . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun -HomeRoot $fixtureHome
         Assert-Equal $fixtureHome (Get-InstallHome) 'B4: -HomeRoot selects the install home'
         Assert-Equal (Join-Path $fixtureHome '.legion/bin') (Get-InstallLegionPath 'bin') 'B4: legion paths follow the selected home'
 
@@ -36,6 +36,9 @@ $repo = Split-Path $PSScriptRoot -Parent
         function Get-InstallPowerShellCommand { return @{ Source = $portable } }
         function Get-InstallPortablePowerShell { return $portable }
         function Add-InstallPowerShellPath { param($Path) $script:pathWrites++ }
+        function Get-InstallUserPath { Get-InstallLegionPath 'bin' }
+        function Invoke-InstallRefresh { }
+        function Get-InstallPluginRoot { Join-Path $repo 'plugins/ps-ai' }
         function Get-UpdateConfigDirs { param($Tool, $ConfigDir) ,@('') }
         function Resolve-InstallSource { param($Source) return $Source }
         function Test-InstallCommandAvailable { param($Name) $true }
@@ -63,6 +66,13 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-Equal 3 $script:installs '-Yes and a dry run both go on to the install steps'
         Assert-Equal 0 $script:prompts '-Yes and a dry run never prompt'
         Assert-Equal '--version|--version' ((Get-Content -LiteralPath $env:PS_AI_CONSENT_LOG) -join '|') 'R4 B6 version probes call only the fixture executable'
+
+        # A refresh failure is one plain line; install goes on to the summary.
+        function Invoke-InstallRefresh { throw 'refresh broke' }
+        $output = @(Invoke-PsAiInstaller -Catalog (Get-InstallCatalog -Source $repo) -Tools codex -Yes)
+        Assert-True ($output -contains 'commands not refreshed for codex in default config; run legion setup') 'Refresh failure prints one plain line'
+        Assert-True (@($output | Where-Object { $_ -like 'installed: ps-ai *' }).Count -eq 1) 'Install still prints the summary after a refresh failure'
+        function Invoke-InstallRefresh { }
     } finally {
         $env:PATH = $savedPath
         $env:PS_AI_CONSENT_LOG = $savedLog

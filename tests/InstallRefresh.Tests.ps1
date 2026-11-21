@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $entry = Get-InstallTool claude
     $sandbox = Join-Path $repo ('.agents/temp/install-refresh-' + [guid]::NewGuid().ToString('N'))
@@ -68,7 +68,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 }
 
 & {
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/refresh-cache-' + [guid]::NewGuid().ToString('N'))
     $configRoot = Join-Path $sandbox 'selected-account'

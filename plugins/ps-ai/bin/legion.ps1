@@ -17,13 +17,14 @@ function Get-LegionHelp {
     return @(
         'legion - ps-ai commands'
         ''
+        '  legion [--no-channel]                start the overseer here; it resumes the last conversation'
+        '  legion pick [--no-channel]           choose which account leads the overseer'
         '  legion setup [--yes]                 finish setup: settings, commands, ps-ai in every account'
         '  legion add <tool> [<folder>] [--yes] add a claude, codex or copilot account (new or existing folder)'
         '  legion remove <id>                   remove an account (its folder is kept)'
         '  legion status                        show accounts, commands, channels and this repository'
-        '  legion repo                          set up ps-ai in this repository'
-        '  legion start [<account>]             start the overseer here, with Telegram if bound'
-        '  legion start --no-channel            start the overseer without a channel'
+        '  legion update [--yes]                update ps-ai to the newest version of the track it was installed from'
+        '  legion uninstall [--yes]             remove ps-ai'
         '  legion help                          show this list'
         ''
         'setup and add show the plan and ask before changing anything; --yes applies without asking.'
@@ -63,9 +64,10 @@ function Assert-LegionUsage {
 function Get-LegionCall {
     param([string[]]$Words)
 
-    if ($Words.Count -eq 0 -or $Words[0] -eq 'help') { return $null }
-    $verb = $Words[0]
-    $parts = Split-LegionWords -Words @($Words | Select-Object -Skip 1)
+    if ($Words.Count -gt 0 -and $Words[0] -eq 'help') { return $null }
+    # A bare legion, or one with only flags, has the empty verb: it launches the overseer.
+    $verb = if ($Words.Count -eq 0 -or $Words[0].StartsWith('-')) { '' } else { $Words[0] }
+    $parts = Split-LegionWords -Words @($Words | Select-Object -Skip $(if ($verb) { 1 } else { 0 }))
     $arguments = $parts.Arguments
     $yesFlags = @('--yes', '-Yes')
     $hasYes = ($parts.Flags | Where-Object { $yesFlags -contains $_ }).Count -gt 0
@@ -95,19 +97,34 @@ function Get-LegionCall {
             Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags @() -MinArguments 0 -MaxArguments 0
             return @{ Script = 'ps-ai-status.ps1'; Splat = @{ Repo = $repo }; AsksToApply = $false }
         }
-        'repo' {
-            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags @() -MinArguments 0 -MaxArguments 0
-            return @{ Script = 'ps-ai-repository.ps1'; Splat = @{ Repo = $repo }; AsksToApply = $false }
-        }
-        'start' {
-            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags @('--no-channel', '-NoChannel') -MinArguments 0 -MaxArguments 1
+        { $_ -in @('', 'pick') } {
+            $noChannelFlags = @('--no-channel', '-NoChannel')
+            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags $noChannelFlags -MinArguments 0 -MaxArguments 0
             $splat = @{ Repo = $repo }
-            if ($arguments.Count -eq 1) { $splat.Account = $arguments[0] }
-            if ($parts.Flags.Count -gt 0) { $splat.NoChannel = $true }
+            if ($verb -eq 'pick') { $splat.Pick = $true }
+            if ($parts.Flags | Where-Object { $noChannelFlags -contains $_ }) { $splat.NoChannel = $true }
             return @{ Script = 'ps-ai-overseer.ps1'; Splat = $splat; AsksToApply = $false }
+        }
+        { $_ -in @('update', 'uninstall') } {
+            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags $yesFlags -MinArguments 0 -MaxArguments 0
+            $splat = @{}
+            if ($verb -eq 'update') { $splat.Update = $true } else { $splat.Uninstall = $true }
+            if ($hasYes) { $splat.Yes = $true }
+            return @{ Installer = $true; Splat = $splat; AsksToApply = $false }
         }
         default { throw "legion: unknown command '$verb'" }
     }
+}
+
+# update and uninstall run a private copy of the installer, so uninstalling the plugin
+# cannot delete the script that is running. Returns the copy's folder.
+function Copy-LegionInstaller {
+    . (Join-Path $PSScriptRoot 'lib/paths.ps1')
+    $homeRoot = if ($script:LegionHomeRoot) { $script:LegionHomeRoot } else { $HOME }
+    $folder = Get-PsAiHomePath -Path ('temp/installer-' + [guid]::NewGuid().ToString('N')) -HomeRoot $homeRoot
+    New-Item -ItemType Directory -Path $folder -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $script:LegionBin '../install.ps1'), (Join-Path $script:LegionBin '../tools.json') -Destination $folder
+    return $folder
 }
 
 # Runs one script in this process and sets $script:LegionExit to its exit code.
@@ -122,7 +139,8 @@ function Invoke-LegionScript {
     $script:LegionOutput = @()
     $splat = $Call.Splat.Clone()
     if ($script:LegionHomeRoot -and $Call.Script -ne 'ps-ai-repository.ps1') { $splat.HomeRoot = $script:LegionHomeRoot }
-    $scriptPath = Join-Path $script:LegionBin $Call.Script
+    $installerFolder = if ($Call.Installer) { Copy-LegionInstaller }
+    $scriptPath = if ($Call.Installer) { Join-Path $installerFolder 'install.ps1' } else { Join-Path $script:LegionBin $Call.Script }
     try {
         if ($Hold) {
             $script:LegionOutput = @(& $scriptPath @splat | ForEach-Object { "$_" })
@@ -133,6 +151,8 @@ function Invoke-LegionScript {
     } catch {
         Write-Host $_.Exception.Message
         $script:LegionExit = if ($_.Exception.Data.Contains('PsAiLaunchExitCode')) { [int]$_.Exception.Data['PsAiLaunchExitCode'] } else { 1 }
+    } finally {
+        if ($installerFolder) { Remove-Item -LiteralPath $installerFolder -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 

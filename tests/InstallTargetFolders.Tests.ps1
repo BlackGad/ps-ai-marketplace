@@ -1,12 +1,15 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
     $catalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/install-targets-' + [guid]::NewGuid().ToString('N'))
     $file = Join-Path $sandbox '.legion/configuration/ps-ai-personalisation.json'
     New-Item -ItemType Directory -Path (Split-Path $file) -Force | Out-Null
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
+    # The sandbox is not the real profile, so each tool's default folder lives in it and exists when installed.
+    foreach ($tool in $catalog.tools) { New-Item -ItemType Directory -Path (Join-Path $sandbox $tool.plugin.defaultConfigDir.Substring(2)) -Force | Out-Null }
+    $fixturePlugin = New-InstallFixturePlugin -Path (Join-Path $sandbox 'installed')
     $calls = New-Object 'Collections.Generic.List[string]'
     function Invoke-ClosedInput {
         param([string[]]$Command)
@@ -17,8 +20,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         $output = if ($Command -contains 'marketplace') {
             Get-FixtureMarketplaceListing -Tool $entry.id -Source 'BlackGad/ps-ai-marketplace'
         } elseif ($entry.plugin.listing.format -eq 'json') {
-            '[{"id":"ps-ai@ps-ai-marketplace","enabled":true}]'
-        } else { 'ps-ai@ps-ai-marketplace enabled' }
+            ConvertTo-Json -InputObject @(@{id='ps-ai@ps-ai-marketplace';enabled=$true;installPath=$fixturePlugin}) -Compress
+        } else { "ps-ai@ps-ai-marketplace enabled $fixturePlugin" }
         return @{ExitCode=0;Output=@($output)}
     }
     $saved = @{}

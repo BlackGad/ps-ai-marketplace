@@ -1,12 +1,14 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$scratch = Join-Path $root ('.agents/temp/launcher-exit-' + [guid]::NewGuid().ToString('N'))
+$tempBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+$scratch = Join-Path $tempBase ('launcher-exit-' + [guid]::NewGuid().ToString('N'))
 $plugin = Join-Path $scratch 'plugin'
 $fixtureHome = Join-Path $scratch 'home'
 $repo = Join-Path $scratch 'repo'
 $savedPath = $env:PATH
 try {
     Copy-Item (Join-Path $root 'plugins/ps-ai') $plugin -Recurse
+    git init --quiet $repo 2>&1 | Out-Null
     New-Item -ItemType Directory (Join-Path $fixtureHome '.legion/configuration'), (Join-Path $repo '.legion/configuration') -Force | Out-Null
     '{"schemaVersion":1,"agents":[{"id":"codex-a","tool":"codex","configDir":"~/.codex"}],"channels":[]}' | Set-Content (Join-Path $fixtureHome '.legion/configuration/ps-ai-personalisation.json')
     '{"schemaVersion":1}' | Set-Content (Join-Path $repo '.legion/configuration/project.json')
@@ -23,9 +25,10 @@ try {
     Get-PsAiShimText -Script (Join-Path $plugin 'bin/legion.ps1') -Windows:$IsWindows | Set-Content $public
     if (-not $IsWindows) { & chmod +x $public }
     $pwsh = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
-    $env:PATH = (Split-Path $pwsh) + [IO.Path]::PathSeparator + $(if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/usr/bin' })
+    $git = (Get-Command git -CommandType Application | Select-Object -First 1).Source
+    $env:PATH = (Split-Path $pwsh) + [IO.Path]::PathSeparator + (Split-Path $git) + [IO.Path]::PathSeparator + $(if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/usr/bin' })
     Push-Location $repo
-    try { $output = @(& $public start --no-channel 2>&1) }
+    try { $output = @(& $public --no-channel 2>&1) }
     finally { Pop-Location }
     Assert-Equal 5 $LASTEXITCODE 'G5 public legion command preserves native launch exit 5'
     Assert-True (-not ($output -match '^launched ')) 'G5 failed public launch prints no success'
@@ -34,6 +37,6 @@ try {
     Assert-True (-not ($output -match '^launched ')) 'G5 failed direct launch prints no success'
 } finally {
     $env:PATH = $savedPath
-    if (-not ([IO.Path]::GetFullPath($scratch).StartsWith([IO.Path]::GetFullPath((Join-Path $root '.agents/temp/'))))) { throw 'fixture cleanup escaped the worktree' }
+    if (-not ([IO.Path]::GetFullPath($scratch).StartsWith($tempBase))) { throw 'fixture cleanup escaped the temp folder' }
     Remove-Item -LiteralPath $scratch -Recurse -Force
 }

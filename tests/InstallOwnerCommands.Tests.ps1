@@ -5,7 +5,7 @@ $scratch = Join-Path $repo ('.agents/temp/install-owner-commands-' + [guid]::New
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 try {
     & {
-        . (Join-Path $repo 'install.ps1') -NoRun
+        . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
         # C-1: install.ps1 is standalone and keeps its own copy of the rule; both copies must agree on every sample.
         $target = Join-Path $scratch "owner's plugin/bin/legion.ps1"
         $samples = @(
@@ -34,8 +34,9 @@ try {
         [IO.File]::WriteAllText($path, $samples[7])
         Assert-Equal $false (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'A comment naming the script is not ours to delete'
         foreach ($text in $samples[0..1]) {
-            [IO.File]::WriteAllText($path, $text)
-            Assert-True (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R4 B2 installer accepts literal quoted owner arguments'
+            $quotedPath = if ($text.StartsWith('@')) { "$path.cmd" } else { $path }
+            [IO.File]::WriteAllText($quotedPath, $text)
+            Assert-True (Test-InstallOwnerCommandFile -Path $quotedPath -Script legion.ps1) 'R4 B2 installer accepts literal quoted owner arguments'
         }
         $bound = Get-PsAiShimText -Script $target -HomeRoot (Join-Path $scratch "owner's home")
         [IO.File]::WriteAllText($path, $bound)
@@ -50,12 +51,12 @@ try {
         $dollarText = (Get-PsAiShimText -Script 'C:\old\bin\legion.ps1' -Windows).Replace(' %*', ' -Repo "\\server\team$\work folder" %*')
         [IO.File]::WriteAllText($batchPath, $dollarText)
         Assert-True (Test-InstallOwnerCommandFile -Path $batchPath -Script legion.ps1) 'R5 B2 installer accepts a quoted batch dollar path'
-        Assert-Equal (Read-PsAiOwnerCommandTarget -Path $batchPath -Script legion.ps1).Path (Get-InstallOwnerCommandTarget -Path $batchPath -Script legion.ps1) 'R5 B2 batch dollar path matcher parity'
+        Assert-Equal (Read-PsAiOwnerCommandTarget -Path $batchPath -Script legion.ps1).Path (Get-InstallOwnerCommandTarget -Path $batchPath -Script legion.ps1).Path 'R5 B2 batch dollar path matcher parity'
         [IO.File]::WriteAllText($path, $dollarText)
         Assert-Equal $false (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R5 B2 installer shell matcher rejects dollar expansion'
         Assert-Equal (Test-PsAiOwnerCommandFile -Path $path -Script legion.ps1) (Test-InstallOwnerCommandFile -Path $path -Script legion.ps1) 'R5 B2 shell dollar path matcher parity'
         [IO.File]::WriteAllText($batchPath, (Get-PsAiShimText -Script $percentScript -Windows))
-        Assert-Equal $percentScript (Get-InstallOwnerCommandTarget -Path $batchPath -Script legion.ps1) 'The installer decodes batch quoting'
+        Assert-Equal $percentScript (Get-InstallOwnerCommandTarget -Path $batchPath -Script legion.ps1).Path 'The installer decodes batch quoting'
 
         # C-2: after an uninstall, commands whose script is gone move to a surviving install, or go away.
         $homeRoot = Join-Path $scratch 'home'
@@ -78,12 +79,28 @@ try {
         # The survivors are found before anything is removed; repair only moves commands to one, or removes the planned ones.
         $deadLegion = Join-Path $bin 'legion'
         Write-RepairFixture
-        $survivor = [pscustomobject]@{ Entry = (Get-InstallTool codex); Folder = 'survivor' }
+        $root = Join-Path $scratch "survivor's 100% copy"
+        $runner = Join-Path $root 'bin/legion.ps1'
+        New-Item -ItemType Directory -Path (Split-Path $runner) -Force | Out-Null
+        '' | Set-Content -LiteralPath $runner
+        $survivor = [pscustomobject]@{ Entry = (Get-InstallTool codex); Folder = 'survivor'; Root = $root }
         Repair-InstallOwnerCommands -Survivors @($survivor) -Planned @($deadLegion)
-        Assert-Equal 'codex:survivor' ($refreshes -join '|') 'Dead commands are retargeted through a surviving install'
+        Assert-Equal $runner (Get-InstallOwnerCommandTarget -Path $deadLegion -Script legion.ps1).Path 'Dead commands are retargeted to a provided script'
+        Assert-Equal 0 $refreshes.Count 'Retargeting does not refresh siblings'
         Assert-True (Test-Path -LiteralPath $deadLegion) 'Dead command is kept while a survivor can fix it'
 
+        foreach ($batch in @($false, $true)) {
+            $commandPath = Join-Path $bin "legion$(if ($batch) { '.cmd' })"
+            $original = (Get-PsAiShimText -Script (Join-Path $scratch 'gone/bin/legion.ps1') -Windows:$batch).Replace(' %*', ' -NoChannel %*').Replace(' "$@"', ' -NoChannel "$@"')
+            [IO.File]::WriteAllText($commandPath, $original)
+            Set-InstallOwnerCommandTarget -Path $commandPath -Script legion.ps1 -Runner $runner
+            Assert-Equal $runner (Read-PsAiOwnerCommandTarget -Path $commandPath -Script legion.ps1).Path 'Retargeting round-trips apostrophes and percent signs'
+            Assert-True ((Get-Content -LiteralPath $commandPath -Raw).Contains(' -NoChannel ')) 'Retargeting keeps literal owner flags'
+            Remove-Item -LiteralPath $commandPath -Force
+        }
+
         $refreshes.Clear()
+        Write-RepairFixture
         Repair-InstallOwnerCommands -Planned @($deadLegion)
         Assert-Equal 0 $refreshes.Count 'No survivor means no refresh'
         Assert-Equal $false (Test-Path -LiteralPath $deadLegion) 'A planned dead command is removed when no install is left'

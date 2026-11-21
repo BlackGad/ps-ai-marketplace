@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     . (Join-Path $repo 'plugins/ps-ai/bin/ps-ai-install-tool.ps1') -NoRun
     $ProgressPreference = 'Continue'
     function Invoke-WebRequest {

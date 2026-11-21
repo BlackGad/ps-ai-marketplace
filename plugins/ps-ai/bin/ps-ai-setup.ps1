@@ -118,48 +118,8 @@ function Invoke-SetupToolInstall {
     } catch { return @{ Ok = $false; Message = (ConvertTo-SetupOneLine $_.Exception.Message) } }
 }
 
-function Save-SetupInstaller {
-    param([string]$Path)
-    Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1' -OutFile $Path
-}
-
-function Find-SetupLocalInstaller {
-    param([string]$HomeRoot = $script:SetupHomeRoot)
-    $clone = [IO.Path]::GetFullPath((Join-Path $script:SetupPluginRoot '../../install.ps1'))
-    if (Test-SetupInstallerCompatible -Path $clone -HomeRoot $HomeRoot) { return $clone }
-    $tools = @(Get-PsAiTools)
-    foreach ($relative in @('plugins/marketplaces/ps-ai-marketplace/install.ps1', '.tmp/marketplaces/ps-ai-marketplace/install.ps1')) {
-        foreach ($tool in $tools) {
-            $folder = Join-Path $HomeRoot $tool.plugin.defaultConfigDir.Substring(2)
-            $path = Join-Path $folder $relative
-            if (Test-SetupInstallerCompatible -Path $path -HomeRoot $HomeRoot) { return $path }
-        }
-    }
-    return $null
-}
-
-function Test-SetupInstallerCompatible {
-    param([string]$Path, [string]$HomeRoot)
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
-    $tokens = $null
-    $errors = $null
-    $ast = [Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors)
-    if ($errors.Count) { return $false }
-    if ((Get-PsAiPathComparer).Equals((Resolve-SetupFolder $HomeRoot $HomeRoot), (Resolve-SetupFolder $HOME $HOME))) { return $true }
-    return 'HomeRoot' -iin @($ast.ParamBlock.Parameters.Name.VariablePath.UserPath)
-}
-
 function Find-SetupInstaller {
-    $local = Find-SetupLocalInstaller
-    if ($local) { return $local }
-    $download = Get-PsAiHomePath -HomeRoot $script:SetupHomeRoot -Path 'temp/install.ps1'
-    New-Item -ItemType Directory -Path (Split-Path $download) -Force | Out-Null
-    if ($script:SetupDownloadedInstaller -cne $download -or -not (Test-Path -LiteralPath $download -PathType Leaf)) {
-        Save-SetupInstaller -Path $download
-        $script:SetupDownloadedInstaller = $download
-    }
-    if (-not (Test-SetupInstallerCompatible -Path $download -HomeRoot $script:SetupHomeRoot)) { throw 'downloaded installer does not support the selected home' }
-    return $download
+    return Join-Path $script:SetupPluginRoot 'install.ps1'
 }
 
 function Invoke-SetupInstaller {
@@ -300,7 +260,6 @@ function Get-SetupPlan {
         Notes = (Join-Path (Split-Path $settings) 'ps-ai-notes.md'); Bin = $bin
         Commands = @(Get-SetupCommands -HomeRoot $HomeRoot); NeedsPath = (-not (Test-PsAiPathEntry -Path $path -Folder $bin))
         Version = $version
-        DownloadInstaller = (@($usable | Where-Object { -not $_.Version }).Count -gt 0 -and -not (Find-SetupLocalInstaller -HomeRoot $HomeRoot))
     }
 }
 
@@ -343,7 +302,6 @@ function Write-SetupPlan {
     if ($repairs.Count) { $lines.Add("  wrappers repair $($repairs -join ', ')") }
     foreach ($row in $Plan.Accounts) { if ($row.NextStep.StartsWith('target needed:')) { $lines.Add("  wrappers $($row.NextStep)") } }
     $folders = @($Plan.Accounts | Where-Object { $_.Usable -and -not $_.Version } | Select-Object -ExpandProperty Folder -Unique)
-    if ($Plan.DownloadInstaller) { $lines.Add('  download ps-ai installer from https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1') }
     if ($folders.Count) { $lines.Add("  install  ps-ai into $($folders -join ', ')") }
     $commands = @($Plan.Commands | Where-Object State -EQ missing | Select-Object -ExpandProperty Name -Unique)
     if ($commands.Count) { $lines.Add("  commands write $($commands -join ', ') in $($Plan.Bin)") }
@@ -492,7 +450,6 @@ function Invoke-Setup {
     param([string[]]$Add, [string]$Id, [switch]$Yes, [string]$HomeRoot = $HOME, [string]$Source)
     $script:SetupHomeRoot = $HomeRoot
     $script:SetupSource = $Source
-    $script:SetupDownloadedInstaller = $null
     $plan = Get-SetupPlan -Add $Add -Id $Id -HomeRoot $HomeRoot
     if (-not $Yes) { Write-SetupPlan -Plan $plan; return }
     Initialize-SetupFiles -Plan $plan

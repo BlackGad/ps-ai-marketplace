@@ -1,7 +1,7 @@
 $repo = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
 & {
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
     $script:installCatalog.tools += $fourth
@@ -23,7 +23,7 @@ $repo = Split-Path $PSScriptRoot -Parent
                 return @{ExitCode=0; Output=$output}
             }
             $writes.Add($line)
-            if ($Command -contains 'example/new-source') { $state.Added=$true }
+            if ($Command -contains 'example/new-source' -or $Command -contains 'example/new-source#stable') { $state.Added=$true }
             return @{ExitCode=0; Output=@()}
         }
         $null = Invoke-PsAiInstallSteps -Tool $entry.id -Source 'example/new-source' -ConfigEnv $entry.configEnv -ConfigDir 'selected account'

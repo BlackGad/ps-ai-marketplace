@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'install.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $sandbox = Join-Path $repo ('.agents/temp/fresh-codex-' + [guid]::NewGuid())
     New-Item -ItemType Directory -Path $sandbox | Out-Null
