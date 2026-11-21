@@ -4,6 +4,44 @@ $refresh = Join-Path $root 'plugins/ps-ai/bin/ps-ai-refresh.ps1'
 $tempRoot = Join-Path $root ('.agents/temp/refresh-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
+    # RefreshCreatesMissing / RefreshAlternateHome: an empty alternate home needs usable commands.
+    $alternateHome = Join-Path $tempRoot 'alternate home'
+    & $refresh -HomeRoot $alternateHome | Out-Null
+    & {
+        . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
+        foreach ($name in @('legion', 'ps-ai-setup', 'ps-ai-status', 'ps-ai-overseer')) {
+            $path = Join-Path $alternateHome ".legion/bin/$name"
+            Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "RefreshCreatesMissing creates $name"
+            Assert-True (Test-PsAiLauncherExecutable -Path $path) "RefreshCreatesMissing makes $name executable"
+            Assert-Equal $IsWindows (Test-Path -LiteralPath "$path.cmd") 'RefreshCreatesMissing creates missing batch shims only on Windows'
+            $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
+            foreach ($suffix in $suffixes) {
+                $target = Read-PsAiOwnerCommandTarget -Path "$path$suffix" -Script "$name.ps1"
+                Assert-Equal (Join-Path $root "plugins/ps-ai/bin/$name.ps1") $target.Path 'RefreshCreatesMissing targets the installed script'
+                Assert-Equal 1 (@($target.Arguments | Where-Object { $_ -eq '-HomeRoot' }).Count) 'RefreshAlternateHome binds the new shim once'
+                Assert-Equal $alternateHome ($target.Arguments[1].Trim("'" + '"')) 'RefreshAlternateHome binds the selected home'
+            }
+        }
+    }
+    $alternateBin = Join-Path $alternateHome '.legion/bin'
+    $beforeMissing = @(Get-ChildItem $alternateBin -File | Sort-Object Name | ForEach-Object { $_.LastWriteTimeUtc.Ticks }) -join '|'
+    $repeatMissing = @(& $refresh -HomeRoot $alternateHome)
+    Assert-True ([bool]($repeatMissing -match '^skip: .*\(already done\)$')) 'RefreshCreatesMissing reports skip on the second run'
+    Assert-Equal $beforeMissing (@(Get-ChildItem $alternateBin -File | Sort-Object Name | ForEach-Object { $_.LastWriteTimeUtc.Ticks }) -join '|') 'RefreshCreatesMissing writes nothing on the second run'
+
+    # RefreshKeepsBlocked: a foreign command stays even while missing siblings are created.
+    $blockedHome = Join-Path $tempRoot 'blocked home'
+    $blockedBin = Join-Path $blockedHome '.legion/bin'
+    New-Item -ItemType Directory -Path $blockedBin -Force | Out-Null
+    foreach ($suffix in @('', '.cmd')) {
+        [IO.File]::WriteAllText((Join-Path $blockedBin "legion$suffix"), 'foreign command')
+    }
+    & $refresh -HomeRoot $blockedHome | Out-Null
+    foreach ($suffix in @('', '.cmd')) {
+        Assert-Equal 'foreign command' ([IO.File]::ReadAllText((Join-Path $blockedBin "legion$suffix"))) 'RefreshKeepsBlocked preserves foreign command bytes'
+    }
+    Assert-True (Test-Path -LiteralPath (Join-Path $blockedBin 'ps-ai-status')) 'RefreshKeepsBlocked still creates missing sibling commands'
+
     $config = Join-Path $tempRoot '.legion/configuration'
     $bin = Join-Path $tempRoot '.legion/bin'
     $runtime = Join-Path $bin '.ps-ai-runtime/bin'
