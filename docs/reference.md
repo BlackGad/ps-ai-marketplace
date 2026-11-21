@@ -208,6 +208,8 @@ A hook at session start decides the mode:
 
 A session you start yourself is never a legion member.
 
+On Windows, the hook also warns when a bound channel's launch flag is absent from a recognized native CLI session; unknown accounts and unsupported or unreadable sessions stay silent.
+
 ## Security: legion runs without a sandbox
 
 Legion workers run with your full user rights so they can edit, run checks, and commit using your installed SDKs, user PATH, and tools. Sandboxes can hide installed tools; agents then download their own SDKs and drift from your machine's setup. Before the first legion dispatch, the overseer explains this and asks once. It records approval or refusal in notes and follows that answer without asking again.
