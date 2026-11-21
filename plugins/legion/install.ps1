@@ -1,6 +1,6 @@
 param(
     [string[]]$Tools,
-    [string]$Source = 'BlackGad/ps-ai-marketplace',
+    [string]$Source = 'BlackGad/ps-legion-marketplace',
     [string]$ConfigDir,
     [switch]$DryRun,
     [switch]$Yes,
@@ -1205,7 +1205,7 @@ function Invoke-LegionUninstall {
 }
 
 function Invoke-LegionUpdateSteps {
-    param($Entry, [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, [string]$Source = 'BlackGad/ps-ai-marketplace', [ValidateSet('release','main')][string]$Ref = 'release', [string]$PluginRoot)
+    param($Entry, [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, [string]$Source = 'BlackGad/ps-legion-marketplace', [ValidateSet('release','main')][string]$Ref = 'release', [string]$PluginRoot)
     $configEnv = $Entry.configEnv
     $previous = [Environment]::GetEnvironmentVariable($configEnv, 'Process')
     try {
@@ -1495,7 +1495,7 @@ function Ensure-InstallPowerShell {
 }
 
 function Invoke-LegionInstaller {
-    param([string[]]$Tools, [string]$Source = 'BlackGad/ps-ai-marketplace', [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, $Catalog, [ValidateSet('release','main')][string]$Ref = 'release', [switch]$Update, [switch]$Uninstall, [switch]$Purge)
+    param([string[]]$Tools, [string]$Source = 'BlackGad/ps-legion-marketplace', [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, $Catalog, [ValidateSet('release','main')][string]$Ref = 'release', [switch]$Update, [switch]$Uninstall, [switch]$Purge)
     if ($Update -and $Uninstall) { throw 'Choose either -Update or -Uninstall.' }
     if ($Purge -and -not $Uninstall) { throw '-Purge requires -Uninstall.' }
     $script:installCatalog = Get-InstallCatalog -Source $Source -Ref $Ref -Catalog $Catalog

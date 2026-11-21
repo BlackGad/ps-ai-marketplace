@@ -2,7 +2,7 @@
   {
     "name": "ps-legion-marketplace",
     "source": "github",
-    "repo": "BlackGad/ps-ai-marketplace",
+    "repo": "BlackGad/ps-legion-marketplace",
     "installLocation": "C:\\Users\\example\\.claude\\plugins\\marketplaces\\ps-legion-marketplace"
   }
 ]

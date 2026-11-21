@@ -12,7 +12,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         switch ($line) {
             'claude|plugin|marketplace|list|--json' { return @{ExitCode=0; Output=@('[]')} }
             'claude|plugin|list|--json' { return @{ExitCode=0; Output=@('[]')} }
-            'claude|plugin|marketplace|add|BlackGad/ps-ai-marketplace#stable' { $state.Added=$true }
+            'claude|plugin|marketplace|add|BlackGad/ps-legion-marketplace#stable' { $state.Added=$true }
             'claude|plugin|marketplace|update|ps-legion-marketplace' {
                 Assert-True $state.Added 'Refresh follows marketplace add'
                 if ($state.FailRefresh) { return @{ExitCode=2; Output=@('fixture refresh failed')} }
@@ -25,11 +25,11 @@ $repo = Split-Path $PSScriptRoot -Parent
         }
         return @{ExitCode=0; Output=@()}
     }
-    $null = Invoke-LegionInstallSteps -Tool claude -Source 'BlackGad/ps-ai-marketplace' -ConfigEnv CLAUDE_CONFIG_DIR -ConfigDir 'selected account'
+    $null = Invoke-LegionInstallSteps -Tool claude -Source 'BlackGad/ps-legion-marketplace' -ConfigEnv CLAUDE_CONFIG_DIR -ConfigDir 'selected account'
     Assert-True $state.Refreshed 'Fresh GitHub marketplace is refreshed before plugin install'
     Assert-Equal 'claude|plugin|install|legion@ps-legion-marketplace' $calls[-1] 'Plugin install follows refresh'
     $calls.Clear()
     $state.FailRefresh=$true
-    Assert-Throws { Invoke-LegionInstallSteps -Tool claude -Source 'BlackGad/ps-ai-marketplace' -ConfigEnv CLAUDE_CONFIG_DIR -ConfigDir 'selected account' } 'Failed marketplace refresh stops plugin install'
+    Assert-Throws { Invoke-LegionInstallSteps -Tool claude -Source 'BlackGad/ps-legion-marketplace' -ConfigEnv CLAUDE_CONFIG_DIR -ConfigDir 'selected account' } 'Failed marketplace refresh stops plugin install'
     Assert-True (-not ($calls -contains 'claude|plugin|install|legion@ps-legion-marketplace')) 'Plugin never installs from a failed refresh'
 }

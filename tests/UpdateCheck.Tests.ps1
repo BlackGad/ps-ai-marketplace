@@ -23,7 +23,7 @@ Assert-True (Test-Path -LiteralPath $checker) 'Shared update checker exists'
         Assert-Equal '0.2.0' $result.Installed 'Installed version comes from running copy'
         Assert-Equal '0.3.0' $result.Available 'Latest version is downloaded'
         Assert-True $result.Newer 'Newer release detected'
-        Assert-Equal 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/stable/plugins/legion/plugin.json' $downloads[0] 'Update check reads the stable manifest'
+        Assert-Equal 'https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/stable/plugins/legion/plugin.json' $downloads[0] 'Update check reads the stable manifest'
         Assert-Equal 'legion update' $result.Command 'Update command is legion update'
         $before = Get-Content $cache -Raw
         $null = Get-LegionUpdate -PluginRoot $plugin

@@ -10,7 +10,7 @@ foreach ($name in @('CLAUDE_CONFIG_DIR','CODEX_HOME','COPILOT_HOME')) { Remove-I
 $script:downloads = 0
 function Get-InstallSourceText {
     param($Url)
-    if ($Url -notin @('https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/stable/plugins/legion/install.ps1', 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/legion/install.ps1')) { throw "Unexpected URL: $Url" }
+    if ($Url -notin @('https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/stable/plugins/legion/install.ps1', 'https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/plugins/legion/install.ps1')) { throw "Unexpected URL: $Url" }
     $script:downloads++
     Write-Host "download=$Url"
     if ($NoRelease) { throw 'Fixture release unavailable' }

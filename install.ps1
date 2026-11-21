@@ -1,6 +1,6 @@
 param(
     [string[]]$Tools,
-    [string]$Source = 'BlackGad/ps-ai-marketplace',
+    [string]$Source = 'BlackGad/ps-legion-marketplace',
     [string]$ConfigDir,
     [switch]$DryRun,
     [switch]$Yes,
@@ -23,7 +23,7 @@ if ($PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'plugins
         }
     }
     $branch = if ($Ref -eq 'main') { 'main' } else { 'stable' }
-    try { $installer = Get-InstallSourceText -Url "https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/$branch/plugins/legion/install.ps1" }
+    try { $installer = Get-InstallSourceText -Url "https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/$branch/plugins/legion/install.ps1" }
     catch {
         if ($Ref -eq 'release') { throw 'could not find the latest release; try again or run with main' }
         throw

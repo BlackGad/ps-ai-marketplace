@@ -78,7 +78,7 @@ function Write-LegionPersonalisation {
     param($Data, [string]$Path)
     $original = if (Test-Path -LiteralPath $Path) { [System.IO.File]::ReadAllText($Path) } else { $null }
     if ($Data.PSObject.Properties['$schema']) {
-        $Data.'$schema' = 'https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/plugins/legion/schemas/personalisation.schema.json'
+        $Data.'$schema' = 'https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/plugins/legion/schemas/personalisation.schema.json'
     }
     $json = $Data | ConvertTo-Json -Depth 100
     New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null

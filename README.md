@@ -1,8 +1,8 @@
 # legion
 
-[![tests](https://github.com/BlackGad/ps-ai-marketplace/actions/workflows/tests.yml/badge.svg?branch=main&event=push)](https://github.com/BlackGad/ps-ai-marketplace/actions/workflows/tests.yml)
-[![integration](https://github.com/BlackGad/ps-ai-marketplace/actions/workflows/integration.yml/badge.svg?branch=main&event=push)](https://github.com/BlackGad/ps-ai-marketplace/actions/workflows/integration.yml)
-[![release](https://img.shields.io/github/v/release/BlackGad/ps-ai-marketplace)](https://github.com/BlackGad/ps-ai-marketplace/releases)
+[![tests](https://github.com/BlackGad/ps-legion-marketplace/actions/workflows/tests.yml/badge.svg?branch=main&event=push)](https://github.com/BlackGad/ps-legion-marketplace/actions/workflows/tests.yml)
+[![integration](https://github.com/BlackGad/ps-legion-marketplace/actions/workflows/integration.yml/badge.svg?branch=main&event=push)](https://github.com/BlackGad/ps-legion-marketplace/actions/workflows/integration.yml)
+[![release](https://img.shields.io/github/v/release/BlackGad/ps-legion-marketplace)](https://github.com/BlackGad/ps-legion-marketplace/releases)
 
 Long work stalls when one AI session loses context or hits its usage limit. It has no independent reviewer, while your other subscriptions and accounts sit unused. Starting another session means explaining the work again.
 
@@ -15,7 +15,7 @@ legion connects **Claude Code, Codex CLI and Copilot CLI** into a team. An **ove
 ## Install
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1)))
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1)))
 ```
 
 Run this in PowerShell to install legion for your installed AI tools; it asks once before installing, and again before installing missing prerequisites. Add `-Yes` to skip the questions.
@@ -52,11 +52,11 @@ Open your AI tool and say:
 Say “Update legion” or “Uninstall legion,” or run `legion update` or `legion uninstall`. One update covers all accounts legion knows. If `legion` is not available, run the matching one-liner in PowerShell:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Update
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Update
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Uninstall
 ```
 
 Uninstall keeps your `legion` command working through another legion install if one is left. If none is left, it removes it.
@@ -67,7 +67,7 @@ Uninstall keeps your `legion` command working through another legion install if 
 Run `legion uninstall --purge`, or use this PowerShell one-liner:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-ai-marketplace/main/install.ps1))) -Uninstall -Purge
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Uninstall -Purge
 ```
 
 ## Security
