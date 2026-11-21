@@ -41,7 +41,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $root = Join-Path $Folder $entry.plugin.installedRoot
         New-Item -ItemType Directory -Path (Join-Path $root 'bin') -Force | Out-Null
         @{name='ps-ai';version=$Version} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'plugin.json')
-        '# inert refresh' | Set-Content -LiteralPath (Join-Path $root 'bin/ps-ai-refresh.ps1')
+        '# inert refresh' | Set-Content -LiteralPath (Join-Path $root 'bin/legion-refresh.ps1')
     }
     try {
         Write-FixturePlugin $folders[0] '0.7.0'

@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-$script = Join-Path $root 'plugins/ps-ai/bin/ps-ai-channel.ps1'
+$script = Join-Path $root 'plugins/ps-ai/bin/legion-channel.ps1'
 Assert-True (Test-Path $script) 'Channel script exists'
 
 $homeRoot = Join-Path $root ('.agents/temp/channel-binding-' + [guid]::NewGuid().ToString('N'))

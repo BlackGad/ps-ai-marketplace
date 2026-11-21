@@ -12,9 +12,9 @@ function Get-LegionOwnerCommands {
 # The three commands that `legion setup`, `legion status` and bare `legion` replace.
 function Get-LegionRetiredCommands {
     return [ordered]@{
-        'ps-ai-setup' = 'ps-ai-setup.ps1'
-        'ps-ai-status' = 'ps-ai-status.ps1'
-        'ps-ai-overseer' = 'ps-ai-overseer.ps1'
+        'ps-ai-setup' = 'legion-setup.ps1'
+        'ps-ai-status' = 'legion-status.ps1'
+        'ps-ai-overseer' = 'legion-overseer.ps1'
     }
 }
 
@@ -56,7 +56,7 @@ function Get-LegionShimText {
     param([string]$Script, [switch]$Windows, [string]$HomeRoot)
 
     # Load the existing quoting helper only when generating a shim, so status stays read-only and lean.
-    . (Join-Path $PSScriptRoot '../ps-ai-account.ps1') -NoRun -HomeRoot $HomeRoot
+    . (Join-Path $PSScriptRoot '../legion-account.ps1') -NoRun -HomeRoot $HomeRoot
     $homeArgument = Get-LegionShimHomeArgument -HomeRoot $HomeRoot -Windows:$Windows
     if ($Windows) { return '@pwsh -NoProfile -File "' + $Script.Replace('%', '%%') + '"' + $homeArgument + ' %* & (goto) 2>nul & exit /b' + "`r`n" }
     return "#!/bin/sh`n" + 'exec pwsh -NoProfile -File ' + (ConvertTo-LegionShellLiteral $Script) + $homeArgument + ' "$@"' + "`n"

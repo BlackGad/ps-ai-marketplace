@@ -7,13 +7,13 @@ try {
     # Child hooks use a private cache and a replaced downloader, never the network.
     $hookPlugin = Join-Path $tempRoot 'hook-plugin'
     New-Item -ItemType Directory -Path (Join-Path $hookPlugin 'hooks'), (Join-Path $hookPlugin 'bin/lib') -Force | Out-Null
-    foreach ($file in @('hooks/detect-mode.ps1','bin/lib/common.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','bin/ps-ai-update.ps1','plugin.json')) {
+    foreach ($file in @('hooks/detect-mode.ps1','bin/lib/common.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','bin/legion-update.ps1','plugin.json')) {
         Copy-Item (Join-Path $root "plugins/ps-ai/$file") (Join-Path $hookPlugin $file)
     }
     @'
 function Get-LegionUpdateHome { Join-Path $PSScriptRoot '../../home' }
 function Get-LegionUpdateText { throw 'offline fixture' }
-'@ | Add-Content (Join-Path $hookPlugin 'bin/ps-ai-update.ps1')
+'@ | Add-Content (Join-Path $hookPlugin 'bin/legion-update.ps1')
     $script = Join-Path $hookPlugin 'hooks/detect-mode.ps1'
     $fixtureRepo = Join-Path $tempRoot 'repo'
     $state = Join-Path $fixtureRepo '.legion/state'
@@ -31,7 +31,7 @@ function Get-LegionUpdateText { throw 'offline fixture' }
     $mode = Get-LegionMode -Repo $fixtureRepo -Environment @{ LEGION_ROLE = 'member'; LEGION_TASK = 'x.md' }
     Assert-Equal 'member' $mode.Mode 'Member mode takes precedence'
     Assert-Equal 'x.md' $mode.Task 'Member keeps the task path for its skill'
-    Assert-True ($mode.Text -match 'ps-ai-legion' -and $mode.Text -match 'cannot summon' -and $mode.Text -match 'LEGION_TASK') 'Member context activates its skill and names the task variable'
+    Assert-True ($mode.Text -match 'legion-member' -and $mode.Text -match 'cannot summon' -and $mode.Text -match 'LEGION_TASK') 'Member context activates its skill and names the task variable'
     $mode = Get-LegionMode -Repo $fixtureRepo -Environment @{ LEGION_ROLE = 'member' }
     Assert-Equal 'none' $mode.Mode 'Missing task disables member mode'
     Assert-Equal 'ps-ai: LEGION_ROLE=member without LEGION_TASK; ignored.' $mode.Text 'Missing task warning'
@@ -108,7 +108,7 @@ function Get-LegionUpdateText { throw 'offline fixture' }
     $copy = Join-Path $tempRoot 'plugin'
     New-Item -ItemType Directory (Join-Path $copy 'hooks'), (Join-Path $copy 'bin/lib') -Force | Out-Null
     Copy-Item -LiteralPath $script -Destination (Join-Path $copy 'hooks/detect-mode.ps1')
-    Copy-Item -LiteralPath (Join-Path $hookPlugin 'bin/ps-ai-update.ps1') -Destination (Join-Path $copy 'bin/ps-ai-update.ps1')
+    Copy-Item -LiteralPath (Join-Path $hookPlugin 'bin/legion-update.ps1') -Destination (Join-Path $copy 'bin/legion-update.ps1')
     Copy-Item (Join-Path $hookPlugin 'bin/lib/paths.ps1') (Join-Path $copy 'bin/lib/paths.ps1')
     '. (Join-Path $PSScriptRoot ''paths.ps1''); function Get-LegionLease { throw "fixture lease read failure" }' | Set-Content (Join-Path $copy 'bin/lib/common.ps1')
     $failedHook = Join-Path $copy 'hooks/detect-mode.ps1'

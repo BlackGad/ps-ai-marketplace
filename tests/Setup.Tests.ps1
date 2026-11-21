@@ -1,7 +1,7 @@
 param([string]$Finding)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$setupScript = Join-Path $root 'plugins/ps-ai/bin/ps-ai-setup.ps1'
+$setupScript = Join-Path $root 'plugins/ps-ai/bin/legion-setup.ps1'
 $tempRoot = Join-Path $root ('.agents/temp/setup-' + [guid]::NewGuid().ToString('N'))
 $savedPath = $env:PATH
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
@@ -180,7 +180,7 @@ try {
             Reset-SetupTest 'broken-node'
             & {
                 function Test-SetupToolInstalled { param($Tool) & $realToolInstalled -Tool $Tool }
-                . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-install-tool.ps1') -NoRun
+                . (Join-Path $root 'plugins/ps-ai/bin/legion-install-tool.ps1') -NoRun
                 $probe = @{ Node = $false; Codex = $false; Commands = [Collections.Generic.List[string]]::new() }
                 function node { $global:LASTEXITCODE = if ($probe.Node) { 0 } else { 7 }; 'fixture node' }
                 function codex { $global:LASTEXITCODE = if ($probe.Codex) { 0 } else { 7 }; 'fixture codex' }
@@ -209,7 +209,7 @@ try {
             $hint = Get-SetupToolInstallHint -Tool (Get-LegionTool codex) -Platform macos
             Assert-Equal 'npm install -g @openai/codex' $hint 'K7 installed prerequisites are omitted'
             & {
-                . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-install-tool.ps1') -NoRun
+                . (Join-Path $root 'plugins/ps-ai/bin/legion-install-tool.ps1') -NoRun
                 $installProbe = @{ Installed = @(); Commands = [Collections.Generic.List[string]]::new() }
                 function Test-ToolInstalled { param($Tool) return @{ Installed = ($Tool -in $installProbe.Installed); Version = 'fixture' } }
                 function Test-ToolCommandAvailable { param($Name) return $true }
@@ -494,7 +494,7 @@ try {
     $apply = @(Invoke-Setup -HomeRoot $testHome -Yes)
     Assert-Equal 0 (@(Invoke-LegionValidation -Kind personalisation -Path $settings).Count) 'Empty settings are valid'
     Assert-Equal 0 (@((Read-LegionJson $settings).agents).Count) 'Fresh setup supports no accounts'
-    Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/ps-ai/skills/ps-ai-personalisation/references/notes-template.md'))) ([IO.File]::ReadAllText((Join-Path (Split-Path $settings) 'ps-ai-notes.md'))) 'Notes use the unchanged template'
+    Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/ps-ai/skills/legion-personalisation/references/notes-template.md'))) ([IO.File]::ReadAllText((Join-Path (Split-Path $settings) 'ps-ai-notes.md'))) 'Notes use the unchanged template'
     if (-not $IsWindows) { $env:PATH += [IO.Path]::PathSeparator + (Join-Path $testHome '.legion/bin') }
     $before = Get-SetupTree $testHome
     $repeat = @(Invoke-Setup -HomeRoot $testHome -Yes)

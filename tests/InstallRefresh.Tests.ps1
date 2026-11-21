@@ -31,8 +31,8 @@ $repo = Split-Path $PSScriptRoot -Parent
             New-Item -ItemType Directory -Path (Join-Path $folder 'bin') -Force | Out-Null
             '{"name":"ps-ai","version":"0.3.0"}' | Set-Content (Join-Path $folder 'plugin.json')
         }
-        'throw "stale refresh script invoked"' | Set-Content (Join-Path $oldPlugin 'bin/ps-ai-refresh.ps1')
-        ('param($HomeRoot); $HomeRoot | Set-Content -LiteralPath ''' + $marker.Replace("'", "''") + '''') | Set-Content (Join-Path $newPlugin 'bin/ps-ai-refresh.ps1')
+        'throw "stale refresh script invoked"' | Set-Content (Join-Path $oldPlugin 'bin/legion-refresh.ps1')
+        ('param($HomeRoot); $HomeRoot | Set-Content -LiteralPath ''' + $marker.Replace("'", "''") + '''') | Set-Content (Join-Path $newPlugin 'bin/legion-refresh.ps1')
         $null = Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account
         Assert-True (Test-Path -LiteralPath $marker) 'Successful update invokes freshly installed refresh script'
         Assert-Equal (Get-InstallHome) ((Get-Content $marker -Raw).Trim()) 'Refresh receives the selected owner home'
@@ -58,7 +58,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         } finally { $env:CLAUDE_CONFIG_DIR = $previousConfig }
         Assert-True (-not (Test-Path $marker)) 'Leftover cache is never refreshed as an installed plugin'
         $state.Disappeared=$false
-        Remove-Item (Join-Path $newPlugin 'bin/ps-ai-refresh.ps1')
+        Remove-Item (Join-Path $newPlugin 'bin/legion-refresh.ps1')
         Assert-Throws { Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account } 'Unresolvable installed refresh script is reported'
     } finally {
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
@@ -85,11 +85,11 @@ $repo = Split-Path $PSScriptRoot -Parent
             $plugin = Join-Path $configRoot "installed-plugins/arbitrary-layout/$version"
             New-Item -ItemType Directory -Path (Join-Path $plugin 'bin') -Force | Out-Null
             ('{"name":"ps-ai","version":"' + $version + '"}') | Set-Content (Join-Path $plugin 'plugin.json')
-            '# inert refresh fixture' | Set-Content (Join-Path $plugin 'bin/ps-ai-refresh.ps1')
+            '# inert refresh fixture' | Set-Content (Join-Path $plugin 'bin/legion-refresh.ps1')
         }
         $null = Invoke-InstallRefresh -Entry (Get-InstallTool copilot) -ConfigDir $configRoot
         Assert-Equal 1 $calls.Count 'Selected Copilot installed-files root supplies one refresh'
-        Assert-Equal (Join-Path $configRoot 'installed-plugins/arbitrary-layout/0.3.0/bin/ps-ai-refresh.ps1') $calls[0][3] 'Listing version selects the matching cached plugin'
+        Assert-Equal (Join-Path $configRoot 'installed-plugins/arbitrary-layout/0.3.0/bin/legion-refresh.ps1') $calls[0][3] 'Listing version selects the matching cached plugin'
         Assert-Equal (Get-InstallHome) $calls[0][5] 'Cache fallback retains selected home'
         $other = Join-Path $configRoot 'installed-plugins/ambiguous-copy'
         Copy-Item -LiteralPath (Join-Path $configRoot 'installed-plugins/arbitrary-layout/0.3.0') -Destination $other -Recurse
@@ -102,7 +102,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         New-Item -ItemType Directory -Path (Join-Path $marketplace '.claude-plugin'), (Join-Path $livePlugin 'bin') -Force | Out-Null
         '{"plugins":[{"name":"ps-ai","source":"./extensions/orchestration"}]}' | Set-Content -LiteralPath (Join-Path $marketplace '.claude-plugin/marketplace.json')
         '{"name":"ps-ai","version":"0.6.0"}' | Set-Content -LiteralPath (Join-Path $livePlugin 'plugin.json')
-        '# inert live refresh fixture' | Set-Content -LiteralPath (Join-Path $livePlugin 'bin/ps-ai-refresh.ps1')
+        '# inert live refresh fixture' | Set-Content -LiteralPath (Join-Path $livePlugin 'bin/legion-refresh.ps1')
         function Invoke-ClosedInput {
             param($Command)
             if ($Command[0] -eq 'copilot') {
@@ -113,7 +113,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         }
         $null = Invoke-InstallRefresh -Entry (Get-InstallTool copilot) -ConfigDir (Join-Path $sandbox 'fresh-account')
         Assert-Equal 2 $calls.Count 'Live Copilot update refreshes without a copied plugin cache'
-        Assert-Equal ([IO.Path]::GetFullPath((Join-Path $livePlugin 'bin/ps-ai-refresh.ps1'))) ([IO.Path]::GetFullPath($calls[1][3])) 'Live refresh follows the marketplace plugin source'
+        Assert-Equal ([IO.Path]::GetFullPath((Join-Path $livePlugin 'bin/legion-refresh.ps1'))) ([IO.Path]::GetFullPath($calls[1][3])) 'Live refresh follows the marketplace plugin source'
     } finally {
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
         if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe installed cache cleanup' }

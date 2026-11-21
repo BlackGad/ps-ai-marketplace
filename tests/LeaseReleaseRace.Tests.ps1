@@ -5,10 +5,10 @@ $repo = Join-Path $tempRoot 'repo'
 $leasePath = Join-Path $repo '.legion/temp/overseer.lock'
 $guardPath = "$leasePath.takeover"
 $eventsPath = Join-Path $tempRoot 'events.txt'
-$fixtureScript = Join-Path $tempRoot 'ps-ai-lease.ps1'
+$fixtureScript = Join-Path $tempRoot 'legion-lease.ps1'
 New-Item -ItemType Directory -Path (Split-Path $leasePath -Parent) -Force | Out-Null
 try {
-    Copy-Item (Join-Path $root 'plugins/ps-ai/bin/ps-ai-lease.ps1') $fixtureScript
+    Copy-Item (Join-Path $root 'plugins/ps-ai/bin/legion-lease.ps1') $fixtureScript
     New-Item -ItemType Directory -Path (Join-Path $tempRoot 'lib') -Force | Out-Null
     Copy-Item (Join-Path $root 'plugins/ps-ai/bin/lib/paths.ps1') (Join-Path $tempRoot 'lib/paths.ps1')
     # A contender tries to replace the lease at both release boundaries. Only common I/O is replaced.

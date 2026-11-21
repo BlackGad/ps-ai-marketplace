@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/ps-ai/bin/ps-ai-install-tool.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/bin/legion-install-tool.ps1') -NoRun
     foreach ($tool in @('claude', 'codex', 'copilot')) {
         $expected = "winget install --id $((Get-ToolInstallData $tool).windows.wingetId) -e --source winget --accept-source-agreements --accept-package-agreements"
         $recipe = Get-ToolRecipe -Tool $tool -Platform windows

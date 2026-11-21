@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$refresh = Join-Path $root 'plugins/ps-ai/bin/ps-ai-refresh.ps1'
+$refresh = Join-Path $root 'plugins/ps-ai/bin/legion-refresh.ps1'
 $tempRoot = Join-Path $root ('.agents/temp/refresh-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
@@ -8,7 +8,7 @@ try {
     $alternateHome = Join-Path $tempRoot 'alternate home'
     & $refresh -HomeRoot $alternateHome | Out-Null
     & {
-        . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
+        . (Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
         foreach ($name in @('legion')) {
             $path = Join-Path $alternateHome ".legion/bin/$name"
             Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "RefreshCreatesMissing creates $name"
@@ -56,10 +56,10 @@ try {
     } | ConvertTo-Json -Depth 20 | Set-Content $file
     $ownerBytes = [IO.File]::ReadAllText($file)
     & {
-        . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
+        . (Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
         New-FoundryWrappers -Id foundry-a -Tool claude -HomeRoot $tempRoot
     }
-    'stale runtime' | Set-Content (Join-Path $runtime 'ps-ai-foundry.ps1')
+    'stale runtime' | Set-Content (Join-Path $runtime 'legion-foundry.ps1')
     foreach ($name in @('foundry', 'tools')) {
         'stale library' | Set-Content (Join-Path $runtime "lib/$name.ps1")
     }
@@ -74,19 +74,19 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
     '@pwsh -NoProfile -File "C:\old\cache\bin\legion.ps1" -Account chosen -Repo "\\server\team$\work folder" %*' | Set-Content $cmdShim
     & $refresh -HomeRoot $tempRoot | Out-Null
     $homeFlag = & {
-        . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
+        . (Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
         '-HomeRoot ' + (ConvertTo-LegionShellLiteral $tempRoot)
     }
     Assert-True ((Get-Content $shim -Raw).Contains($homeFlag)) 'R4 B4 refresh binds an older unbound command to the selected home'
     & $refresh -HomeRoot $tempRoot | Out-Null
     Assert-Equal 1 ([regex]::Matches((Get-Content $shim -Raw), '-HomeRoot ').Count) 'R4 B4 refresh preserves one home binding'
     & $refresh -HomeRoot $tempRoot | Out-Null
-    Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/ps-ai/bin/ps-ai-foundry.ps1'))) ([IO.File]::ReadAllText((Join-Path $runtime 'ps-ai-foundry.ps1'))) 'Approved refresh updates copied runtime bytes'
+    Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/ps-ai/bin/legion-foundry.ps1'))) ([IO.File]::ReadAllText((Join-Path $runtime 'legion-foundry.ps1'))) 'Approved refresh updates copied runtime bytes'
     foreach ($name in @('foundry', 'tools')) {
         Assert-Equal ([IO.File]::ReadAllText((Join-Path $root "plugins/ps-ai/bin/lib/$name.ps1"))) ([IO.File]::ReadAllText((Join-Path $runtime "lib/$name.ps1"))) "Refresh updates the $name library in the current runtime layout"
     }
     & {
-        . (Join-Path $runtime 'ps-ai-foundry.ps1') -NoRun
+        . (Join-Path $runtime 'legion-foundry.ps1') -NoRun
         Assert-Equal 'claude' (@(Get-LegionTools).id -join '|') 'Refreshed runner loads libraries and discovers its copied skill with the copied schema'
     }
     Assert-True ((Get-Content (Join-Path $bin 'foundry-a') -Raw).Contains('.ps-ai-runtime')) 'Refresh regenerates owned Foundry wrapper'
@@ -108,7 +108,7 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
     # C-1: a file that only mentions the launcher in a comment or a later argument is not rewritten.
     $lookalike = "#!/bin/sh`n# pwsh -NoProfile -File '/old/cache/bin/legion.ps1'`necho mine"
     [IO.File]::WriteAllText((Join-Path $bin 'legion'), $lookalike)
-    $argumentOnly = "#!/bin/sh`nexec pwsh -NoProfile -File /mine/tool.ps1 '/old/cache/bin/ps-ai-status.ps1'`n"
+    $argumentOnly = "#!/bin/sh`nexec pwsh -NoProfile -File /mine/tool.ps1 '/old/cache/bin/legion-status.ps1'`n"
     [IO.File]::WriteAllText((Join-Path $bin 'ps-ai-status'), $argumentOnly)
     & $refresh -HomeRoot $tempRoot | Out-Null
     Assert-Equal $lookalike ([IO.File]::ReadAllText((Join-Path $bin 'legion'))) 'Refresh leaves a comment-only mention untouched'

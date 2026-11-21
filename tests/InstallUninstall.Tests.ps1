@@ -83,13 +83,13 @@ $repo = Split-Path $PSScriptRoot -Parent
 exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-Path $bin 'legion')
         # Use the actual runtime publisher, with no CLI or network boundary involved.
         & {
-            . (Join-Path $repo 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
+            . (Join-Path $repo 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
             $null = Sync-LegionFoundryRuntime -Tool codex -HomeRoot $sandbox
         }
         $runtime = Join-Path $bin '.ps-ai-runtime'
         $published = @(Get-ChildItem -LiteralPath $runtime -Recurse -File -Force | ForEach-Object FullName)
         'keep' | Set-Content (Join-Path $runtime 'owner.txt')
-        'owner script' | Set-Content (Join-Path $runtime 'skills/ps-ai-codex/scripts/foundry-custom.ps1')
+        'owner script' | Set-Content (Join-Path $runtime 'skills/legion-codex/scripts/foundry-custom.ps1')
         $caseOwner = [pscustomobject]@{agents=@(
             [pscustomobject]@{id='codex-a';tool='codex';configDir=(Join-Path $sandbox 'case-account')},
             [pscustomobject]@{id='codex-b';tool='codex';configDir=(Join-Path $sandbox 'Case-account')}
@@ -107,7 +107,7 @@ exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-
         Assert-True (($preview -join "`n").Contains('copilot plugin marketplace remove ps-ai-marketplace --force')) 'Preview includes force from metadata'
         Assert-True (($preview -join "`n").Contains($account)) 'Preview includes recorded targets'
         Assert-True (-not (($preview -join "`n").Contains("Remove file: $(Join-Path $bin 'codex-a.cmd')"))) 'Preview excludes account launcher removals'
-        Assert-True (Test-Path (Join-Path $runtime 'bin/ps-ai-foundry.ps1')) 'Preview preserves runtime'
+        Assert-True (Test-Path (Join-Path $runtime 'bin/legion-foundry.ps1')) 'Preview preserves runtime'
 
         $declined = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Uninstall)
         Assert-Equal 1 $state.Prompts 'Default confirmation happens once'
@@ -121,7 +121,7 @@ exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-
         Assert-True ($calls[0].StartsWith("codex:$account|")) 'Explicit config scopes listing'
         Assert-True (Test-Path (Join-Path $bin 'codex-a.cmd')) 'Selected account launchers kept'
         Assert-True (Test-Path (Join-Path $bin 'codex-b')) 'Other account launcher kept by filters'
-        Assert-True (Test-Path (Join-Path $runtime 'bin/ps-ai-foundry.ps1')) 'Shared runtime stays while another owned launcher remains'
+        Assert-True (Test-Path (Join-Path $runtime 'bin/legion-foundry.ps1')) 'Shared runtime stays while another owned launcher remains'
         $writes.Clear(); $calls.Clear()
 
         $output = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Uninstall -Yes)
@@ -136,10 +136,10 @@ exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-
         }
         Assert-True (-not (Test-Path (Join-Path $bin 'legion'))) 'Owner command removed when no install remains'
         Assert-True ($output -contains "Kept account launchers: $bin") 'Summary names the retained account launchers'
-        foreach ($name in @('external','external.cmd','unrelated','legion.cmd','.ps-ai-runtime/owner.txt','.ps-ai-runtime/skills/ps-ai-codex/scripts/foundry-custom.ps1')) {
+        foreach ($name in @('external','external.cmd','unrelated','legion.cmd','.ps-ai-runtime/owner.txt','.ps-ai-runtime/skills/legion-codex/scripts/foundry-custom.ps1')) {
             Assert-True (Test-Path (Join-Path $bin $name)) 'Unowned files preserved'
         }
-        Assert-True (-not (Test-Path (Join-Path $runtime 'bin/ps-ai-foundry.ps1'))) 'Copied runtime files removed'
+        Assert-True (-not (Test-Path (Join-Path $runtime 'bin/legion-foundry.ps1'))) 'Copied runtime files removed'
         foreach ($path in $published) { Assert-True (-not (Test-Path -LiteralPath $path)) 'Every file from the actual runtime publisher is removed' }
         Assert-Equal $original (Get-Content $personalisation -Raw) 'Personalisation untouched'
         Assert-Equal 'login' (Get-Content (Join-Path $account 'auth.json')) 'Account login untouched'

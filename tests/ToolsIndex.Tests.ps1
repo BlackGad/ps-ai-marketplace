@@ -67,12 +67,12 @@
         & $copyGenerator | Out-Null
         Assert-Equal ([Convert]::ToBase64String($trackedBytes)) ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))) 'Normal generation repairs drift'
 
-        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth') -Destination (Join-Path $copyRoot 'plugins/ps-ai/skills/ps-ai-fourth') -Recurse
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') -Destination (Join-Path $copyRoot 'plugins/ps-ai/skills/legion-fourth') -Recurse
         Assert-Throws { & $copyGenerator -Check } 'New tool makes the catalog stale'
         & $copyGenerator | Out-Null
         $extended = Get-Content -LiteralPath $copyIndex -Raw | ConvertFrom-Json
         Assert-Equal (@(Get-LegionTools -SkillsRoot (Join-Path $copyRoot 'plugins/ps-ai/skills')).id -join '|') ($extended.tools.id -join '|') 'A fourth skill enters the index without shared edits'
-        $fourthDescriptor = Get-Content (Join-Path $copyRoot 'plugins/ps-ai/skills/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
+        $fourthDescriptor = Get-Content (Join-Path $copyRoot 'plugins/ps-ai/skills/legion-fourth/tool.json') -Raw | ConvertFrom-Json
         Assert-Equal $fourthDescriptor.command ($extended.tools | Where-Object id -CEQ $fourthDescriptor.id).command 'Fourth tool executable comes from its descriptor'
         & $copyGenerator -Check | Out-Null
 
@@ -110,7 +110,7 @@
     . (Join-Path $repo 'tools/update-tools-index.ps1') -NoRun
     . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $schema = Join-Path $repo 'plugins/ps-ai/schemas/tool.schema.json'
-    $descriptorJson = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw
+    $descriptorJson = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw
     $bootstrap = Get-Content (Join-Path $repo 'tools/bootstrap.json') -Raw | ConvertFrom-Json
     $fields = @('marketplaceAdd', 'marketplaceRemove', 'install', 'marketplaceList', 'list', 'marketplaceUpdate', 'update')
     $scratchRoot = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/restructure'))

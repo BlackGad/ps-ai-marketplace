@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-. (Join-Path $root 'plugins/ps-ai/bin/ps-ai-validate.ps1') -NoRun
+. (Join-Path $root 'plugins/ps-ai/bin/legion-validate.ps1') -NoRun
 $scratch = Join-Path $root ('.agents/temp/lean-validate-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $scratch -Force | Out-Null
 function Check-Owner($Data) {

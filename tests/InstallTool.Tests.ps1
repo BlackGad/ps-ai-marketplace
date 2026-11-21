@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$scriptPath = Join-Path $root 'plugins/ps-ai/bin/ps-ai-install-tool.ps1'
+$scriptPath = Join-Path $root 'plugins/ps-ai/bin/legion-install-tool.ps1'
 $installer = Join-Path $root 'plugins/ps-ai/install.ps1'
 . $scriptPath -NoRun
 Assert-Equal 'bun|--version' ((Get-ToolInstallData -Tool bun).check -join '|') 'Bun installed check'
@@ -314,15 +314,15 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
     try {
         New-Item -ItemType Directory $sandbox -Force | Out-Null
         Copy-Item (Join-Path $repoRoot 'plugins/ps-ai') $plugin -Recurse
-        $fourthSkill = Join-Path $plugin 'skills/ps-ai-fourth'
-        Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth') $fourthSkill -Recurse
+        $fourthSkill = Join-Path $plugin 'skills/legion-fourth'
+        Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') $fourthSkill -Recurse
         $descriptorPath = Join-Path $fourthSkill 'tool.json'
         $data = Get-Content $descriptorPath -Raw | ConvertFrom-Json
         $data.install.check = @('fourth-cli','--probe','space value')
         $data.install.macos.needs = @('node')
         $data.install.macos.commands = @(,([string[]]@('fixture-manager','setup','space value')))
         $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
-        . (Join-Path $plugin 'bin/ps-ai-install-tool.ps1') -NoRun
+        . (Join-Path $plugin 'bin/legion-install-tool.ps1') -NoRun
         function Get-ToolInstallRoot { param($Tool) Join-Path $sandbox "home[1]/tools/$Tool" }
         $recipe = Get-ToolRecipe -Tool fourth -Platform macos
         Assert-Equal 'node' ($recipe.Needs -join '|') 'Recipe needs come from platform data'
@@ -435,11 +435,11 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
     try {
         New-Item -ItemType Directory $sandbox -Force | Out-Null
         Copy-Item (Join-Path $repoRoot 'plugins/ps-ai') $plugin -Recurse
-        $fourthSkill = Join-Path $plugin 'skills/ps-ai-fourth'
-        Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth') $fourthSkill -Recurse
+        $fourthSkill = Join-Path $plugin 'skills/legion-fourth'
+        Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') $fourthSkill -Recurse
         $descriptorPath = Join-Path $fourthSkill 'tool.json'
         $data = Get-Content $descriptorPath -Raw | ConvertFrom-Json
-        . (Join-Path $plugin 'bin/ps-ai-install-tool.ps1') -NoRun
+        . (Join-Path $plugin 'bin/legion-install-tool.ps1') -NoRun
         $sources = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/sources.json') -Raw | ConvertFrom-Json -AsHashtable
         $requests = [Collections.Generic.List[string]]::new()
         function Get-ToolSourceText {

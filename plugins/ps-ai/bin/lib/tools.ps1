@@ -56,7 +56,7 @@ function Get-LegionTools {
 
     $schemaPath = Join-Path $PSScriptRoot '../../schemas/tool.schema.json'
     $tools = [System.Collections.Generic.List[object]]::new()
-    $folders = [string[]]@(Get-ChildItem -LiteralPath $SkillsRoot -Directory -Filter 'ps-ai-*' -ErrorAction Stop | ForEach-Object FullName)
+    $folders = [string[]]@(Get-ChildItem -LiteralPath $SkillsRoot -Directory -Filter 'legion-*' -ErrorAction Stop | ForEach-Object FullName)
     [Array]::Sort($folders, [StringComparer]::Ordinal)
     foreach ($folder in $folders) {
         $path = Join-Path $folder 'tool.json'
@@ -84,7 +84,7 @@ function Get-LegionTools {
         $ids += $tool.id
     }
     foreach ($tool in $tools) {
-        if ((Split-Path $tool.SkillRoot -Leaf) -cne "ps-ai-$($tool.id)") {
+        if ((Split-Path $tool.SkillRoot -Leaf) -cne "legion-$($tool.id)") {
             throw "tool id '$($tool.id)' does not match its skill directory"
         }
         if (-not (Test-Path -LiteralPath (Join-Path $tool.SkillRoot 'SKILL.md') -PathType Leaf)) {

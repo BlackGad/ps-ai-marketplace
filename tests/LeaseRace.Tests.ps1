@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-$script = Join-Path $root 'plugins/ps-ai/bin/ps-ai-lease.ps1'
+$script = Join-Path $root 'plugins/ps-ai/bin/legion-lease.ps1'
 . (Join-Path $root 'plugins/ps-ai/bin/lib/common.ps1')
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('ps-ai-tests/' + [guid]::NewGuid())
 $repo = Join-Path $tempRoot 'repo'

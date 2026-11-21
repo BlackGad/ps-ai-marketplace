@@ -1,0 +1,3 @@
+You are a legion member investigating the intermittent failure in {TASK_FILE}. Load `legion-member`; read {RULES_FILE}, {PLAN}, {SPEC}, and the observations. Base: {BASE}. Write {REPORT_FILE}; the overseer owns the handoff.
+
+Use the installed systematic-debugging skill when present. Read the failing test and its waits first. If needed, inspect the production interleaving and run a small stress loop. Add a deterministic reproducing test without sleeps, see it fail, fix the root cause, then verify it and the small loop. If the symptom cannot be reproduced reasonably, report counts and change no code for it. Run indexed repo checks and commit only a verified fix.

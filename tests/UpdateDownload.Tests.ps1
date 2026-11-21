@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/ps-ai/bin/ps-ai-update.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/bin/legion-update.ps1') -NoRun
     # A handler that never completes proves the total deadline without using the network.
     if (-not ('LegionUpdateTest.StalledHandler' -as [type])) {
         Add-Type -TypeDefinition @'

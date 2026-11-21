@@ -34,7 +34,7 @@ $script:installCatalog = Get-Content (Join-Path $Repo 'tests/fixtures/install/ca
 # The standalone contract also runs in the Windows PowerShell 5.1 fixture process.
 & {
     $catalog = Get-InstallCatalog -Catalog $script:installCatalog
-    $fourth = Get-Content (Join-Path $Repo 'tests/fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
+    $fourth = Get-Content (Join-Path $Repo 'tests/fixtures/tools/legion-fourth/tool.json') -Raw | ConvertFrom-Json
     $catalog.tools += [pscustomobject]@{id='fourth';command='fourth-cli';configEnv='FOURTH_HOME';plugin=$fourth.plugin;hooks=$fourth.hooks;installHint='fixture only'}
     $script:installCatalog = Get-InstallCatalog -Catalog $catalog
     Assert-Equal 'fourth-cli|plugin|marketplace|add|local source' ((Get-InstallCommands fourth 'local source')[0] -join '|') 'Standalone fourth command uses catalog'

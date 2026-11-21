@@ -1,7 +1,7 @@
 param([string]$Finding)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$statusScript = Join-Path $root 'plugins/ps-ai/bin/ps-ai-status.ps1'
+$statusScript = Join-Path $root 'plugins/ps-ai/bin/legion-status.ps1'
 Assert-True (Test-Path -LiteralPath $statusScript) 'Status script exists'
 $scratch = Join-Path $root ('.agents/temp/status-' + [guid]::NewGuid().ToString('N'))
 $fixtureHome = Join-Path $scratch 'home'
@@ -90,7 +90,7 @@ try {
         $expectedPath = if ($IsWindows) { 'yes' } else { 'no' }
         Assert-True ($lines -match "on PATH: $expectedPath") 'E3 status uses the shared platform PATH test'
         $needsPath = & {
-            . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-setup.ps1') -NoRun
+            . (Join-Path $root 'plugins/ps-ai/bin/legion-setup.ps1') -NoRun
             function Get-SetupUserPath { return $env:PATH }
             (Get-SetupPlan -HomeRoot $fixtureHome).NeedsPath
         }

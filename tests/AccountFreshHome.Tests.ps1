@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-$accountScript = Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1'
+$accountScript = Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1'
 $homeRoot = Join-Path $root ('.agents/temp/fresh-home-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $homeRoot -Force | Out-Null
 try {
@@ -31,7 +31,7 @@ function Get-FoundryDeployments {
 }
 '@ | Add-Content (Join-Path $plugin 'bin/lib/foundry.ps1')
     $listHome = Join-Path $homeRoot 'list-only'
-    $listed = & (Join-Path $plugin 'bin/ps-ai-account.ps1') -Action add -Id codex-a -Tool codex -Provider foundry -Endpoint 'https://example.invalid' -List -HomeRoot $listHome | ConvertFrom-Json
+    $listed = & (Join-Path $plugin 'bin/legion-account.ps1') -Action add -Id codex-a -Tool codex -Provider foundry -Endpoint 'https://example.invalid' -List -HomeRoot $listHome | ConvertFrom-Json
     Assert-Equal 'gpt-fixture' $listed.deployments[0].name 'Fresh-home Foundry list uses fake discovery'
     Assert-True (-not (Test-Path (Join-Path $listHome '.legion'))) 'Fresh-home Foundry list writes no settings or folders'
 

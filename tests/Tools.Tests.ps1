@@ -8,7 +8,7 @@ $helpersPath = Join-Path $repoRoot 'plugins/ps-ai/bin/install-tool/helpers.json'
 Assert-Equal 'claude|codex|copilot' (@(Get-LegionTools).id -join '|') 'Shipped descriptors load'
 $shippedRecipes = Get-LegionInstallRecipes
 Assert-True ($shippedRecipes.ContainsKey('bun') -and $shippedRecipes.ContainsKey('node')) 'Shared helper recipes load'
-$fourthJson = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw
+$fourthJson = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw
 
 # DiscoverFourthAndRejectInvalidNeighbors: folder additions need no shared id list.
 $toolsModule = Join-Path $repoRoot 'plugins/ps-ai/bin/lib/tools.ps1'
@@ -25,9 +25,9 @@ $scratchRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '.agents/temp/restruc
 $discoveryRoot = Join-Path $scratchRoot ('discovery-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $discoveryRoot -Force | Out-Null
 function New-TestToolSkill {
-    param([string]$Name = 'ps-ai-fourth', [scriptblock]$Change = {})
+    param([string]$Name = 'legion-fourth', [scriptblock]$Change = {})
     $folder = Join-Path $discoveryRoot $Name
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth') -Destination $folder -Recurse
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') -Destination $folder -Recurse
     $data = $fourthJson | ConvertFrom-Json -AsHashtable
     $null = & $Change $data
     $data | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $folder 'tool.json')
@@ -35,8 +35,8 @@ function New-TestToolSkill {
 }
 try {
     $folder = New-TestToolSkill
-    New-Item -ItemType Directory -Path (Join-Path $discoveryRoot 'ps-ai-shared'), (Join-Path $discoveryRoot 'nested') -Force | Out-Null
-    Copy-Item -LiteralPath $folder -Destination (Join-Path $discoveryRoot 'nested/ps-ai-hidden') -Recurse
+    New-Item -ItemType Directory -Path (Join-Path $discoveryRoot 'legion-shared'), (Join-Path $discoveryRoot 'nested') -Force | Out-Null
+    Copy-Item -LiteralPath $folder -Destination (Join-Path $discoveryRoot 'nested/legion-hidden') -Recurse
     Copy-Item -LiteralPath $folder -Destination (Join-Path $discoveryRoot 'unrelated') -Recurse
     Assert-Equal 'fourth' (@(Get-LegionTools -SkillsRoot $discoveryRoot).id -join '|') 'Only direct ps-ai descriptors are discovered'
     $fourth = Get-LegionTool -Tool fourth -SkillsRoot $discoveryRoot
@@ -49,12 +49,12 @@ try {
         try { Get-LegionTool -Tool $id -SkillsRoot $discoveryRoot | Out-Null } catch { $message = $_.Exception.Message }
         Assert-Equal "unknown tool '$id'" $message 'Unknown and traversal ids stop with exact diagnostic'
     }
-    $added = New-TestToolSkill -Name ps-ai-added -Change { param($d) $d.id = 'added' }
+    $added = New-TestToolSkill -Name legion-added -Change { param($d) $d.id = 'added' }
     Assert-Equal 'added|fourth' (@(Get-LegionTools -SkillsRoot $discoveryRoot).id -join '|') 'Fresh discovery sees additions'
     Move-Item -LiteralPath $added -Destination (Join-Path $discoveryRoot 'removed')
     Assert-Equal 'fourth' (@(Get-LegionTools -SkillsRoot $discoveryRoot).id -join '|') 'Fresh discovery sees removals'
 
-    $first = New-TestToolSkill -Name ps-ai-aaa -Change { param($d) $d.id = 'aaa' }
+    $first = New-TestToolSkill -Name legion-aaa -Change { param($d) $d.id = 'aaa' }
     $cultureBefore = [cultureinfo]::CurrentCulture
     try {
         foreach ($cultureName in @('en-US', 'da-DK')) {
@@ -103,7 +103,7 @@ try {
         Assert-Throws { Get-LegionTools -SkillsRoot $discoveryRoot | Out-Null } 'Missing skill/capability script stops discovery'
         Move-Item -LiteralPath ($path + '.held') -Destination $path
     }
-    $duplicate = New-TestToolSkill -Name ps-ai-duplicate
+    $duplicate = New-TestToolSkill -Name legion-duplicate
     $message = ''
     try { Get-LegionTools -SkillsRoot $discoveryRoot | Out-Null } catch { $message = $_.Exception.Message }
     Assert-True ($message.Contains("duplicate tool id 'fourth'")) 'Duplicate diagnostic wins over directory mismatch'
@@ -170,7 +170,7 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $runtime 'bin/lib'), (Join-Path $runtime 'schemas'), (Join-Path $runtime 'skills') -Force | Out-Null
     Copy-Item -LiteralPath $toolsModule -Destination (Join-Path $runtime 'bin/lib/tools.ps1')
     Copy-Item -LiteralPath $schemaPath -Destination (Join-Path $runtime 'schemas/tool.schema.json')
-    Copy-Item -LiteralPath $folder -Destination (Join-Path $runtime 'skills/ps-ai-fourth') -Recurse
+    Copy-Item -LiteralPath $folder -Destination (Join-Path $runtime 'skills/legion-fourth') -Recurse
     & {
         . (Join-Path $runtime 'bin/lib/tools.ps1')
         Assert-Equal 'fourth' (@(Get-LegionTools).id -join '|') 'Relocated discovery never reads helpers eagerly'

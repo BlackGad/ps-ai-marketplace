@@ -241,7 +241,7 @@ function Get-IntegrationBin { return Join-Path $script:Ctx.Checkout 'plugins/ps-
 
 function Get-IntegrationToolInfo {
     param([string]$Tool)
-    $json = Get-Content -LiteralPath (Join-Path $script:Ctx.Checkout "plugins/ps-ai/skills/ps-ai-$Tool/tool.json") -Raw | ConvertFrom-Json
+    $json = Get-Content -LiteralPath (Join-Path $script:Ctx.Checkout "plugins/ps-ai/skills/legion-$Tool/tool.json") -Raw | ConvertFrom-Json
     return $json
 }
 
@@ -367,7 +367,7 @@ function Invoke-CliInstallScript {
     $arguments = @('-Tool', $Tool, '-Yes')
     # Without a working winget the installer only asks for a method; zip needs no admin rights.
     if ((Get-IntegrationOs) -eq 'windows' -and -not (Test-IntegrationWingetWorks)) { $arguments += @('-Method', 'zip') }
-    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-install-tool.ps1') $arguments
+    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-install-tool.ps1') $arguments
 }
 
 function Get-IntegrationToolVersion {
@@ -484,7 +484,7 @@ function Invoke-LegionInstallRepeat {
 function Invoke-Setup {
     param([string]$Tool, [string]$Id)
     $arguments = @('-Add', @($Tool), '-Id', $Id, '-Yes', '-HomeRoot', $script:Ctx.HomeRoot, '-Source', $script:Ctx.Targets[$Tool].Source)
-    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-setup.ps1') $arguments
+    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-setup.ps1') $arguments
 }
 
 function Invoke-SetupAccounts {
@@ -496,7 +496,7 @@ function Invoke-SetupAccounts {
 function Invoke-SetupFirst {
     $lines = Invoke-SetupAccounts
     $settings = Get-IntegrationSettings
-    Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-validate.ps1') @('-Kind', 'personalisation', '-Path', $settings.Path) | Out-Null
+    Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-validate.ps1') @('-Kind', 'personalisation', '-Path', $settings.Path) | Out-Null
     Assert-IntegrationTrue (Test-Path -LiteralPath (Join-Path (Split-Path $settings.Path) 'ps-ai-notes.md')) 'ps-ai-notes.md is missing'
     $ids = @($settings.Data.agents | ForEach-Object id)
     foreach ($tool in (Get-IntegrationActiveTools)) {
@@ -554,7 +554,7 @@ function Invoke-AddRepeat {
 
 # Step 5
 function Invoke-AccountRemove {
-    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-account.ps1') @('-Action', 'remove', '-Id', 'ci-extra', '-HomeRoot', $script:Ctx.HomeRoot)
+    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-account.ps1') @('-Action', 'remove', '-Id', 'ci-extra', '-HomeRoot', $script:Ctx.HomeRoot)
 }
 
 function Invoke-RemoveFirst {
@@ -595,7 +595,7 @@ function Invoke-RepositoryScript {
     param([string]$Repo, [string]$Mode)
     $arguments = @('-Repo', $Repo, '-Mode', $Mode, '-Gate', 'pwsh -NoProfile -Command exit 0')
     if ($Mode -eq 'Shared') { $arguments += @('-RulesFile', 'AGENTS.md') }
-    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-repository.ps1') $arguments
+    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-repository.ps1') $arguments
 }
 
 function Get-CommitCount {
@@ -608,7 +608,7 @@ function Assert-LegionItems {
     foreach ($item in 'configuration/project.json', 'configuration/workflow.md', 'scripts/index.md', 'scripts/check-task.ps1', 'state/handoff.md') {
         Assert-IntegrationTrue (Test-Path -LiteralPath (Join-Path $Repo ".legion/$item")) ".legion/$item is missing"
     }
-    Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'ps-ai-validate.ps1') @('-Kind', 'project', '-Path', (Join-Path $Repo '.legion/configuration/project.json')) | Out-Null
+    Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-validate.ps1') @('-Kind', 'project', '-Path', (Join-Path $Repo '.legion/configuration/project.json')) | Out-Null
 }
 
 function Invoke-RepoPrivateFirst {

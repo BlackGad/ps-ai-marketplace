@@ -18,7 +18,7 @@ function Get-FoundryResourceName {
 function Invoke-FoundryAz {
     param([string[]]$Arguments)
     $az = Get-Command az -CommandType Application,ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $az) { throw 'az is not installed; run ps-ai-install-tool.ps1 -Tool az' }
+    if (-not $az) { throw 'az is not installed; run legion-install-tool.ps1 -Tool az' }
     $lines = @(& $az.Source @Arguments 2>&1)
     $code = $LASTEXITCODE
     $output = @($lines | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] }) -join "`n"

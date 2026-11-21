@@ -31,8 +31,8 @@ function Get-LegionMode {
             }
         }
         $task = [string]$Environment.LEGION_TASK
-        $message = 'ps-ai: you are a legion member. Load the ps-ai-legion skill to read your task from LEGION_TASK and follow it. '
-        $message += 'Do not load ps-ai-overseer. A summoned unit cannot summon: never start other agents.'
+        $message = 'ps-ai: you are a legion member. Load the legion-member skill to read your task from LEGION_TASK and follow it. '
+        $message += 'Do not load legion-overseer. A summoned unit cannot summon: never start other agents.'
         return [pscustomobject]@{ Mode = 'member'; Task = $task; Lease = 'free'; Text = $message }
     }
     $Repo = Find-LegionRepoRoot -Path $Repo
@@ -48,7 +48,7 @@ function Get-LegionMode {
         $message += ' An overseer lease from another host exists; ask the owner before taking over.'
     }
     try {
-        . (Join-Path $PSScriptRoot '../bin/ps-ai-update.ps1') -NoRun
+        . (Join-Path $PSScriptRoot '../bin/legion-update.ps1') -NoRun
         $update = Get-LegionUpdate
         if ($update.Newer) {
             $message += "`nps-ai $($update.Available) is available (installed $($update.Installed)); say `"update ps-ai`" to update."

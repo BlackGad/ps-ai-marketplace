@@ -14,9 +14,9 @@ Assert-Throws { Resolve-LegionChannel $owner unknown claude } 'Unknown destinati
 Assert-Throws { Resolve-LegionChannel $owner main codex } 'Unsupported tool fails'
 $scratch = Join-Path $root ('.agents/temp/channel-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $scratch -Force | Out-Null
-Copy-Item (Join-Path $root 'plugins/ps-ai/skills/ps-ai-claude') $scratch -Recurse
-$skill = Join-Path $scratch 'ps-ai-fixture-channel'
-Copy-Item (Join-Path $PSScriptRoot 'fixtures/channels/ps-ai-fixture-channel') $skill -Recurse
+Copy-Item (Join-Path $root 'plugins/ps-ai/skills/legion-claude') $scratch -Recurse
+$skill = Join-Path $scratch 'legion-fixture-channel'
+Copy-Item (Join-Path $PSScriptRoot 'fixtures/channels/legion-fixture-channel') $skill -Recurse
 $descriptor = @(Get-LegionChannels $scratch)[0]
 Assert-Equal '|two words|2026-11-19|semi;literal|quote''value' ($descriptor.launch.claude -join '|') 'LiteralChannelArguments'
 Assert-Equal 'fixture-channel' $descriptor.id 'DiscoverSecondChannelKind'
@@ -31,9 +31,9 @@ foreach ($bad in @(
 }
 # ready is an accepted fourth key; any other extra key is rejected
 Remove-Item -LiteralPath $skill -Recurse -Force
-$telegram = Join-Path $scratch 'ps-ai-telegram'
+$telegram = Join-Path $scratch 'legion-telegram'
 New-Item -ItemType Directory $telegram -Force | Out-Null
-Copy-Item (Join-Path $root 'plugins/ps-ai/skills/ps-ai-telegram/SKILL.md') $telegram
+Copy-Item (Join-Path $root 'plugins/ps-ai/skills/legion-telegram/SKILL.md') $telegram
 $ready = '"ready":{"command":"bun","pluginFolder":{"claude":"plugins/cache/claude-plugins-official/telegram"}}'
 $base = '"schemaVersion":1,"id":"telegram","launch":{"claude":[]}'
 "{$base,$ready}" | Set-Content (Join-Path $telegram 'channel.json')

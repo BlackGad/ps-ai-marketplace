@@ -3,7 +3,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 & {
     . (Join-Path $PSScriptRoot 'fixtures/install/UninstallSandbox.ps1')
     . (Join-Path $repo 'plugins/ps-ai/bin/lib/commands.ps1')
-    . (Join-Path $repo 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
     $bin = Join-Path $sandbox '.legion/bin'
     $installed = [Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::Ordinal)
     $pluginPaths = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
@@ -47,7 +47,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $path = Join-Path $ConfigFolder 'plugins/cache/ps-ai-marketplace/ps-ai/0.5.5'
         New-Item -ItemType Directory -Path (Join-Path $path 'bin') -Force | Out-Null
         '{"name":"ps-ai","version":"0.5.5"}' | Set-Content -LiteralPath (Join-Path $path 'plugin.json')
-        '' | Set-Content -LiteralPath (Join-Path $path 'bin/ps-ai-refresh.ps1')
+        '' | Set-Content -LiteralPath (Join-Path $path 'bin/legion-refresh.ps1')
         foreach ($name in @('legion')) {
             '' | Set-Content -LiteralPath (Join-Path $path "bin/$name.ps1")
         }

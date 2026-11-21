@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$script = Join-Path $root 'plugins/ps-ai/bin/ps-ai-overseer.ps1'
+$script = Join-Path $root 'plugins/ps-ai/bin/legion-overseer.ps1'
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('overseer-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $tempRoot -Force | Out-Null
 git init --quiet $tempRoot 2>&1 | Out-Null
@@ -57,19 +57,19 @@ catch { Assert-Equal 'selected channels cannot share one launch' $_.Exception.Me
 & {
     $plugin = Join-Path $tempRoot 'plugin'
     Copy-Item (Join-Path $root 'plugins/ps-ai') $plugin -Recurse
-    $fixtureKindFolder = Join-Path $plugin 'skills/ps-ai-fixture-channel'
+    $fixtureKindFolder = Join-Path $plugin 'skills/legion-fixture-channel'
     New-Item -ItemType Directory $fixtureKindFolder -Force | Out-Null
     'Fixture channel.' | Set-Content (Join-Path $fixtureKindFolder 'SKILL.md')
     '{"schemaVersion":1,"id":"fixture-channel","launch":{"claude":["--channels","second value","","2026-11-19","semi;literal","quote''value"]}}' | Set-Content (Join-Path $fixtureKindFolder 'channel.json')
     Get-ChildItem (Join-Path $plugin 'skills') -Filter overseer-model.ps1 -Recurse | Remove-Item
-    . (Join-Path $plugin 'bin/ps-ai-overseer.ps1') -NoRun -HomeRoot $tempRoot
+    . (Join-Path $plugin 'bin/legion-overseer.ps1') -NoRun -HomeRoot $tempRoot
     $copy = $owner | ConvertTo-Json -Depth 100 | ConvertFrom-Json
     $copy.channels[1].kind='fixture-channel'
     $copy.channels[1].accounts=@('claude-a')
     $launch = Get-OverseerLaunch -Personalisation $copy -AccountId claude-a -Channel @('main','alerts','alerts') -HomeRoot $tempRoot
     Assert-Equal '--channels|plugin:telegram@claude-plugins-official|--channels|second value||2026-11-19|semi;literal|quote''value|--|continue as the overseer' ($launch.Args -join '|') 'SameKindFlagsPreserveArgv never deduplicates individual strings'
     'different' | Set-Content (Join-Path $fixtureKindFolder 'SKILL.md')
-    $missingSkill = Join-Path $plugin 'skills/ps-ai-telegram/SKILL.md'
+    $missingSkill = Join-Path $plugin 'skills/legion-telegram/SKILL.md'
     Move-Item -LiteralPath $missingSkill -Destination ($missingSkill + '.fixture')
     Assert-Throws { Get-OverseerLaunch -Personalisation $copy -AccountId claude-a -Channel main } 'Missing channel skill fails before execution'
 }

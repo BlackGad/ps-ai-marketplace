@@ -1,5 +1,5 @@
 $repo = Split-Path $PSScriptRoot -Parent
-$accountScript = Join-Path $repo 'plugins/ps-ai/bin/ps-ai-account.ps1'
+$accountScript = Join-Path $repo 'plugins/ps-ai/bin/legion-account.ps1'
 . $accountScript -NoRun
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
 

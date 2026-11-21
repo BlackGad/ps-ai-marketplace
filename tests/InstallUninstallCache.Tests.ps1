@@ -52,7 +52,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         foreach ($unsafe in @('../other-marketplace', '/outside', 'C:/outside', '.', 'plugins/../other', '~/outside', 'plugins/*', 'plugins/./cache')) {
             $entry.plugin.cacheDir=$unsafe
             Assert-Throws { Get-InstallCatalog -Catalog $catalog } 'Unsafe cache path rejected before any CLI command'
-            $descriptor = Get-Content (Join-Path $repo 'plugins/ps-ai/skills/ps-ai-codex/tool.json') -Raw | ConvertFrom-Json
+            $descriptor = Get-Content (Join-Path $repo 'plugins/ps-ai/skills/legion-codex/tool.json') -Raw | ConvertFrom-Json
             $descriptor.plugin.cacheDir=$unsafe
             Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile (Join-Path $repo 'plugins/ps-ai/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) 'Schema rejects unsafe cache path'
         }
@@ -70,7 +70,7 @@ $repo = Split-Path $PSScriptRoot -Parent
             Remove-Item -LiteralPath $link -Force
         }
 
-        $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
+        $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw | ConvertFrom-Json
         $fourth.plugin | Add-Member cacheDir 'private/cache/ps-ai-store'
         $catalog.tools += [pscustomobject]@{id=$fourth.id;command=$fourth.command;configEnv=$fourth.configEnv;plugin=$fourth.plugin;hooks=$fourth.hooks;installHint='fixture'}
         $futureCache = Join-Path $folder 'private/cache/ps-ai-store'

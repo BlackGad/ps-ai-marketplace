@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$refresh = Join-Path $root 'plugins/ps-ai/bin/ps-ai-refresh.ps1'
-$setup = Join-Path $root 'plugins/ps-ai/bin/ps-ai-setup.ps1'
+$refresh = Join-Path $root 'plugins/ps-ai/bin/legion-refresh.ps1'
+$setup = Join-Path $root 'plugins/ps-ai/bin/legion-setup.ps1'
 $tempRoot = Join-Path $root ('.agents/temp/retired-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
@@ -14,7 +14,7 @@ try {
         $bin = Join-Path $home1 '.legion/bin'
         New-Item -ItemType Directory -Path $bin -Force | Out-Null
         foreach ($command in $retired) {
-            $runner = Join-Path $root "plugins/ps-ai/bin/$command.ps1"
+            $runner = Join-Path $root "plugins/ps-ai/bin/$((Get-LegionRetiredCommands)[$command])"
             [IO.File]::WriteAllText((Join-Path $bin $command), (Get-LegionShimText -Script $runner -HomeRoot $home1))
             [IO.File]::WriteAllText((Join-Path $bin "$command.cmd"), (Get-LegionShimText -Script $runner -Windows -HomeRoot $home1))
         }
@@ -27,7 +27,7 @@ try {
     $edited = Join-Path $refreshBin 'ps-ai-status'
     [IO.File]::WriteAllText($edited, "#!/bin/sh`necho mine`n")
     $flagged = Join-Path $refreshBin 'ps-ai-overseer'
-    [IO.File]::WriteAllText($flagged, (Get-LegionShimText -Script (Join-Path $root 'plugins/ps-ai/bin/ps-ai-overseer.ps1') -HomeRoot $refreshHome).Replace(' "$@"', ' -Account mine "$@"'))
+    [IO.File]::WriteAllText($flagged, (Get-LegionShimText -Script (Join-Path $root 'plugins/ps-ai/bin/legion-overseer.ps1') -HomeRoot $refreshHome).Replace(' "$@"', ' -Account mine "$@"'))
     $first = @(& $refresh -HomeRoot $refreshHome)
     foreach ($name in @('ps-ai-setup', 'ps-ai-setup.cmd', 'ps-ai-status.cmd', 'ps-ai-overseer.cmd')) {
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $refreshBin $name))) "Refresh removes generated $name"

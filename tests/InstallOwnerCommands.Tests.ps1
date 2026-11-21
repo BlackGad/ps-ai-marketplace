@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 . (Join-Path $repo 'plugins/ps-ai/bin/lib/commands.ps1')
-. (Join-Path $repo 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
+. (Join-Path $repo 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
 $scratch = Join-Path $repo ('.agents/temp/install-owner-commands-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 try {
@@ -27,7 +27,7 @@ try {
         $path = Join-Path $scratch 'sample'
         foreach ($text in $samples) {
             [IO.File]::WriteAllText($path, $text)
-            foreach ($script in @('legion.ps1', 'ps-ai-status.ps1')) {
+            foreach ($script in @('legion.ps1', 'legion-status.ps1')) {
                 Assert-Equal (Test-LegionOwnerCommandFile -Path $path -Script $script) (Test-InstallOwnerCommandFile -Path $path -Script $script) "Both copies of the rule agree on: $text"
             }
         }
@@ -63,7 +63,7 @@ try {
         $bin = Join-Path $homeRoot '.legion/bin'
         New-Item -ItemType Directory -Path $bin -Force | Out-Null
         function Get-InstallHome { $homeRoot }
-        $live = Join-Path $scratch 'live/bin/ps-ai-status.ps1'
+        $live = Join-Path $scratch 'live/bin/legion-status.ps1'
         New-Item -ItemType Directory -Path (Split-Path $live) -Force | Out-Null
         '' | Set-Content -LiteralPath $live
         $script:installCatalog = Get-InstallCatalog -Source $repo

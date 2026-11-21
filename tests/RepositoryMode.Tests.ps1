@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$setup = Join-Path $root 'plugins/ps-ai/bin/ps-ai-repository.ps1'
+$setup = Join-Path $root 'plugins/ps-ai/bin/legion-repository.ps1'
 $sandbox = Join-Path $root ('.agents/temp/repository-mode-' + [guid]::NewGuid().ToString('N'))
 $savedGlobal = $env:GIT_CONFIG_GLOBAL
 $savedSystem = $env:GIT_CONFIG_NOSYSTEM

@@ -122,7 +122,7 @@ try {
     foreach ($json in @('[{"id":["ps-ai@ps-ai-marketplace","other"],"enabled":true}]','[{"id":"ps-ai@ps-ai-marketplace","enabled":"true"}]','[{"id":"ps-ai@ps-ai-marketplace-old","enabled":true}]','[{"id":"ps-ai@ps-ai-marketplace","enabled":false}]')) {
         Assert-True (-not (Test-InstallListing -Kind plugin -Tool claude -Lines @($json))) 'Only exact id and Boolean true count'
     }
-    $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
+    $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw | ConvertFrom-Json
     $fourth.plugin.marketplaceAdd = @('register','{source}','prefix-{source}')
     $script:installCatalog.tools += $fourth
     Assert-Equal 'fourth-cli|register|local source|prefix-local source' ((Get-InstallCommands -Tool fourth -Source 'local source')[0] -join '|') 'Source tokens are replaced within arguments'

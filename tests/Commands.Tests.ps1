@@ -12,7 +12,7 @@ $scratch = Join-Path $root ('.agents/temp/commands-' + [guid]::NewGuid().ToStrin
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 $target = Join-Path $scratch "owner's plugin/bin/legion.ps1"
 $unix = Get-LegionShimText -Script $target
-. (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
+. (Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
 $expected = "#!/bin/sh`n" + 'exec pwsh -NoProfile -File ' + (ConvertTo-LegionShellLiteral $target) + ' "$@"' + "`n"
 Assert-Equal $expected $unix 'Unix shim quotes spaces and apostrophes with the shared shell literal'
 $windows = Get-LegionShimText -Script 'C:\plugin folder\bin\legion.ps1' -Windows
@@ -32,7 +32,7 @@ foreach ($text in @($unix, $windows, $unix.Replace(' "$@"', ' --extra "$@"'), $w
     $samplePath = if ($text.StartsWith('@')) { "$path.cmd" } else { $path }
     [IO.File]::WriteAllText($samplePath, $text)
     Assert-True (Test-LegionOwnerCommandFile -Path $samplePath -Script legion.ps1) 'Generated and owner-extended shims are recognized'
-    Assert-Equal $false (Test-LegionOwnerCommandFile -Path $samplePath -Script ps-ai-status.ps1) 'Another owner command target does not match'
+    Assert-Equal $false (Test-LegionOwnerCommandFile -Path $samplePath -Script legion-status.ps1) 'Another owner command target does not match'
 }
 foreach ($text in @('unrelated command', 'pwsh -NoProfile -File "/plugin/legion.ps1"', 'echo "/plugin/bin/legion.ps1"', 'python -File "/plugin/bin/legion.ps1"')) {
     [IO.File]::WriteAllText($path, $text)

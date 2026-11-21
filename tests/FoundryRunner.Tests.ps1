@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-$runnerScript = Join-Path $root 'plugins/ps-ai/bin/ps-ai-foundry.ps1'
+$runnerScript = Join-Path $root 'plugins/ps-ai/bin/legion-foundry.ps1'
 . $runnerScript -NoRun
 Assert-True ([bool](Get-Command Get-FoundryLaunch -ErrorAction SilentlyContinue)) 'Foundry launch builder exists'
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
@@ -92,7 +92,7 @@ try {
     $env:PATH = @($fakeAzFolder,$PSHOME) -join [IO.Path]::PathSeparator
     $output = @(& $pwshPath -NoProfile -File $runnerScript -Agent claude-dev -HomeRoot $homeRoot 2>&1)
     Assert-Equal 1 $LASTEXITCODE 'Missing tool exits one'
-    Assert-True (($output -join "`n").Contains('claude is not installed; run ps-ai-install-tool.ps1 -Tool claude')) 'Missing tool installer hint'
+    Assert-True (($output -join "`n").Contains('claude is not installed; run legion-install-tool.ps1 -Tool claude')) 'Missing tool installer hint'
     foreach ($case in @(@{id='x';error="unknown account 'x'"},@{id='subscription';error="account 'subscription' is not a Foundry agent"})) {
         $output = @(& $pwshPath -NoProfile -File $runnerScript -Agent $case.id -HomeRoot $homeRoot 2>&1)
         Assert-Equal 1 $LASTEXITCODE 'Invalid account exits one'
@@ -102,7 +102,7 @@ try {
     $bin = Join-Path $homeRoot '.legion/bin'
     New-Item -ItemType Directory -Path $bin -Force | Out-Null
     $bundledRunner = & {
-        . (Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1') -HomeRoot $homeRoot
+        . (Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1') -HomeRoot $homeRoot
         foreach ($id in @('codex','copilot')) { $null = Sync-LegionFoundryRuntime -Tool $id -HomeRoot $homeRoot }
         Sync-LegionFoundryRuntime -Tool claude -HomeRoot $homeRoot
     }
@@ -114,8 +114,8 @@ try {
     Assert-True (Test-Path $env:LEGION_FAKE_TOOL_LOG) 'Installed runner starts fake tool'
     # FourthToolLaunchAndStartFailureCleanup: extension uses only the added skill.
     $runtime = Split-Path (Split-Path $bundledRunner -Parent) -Parent
-    $fourthSkill = Join-Path $runtime 'skills/ps-ai-fourth'
-    Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth') $fourthSkill -Recurse
+    $fourthSkill = Join-Path $runtime 'skills/legion-fourth'
+    Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') $fourthSkill -Recurse
     $env:PATH = @($bin,$fourthSkill,$fakeToolsFolder,$fakeAzFolder,$PSHOME) -join [IO.Path]::PathSeparator
     'throw "owned wrapper selected"' | Set-Content (Join-Path $bin 'fourth-cli.ps1')
     $file = Join-Path $config 'ps-ai-personalisation.json'
@@ -147,7 +147,7 @@ try {
     $brokenPath = Join-Path $tempRoot $brokenName
     [IO.File]::WriteAllBytes($brokenPath, [byte[]]@(0,1,2,3))
     if (-not $IsWindows) { [IO.File]::SetUnixFileMode($brokenPath, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute) }
-    $copilotDescriptorPath = Join-Path $runtime 'skills/ps-ai-copilot/tool.json'
+    $copilotDescriptorPath = Join-Path $runtime 'skills/legion-copilot/tool.json'
     $copilotDescriptor = Get-Content $copilotDescriptorPath -Raw | ConvertFrom-Json
     $copilotDescriptor.command = $brokenName
     $copilotDescriptor | ConvertTo-Json -Depth 100 | Set-Content $copilotDescriptorPath

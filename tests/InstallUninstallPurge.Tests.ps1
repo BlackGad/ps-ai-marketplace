@@ -303,7 +303,7 @@ Test-PurgeScenario {
     Assert-Equal '{"enabledPlugins":{},"other":1}' ([IO.File]::ReadAllText($settings)) 'Applier uses the descriptor settings file and preserves unrelated bytes'
     $entry.plugin.purge.paths=@('../fake-real')
     Assert-Throws { Get-InstallCatalog -Catalog $catalog } 'Standalone catalog rejects purge paths outside a tool folder'
-    $descriptor = Get-Content (Join-Path $repo 'plugins/ps-ai/skills/ps-ai-claude/tool.json') -Raw | ConvertFrom-Json
+    $descriptor = Get-Content (Join-Path $repo 'plugins/ps-ai/skills/legion-claude/tool.json') -Raw | ConvertFrom-Json
     $descriptor.plugin.purge.settings[0].path='../outside.json'
     $invalid = $descriptor | ConvertTo-Json -Depth 100
     # The standalone installer also runs on 5.1; JSON Schema validation is a 7-only check.

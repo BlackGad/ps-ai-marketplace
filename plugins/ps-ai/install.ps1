@@ -663,12 +663,12 @@ function Get-UninstallFiles {
         if (-not $KeepOwnerCommands) { $paths += Get-InstallOwnerCommandPaths -Bin $bin }
         # Exact files published by Sync-LegionFoundryRuntime; never remove the directory tree.
         $runtime = Join-Path $bin '.ps-ai-runtime'
-        foreach ($name in @('bin/lib/tools.ps1', 'bin/lib/foundry.ps1', 'bin/lib/paths.ps1', 'bin/ps-ai-foundry.ps1', 'schemas/tool.schema.json')) {
+        foreach ($name in @('bin/lib/tools.ps1', 'bin/lib/foundry.ps1', 'bin/lib/paths.ps1', 'bin/legion-foundry.ps1', 'schemas/tool.schema.json')) {
             $paths += Join-Path $runtime $name
         }
         foreach ($entry in $script:installCatalog.tools) {
             foreach ($name in @('SKILL.md', 'tool.json', 'scripts/foundry-config.ps1', 'scripts/foundry-launch.ps1')) {
-                $paths += Join-Path $runtime "skills/ps-ai-$($entry.id)/$name"
+                $paths += Join-Path $runtime "skills/legion-$($entry.id)/$name"
             }
         }
     }
@@ -1227,7 +1227,7 @@ function Invoke-InstallRefresh {
     param($Entry, [string]$ConfigDir, [string]$PluginRoot)
     if (-not $PluginRoot) { $PluginRoot = Get-InstallPluginRoot -Entry $Entry -ConfigDir $ConfigDir }
     if (-not $PluginRoot) { throw "$($Entry.id) ps-ai is absent from the post-update listing; generated artifacts were not refreshed." }
-    $refresh = Join-Path $PluginRoot 'bin/ps-ai-refresh.ps1'
+    $refresh = Join-Path $PluginRoot 'bin/legion-refresh.ps1'
     if (-not (Test-Path -LiteralPath $refresh -PathType Leaf)) { throw "$($Entry.id) installed ps-ai refresh script is missing." }
     $powerShell = Get-InstallPowerShellCommand
     if (-not $powerShell) { throw 'PowerShell 7 is required to refresh generated ps-ai artifacts.' }

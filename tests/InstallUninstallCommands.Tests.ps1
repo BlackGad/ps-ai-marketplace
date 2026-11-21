@@ -2,7 +2,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 & {
     . (Join-Path $PSScriptRoot 'fixtures/install/UninstallSandbox.ps1')
     . (Join-Path $repo 'plugins/ps-ai/bin/lib/commands.ps1')
-    . (Join-Path $repo 'plugins/ps-ai/bin/ps-ai-account.ps1') -NoRun
+    . (Join-Path $repo 'plugins/ps-ai/bin/legion-account.ps1') -NoRun
     try {
         $bin = Join-Path $sandbox '.legion/bin'
         New-Item -ItemType Directory -Path $bin -Force | Out-Null

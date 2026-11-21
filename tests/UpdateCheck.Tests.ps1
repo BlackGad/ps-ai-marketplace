@@ -1,5 +1,5 @@
 $repo = Split-Path $PSScriptRoot -Parent
-$checker = Join-Path $repo 'plugins/ps-ai/bin/ps-ai-update.ps1'
+$checker = Join-Path $repo 'plugins/ps-ai/bin/legion-update.ps1'
 Assert-True (Test-Path -LiteralPath $checker) 'Shared update checker exists'
 
 & {

@@ -54,7 +54,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 & {
     . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
-    $entry = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
+    $entry = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw | ConvertFrom-Json
     $entry.plugin.marketplaceUpdate = @('refresh-fixture-market')
     $script:installCatalog.tools += $entry
     $calls = [Collections.Generic.List[string]]::new()

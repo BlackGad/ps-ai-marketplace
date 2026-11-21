@@ -78,7 +78,7 @@ function Get-LegionCall {
             Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags $yesFlags -MinArguments 0 -MaxArguments 0
             $splat = @{}
             if ($hasYes) { $splat.Yes = $true }
-            return @{ Script = 'ps-ai-setup.ps1'; Splat = $splat; AsksToApply = -not $hasYes }
+            return @{ Script = 'legion-setup.ps1'; Splat = $splat; AsksToApply = -not $hasYes }
         }
         'add' {
             Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags $yesFlags -MinArguments 1 -MaxArguments 2
@@ -86,16 +86,16 @@ function Get-LegionCall {
             $item = $arguments -join ':'
             $splat = @{ Add = @($item) }
             if ($hasYes) { $splat.Yes = $true }
-            return @{ Script = 'ps-ai-setup.ps1'; Splat = $splat; AsksToApply = -not $hasYes }
+            return @{ Script = 'legion-setup.ps1'; Splat = $splat; AsksToApply = -not $hasYes }
         }
         'remove' {
             Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags @() -MinArguments 1 -MaxArguments 1
             $splat = @{ Action = 'remove'; Id = $arguments[0] }
-            return @{ Script = 'ps-ai-account.ps1'; Splat = $splat; AsksToApply = $false }
+            return @{ Script = 'legion-account.ps1'; Splat = $splat; AsksToApply = $false }
         }
         'status' {
             Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags @() -MinArguments 0 -MaxArguments 0
-            return @{ Script = 'ps-ai-status.ps1'; Splat = @{ Repo = $repo }; AsksToApply = $false }
+            return @{ Script = 'legion-status.ps1'; Splat = @{ Repo = $repo }; AsksToApply = $false }
         }
         { $_ -in @('', 'pick') } {
             $noChannelFlags = @('--no-channel', '-NoChannel')
@@ -103,7 +103,7 @@ function Get-LegionCall {
             $splat = @{ Repo = $repo }
             if ($verb -eq 'pick') { $splat.Pick = $true }
             if ($parts.Flags | Where-Object { $noChannelFlags -contains $_ }) { $splat.NoChannel = $true }
-            return @{ Script = 'ps-ai-overseer.ps1'; Splat = $splat; AsksToApply = $false }
+            return @{ Script = 'legion-overseer.ps1'; Splat = $splat; AsksToApply = $false }
         }
         { $_ -in @('update', 'uninstall') } {
             $allowedFlags = $yesFlags
@@ -141,7 +141,7 @@ function Invoke-LegionScript {
     $global:LASTEXITCODE = 0
     $script:LegionOutput = @()
     $splat = $Call.Splat.Clone()
-    if ($script:LegionHomeRoot -and $Call.Script -ne 'ps-ai-repository.ps1') { $splat.HomeRoot = $script:LegionHomeRoot }
+    if ($script:LegionHomeRoot -and $Call.Script -ne 'legion-repository.ps1') { $splat.HomeRoot = $script:LegionHomeRoot }
     $installerFolder = if ($Call.Installer) { Copy-LegionInstaller }
     $scriptPath = if ($Call.Installer) { Join-Path $installerFolder 'install.ps1' } else { Join-Path $script:LegionBin $Call.Script }
     try {

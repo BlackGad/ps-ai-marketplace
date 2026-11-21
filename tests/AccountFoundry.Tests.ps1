@@ -1,6 +1,6 @@
 $root = Split-Path $PSScriptRoot -Parent
-$accountScript = Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1'
-. (Join-Path $root 'plugins/ps-ai/bin/ps-ai-validate.ps1') -NoRun
+$accountScript = Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1'
+. (Join-Path $root 'plugins/ps-ai/bin/legion-validate.ps1') -NoRun
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $savedPath = $env:PATH
@@ -52,15 +52,15 @@ try {
     Assert-True $picker.modelPicker.replaceBuiltInOptions 'Claude picker replaces builtins'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.model -join '|') 'Picker uses deployment names'
     Assert-Equal 'claude-opus-x|claude-sonnet-x' ($picker.modelPicker.options.label -join '|') 'Picker labels'
-    foreach ($name in @('claude-dev','claude-dev.cmd','.ps-ai-runtime/bin/ps-ai-foundry.ps1','.ps-ai-runtime/bin/lib/foundry.ps1','.ps-ai-runtime/bin/lib/tools.ps1','.ps-ai-runtime/schemas/tool.schema.json')) {
+    foreach ($name in @('claude-dev','claude-dev.cmd','.ps-ai-runtime/bin/legion-foundry.ps1','.ps-ai-runtime/bin/lib/foundry.ps1','.ps-ai-runtime/bin/lib/tools.ps1','.ps-ai-runtime/schemas/tool.schema.json')) {
         Assert-True (Test-Path (Join-Path $homeRoot ".legion/bin/$name")) "Foundry writes $name"
     }
     # RuntimeSurvivesRelocation: only selected runtime files are bundled.
     $runtime = Join-Path (Get-LongPath $homeRoot) '.legion/bin/.ps-ai-runtime'
-    $expectedFiles = @('bin/ps-ai-foundry.ps1','bin/lib/foundry.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','schemas/tool.schema.json','skills/ps-ai-claude/SKILL.md','skills/ps-ai-claude/tool.json','skills/ps-ai-claude/scripts/foundry-launch.ps1','skills/ps-ai-claude/scripts/foundry-config.ps1')
+    $expectedFiles = @('bin/legion-foundry.ps1','bin/lib/foundry.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','schemas/tool.schema.json','skills/legion-claude/SKILL.md','skills/legion-claude/tool.json','skills/legion-claude/scripts/foundry-launch.ps1','skills/legion-claude/scripts/foundry-config.ps1')
     Assert-Equal (($expectedFiles | Sort-Object) -join '|') ((Get-ChildItem $runtime -File -Recurse | ForEach-Object { [IO.Path]::GetRelativePath($runtime, $_.FullName).Replace('\','/') } | Sort-Object) -join '|') 'Bundle contains only runtime dependencies'
-    Assert-True ((Get-Content (Join-Path $homeRoot '.legion/bin/claude-dev') -Raw).Contains((Join-Path $runtime 'bin/ps-ai-foundry.ps1'))) 'Wrapper targets bundled runner'
-    $tracked = @($file, $settings, (Join-Path $homeRoot '.legion/bin/claude-dev'), (Join-Path $homeRoot '.legion/bin/.ps-ai-runtime/bin/ps-ai-foundry.ps1'))
+    Assert-True ((Get-Content (Join-Path $homeRoot '.legion/bin/claude-dev') -Raw).Contains((Join-Path $runtime 'bin/legion-foundry.ps1'))) 'Wrapper targets bundled runner'
+    $tracked = @($file, $settings, (Join-Path $homeRoot '.legion/bin/claude-dev'), (Join-Path $homeRoot '.legion/bin/.ps-ai-runtime/bin/legion-foundry.ps1'))
     $timestamps = @($tracked | ForEach-Object { [IO.File]::GetLastWriteTimeUtc($_).Ticks })
     $repeat = & $accountScript -Action add @common @selection
     Assert-Equal 'skip: account claude-dev (already done)' $repeat 'Repeated add skips'
@@ -246,14 +246,14 @@ approval_policy = "never"
         Assert-True ((Get-Content $collisionWrapper -Raw).Contains('preserved-cli')) 'Account creation still works after runtime installation'
         $pluginCopy = Join-Path $tempRoot 'source-plugin'
         Copy-Item (Join-Path $root 'plugins/ps-ai') $pluginCopy -Recurse
-        . (Join-Path $pluginCopy 'bin/ps-ai-account.ps1') -HomeRoot $homeRoot
+        . (Join-Path $pluginCopy 'bin/legion-account.ps1') -HomeRoot $homeRoot
         $null = Sync-LegionFoundryRuntime -Tool codex -HomeRoot $homeRoot
         $allFiles = @(Get-ChildItem $runtime -Recurse -File)
         $snapshot = @($allFiles | ForEach-Object { $_.LastWriteTimeUtc.Ticks.ToString() + ':' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)) }) -join '|'
         $syncOutput = @(Sync-LegionFoundryRuntime -Tool claude -HomeRoot $homeRoot)
         Assert-Equal 1 $syncOutput.Count 'Runtime sync returns only the runner path'
         Assert-Equal $snapshot (@($allFiles | ForEach-Object { [IO.File]::GetLastWriteTimeUtc($_.FullName).Ticks.ToString() + ':' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)) }) -join '|') 'Repeated sync preserves bytes and timestamps of both tools'
-        Assert-True (Test-Path (Join-Path $runtime 'skills/ps-ai-codex/tool.json')) 'Refreshing Claude retains Codex'
+        Assert-True (Test-Path (Join-Path $runtime 'skills/legion-codex/tool.json')) 'Refreshing Claude retains Codex'
         Assert-True (-not (Test-Path (Join-Path $runtime 'bin/install-tool/helpers.json'))) 'RelocatedRuntimeWithoutHelpers keeps discovery independent of installation'
         $resolvedCopy = [IO.Path]::GetFullPath($pluginCopy)
         if (-not $resolvedCopy.StartsWith([IO.Path]::GetFullPath($tempRoot) + [IO.Path]::DirectorySeparatorChar)) { throw 'Unsafe source cleanup' }

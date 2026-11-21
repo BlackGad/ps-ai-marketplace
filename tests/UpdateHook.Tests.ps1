@@ -5,7 +5,7 @@ $plugin = Join-Path $sandbox 'plugin'
 $fixtureRepo = Join-Path $sandbox 'repo'
 New-Item -ItemType Directory -Path (Join-Path $plugin 'hooks'), (Join-Path $plugin 'bin/lib'), (Join-Path $fixtureRepo '.legion/state') -Force | Out-Null
 try {
-    foreach ($file in @('hooks/detect-mode.ps1','bin/lib/common.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','bin/ps-ai-update.ps1')) {
+    foreach ($file in @('hooks/detect-mode.ps1','bin/lib/common.ps1','bin/lib/tools.ps1','bin/lib/paths.ps1','bin/legion-update.ps1')) {
         Copy-Item (Join-Path $repo "plugins/ps-ai/$file") (Join-Path $plugin $file)
     }
     '{"name":"ps-ai","version":"0.3.0"}' | Set-Content (Join-Path $plugin 'plugin.json')
@@ -19,7 +19,7 @@ function Get-LegionUpdateText {
     if ($text -eq 'fail') { throw 'offline fixture' }
     $text
 }
-'@ | Add-Content (Join-Path $plugin 'bin/ps-ai-update.ps1')
+'@ | Add-Content (Join-Path $plugin 'bin/legion-update.ps1')
     '{"name":"ps-ai","version":"0.4.0"}' | Set-Content (Join-Path $plugin 'response.txt') -NoNewline
     $hook = Join-Path $plugin 'hooks/detect-mode.ps1'
     $savedRole = $env:LEGION_ROLE

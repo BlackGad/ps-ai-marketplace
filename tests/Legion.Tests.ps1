@@ -13,7 +13,7 @@ try {
 
     # --- Get-LegionCall ---
     $call = Get-LegionCall -Words @('add', 'codex', 'C:\work\a b', '--yes')
-    Assert-Equal 'ps-ai-setup.ps1' $call.Script 'add calls the setup script'
+    Assert-Equal 'legion-setup.ps1' $call.Script 'add calls the setup script'
     Assert-Equal 1 @($call.Splat.Add).Count 'add passes one item'
     Assert-Equal 'codex:C:\work\a b' $call.Splat.Add[0] 'add joins tool and folder with the first colon'
     Assert-Equal $true $call.Splat.Yes 'add --yes sets Yes'
@@ -25,19 +25,19 @@ try {
     Assert-True (-not $call.Splat.ContainsKey('Yes')) 'add without --yes has no Yes'
 
     $call = Get-LegionCall -Words @('setup', '-Yes')
-    Assert-Equal 'ps-ai-setup.ps1' $call.Script 'setup calls the setup script'
+    Assert-Equal 'legion-setup.ps1' $call.Script 'setup calls the setup script'
     Assert-Equal $true $call.Splat.Yes 'setup -Yes sets Yes'
     Assert-Equal $true (Get-LegionCall -Words @('setup')).AsksToApply 'setup asks to apply'
 
     $call = Get-LegionCall -Words @('remove', 'claude1')
-    Assert-Equal 'ps-ai-account.ps1' $call.Script 'remove calls the account script'
+    Assert-Equal 'legion-account.ps1' $call.Script 'remove calls the account script'
     Assert-Equal 'remove' $call.Splat.Action 'remove action'
     Assert-Equal 'claude1' $call.Splat.Id 'remove id'
     Assert-True (-not $call.Splat.ContainsKey('Repo')) 'remove has no Repo'
     Assert-Equal $false $call.AsksToApply 'remove does not ask'
 
     $call = Get-LegionCall -Words @()
-    Assert-Equal 'ps-ai-overseer.ps1' $call.Script 'bare legion calls the overseer script'
+    Assert-Equal 'legion-overseer.ps1' $call.Script 'bare legion calls the overseer script'
     Assert-Equal $cwd $call.Splat.Repo 'bare legion repo is the current folder'
     Assert-Equal 1 $call.Splat.Count 'bare legion passes only the repository'
     $call = Get-LegionCall -Words @('--no-channel')
@@ -64,7 +64,7 @@ try {
     Assert-True ($call.Installer -and $call.Splat.Uninstall) 'uninstall runs the installer'
 
     $call = Get-LegionCall -Words @('status')
-    Assert-Equal 'ps-ai-status.ps1' $call.Script 'status script'
+    Assert-Equal 'legion-status.ps1' $call.Script 'status script'
     Assert-Equal $cwd $call.Splat.Repo 'status repo'
 
     Assert-Equal $null (Get-LegionCall -Words @('help')) 'help gives no call'
@@ -100,7 +100,7 @@ Get-Content -LiteralPath (Join-Path $scratch 'plan.txt')
 $code = (Get-Content -LiteralPath (Join-Path $scratch 'exit.txt')).Trim()
 if ($code -ne 'none') { exit [int]$code }
 '@
-    foreach ($name in 'ps-ai-setup.ps1', 'ps-ai-account.ps1', 'ps-ai-status.ps1', 'ps-ai-repository.ps1', 'ps-ai-overseer.ps1') {
+    foreach ($name in 'legion-setup.ps1', 'legion-account.ps1', 'legion-status.ps1', 'legion-repository.ps1', 'legion-overseer.ps1') {
         Set-Content -LiteralPath (Join-Path $standIns $name) -Value $standInText
     }
     $script:LegionBin = $standIns
@@ -170,11 +170,11 @@ if ($code -ne 'none') { exit [int]$code }
     $global:LASTEXITCODE = 7
     Assert-Equal 0 (Invoke-Quiet @('status')) 'A stale exit code does not leak into a success'
 
-    Remove-Item -LiteralPath (Join-Path $standIns 'ps-ai-status.ps1')
+    Remove-Item -LiteralPath (Join-Path $standIns 'legion-status.ps1')
     $global:LASTEXITCODE = 0
     Assert-Equal 1 (Invoke-Quiet @('status')) 'A script that cannot run gives exit 1'
     Assert-True ($script:Output.Count -gt 0) 'A script that cannot run prints a message'
-    Set-Content -LiteralPath (Join-Path $standIns 'ps-ai-status.ps1') -Value $standInText
+    Set-Content -LiteralPath (Join-Path $standIns 'legion-status.ps1') -Value $standInText
 
     # --- Rejections: help text, exit 1, nothing runs ---
     foreach ($words in @(@('frobnicate'), @('remove'), @('add', 'claude', 'x', 'extra'), @('status', '--yes'), @('setup', '--no-channel'), @('remove', 'a', '--yes'), @('start'), @('repo'), @('pick', 'a'), @('update', 'main'), @('add'))) {

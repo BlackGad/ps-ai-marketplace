@@ -3,7 +3,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 & {
     . (Join-Path $repo 'plugins/ps-ai/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
-    $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/ps-ai-fourth/tool.json') -Raw | ConvertFrom-Json
+    $fourth = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw | ConvertFrom-Json
     $script:installCatalog.tools += $fourth
     foreach ($entry in $script:installCatalog.tools) {
         $state = @{ Added=$false }

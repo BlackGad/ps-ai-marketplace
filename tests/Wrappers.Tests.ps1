@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $root = Split-Path $PSScriptRoot -Parent
-$account = Join-Path $root 'plugins/ps-ai/bin/ps-ai-account.ps1'
+$account = Join-Path $root 'plugins/ps-ai/bin/legion-account.ps1'
 $tempRoot = Join-Path (Get-TestTempPath) ('ps-ai-tests/' + [guid]::NewGuid())
 $previousLog = $env:LEGION_WRAPPER_LOG
 $previousExpand = $env:LEGION_WRAPPER_EXPAND
@@ -53,7 +53,7 @@ exit /b %result%
         . $account -NoRun -HomeRoot $tempRoot
         $fakeFolder = Join-Path $tempRoot 'runtime %LEGION_WRAPPER_EXPAND%'
         New-Item -ItemType Directory -Path $fakeFolder -Force | Out-Null
-        $fakeRunner = Join-Path $fakeFolder 'ps-ai-foundry.ps1'
+        $fakeRunner = Join-Path $fakeFolder 'legion-foundry.ps1'
         Copy-Item $fake $fakeRunner
         function Sync-LegionFoundryRuntime { param($Tool,$HomeRoot,$Changes) return $fakeRunner }
         $env:LEGION_WRAPPER_EXPAND = 'expanded'
