@@ -7,6 +7,19 @@ $file = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personal
 if (Test-Path -LiteralPath $file) {
     $owner = Read-PsAiJson -Path $file
     foreach ($agent in $owner.agents) {
+        if (-not $agent.provider) {
+            $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
+            $missing = @($suffixes | Where-Object {
+                -not (Test-PsAiLauncherExecutable -Path (Get-PsAiHomePath -HomeRoot $HomeRoot -Path "bin/$($agent.id)$_"))
+            }).Count -gt 0
+            if (-not $missing) { continue }
+            $folder = $agent.configDir
+            if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }
+            $target = Get-PsAiWrapperTarget -Id $agent.id -Tool $agent.tool -HomeRoot $HomeRoot -ConfigDir $folder
+            if (-not $target) { "skip: account $($agent.id) (CLI target not found or launcher needs repair)"; continue }
+            New-PsAiWrappers -Id $agent.id -Tool $agent.tool -HomeRoot $HomeRoot -ConfigDir $folder -RealCommand $target -Changes $changes
+            continue
+        }
         if ($agent.provider.kind -cne 'foundry') { continue }
         $wrapper = Get-PsAiWrapperCommand $agent.id $HomeRoot
         if (-not (Test-PsAiOwnedWrapper $wrapper $agent.id)) { continue }
