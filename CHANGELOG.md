@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/BlackGad/ps-ai-marketplace/compare/v0.8.0...v0.9.0) (2026-11-21)
+
+
+### Features
+
+* **install:** add uninstall purge that removes every ps-ai trace ([#27](https://github.com/BlackGad/ps-ai-marketplace/issues/27)) ([cd40a91](https://github.com/BlackGad/ps-ai-marketplace/commit/cd40a91dd47d5f9ade37e45a93919045ae8f9de7))
+
+
+### Fixes
+
+* **install:** keep account launchers across reinstall ([#25](https://github.com/BlackGad/ps-ai-marketplace/issues/25)) ([dd1f1e2](https://github.com/BlackGad/ps-ai-marketplace/commit/dd1f1e24ff3b8bec7902c00fb609f3ddbf22a5e6))
+
 ## [0.8.0](https://github.com/BlackGad/ps-ai-marketplace/compare/v0.7.0...v0.8.0) (2026-11-21)
 
 
