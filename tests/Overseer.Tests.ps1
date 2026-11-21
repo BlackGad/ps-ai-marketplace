@@ -7,7 +7,8 @@ $lines = @(& pwsh -NoProfile -File $script -HomeRoot $tempRoot -Repo $tempRoot 2
 Assert-True ($LASTEXITCODE -ne 0) 'Bare launcher without configuration fails'
 Assert-True (-not ($lines -match 'Usage:')) 'Bare launcher prints no usage line'
 . $script -NoRun -HomeRoot $tempRoot
-$owner = [pscustomobject]@{schemaVersion=1;agents=@(
+function Test-OverseerInteractive { return $false }
+$owner =[pscustomobject]@{schemaVersion=1;agents=@(
     @{id='claude-a';tool='claude';configDir='~/a'},
     @{id='claude-b';tool='claude';configDir='~/b'},
     @{id='codex-a';tool='codex';configDir='~/c'},
@@ -55,6 +56,7 @@ catch { Assert-Equal 'selected channels cannot share one launch' $_.Exception.Me
     Move-Item -LiteralPath $missingSkill -Destination ($missingSkill + '.fixture')
     Assert-Throws { Get-OverseerLaunch -Personalisation $copy -AccountId claude-a -Channel main } 'Missing channel skill fails before execution'
 }
+function Test-OverseerInteractive { return $false }
 $repoPath = Join-Path $tempRoot 'My Projects'
 New-Item -ItemType Directory $repoPath -Force | Out-Null
     $probe = Join-Path $tempRoot 'cwd-probe.ps1'
@@ -142,7 +144,8 @@ $two = [pscustomobject]@{schemaVersion=1;agents=@(
     @{id='codex1';tool='codex';configDir='~/c'}
 );channels=@(@{id='my-telegram';kind='telegram';target='123';accounts=@('claude1')})}
 try { Select-OverseerAccount $two; throw 'Expected a choice error' }
-catch { Assert-Equal 'Choose an account: -Account claude1 | codex1' $_.Exception.Message 'Two accounts list the candidates' }
+catch { Assert-Equal 'Choose an account: -Account claude1 | codex1' $_.Exception.Message 'NonInteractiveChoice lists the candidates' }
+Assert-Equal '1) claude1 (claude) channels: my-telegram|2) codex1 (codex) (last)' (@(Format-OverseerChoices -Accounts $two.agents -Channels $two.channels -Last codex1) -join '|') 'ChoiceListText numbers accounts, channels and the last one'
 Assert-Equal 'claude1' (Select-OverseerAccount $two -Channel @('my-telegram')).id 'Channel narrows the choice to one account'
 Assert-Equal 'codex1' (Select-OverseerAccount $two -Tool codex).id 'Tool narrows the choice to one account'
 
@@ -159,11 +162,34 @@ New-Item -ItemType Directory (Join-Path $runHome '.legion/configuration'), (Join
 '{"schemaVersion":1}' | Set-Content (Join-Path $runRepo '.legion/configuration/project.json')
 $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
 & {
-    $state = @{Launch=$null; Fail=$false}
+    $state = @{Launch=$null; Fail=$false; NoGit=$false; Interactive=$false; Yes=$true; Answer=''; Events=@(); Asked=@(); ChoiceArgs=$null; LaunchRepo=$null}
     function Start-OverseerLaunch {
         param([string]$Repo, $Launch, [switch]$DryRun)
         if ($state.Fail) { throw 'terminal failed' }
         $state.Launch = $Launch
+        $state.LaunchRepo = $Repo
+        $state.Events += 'launch'
+    }
+    # Folders under run-repo belong to run-repo; any other folder is its own root.
+    function Get-PsAiCodeRoot {
+        param([string]$Path)
+        if ($state.NoGit) { return $null }
+        if ($Path.StartsWith($runRepo)) { return $runRepo }
+        return $Path
+    }
+    function Test-OverseerInteractive { return $state.Interactive }
+    function Read-OverseerYes { param([string]$Question) $state.Asked += $Question; return $state.Yes }
+    function Read-OverseerChoice {
+        param($Accounts, $Channels, [string]$Last)
+        $state.Events += 'choose'
+        $state.ChoiceArgs = @{Accounts=@($Accounts.id); Last=$Last}
+        return $state.Answer
+    }
+    function Invoke-OverseerRepositorySetup {
+        param([string]$Repo)
+        $state.Events += 'setup'
+        New-Item -ItemType Directory (Join-Path $Repo '.legion/configuration') -Force | Out-Null
+        '{"schemaVersion":1}' | Set-Content (Join-Path $Repo '.legion/configuration/project.json')
     }
     $run = @{Repo=$runRepo; HomeRoot=$runHome; Arguments=@()}
     $text = @(Invoke-Overseer @run -Account claude1 -Channel @())
@@ -232,6 +258,73 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     try { $text = @(Invoke-Overseer @run -Account claude1 -Channel @()); throw 'Expected launch failure' }
     catch { Assert-Equal 'terminal failed' $_.Exception.Message 'A failed launch raises the error' }
     Assert-True (-not ($text -match 'launched')) 'A failed launch prints no launched line'
+
+    # The launcher works from the code root, asks to set up, and asks which account leads.
+    $state.Fail = $false
+    Remove-Item -LiteralPath $lastFile, $leaseFile -ErrorAction Ignore
+    $state.NoGit = $true
+    try { Invoke-Overseer @run -Account claude1; throw 'Expected a not-git failure' }
+    catch { Assert-Equal 'not a git repository; run legion inside one' $_.Exception.Message 'NotGitStops names the problem' }
+    Assert-True (-not (Test-Path -LiteralPath $lastFile)) 'NotGitStops writes nothing'
+    $state.NoGit = $false
+
+    $subRun = @{Repo=(Join-Path $runRepo 'src'); HomeRoot=$runHome; Arguments=@()}
+    $null = Invoke-Overseer @subRun -Account claude1 -Channel @()
+    Assert-Equal $runRepo $state.LaunchRepo 'SubfolderUsesRoot launches in the root'
+    Assert-Equal 'claude1' (Get-OverseerLastLaunch -Repo $runRepo -HomeRoot $runHome).account 'SubfolderUsesRoot saves history for the root'
+    $text = @(Invoke-Overseer @subRun -Channel @())
+    Assert-Equal ('launched claude1 (claude) in ' + $runRepo + ' channel my-telegram') ($text -join '|') 'SubfolderUsesRoot reads history for the root'
+
+    $freshRepo = Join-Path $tempRoot 'fresh-repo'
+    New-Item -ItemType Directory $freshRepo -Force | Out-Null
+    $fresh = @{Repo=$freshRepo; HomeRoot=$runHome; Arguments=@()}
+    $question = 'This repository is not set up. Set it up (private)? [Y/n]'
+    $state.Interactive = $false
+    $text = @(Invoke-Overseer @fresh -Account claude1 -Channel @())
+    Assert-Equal $question ($text -join '|') 'NotSetUpAsks prints the question when input is redirected'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $freshRepo '.legion'))) 'NotSetUpAsks changes nothing when input is redirected'
+    $state.Interactive = $true
+    $state.Yes = $false
+    $state.Asked = @()
+    $text = @(Invoke-Overseer @fresh -Account claude1 -Channel @())
+    Assert-Equal $question ($state.Asked -join '|') 'NotSetUpAsks asks the exact question'
+    Assert-Equal 'Nothing changed.' ($text -join '|') 'NotSetUpAsks no changes nothing'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $freshRepo '.legion'))) 'NotSetUpAsks no writes nothing'
+    $state.Yes = $true
+    $text = @(Invoke-Overseer @fresh -Account claude1 -Channel @() -DryRun)
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $freshRepo '.legion'))) 'NotSetUpAsks dry run writes nothing'
+    $state.Events = @()
+    $state.Answer = 'codex1'
+    $text = @(Invoke-Overseer @fresh)
+    Assert-Equal 'setup|choose|launch' ($state.Events -join '|') 'NotSetUpAsks yes sets up once, asks for the account, then launches'
+    Assert-Equal ('launched codex1 (codex) in ' + $freshRepo) ($text -join '|') 'NotSetUpAsks yes launches the chosen account'
+
+    '{"schemaVersion":1,"agents":[],"channels":[]}' | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
+    try { Invoke-Overseer @run; throw 'Expected a no-accounts failure' }
+    catch { Assert-Equal 'No accounts yet. Add one: legion add claude' $_.Exception.Message 'NoAccounts says how to add one' }
+    $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/ps-ai-personalisation.json')
+
+    Remove-Item -LiteralPath $lastFile, $leaseFile -ErrorAction Ignore
+    $state.Answer = 'claude1'
+    $text = @(Invoke-Overseer @run)
+    Assert-Equal 'claude1|codex1' ($state.ChoiceArgs.Accounts -join '|') 'SeveralAsk offers the eligible accounts'
+    Assert-Equal ('launched claude1 (claude) in ' + $runRepo + ' channel my-telegram') ($text -join '|') 'SeveralAsk launches the answer'
+
+    Save-OverseerLastLaunch -Repo $runRepo -HomeRoot $runHome -Account codex1 -Arguments @('--model', 'saved')
+    $state.Events = @()
+    $null = Invoke-Overseer @run -Pick
+    Assert-Equal 'choose|launch' ($state.Events -join '|') 'PickAlwaysAsks even with a saved launch'
+    Assert-Equal 'codex1' $state.ChoiceArgs.Last 'PickAlwaysAsks marks the saved account'
+    Assert-True ('--model' -cnotin $state.Launch.Args) 'PickAlwaysAsks drops saved arguments for another account'
+    Save-OverseerLastLaunch -Repo $runRepo -HomeRoot $runHome -Account codex1 -Arguments @('--model', 'saved')
+    $state.Answer = 'codex1'
+    $null = Invoke-Overseer @run -Pick
+    Assert-Equal '--model|saved|continue as the overseer' ($state.Launch.Args -join '|') 'PickAlwaysAsks keeps saved arguments for the saved account'
+    $state.Interactive = $false
+    $state.Events = @()
+    try { Invoke-Overseer @run -Pick; throw 'Expected a choice error' }
+    catch { Assert-Equal 'Choose an account: -Account claude1 | codex1' $_.Exception.Message 'NonInteractiveChoice keeps the account hint with -Pick' }
+    Remove-Item -LiteralPath $lastFile -ErrorAction Ignore
 
     # A wrapper or terminal that exits nonzero is a failed launch, not a launched one.
     $state.Fail = $false

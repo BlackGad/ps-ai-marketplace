@@ -7,6 +7,7 @@ param(
     [string]$HomeRoot = $HOME,
     [switch]$NoChannel,
     [switch]$DryRun,
+    [switch]$Pick,
     [switch]$NoRun
 )
 
@@ -16,9 +17,48 @@ $launcherNoRun = $NoRun
 . (Join-Path $PSScriptRoot 'lib/common.ps1')
 . (Join-Path $PSScriptRoot 'lib/channels.ps1')
 
+function Test-OverseerInteractive {
+    return -not [Console]::IsInputRedirected
+}
+
+function Read-OverseerYes {
+    param([string]$Question)
+    return (Read-Host $Question) -notmatch '^\s*n'
+}
+
+function Format-OverseerChoices {
+    param($Accounts, $Channels, [string]$Last)
+    $number = 0
+    foreach ($account in $Accounts) {
+        $number++
+        $line = "$number) $($account.id) ($($account.tool))"
+        $bound = @($Channels | Where-Object { $account.id -cin $_.accounts }).id
+        if ($bound) { $line += ' channels: ' + ($bound -join ', ') }
+        if ($account.id -ceq $Last) { $line += ' (last)' }
+        $line
+    }
+}
+
+# Returns the chosen account id.
+function Read-OverseerChoice {
+    param($Accounts, $Channels, [string]$Last)
+    Format-OverseerChoices -Accounts $Accounts -Channels $Channels -Last $Last | ForEach-Object { Write-Host $_ }
+    while ($true) {
+        $number = 0
+        if ([int]::TryParse((Read-Host 'Which account leads?'), [ref]$number) -and $number -ge 1 -and $number -le @($Accounts).Count) {
+            return @($Accounts)[$number - 1].id
+        }
+    }
+}
+
+function Invoke-OverseerRepositorySetup {
+    param([string]$Repo)
+    & (Join-Path $PSScriptRoot 'ps-ai-repository.ps1') -Repo $Repo
+}
+
 function Select-OverseerAccount {
-    param($Personalisation, [string]$Account, [string]$Tool, [string[]]$Channel)
-    if (-not $Account) { return Select-OnlyOverseerAccount $Personalisation $Tool $Channel }
+    param($Personalisation, [string]$Account, [string]$Tool, [string[]]$Channel, [string]$Last)
+    if (-not $Account) { return Select-OnlyOverseerAccount $Personalisation $Tool $Channel -Last $Last }
     $matches = @($Personalisation.agents | Where-Object id -CEQ $Account)
     if ($matches.Count -ne 1) { throw "unknown account '$Account'" }
     $selected = $matches[0]
@@ -27,8 +67,9 @@ function Select-OverseerAccount {
 }
 
 # Without -Account, the choice is automatic only when exactly one account is eligible.
+# Several eligible accounts are asked about when someone can answer.
 function Select-OnlyOverseerAccount {
-    param($Personalisation, [string]$Tool, [string[]]$Channel)
+    param($Personalisation, [string]$Tool, [string[]]$Channel, [string]$Last)
     $eligible = @($Personalisation.agents)
     if ($Tool) { $eligible = @($eligible | Where-Object tool -CEQ $Tool) }
     foreach ($id in $Channel) {
@@ -36,7 +77,12 @@ function Select-OnlyOverseerAccount {
         $eligible = @($eligible | Where-Object { $_.id -cin $bound })
     }
     if ($eligible.Count -eq 1) { return $eligible[0] }
+    if (-not @($Personalisation.agents).Count) { throw 'No accounts yet. Add one: legion add claude' }
     if ($eligible.Count -eq 0) { throw 'no account fits; run ps-ai-setup first' }
+    if (Test-OverseerInteractive) {
+        $id = Read-OverseerChoice -Accounts $eligible -Channels $Personalisation.channels -Last $Last
+        return $eligible | Where-Object id -CEQ $id
+    }
     throw ('Choose an account: -Account ' + (@($eligible.id) -join ' | '))
 }
 
@@ -165,10 +211,15 @@ function Start-OverseerLaunch {
 }
 
 function Invoke-Overseer {
-    param([string]$Repo, [string]$HomeRoot, [string]$Account, [string]$Tool, [string[]]$Channel, [string[]]$Arguments, [switch]$NoChannel, [switch]$DryRun)
+    param([string]$Repo, [string]$HomeRoot, [string]$Account, [string]$Tool, [string[]]$Channel, [string[]]$Arguments, [switch]$NoChannel, [switch]$DryRun, [switch]$Pick)
+    $Repo = Get-PsAiCodeRoot -Path $Repo
+    if (-not $Repo) { throw 'not a git repository; run legion inside one' }
     $projectFile = Get-PsAiRepoPath -Repo $Repo -Path 'configuration/project.json'
     if (-not (Test-Path -LiteralPath $projectFile)) {
-        throw "no .legion/configuration/project.json in $Repo; run setup first"
+        $question = 'This repository is not set up. Set it up (private)? [Y/n]'
+        if ($DryRun -or -not (Test-OverseerInteractive)) { return $question }
+        if (-not (Read-OverseerYes -Question $question)) { return 'Nothing changed.' }
+        Invoke-OverseerRepositorySetup -Repo $Repo
     }
     $ownerFile = Get-PsAiHomePath -HomeRoot $HomeRoot -Path 'configuration/ps-ai-personalisation.json'
     foreach ($inputFile in @(@{Kind='personalisation';Path=$ownerFile},@{Kind='project';Path=$projectFile})) {
@@ -176,20 +227,25 @@ function Invoke-Overseer {
         if ($issues.Count) { throw ($issues -join '; ') }
     }
     $personalisation = Read-PsAiJson -Path $ownerFile
-    # Bare start reuses saved settings for a known account, then falls back to the lease account.
+    # Bare start reuses the saved account, then the lease account; -Pick asks instead.
+    # Saved channels and arguments apply only when the saved account leads.
     $bare = -not ($Account -or $Tool -or $Channel.Count -or $Arguments.Count -or $NoChannel)
     $known = @($personalisation.agents.id)
-    $last = if ($bare) { Get-OverseerLastLaunch -Repo $Repo -HomeRoot $HomeRoot }
-    if ($last -and $last.account -cin $known) {
-        $Account = $last.account
+    $last = Get-OverseerLastLaunch -Repo $Repo -HomeRoot $HomeRoot
+    $savedAccount = if ($last -and $last.account -cin $known) { $last.account }
+    if ($bare -and -not $Pick) {
+        $Account = $savedAccount
+        if (-not $Account) {
+            $leaseAccount = (Get-PsAiLease -Repo $Repo).Data.account
+            if ($leaseAccount -cin $known) { $Account = $leaseAccount }
+        }
+    }
+    $selected = Select-OverseerAccount -Personalisation $personalisation -Account $Account -Tool $Tool -Channel $Channel -Last $savedAccount
+    if ($bare -and $selected.id -ceq $savedAccount) {
         $Channel = @($last.channels)
         $Arguments = @($last.arguments)
         $NoChannel = -not $Channel.Count
-    } elseif ($bare) {
-        $leaseAccount = (Get-PsAiLease -Repo $Repo).Data.account
-        if ($leaseAccount -cin $known) { $Account = $leaseAccount }
     }
-    $selected = Select-OverseerAccount -Personalisation $personalisation -Account $Account -Tool $Tool -Channel $Channel
     if (-not $Tool) { $Tool = $selected.tool }
     # An explicit -Channel wins; -NoChannel skips only the default.
     if (-not $Channel.Count -and -not $NoChannel) {
@@ -215,7 +271,7 @@ function Invoke-Overseer {
 }
 
 if (-not $launcherNoRun) {
-    try { Invoke-Overseer -Repo $Repo -HomeRoot $HomeRoot -Account $Account -Tool $Tool -Channel $Channel -Arguments $Arguments -NoChannel:$NoChannel -DryRun:$DryRun }
+    try { Invoke-Overseer -Repo $Repo -HomeRoot $HomeRoot -Account $Account -Tool $Tool -Channel $Channel -Arguments $Arguments -NoChannel:$NoChannel -DryRun:$DryRun -Pick:$Pick }
     catch {
         if (-not $_.Exception.Data.Contains('PsAiLaunchExitCode')) { throw }
         Write-Host $_.Exception.Message
