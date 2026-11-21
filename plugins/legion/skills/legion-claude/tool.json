@@ -3,6 +3,7 @@
   "id": "claude", "command": "claude", "configEnv": "CLAUDE_CONFIG_DIR",
   "foundry": {"deploymentPrefix": "claude", "aliases": ["opus", "sonnet", "haiku", "fable"]},
   "overseerArgs": [],
+  "allowRules": ["Bash(LEGION_ROLE=member *)"],
   "plugin": {
     "defaultConfigDir": "~/.claude",
     "installedRoot": "plugins/cache/ps-legion-marketplace/legion",

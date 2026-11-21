@@ -150,6 +150,16 @@ function Get-SetupNextId {
     }
 }
 
+function Get-SetupMissingAllowRules {
+    param($Tool, [string]$Folder)
+    $rules = @($Tool.allowRules | Where-Object { $_ })
+    $file = Join-Path $Folder 'settings.json'
+    if (-not $rules.Count -or -not (Test-Path -LiteralPath $file)) { return $rules }
+    try { $current = @((Read-LegionJson $file).permissions.allow) }
+    catch { throw "cannot read $file`: $(ConvertTo-SetupOneLine $_.Exception.Message)" }
+    return @($rules | Where-Object { $_ -cnotin $current })
+}
+
 function New-SetupAccountRow {
     param($Agent, $Tool, [string]$HomeRoot, [switch]$Requested, [switch]$New, [switch]$Adopted)
     $folder = Resolve-SetupFolder $Agent.configDir $HomeRoot
@@ -170,6 +180,7 @@ function New-SetupAccountRow {
         Version = (Get-LegionInstalledVersion -ConfigDir $folder -Tool $Tool)
         NextStep = $nextStep; Usable = (-not $nextStep.StartsWith('target needed:'))
         MissingWrappers = $missingWrappers; WrapperTarget = $target; Provider = $Agent.provider
+        MissingAllowRules = @(Get-SetupMissingAllowRules -Tool $Tool -Folder $folder)
     }
 }
 
@@ -304,6 +315,9 @@ function Write-SetupPlan {
     foreach ($row in $Plan.Accounts) { if ($row.NextStep.StartsWith('target needed:')) { $lines.Add("  wrappers $($row.NextStep)") } }
     $folders = @($Plan.Accounts | Where-Object { $_.Usable -and -not $_.Version } | Select-Object -ExpandProperty Folder -Unique)
     if ($folders.Count) { $lines.Add("  install  legion into $($folders -join ', ')") }
+    foreach ($row in @($Plan.Accounts | Where-Object { $_.Usable -and $_.MissingAllowRules.Count } | Sort-Object Folder -Unique)) {
+        $lines.Add("  permission allow $($row.MissingAllowRules -join ', ') in $($row.Folder)/settings.json")
+    }
     $commands = @($Plan.Commands | Where-Object State -EQ missing | Select-Object -ExpandProperty Name -Unique)
     if ($commands.Count) { $lines.Add("  commands write $($commands -join ', ') in $($Plan.Bin)") }
     $stale = @($Plan.Commands | Where-Object State -EQ stale | Select-Object -ExpandProperty Name -Unique)
@@ -373,6 +387,24 @@ function Add-SetupAccounts {
             if (-not $row.New) { $result }
         } else { "skip: account $($row.Id) (already done)" }
         if ($row.New -and -not $row.Adopted) { $row.NextStep = "log in: run $($row.Id)" }
+    }
+}
+
+function Add-SetupAllowRules {
+    param($Plan)
+    foreach ($row in $Plan.Accounts) {
+        if (-not $row.Usable) { continue }
+        # Read again: an earlier account may share this folder, and the file may have changed since the plan.
+        $missing = @(Get-SetupMissingAllowRules -Tool $row.Tool -Folder $row.Folder)
+        if (-not $missing.Count) { "skip: permission rule in $($row.Folder) (already done)"; continue }
+        $file = Join-Path $row.Folder 'settings.json'
+        $data = if (Test-Path -LiteralPath $file) { Read-LegionJson $file } else { [pscustomobject]@{} }
+        if (-not $data.PSObject.Properties['permissions']) { $data | Add-Member -NotePropertyName permissions -NotePropertyValue ([pscustomobject]@{}) }
+        $allow = @($data.permissions.allow | Where-Object { $_ }) + $missing
+        if ($data.permissions.PSObject.Properties['allow']) { $data.permissions.allow = $allow }
+        else { $data.permissions | Add-Member -NotePropertyName allow -NotePropertyValue $allow }
+        New-Item -ItemType Directory -Path $row.Folder -Force | Out-Null
+        [IO.File]::WriteAllText($file, ($data | ConvertTo-Json -Depth 100) + "`n", [Text.UTF8Encoding]::new($false))
     }
 }
 
@@ -456,6 +488,7 @@ function Invoke-Setup {
     Initialize-SetupFiles -Plan $plan
     Install-SetupTools -Plan $plan
     Add-SetupAccounts -Plan $plan
+    Add-SetupAllowRules -Plan $plan
     Write-SetupCommands -Plan $plan
     Set-SetupPath -Plan $plan
     Install-SetupPlugins -Plan $plan

@@ -150,7 +150,7 @@ After approving the plan, run it again with `-Yes`. Setup installs a missing CLI
 - `~/.legion/configuration/personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/legion/schemas/personalisation.schema.json`. It never holds tokens.
 - `~/.legion/configuration/notes.md`: free-form preferences and lessons.
 
-It also writes account wrappers and the four commands below. On Windows it adds `~/.legion/bin` to your user PATH; on macOS and Linux it prints the line to add to your shell profile. It never edits that profile. Open a new terminal if needed.
+For every Claude account, setup also adds the permission rule Bash(LEGION_ROLE=member *) to its settings.json, so the overseer can start legion members without a prompt; other settings and rules stay. It also writes account wrappers and the four commands below. On Windows it adds `~/.legion/bin` to your user PATH; on macOS and Linux it prints the line to add to your shell profile. It never edits that profile. Open a new terminal if needed.
 
 Run `legion status` before making changes. Before setup, outside an orchestrated repository, status prints:
 
