@@ -1,6 +1,6 @@
 # Copilot CLI installation hint
 
-After updating ps-ai, tell the owner to restart the session to load the new skills. Follow [run.md](run.md) to resume work with the same account and repository folder.
+After updating ps-ai, tell the owner to run `legion` in the repository to load the new skills.
 
 When `copilot` is missing, run `pwsh -NoProfile -File <plugin>/bin/ps-ai-install-tool.ps1 -Tool copilot` to inspect status and the platform-specific official install command internally. Show commands only when requested or when the owner must run them themselves. Ask the owner whether to install Copilot CLI; offer Node.js only where the platform recipe requires it. Only after an explicit yes, run the same command with `-Yes`; it checks installed state before changing anything. If the owner declines, stop the account flow for this session.
 

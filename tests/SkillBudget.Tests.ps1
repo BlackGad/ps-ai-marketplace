@@ -73,3 +73,9 @@ Assert-True ((Get-SkillText 'ps-ai-personalisation/references/fields.md').Contai
 foreach ($tool in @('claude', 'codex', 'copilot')) {
     Assert-True ((Get-SkillText "ps-ai-$tool/references/accounts.md").Contains('## Foundry agent')) "$tool keeps its Foundry section"
 }
+
+$tracked = @(git -C $root ls-files plugins README.md docs/reference.md) | Where-Object { $_ -notmatch '\.(png|jpg|ico)$' }
+foreach ($old in @('legion start\b', 'legion repo\b', '-SourceRef')) {
+    $hits = @($tracked | Where-Object { (Get-Content (Join-Path $root $_) -Raw) -match $old })
+    Assert-True ($hits.Count -eq 0) "NoRemovedVerbs: '$old' is gone ($($hits -join ', '))"
+}

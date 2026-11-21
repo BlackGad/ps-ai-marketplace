@@ -41,4 +41,4 @@ Assert-True ($knowledge.Contains('never run') -and $knowledge.Contains('only whe
 $legion = Get-Content (Join-Path $skills 'ps-ai-legion/SKILL.md') -Raw
 Assert-True ($legion.Contains('A summoned unit cannot summon')) 'Legion cannot summon other agents'
 $update = Get-Content (Join-Path $skills 'ps-ai-update/SKILL.md') -Raw
-Assert-True ($update -match "owner.s yes" -and $update -match 'restart.*session' -and $update.Contains('resume')) 'Updates require approval and session restart or resume'
+Assert-True ($update -match "owner.s yes" -and $update -match 'run .legion. in the repository') 'Updates require approval and a legion run in the repository'
