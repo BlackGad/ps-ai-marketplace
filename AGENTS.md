@@ -11,6 +11,7 @@ A plugin marketplace with one plugin, `legion`: orchestration as skills for Clau
 | `.claude-plugin/`, `.agents/plugins/` | Marketplace manifests (Claude Code and Copilot; Codex) |
 | `plugins/legion/skills/` | Skills: `SKILL.md` plus `references/` per skill |
 | `plugins/legion/bin/` | PowerShell scripts the skills call |
+| `plugins/legion/src/legion/` | Python CLI; project and lockfile in `plugins/legion/`, tests in `tests/python/` |
 | `plugins/legion/hooks/` | Session-start hooks for all three tools |
 | `plugins/legion/schemas/` | JSON schemas for personalisation and project files |
 | `install.ps1` | Standalone remote installer for the three CLIs; PowerShell 5.1 and 7 |
@@ -47,6 +48,8 @@ Run a single file with `pwsh -NoProfile -File tests/run.ps1 -Name <file>` (wildc
 The last line must be `<n> passed, 0 failed`. Tests never call real `az`, `claude`, `codex`, `copilot`, winget or the network; use the fakes in `tests/` and replace download functions.
 
 CI runs the same command on Windows, macOS and Linux, and runs the integration suite (`tests/integration/run.ps1`) on every pull request; both are required checks.
+
+Python uses uv only (Python >=3.12), with code style from ps-poetry: the repository's `ruff.toml` and standard-mode `pyrightconfig.json`. From the repository root, set `UV_PROJECT_ENVIRONMENT` to `<legion home>/python/env`, then use `uv run --project plugins/legion --frozen --group dev` followed by `ruff check plugins/legion/src tests/python`, `ruff format --check plugins/legion/src tests/python`, `pyright`, or `pytest --rootdir=. -c plugins/legion/pyproject.toml`. Keep environments outside the plugin cache; the PowerShell test runner stays PowerShell-only.
 
 ## Not committed
 

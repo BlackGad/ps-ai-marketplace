@@ -6,6 +6,12 @@ Invoke-InstallTestCase 'Tool' {
     $installer = Join-Path $repo 'plugins/legion/install.ps1'
     . $scriptPath -NoRun
     Assert-Equal 'bun|--version' ((Get-ToolInstallData -Tool bun).check -join '|') 'Bun installed check'
+    Assert-Equal 'uv|--version' ((Get-ToolInstallData -Tool uv).check -join '|') 'uv installed check'
+    Assert-Equal 'astral-sh.uv' (Get-ToolInstallData -Tool uv).windows.wingetId 'uv Windows package'
+    Assert-Equal 'https://astral.sh/uv/install.ps1' (Get-ToolDownload -Tool uv -Method zip).Url 'uv official Windows installer'
+    foreach ($platform in @('linux', 'macos')) {
+        Assert-Equal 'sh|-c|curl -LsSf https://astral.sh/uv/install.sh | sh' ((Get-ToolRecipe -Tool uv -Platform $platform).Install[0] -join '|') "uv official $platform installer"
+    }
     & {
         $bunState = @{Bun=$false;Calls=0}
         function Test-ToolInstalled { param($Tool) @{Installed=$(if ($Tool -eq 'bun') { $bunState.Bun } else { throw 'Unexpected prerequisite' });Version='fixture'} }
@@ -18,6 +24,17 @@ Invoke-InstallTestCase 'Tool' {
         Assert-Equal 1 $bunState.Calls 'Approved Bun executes once'
         Invoke-ToolInstall -Tool bun -Platform linux -Yes | Out-Null
         Assert-Equal 1 $bunState.Calls 'Installed Bun skips repeat'
+    }
+    & {
+        $uvState = @{Installed=$false;Calls=0}
+        function Test-ToolInstalled { param($Tool) @{Installed=$uvState.Installed;Version='fixture'} }
+        function Invoke-ToolCommand { param($Command) $uvState.Calls++; $uvState.Installed=$true; 0 }
+        Invoke-ToolInstall -Tool uv -Platform linux | Out-Null
+        Assert-Equal 0 $uvState.Calls 'uv preview executes nothing'
+        Invoke-ToolInstall -Tool uv -Platform linux -Yes | Out-Null
+        Assert-Equal 1 $uvState.Calls 'Approved uv executes once'
+        Invoke-ToolInstall -Tool uv -Platform linux -Yes | Out-Null
+        Assert-Equal 1 $uvState.Calls 'Installed uv skips repeat'
     }
 
     # Exercise the process exit contract without contacting a server or starting winget.
