@@ -686,25 +686,15 @@ function Invoke-UninstallFirst {
         & $command --version | Out-Null
         Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "$tool is no longer installed"
     }
-    # The owner commands go; every account launcher stays, so a later install is an upgrade.
-    foreach ($name in Get-IntegrationOwnerCommandNames) {
-        foreach ($path in Get-IntegrationLauncherPaths $name) {
-            Assert-IntegrationTrue (-not (Test-Path -LiteralPath $path)) "owner command $name is still in .legion/bin"
-        }
+    # The owner command goes; every account launcher stays, so a later install is an upgrade.
+    foreach ($path in Get-IntegrationLauncherPaths 'legion') {
+        Assert-IntegrationTrue (-not (Test-Path -LiteralPath $path)) 'owner command legion is still in .legion/bin'
     }
     Assert-IntegrationLaunchersExist
     foreach ($kept in 'configuration', 'agents') {
         Assert-IntegrationTrue (Test-Path -LiteralPath (Join-Path $script:Ctx.HomeRoot ".legion/$kept") -PathType Container) ".legion/$kept was removed"
     }
     return $lines
-}
-
-# The installer's own list of owner commands, loaded in a child scope so its helpers stay out of this script.
-function Get-IntegrationOwnerCommandNames {
-    return @(& {
-        . (Join-Path $script:Ctx.Checkout 'plugins/legion/install.ps1') -NoRun
-        (Get-InstallOwnerCommands).Keys
-    })
 }
 
 # A launcher is one file on macOS and Linux, and a file plus a .cmd file on Windows.
