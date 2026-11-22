@@ -34,9 +34,9 @@ function Get-LegionChannels {
 # The one channel lookup: the binding in the owner's settings, exactly one.
 function Get-LegionChannelBinding {
     param($Personalisation, [string]$Id)
-    $matches = @($Personalisation.channels | Where-Object id -CEQ $Id)
-    if ($matches.Count -ne 1) { throw "unknown or duplicate channel '$Id'" }
-    return $matches[0]
+    $bindings = @($Personalisation.channels | Where-Object id -CEQ $Id)
+    if ($bindings.Count -ne 1) { throw "unknown or duplicate channel '$Id'" }
+    return $bindings[0]
 }
 
 # The channel kind descriptor (its launch map), or an error for an unknown kind.

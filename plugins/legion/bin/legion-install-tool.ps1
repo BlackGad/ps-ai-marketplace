@@ -152,8 +152,7 @@ function Resolve-ToolRelativePath {
     }
     $rootPath = [IO.Path]::GetFullPath($Root)
     $path = [IO.Path]::GetFullPath((Join-Path $rootPath $relative))
-    $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
-    if (-not $path.Equals($rootPath, $comparison) -and -not $path.StartsWith($rootPath + [IO.Path]::DirectorySeparatorChar, $comparison)) {
+    if (-not (Test-LegionPathUnder -Path $path -Root $rootPath -AllowEqual)) {
         throw 'path must be inside the tool folder'
     }
     return $path

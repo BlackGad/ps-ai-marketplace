@@ -376,7 +376,7 @@ Invoke-InstallTestCase 'Consent' {
     }
 }
 
-foreach ($case in @('InstallRunsRefresh', 'InstallQuestionNamesPath', 'InstallUnixPathHint', 'InstallNextStep', 'NonInteractiveInstall')) {
+foreach ($case in @('InstallRunsRefresh', 'InstallQuestionNamesPath', 'InstallUnixPathHint', 'InstallLinksPortablePwsh', 'InstallNextStep', 'NonInteractiveInstall')) {
     Invoke-InstallTestCase $case {
         . $installerPath -NoRun
         . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
@@ -456,6 +456,29 @@ foreach ($case in @('InstallRunsRefresh', 'InstallQuestionNamesPath', 'InstallUn
                     $repeat = @(Invoke-LegionInstaller @options -Yes)
                     Assert-True ($repeat -contains 'skip: shell profile PATH (already done)') 'InstallUnixPathHint: repeat skips the profile before a new terminal'
                 }
+                # B-a: new shells find the portable PowerShell through ~/.legion/bin. Links need macOS or Linux.
+                'InstallLinksPortablePwsh' {
+                    $env:OS = 'fixture-unix'
+                    if ($IsWindows) { break }
+                    $portable = Join-Path $scratch '.legion/tools/pwsh/pwsh'
+                    New-Item -ItemType Directory -Path (Split-Path $portable) -Force | Out-Null
+                    [IO.File]::WriteAllText($portable, '')
+                    function Get-InstallPowerShell { $portable }
+                    $link = Join-Path $scratch '.legion/bin/pwsh'
+                    $preview = @(Invoke-LegionInstaller @options -DryRun)
+                    Assert-True ($preview -contains "link $link to $portable") 'InstallLinksPortablePwsh: dry run shows the link'
+                    Assert-True (-not (Test-Path $link)) 'InstallLinksPortablePwsh: dry run creates nothing'
+                    $null = Invoke-LegionInstaller @options -Yes
+                    Assert-Equal $portable (Get-Item -LiteralPath $link -Force).LinkTarget 'InstallLinksPortablePwsh: install links the portable PowerShell it runs from'
+                    Assert-Equal 'legion' ((Get-LegionFootprints -HomeRoot $scratch -Kind link).owners -join '|') 'InstallLinksPortablePwsh: the link is recorded for purge'
+                    Assert-Equal 0 @(Get-LegionFootprints -HomeRoot $scratch -Kind path-entry | Where-Object path -CEQ 'user PATH').Count 'InstallLinksPortablePwsh: no Windows PATH record'
+                    $repeat = @(Invoke-LegionInstaller @options -Yes)
+                    Assert-True ($repeat -contains 'skip: pwsh link (already done)') 'InstallLinksPortablePwsh: repeat skips the link'
+                    $preview = @(Invoke-LegionPurge -DryRun)
+                    Assert-True ($preview -contains "Remove link: $link") 'InstallLinksPortablePwsh: purge lists the link'
+                    $null = Invoke-LegionPurge -Yes
+                    Assert-Equal $false (Test-Path (Join-Path $scratch '.legion')) 'InstallLinksPortablePwsh: purge removes the link, then the legion folder'
+                }
                 'InstallNextStep' {
                     foreach ($track in @('release','main')) {
                         $output = @(Invoke-LegionInstaller @options -Ref $track -Yes)
@@ -482,6 +505,21 @@ foreach ($case in @('InstallRunsRefresh', 'InstallQuestionNamesPath', 'InstallUn
             Remove-InstallTestFolder $scratch
         }
     }
+}
+
+Invoke-InstallTestCase 'CatalogKeepsDateStrings' {
+    # The expanded installer reads its own tools.json; text that looks like a date stays text.
+    if (-not (Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { return }
+    $scratch = New-InstallTestFolder 'catalog-date'
+    try {
+        $copy = Join-Path $scratch 'plugins/legion'
+        New-Item -ItemType Directory -Path (Join-Path $copy 'bin') -Force | Out-Null
+        Copy-Item -LiteralPath $installerPath -Destination $copy
+        Copy-Item -LiteralPath (Join-Path $repo 'plugins/legion/bin/lib') -Destination (Join-Path $copy 'bin') -Recurse
+        '{"schemaVersion":1,"tools":[{"id":"fixture","command":"legion-missing-fixture-cli","installHint":"2026-01-02T03:04:05Z"}]}' | Set-Content (Join-Path $copy 'tools.json')
+        $output = @(& (Get-InstallTestPwsh) -NoProfile -File (Join-Path $copy 'install.ps1') -HomeRoot $scratch)
+        Assert-True ($output -contains '2026-01-02T03:04:05Z') 'CatalogKeepsDateStrings: the hint is printed as written'
+    } finally { Remove-InstallTestFolder $scratch }
 }
 
 Invoke-InstallTestCase 'Ref' {

@@ -19,10 +19,9 @@ function Get-FoundryToolCommand {
     param([string]$Tool, [string]$HomeRoot)
     $descriptor = Get-LegionFoundryTool -Tool $Tool
     $bin = [IO.Path]::GetFullPath((Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'))
-    $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     foreach ($command in @(Get-Command $descriptor.command -CommandType Application,ExternalScript -All -ErrorAction SilentlyContinue)) {
         $folder = [IO.Path]::GetFullPath((Split-Path $command.Source -Parent))
-        if (-not $folder.Equals($bin, $comparison)) { return $command.Source }
+        if (-not (Get-LegionPathComparer).Equals($folder, $bin)) { return $command.Source }
     }
     throw "$Tool is not installed; run legion-install-tool.ps1 -Tool $Tool"
 }

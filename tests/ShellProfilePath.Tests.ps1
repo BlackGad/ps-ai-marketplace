@@ -73,6 +73,18 @@ try {
         [IO.File]::WriteAllText($profilePath, $original)
         $null = Invoke-LegionPurge -Yes
         Assert-Equal $original ([IO.File]::ReadAllText($profilePath)) 'Purge leaves an unrecorded marked block untouched'
+        # B-b: the owner's own line without the marker stays theirs.
+        $fixtureHome = Join-Path $scratch 'owner-line'
+        New-Item -ItemType Directory -Path $fixtureHome -Force | Out-Null
+        $profilePath = Join-Path $fixtureHome '.zshrc'
+        $original = 'export PATH="$HOME/.legion/bin:$PATH"' + "`n"
+        [IO.File]::WriteAllText($profilePath, $original)
+        $output = @(Add-LegionUserPath -Folder (Join-Path $fixtureHome '.legion/bin') -HomeRoot $fixtureHome)
+        Assert-True ($output -contains 'skip: shell profile PATH (already done)') 'B-b: an owner line is a skip'
+        Assert-Equal 0 @(Get-LegionFootprints -HomeRoot $fixtureHome).Count 'B-b: an owner line is not recorded'
+        Add-LegionFootprint -HomeRoot $fixtureHome -Kind path-entry -Path $profilePath -Value 'export PATH="$HOME/.legion/bin:$PATH"' -Owner legion
+        $null = Invoke-LegionPurge -Yes
+        Assert-Equal $original ([IO.File]::ReadAllText($profilePath)) 'B-b: purge removes a recorded line only under the legion marker'
         # The index is written before the profile writer can fail.
         $fixtureHome = Join-Path $scratch 'write-ahead'
         New-Item -ItemType Directory -Path $fixtureHome -Force | Out-Null

@@ -328,13 +328,14 @@ function Add-SetupAllowRules {
     param($Plan)
     foreach ($row in $Plan.Accounts) {
         if (-not $row.Usable) { continue }
-        foreach ($rule in @($row.Tool.allowRules | Where-Object { $_ })) {
-            Add-LegionFootprint -HomeRoot $Plan.HomeRoot -Kind edit -Path (Join-Path $row.Folder 'settings.json') -Key permissions.allow -Value $rule -Owner (Get-LegionTargetOwner -Tool $row.Tool -Folder $row.Folder -HomeRoot $Plan.HomeRoot)
-        }
         # Read again: an earlier account may share this folder, and the file may have changed since the plan.
         $missing = @(Get-SetupMissingAllowRules -Tool $row.Tool -Folder $row.Folder)
         if (-not $missing.Count) { "skip: permission rule in $($row.Folder) (already done)"; continue }
         $file = Join-Path $row.Folder 'settings.json'
+        # Record only the rules setup adds; a rule the owner already had stays theirs.
+        foreach ($rule in $missing) {
+            Add-LegionFootprint -HomeRoot $Plan.HomeRoot -Kind edit -Path $file -Key permissions.allow -Value $rule -Owner (Get-LegionTargetOwner -Tool $row.Tool -Folder $row.Folder -HomeRoot $Plan.HomeRoot)
+        }
         $data = if (Test-Path -LiteralPath $file) { Read-LegionJson $file } else { [pscustomobject]@{} }
         if (-not $data.PSObject.Properties['permissions']) { $data | Add-Member -NotePropertyName permissions -NotePropertyValue ([pscustomobject]@{}) }
         $allow = @($data.permissions.allow | Where-Object { $_ }) + $missing
