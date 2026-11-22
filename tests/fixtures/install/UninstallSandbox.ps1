@@ -16,11 +16,11 @@ foreach ($tool in $catalog.tools) {
 function Ensure-InstallPowerShell { throw 'Uninstall must not install prerequisites' }
 function Read-Host { $state.Prompts++; $state.Answer }
 function Invoke-ClosedInput {
-    param([string[]]$Command)
+    param([string[]]$Command, $Environment)
     $line = $Command -join '|'
     $calls.Add($line)
     $entry = $catalog.tools | Where-Object command -CEQ $Command[0]
-    $callEnvironments.Add($entry.id + '=' + [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process'))
+    $callEnvironments.Add($entry.id + '=' + $Environment[$entry.configEnv])
     if ($line -ceq ((@($entry.command) + $entry.plugin.list) -join '|')) {
         if ($state.FailVerify -and $writes.Count) { return @{ExitCode=7;Output=@()} }
         # Only: when set, just that tool has legion installed, so the others are not survivors.

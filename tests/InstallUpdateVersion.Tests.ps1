@@ -17,10 +17,10 @@ $repo = Split-Path $PSScriptRoot -Parent
         $state.Answer
     }
     function Invoke-ClosedInput {
-        param($Command)
+        param($Command, $Environment)
         if ($Command[0] -eq (Get-Process -Id $PID).Path) { $state.Refreshes++; return @{ExitCode=0; Output=@()} }
         $calls.Add(($Command -join '|'))
-        $config = $env:CLAUDE_CONFIG_DIR
+        $config = $Environment.CLAUDE_CONFIG_DIR
         $root = Join-Path $config $entry.plugin.installedRoot
         $manifest = Join-Path $root 'plugin.json'
         if ($Command -contains 'list') {
@@ -106,7 +106,11 @@ $repo = Split-Path $PSScriptRoot -Parent
     Assert-Equal $previous $env:CODEX_HOME 'Missing Codex home lookup restores caller config'
     Assert-True (-not (Test-Path -LiteralPath $missingFolder)) 'Pre-consent lookup never creates the Codex home'
     function Invoke-ClosedInput { @{ExitCode=1; Output=@(); ErrorOutput=@('unrelated listing failure')} }
-    Assert-Throws { Get-InstallPluginRoot -Entry $entry -ConfigDir $missingFolder } 'Unrelated Codex listing errors still stop the update'
+    Assert-Throws { Get-InstallPluginRoot -Entry $entry } 'Unrelated Codex default-home listing errors still stop the update'
+    try {
+        New-Item -ItemType Directory -Path $missingFolder -Force | Out-Null
+        Assert-Throws { Get-InstallPluginRoot -Entry $entry -ConfigDir $missingFolder } 'Unrelated Codex existing-home listing errors still stop the update'
+    } finally { Remove-Item -LiteralPath $missingFolder }
 }
 
 & {

@@ -3,7 +3,9 @@ $env:HOME = $InstallFixtureHome
 $env:USERPROFILE = $InstallFixtureHome
 $fixtureCatalog = Get-Content (Join-Path $PSScriptRoot '../../../plugins/legion/tools.json') -Raw | ConvertFrom-Json
 foreach ($fixtureTool in $fixtureCatalog.tools) {
-    [Environment]::SetEnvironmentVariable($fixtureTool.configEnv, (Join-Path $InstallFixtureHome $fixtureTool.plugin.defaultConfigDir.Substring(2)), 'Process')
+    $fixtureConfig = Join-Path $InstallFixtureHome $fixtureTool.plugin.defaultConfigDir.Substring(2)
+    New-Item -ItemType Directory -Path $fixtureConfig -Force | Out-Null
+    [Environment]::SetEnvironmentVariable($fixtureTool.configEnv, $fixtureConfig, 'Process')
 }
 function Get-InstallHome { $InstallFixtureHome }
 function Get-InstallSourceText { throw 'No network in tests' }

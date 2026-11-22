@@ -114,7 +114,10 @@ function Invoke-ClosedInput {
     $info.StandardErrorEncoding = [System.Text.Encoding]::UTF8
     if ($null -ne $Environment) {
         $names = if ($Environment -is [Collections.IDictionary]) { $Environment.Keys } else { $Environment.PSObject.Properties.Name }
-        foreach ($name in $names) { $info.EnvironmentVariables[$name] = [string]$Environment.$name }
+        foreach ($name in $names) {
+            if ([string]::IsNullOrEmpty($Environment.$name)) { $info.EnvironmentVariables.Remove($name) }
+            else { $info.EnvironmentVariables[$name] = [string]$Environment.$name }
+        }
     }
     # A mark-free UTF-8 stdin sends EOF without a byte-order mark.
     $info.StandardInputEncoding = [Text.UTF8Encoding]::new($false)
@@ -132,39 +135,36 @@ function Invoke-ClosedInput {
     return $result
 }
 
-function Set-InstallConfigEnvironment {
-    param([string]$Name, $Value)
-    # Passing null to SetEnvironmentVariable can create an empty variable on newer runtimes.
-    if ($null -eq $Value) { Remove-Item -LiteralPath "Env:$Name" -ErrorAction SilentlyContinue }
-    else { [Environment]::SetEnvironmentVariable($Name, [string]$Value, 'Process') }
+function Get-InstallEnvironment {
+    param([string]$ConfigEnv, [string]$ConfigDir, $Environment)
+    $values = @{}
+    if ($Environment) {
+        $names = if ($Environment -is [Collections.IDictionary]) { $Environment.Keys } else { $Environment.PSObject.Properties.Name }
+        foreach ($name in $names) { $values[$name] = $Environment.$name }
+    }
+    if ($ConfigEnv) { $values[$ConfigEnv] = $ConfigDir }
+    return $values
+}
+
+function Get-InstallListingLines {
+    param($Entry, [ValidateSet('marketplace','plugin')][string]$Kind = 'plugin', [string]$ConfigDir)
+    if ($ConfigDir -and -not (Test-Path -LiteralPath $ConfigDir -PathType Container)) { return }
+    $arguments = if ($Kind -eq 'marketplace') { $Entry.plugin.marketplaceList } else { $Entry.plugin.list }
+    $environment = Get-InstallEnvironment -ConfigEnv $Entry.configEnv -ConfigDir $ConfigDir -Environment $Entry.plugin.listingEnv
+    $result = Invoke-ClosedInput -Command (@($Entry.command) + $arguments) -Environment $environment
+    if ($result.ExitCode -ne 0) {
+        $details = @((($result.ErrorOutput -join "`n").Trim()), (($result.Output -join "`n").Trim())) | Where-Object { $_ }
+        throw (@("$($Entry.command) listing exited $($result.ExitCode)") + $details -join "`n")
+    }
+    return $result.Output
 }
 
 function Test-InstallStepDone {
     param([string[]]$Command, [ValidateSet('marketplace','plugin')][string]$Kind = 'plugin', [string]$ConfigEnv, [string]$ConfigDir, [switch]$IncludeDisabled, [switch]$RequireRoot)
     $entry = $script:installCatalog.tools | Where-Object command -CEQ $Command[0] | Select-Object -First 1
     if (-not $entry) { throw "unknown tool command '$($Command[0])'" }
-    $arguments = if ($kind -eq 'marketplace') { $entry.plugin.marketplaceList } else { $entry.plugin.list }
-    $list = @($entry.command) + $arguments
-    $previous = if ($ConfigEnv) { [Environment]::GetEnvironmentVariable($ConfigEnv, 'Process') } else { $null }
-    try {
-        if ($ConfigEnv) {
-            if ($ConfigDir) { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $ConfigDir }
-            else { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $null }
-        }
-        $result = Invoke-ClosedInput -Command $list -Environment $entry.plugin.listingEnv
-        if ($result.ExitCode -ne 0) {
-            $details = @((($result.ErrorOutput -join "`n").Trim()), (($result.Output -join "`n").Trim())) | Where-Object { $_ }
-            # Codex refuses to list an explicit home until its directory exists, even before login.
-            if ($entry.id -eq 'codex' -and $result.ExitCode -eq 1 -and $ConfigDir -and -not (Test-Path -LiteralPath $ConfigDir) -and
-                ($details -join "`n") -match 'failed to resolve CODEX_HOME' -and ($details -join "`n") -match 'but that path does not exist') {
-                return $false
-            }
-            throw (@("$($entry.command) listing exited $($result.ExitCode)") + $details -join "`n")
-        }
-        return Test-InstallListing -Kind $kind -Tool $entry.id -Lines $result.Output -IncludeDisabled:$IncludeDisabled -RequireRoot:$RequireRoot
-    } finally {
-        if ($ConfigEnv) { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $previous }
-    }
+    $lines = @(Get-InstallListingLines -Entry $entry -Kind $Kind -ConfigDir $ConfigDir)
+    return Test-InstallListing -Kind $Kind -Tool $entry.id -Lines $lines -IncludeDisabled:$IncludeDisabled -RequireRoot:$RequireRoot
 }
 
 function Get-InstallListingField {
@@ -198,20 +198,8 @@ function Test-InstallListing {
         }
         return $false
     }
-    $listing = $entry.plugin.listing
-    if ($listing.format -eq 'json') {
-        try {
-            $plugins = @((($Lines -join "`n") | ConvertFrom-Json -ErrorAction Stop))
-            return [bool](@($plugins | Where-Object {
-                $_.($listing.idField) -is [string] -and $_.($listing.idField) -ceq 'legion@ps-legion-marketplace' -and
-                $_.($listing.enabledField) -is [bool] -and ($IncludeDisabled -or $_.($listing.enabledField))
-            }).Count)
-        } catch { throw "$Tool plugin listing returned invalid JSON" }
-    }
-    $reject = if ($IncludeDisabled) { 'not installed' } else { $listing.rejectPattern }
-    $pattern = '(^|[\s`])legion@ps-legion-marketplace(\s|`|"|$)'
-    $matching = @($Lines) | Where-Object { $_ -match $pattern }
-    return [bool](@($matching) | Where-Object { -not $reject -or $_ -notmatch $reject })
+    $plugin = Read-InstallPluginListing -Entry $entry -Lines $Lines
+    return $plugin.Listed -and ($IncludeDisabled -or $plugin.Enabled)
 }
 
 function Format-InstallCommand {
@@ -227,26 +215,20 @@ function Format-InstallCommand {
 
 function Invoke-InstallCommand {
     param([string[]]$Command, [string]$ConfigEnv, [string]$ConfigDir)
-    $previous = [Environment]::GetEnvironmentVariable($ConfigEnv, 'Process')
-    try {
-        if ($ConfigEnv -eq 'CODEX_HOME' -and $ConfigDir -and -not (Test-Path -LiteralPath $ConfigDir)) {
-            New-Item -ItemType Directory -Path $ConfigDir -Force -ErrorAction Stop | Out-Null
-        }
-        if ($ConfigDir) { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $ConfigDir }
-        else { Set-InstallConfigEnvironment -Name $ConfigEnv -Value $null }
-        $result = Invoke-ClosedInput -Command $Command
-        $result.Output
-        $result.ErrorOutput
-        if ($result.ExitCode -ne 0) { throw "$($Command[0]) exited $($result.ExitCode)" }
-    } finally {
-        Set-InstallConfigEnvironment -Name $ConfigEnv -Value $previous
-    }
+    $environment = Get-InstallEnvironment -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir
+    $result = Invoke-ClosedInput -Command $Command -Environment $environment
+    $result.Output
+    $result.ErrorOutput
+    if ($result.ExitCode -ne 0) { throw "$($Command[0]) exited $($result.ExitCode)" }
 }
 
 function Invoke-LegionInstallSteps {
     param([string]$Tool, [string]$Source, [string]$ConfigEnv, [string]$ConfigDir, [switch]$DryRun, [ValidateSet('release','main')][string]$Ref = 'release')
     $commands = Get-InstallCommands -Tool $Tool -Source $Source -Ref $Ref
     $entry = Get-InstallTool -Tool $Tool
+    if (-not $DryRun -and $ConfigDir -and -not (Test-Path -LiteralPath $ConfigDir -PathType Container)) {
+        New-Item -ItemType Directory -Path $ConfigDir -Force -ErrorAction Stop | Out-Null
+    }
     $marketplaceAdded = $false
     for ($index = 0; $index -lt $commands.Count; $index++) {
         $command = $commands[$index]
@@ -1025,33 +1007,26 @@ function Invoke-LegionUninstall {
 function Invoke-LegionUpdateSteps {
     param($Entry, [string]$ConfigDir, [switch]$DryRun, [string]$Source = 'BlackGad/ps-legion-marketplace', [ValidateSet('release','main')][string]$Ref = 'release', [string]$PluginRoot)
     $configEnv = $Entry.configEnv
-    $previous = [Environment]::GetEnvironmentVariable($configEnv, 'Process')
-    try {
-        if ($ConfigDir) { Set-InstallConfigEnvironment -Name $configEnv -Value $ConfigDir }
-        else { Set-InstallConfigEnvironment -Name $configEnv -Value $null }
-        if (-not $PSBoundParameters.ContainsKey('PluginRoot')) { $PluginRoot = Get-InstallPluginRoot -Entry $Entry -ConfigDir $ConfigDir }
-        $before = if ($PluginRoot) { (Get-Content -LiteralPath (Join-Path $PluginRoot 'plugin.json') -Raw | ConvertFrom-Json).version } else { 'not installed' }
-        if (-not $PluginRoot) {
-            Invoke-LegionInstallSteps -Tool $Entry.id -Source $Source -ConfigEnv $configEnv -ConfigDir $ConfigDir -DryRun:$DryRun -Ref $Ref
-        } else {
-            foreach ($arguments in @($Entry.plugin.marketplaceUpdate, $Entry.plugin.update)) {
-                if (-not $arguments.Count) { continue }
-                $command = @($Entry.command) + $arguments
-                Format-InstallCommand -Command $command -ConfigEnv $configEnv -ConfigDir $ConfigDir
-                if (-not $DryRun) { Invoke-InstallCommand -Command $command -ConfigEnv $configEnv -ConfigDir $ConfigDir }
-            }
+    if (-not $PSBoundParameters.ContainsKey('PluginRoot')) { $PluginRoot = Get-InstallPluginRoot -Entry $Entry -ConfigDir $ConfigDir }
+    $before = if ($PluginRoot) { (Get-Content -LiteralPath (Join-Path $PluginRoot 'plugin.json') -Raw | ConvertFrom-Json).version } else { 'not installed' }
+    if (-not $PluginRoot) {
+        Invoke-LegionInstallSteps -Tool $Entry.id -Source $Source -ConfigEnv $configEnv -ConfigDir $ConfigDir -DryRun:$DryRun -Ref $Ref
+    } else {
+        foreach ($arguments in @($Entry.plugin.marketplaceUpdate, $Entry.plugin.update)) {
+            if (-not $arguments.Count) { continue }
+            $command = @($Entry.command) + $arguments
+            Format-InstallCommand -Command $command -ConfigEnv $configEnv -ConfigDir $ConfigDir
+            if (-not $DryRun) { Invoke-InstallCommand -Command $command -ConfigEnv $configEnv -ConfigDir $ConfigDir }
         }
-        if (-not $DryRun) {
-            # The update may replace the cache path, so resolve the installed copy again.
-            $root = Get-InstallPluginRoot -Entry $Entry -ConfigDir $ConfigDir
-            if (-not $root) { throw "$($Entry.id) legion is absent from the post-update listing; generated artifacts were not refreshed." }
-            $after = (Get-Content -LiteralPath (Join-Path $root 'plugin.json') -Raw | ConvertFrom-Json).version
-            Invoke-InstallRefresh -Entry $Entry -ConfigDir $ConfigDir -PluginRoot $root
-            if ($before -ceq $after) { "skip: legion $after (already up to date)" }
-            else { "legion $before -> $after" }
-        }
-    } finally {
-        Set-InstallConfigEnvironment -Name $configEnv -Value $previous
+    }
+    if (-not $DryRun) {
+        # The update may replace the cache path, so resolve the installed copy again.
+        $root = Get-InstallPluginRoot -Entry $Entry -ConfigDir $ConfigDir
+        if (-not $root) { throw "$($Entry.id) legion is absent from the post-update listing; generated artifacts were not refreshed." }
+        $after = (Get-Content -LiteralPath (Join-Path $root 'plugin.json') -Raw | ConvertFrom-Json).version
+        Invoke-InstallRefresh -Entry $Entry -ConfigDir $ConfigDir -PluginRoot $root
+        if ($before -ceq $after) { "skip: legion $after (already up to date)" }
+        else { "legion $before -> $after" }
     }
 }
 
@@ -1062,7 +1037,8 @@ function Invoke-InstallRefresh {
     $refresh = Join-Path $PluginRoot 'bin/legion-refresh.ps1'
     if (-not (Test-Path -LiteralPath $refresh -PathType Leaf)) { throw "$($Entry.id) installed legion refresh script is missing." }
     $powerShell = (Get-Process -Id $PID).Path
-    $result = Invoke-ClosedInput -Command @($powerShell, '-NoProfile', '-File', $refresh, '-HomeRoot', (Get-InstallHome))
+    $environment = Get-InstallEnvironment -ConfigEnv $Entry.configEnv -ConfigDir $ConfigDir
+    $result = Invoke-ClosedInput -Command @($powerShell, '-NoProfile', '-File', $refresh, '-HomeRoot', (Get-InstallHome)) -Environment $environment
     $result.Output
     $result.ErrorOutput
     if ($result.ExitCode -ne 0) { throw "legion artifact refresh exited $($result.ExitCode)" }
@@ -1074,81 +1050,79 @@ function Get-InstallVersion {
     return ''
 }
 
+function Read-InstallPluginListing {
+    param($Entry, [string[]]$Lines)
+    $state = [pscustomobject]@{ Listed = $false; Enabled = $false; Path = @(); Version = ''; MarketplacePath = @() }
+    $listing = $Entry.plugin.listing
+    if ($listing.format -eq 'json') {
+        try { $plugins = ($Lines -join "`n") | ConvertFrom-Json -ErrorAction Stop }
+        catch { throw "$($Entry.id) plugin listing returned invalid JSON" }
+        foreach ($plugin in @($plugins)) {
+            if ($plugin.($listing.idField) -isnot [string] -or $plugin.($listing.idField) -cne 'legion@ps-legion-marketplace' -or $plugin.($listing.enabledField) -isnot [bool]) { continue }
+            $state.Listed = $true
+            $state.Enabled = $state.Enabled -or $plugin.($listing.enabledField)
+            if ($plugin.installPath) { $state.Path += [string]$plugin.installPath }
+            if ($plugin.version) { $state.Version = [string]$plugin.version }
+        }
+    } else {
+        $isLegion = $false
+        foreach ($line in $Lines) {
+            if ($Entry.id -ceq 'copilot' -and $isLegion -and $line -match '^\s+from (.+?)\s*$') {
+                $state.MarketplacePath += $Matches[1]
+            }
+            $isLegion = $line -match '(^|[\s`])legion@ps-legion-marketplace(\s|`|"|$)' -and $line -notmatch 'not installed'
+            if (-not $isLegion) { continue }
+            $state.Listed = $true
+            $state.Enabled = $state.Enabled -or (-not $listing.rejectPattern -or $line -notmatch $listing.rejectPattern)
+            $version = Get-InstallVersion $line
+            if ($version) { $state.Version = $version }
+            if ($line -match '\s((?:[A-Za-z]:[/\\]|/).+?)\s*$') { $state.Path += $Matches[1] }
+        }
+    }
+    return $state
+}
+
 function Get-InstallPluginRoot {
     param($Entry, [string]$ConfigDir)
-    $previous = [Environment]::GetEnvironmentVariable($Entry.configEnv, 'Process')
-    try {
-        if ($ConfigDir) { Set-InstallConfigEnvironment -Name $Entry.configEnv -Value $ConfigDir }
-        else { Set-InstallConfigEnvironment -Name $Entry.configEnv -Value $null }
-        $result = Invoke-ClosedInput -Command (@($Entry.command) + $Entry.plugin.list) -Environment $Entry.plugin.listingEnv
-        if ($result.ExitCode -ne 0) {
-            $details = @($result.ErrorOutput) + @($result.Output) -join "`n"
-            # Codex cannot list a selected home until that folder exists.
-            if ($Entry.id -eq 'codex' -and $result.ExitCode -eq 1 -and $ConfigDir -and -not (Test-Path -LiteralPath $ConfigDir) -and
-                $details -match 'failed to resolve CODEX_HOME' -and $details -match 'but that path does not exist') { return $null }
-            throw "$($Entry.command) plugin listing exited $($result.ExitCode)`n$details"
-        }
-        if (-not (Test-InstallListing -Kind plugin -Tool $Entry.id -Lines $result.Output -IncludeDisabled)) {
-            return $null
-        }
-        $paths = @()
-        $installedVersion = ''
-        if ($Entry.plugin.listing.format -eq 'json') {
-            $listing = $Entry.plugin.listing
-            $plugins = @((($result.Output -join "`n") | ConvertFrom-Json -ErrorAction Stop))
-            foreach ($plugin in $plugins) {
-                if ($plugin.($listing.idField) -cne 'legion@ps-legion-marketplace') { continue }
-                if ($plugin.installPath) { $paths += [string]$plugin.installPath }
-                if ($plugin.version) { $installedVersion = [string]$plugin.version }
+    $lines = @(Get-InstallListingLines -Entry $Entry -ConfigDir $ConfigDir)
+    $listing = Read-InstallPluginListing -Entry $Entry -Lines $lines
+    if (-not $listing.Listed) { return $null }
+    $paths = @($listing.Path)
+    $installedVersion = $listing.Version
+    # Copilot directory marketplaces resolve only when a refresh root is needed.
+    foreach ($marketplaceRoot in $listing.MarketplacePath) {
+        try {
+            $marketplace = Get-Content -LiteralPath (Join-Path $marketplaceRoot '.claude-plugin/marketplace.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            foreach ($plugin in $marketplace.plugins) {
+                if ($plugin.name -ceq 'legion' -and $plugin.source -is [string]) { $paths += Join-Path $marketplaceRoot $plugin.source }
             }
-        } else {
-            $isLegion = $false
-            foreach ($line in $result.Output) {
-                if ($Entry.id -ceq 'copilot' -and $isLegion -and $line -match '^\s+from (.+?)\s*$') {
-                    # Copilot lists a live directory marketplace instead of an installed copy.
-                    $marketplaceRoot = $Matches[1]
-                    try {
-                        $marketplace = Get-Content -LiteralPath (Join-Path $marketplaceRoot '.claude-plugin/marketplace.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-                        foreach ($plugin in $marketplace.plugins) {
-                            if ($plugin.name -ceq 'legion' -and $plugin.source -is [string]) { $paths += Join-Path $marketplaceRoot $plugin.source }
-                        }
-                    } catch { }
-                }
-                $isLegion = $line -match '(^|[\s`])legion@ps-legion-marketplace(\s|`|"|$)' -and $line -notmatch 'not installed'
-                if (-not $isLegion) { continue }
-                $version = Get-InstallVersion $line
-                if ($version) { $installedVersion = $version }
-                if ($line -match '\s((?:[A-Za-z]:[/\\]|/).+?)\s*$') { $paths += $Matches[1] }
-            }
-        }
-        if (-not $paths.Count) {
-            $homeRoot = Get-InstallHome
-            if (-not $Entry.plugin.installedRoot) { throw "$($Entry.id) plugin descriptor needs installedRoot to locate its installed refresh script." }
-            if (-not $ConfigDir -and -not $Entry.plugin.defaultConfigDir) { throw "$($Entry.id) plugin descriptor needs defaultConfigDir to locate its installed refresh script." }
-            $configRoot = if ($ConfigDir) { $ConfigDir } else { $Entry.plugin.defaultConfigDir }
-            if ($configRoot -match '^~[/\\]') { $configRoot = Join-Path $homeRoot $configRoot.Substring(2) }
-            $cacheRoot = Join-Path $configRoot $Entry.plugin.installedRoot
-            if (Test-Path -LiteralPath $cacheRoot -PathType Container) {
-                $manifestFolders = @('.claude-plugin', '.codex-plugin')
-                $paths = @(Get-ChildItem -LiteralPath $cacheRoot -Filter plugin.json -File -Recurse -ErrorAction Stop |
-                    Where-Object { (Split-Path $_.DirectoryName -Leaf) -cnotin $manifestFolders } | ForEach-Object { $_.DirectoryName })
-            }
-        }
-        $roots = @()
-        foreach ($path in ($paths | Select-Object -Unique)) {
-            try {
-                $manifest = Get-Content -LiteralPath (Join-Path $path 'plugin.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-                if ($manifest.name -cne 'legion' -or ($installedVersion -and $manifest.version -cne $installedVersion)) { continue }
-                $roots += $path
-            } catch { continue }
-        }
-        if ($roots.Count -ne 1) {
-            throw "$($Entry.id) installed legion folder could not be identified uniquely."
-        }
-        return $roots[0]
-    } finally {
-        Set-InstallConfigEnvironment -Name $Entry.configEnv -Value $previous
+        } catch { }
     }
+    if (-not $paths.Count) {
+        $homeRoot = Get-InstallHome
+        if (-not $Entry.plugin.installedRoot) { throw "$($Entry.id) plugin descriptor needs installedRoot to locate its installed refresh script." }
+        if (-not $ConfigDir -and -not $Entry.plugin.defaultConfigDir) { throw "$($Entry.id) plugin descriptor needs defaultConfigDir to locate its installed refresh script." }
+        $configRoot = if ($ConfigDir) { $ConfigDir } else { $Entry.plugin.defaultConfigDir }
+        if ($configRoot -match '^~[/\\]') { $configRoot = Join-Path $homeRoot $configRoot.Substring(2) }
+        $cacheRoot = Join-Path $configRoot $Entry.plugin.installedRoot
+        if (Test-Path -LiteralPath $cacheRoot -PathType Container) {
+            $manifestFolders = @('.claude-plugin', '.codex-plugin')
+            $paths = @(Get-ChildItem -LiteralPath $cacheRoot -Filter plugin.json -File -Recurse -ErrorAction Stop |
+                Where-Object { (Split-Path $_.DirectoryName -Leaf) -cnotin $manifestFolders } | ForEach-Object { $_.DirectoryName })
+        }
+    }
+    $roots = @()
+    foreach ($path in ($paths | Select-Object -Unique)) {
+        try {
+            $manifest = Get-Content -LiteralPath (Join-Path $path 'plugin.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            if ($manifest.name -cne 'legion' -or ($installedVersion -and $manifest.version -cne $installedVersion)) { continue }
+            $roots += $path
+        } catch { continue }
+    }
+    if ($roots.Count -ne 1) {
+        throw "$($Entry.id) installed legion folder could not be identified uniquely."
+    }
+    return $roots[0]
 }
 
 function Test-InstallCommandAvailable {

@@ -17,7 +17,7 @@ function Get-InstallSourceText {
 function Test-InstallCommandAvailable { param($Name) $Name -in @('claude','codex','copilot') }
 function Invoke-InstallRefresh { 'fixture artifacts refreshed' }
 function Invoke-ClosedInput {
-    param($Command)
+    param($Command, $Environment)
     $entry = $entries | Where-Object command -EQ $Command[0]
     if (-not $entry) { throw 'Unexpected fixture executable' }
     $state = $states[$entry.command]

@@ -1,6 +1,8 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
     . (Join-Path $PSScriptRoot 'fixtures/install/UninstallSandbox.ps1')
+    $selected = Join-Path $sandbox 'selected'
+    New-Item -ItemType Directory -Path $selected -Force | Out-Null
     try {
         $state.Plugin=$false; $state.Marketplace=$false
         $output = @(Invoke-LegionInstaller -Catalog $catalog -Uninstall)
@@ -11,7 +13,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 
         foreach ($plugin in @($false, $true)) {
             $state.Plugin=$plugin; $state.Marketplace=-not $plugin
-            $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -ConfigDir selected -Uninstall -DryRun)
+            $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -ConfigDir $selected -Uninstall -DryRun)
             $commands = @($preview | Where-Object { $_ -match 'codex plugin (remove|marketplace remove)' })
             Assert-Equal 1 $commands.Count 'Preview only lists installed steps'
             $expected = if ($plugin) { 'codex plugin remove legion@ps-legion-marketplace' } else { 'codex plugin marketplace remove ps-legion-marketplace' }

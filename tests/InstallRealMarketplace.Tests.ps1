@@ -9,7 +9,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-True (-not (Test-InstallListing -Kind marketplace -Tool $tool -Lines @('[]'))) "$tool empty listing is absent"
         Assert-Throws { Test-InstallListing -Kind marketplace -Tool $tool -Lines @('broken JSON') } "$tool malformed listing is not absence"
         function Invoke-ClosedInput {
-            param($Command)
+            param($Command, $Environment)
             Assert-Equal "$tool|plugin|marketplace|list|--json" ($Command -join '|') 'Marketplace detection requests JSON'
             @{ExitCode=0; Output=$lines; ErrorOutput=@('unrelated warning')}
         }

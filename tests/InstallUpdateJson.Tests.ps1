@@ -5,6 +5,8 @@ $repo = Split-Path $PSScriptRoot -Parent
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome $sandbox
     $fixturePlugin = New-InstallFixturePlugin -Path (Join-Path $sandbox 'installed')
     $catalog = Get-InstallCatalog -Source $repo
+    $selected = Join-Path $sandbox 'selected'
+    New-Item -ItemType Directory -Path $selected -Force | Out-Null
     $lines = @'
 [
   {
@@ -22,7 +24,8 @@ $repo = Split-Path $PSScriptRoot -Parent
     function Test-InstallCommandAvailable { param($Name) $Name -eq 'claude' }
     function Invoke-InstallRefresh { }
     function Invoke-ClosedInput {
-        param($Command)
+        param($Command, $Environment)
+        if ($calls.Count) { Assert-Equal $selected $Environment.CLAUDE_CONFIG_DIR 'Version lookup and update commands use the selected config in the child' }
         $calls.Add(($Command -join '|'))
         if ($Command[2] -eq 'list') { return @{ExitCode=0; Output=$lines} }
         return @{ExitCode=0; Output=@()}
@@ -31,21 +34,24 @@ $repo = Split-Path $PSScriptRoot -Parent
     Assert-True (Test-InstallStepDone -Command @('claude','plugin','install','legion@ps-legion-marketplace')) 'Install detects exact multiline Claude JSON'
     $calls.Clear()
     try {
-        $output = @(Invoke-LegionInstaller -Tools claude -ConfigDir selected -Source $repo -Catalog $catalog -Update -Yes)
+        $output = @(Invoke-LegionInstaller -Tools claude -ConfigDir $selected -Source $repo -Catalog $catalog -Update -Yes)
         Assert-Equal 4 $calls.Count 'Update detects multiline Claude JSON before and after both refresh commands'
         Assert-True ($calls -contains 'claude|plugin|update|legion@ps-legion-marketplace') 'Installed Claude plugin updates'
         Assert-True (-not (($output -join "`n").Contains('(not installed)'))) 'Installed Claude plugin is never reported missing'
 
         # The shared listing parser must retain disabled plugins and config scoping.
-        $realDetection = ${function:Test-InstallListing}
+        $realDetection = ${function:Read-InstallPluginListing}
         $checks = [Collections.Generic.List[string]]::new()
-        function Test-InstallListing {
-            param($Kind, $Tool, $Lines, [switch]$IncludeDisabled)
-            $checks.Add("$env:CLAUDE_CONFIG_DIR|$IncludeDisabled")
-            & $realDetection -Kind $Kind -Tool $Tool -Lines $Lines -IncludeDisabled:$IncludeDisabled
+        function Read-InstallPluginListing {
+            param($Entry, $Lines)
+            $parsed = & $realDetection -Entry $Entry -Lines $Lines
+            $checks.Add("$($parsed.Listed)|$($parsed.Enabled)")
+            $parsed
         }
-        $null = Invoke-LegionInstaller -Tools claude -ConfigDir selected -Source $repo -Catalog $catalog -Update -Yes
-        Assert-Equal 'selected|True,selected|True' ($checks -join ',') 'Both version lookups use the shared parser and selected config, including disabled copies'
+        $plugins[0].enabled = $false
+        $lines = ConvertTo-Json -InputObject @($plugins) -Depth 10
+        $null = Invoke-LegionInstaller -Tools claude -ConfigDir $selected -Source $repo -Catalog $catalog -Update -Yes
+        Assert-Equal 'True|False,True|False' ($checks -join ',') 'Both version lookups parse once and retain disabled copies'
     } finally {
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
         if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe JSON fixture cleanup' }

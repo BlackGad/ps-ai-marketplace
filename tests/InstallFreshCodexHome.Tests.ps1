@@ -5,10 +5,31 @@ $repo = Split-Path $PSScriptRoot -Parent
     $sandbox = Join-Path $repo ('.agents/temp/fresh-codex-' + [guid]::NewGuid())
     New-Item -ItemType Directory -Path $sandbox | Out-Null
     $folder = Join-Path $sandbox 'config'
+    $realCommand = ${function:Invoke-InstallCommand}
+    function Invoke-ClosedInput { throw 'Missing selected folder must not be listed' }
+    foreach ($entry in $script:installCatalog.tools) {
+        Assert-True (-not (Test-InstallStepDone -Command @($entry.command) -ConfigEnv $entry.configEnv -ConfigDir $folder)) 'Missing selected folder has no installed plugin for every tool'
+        Assert-True ($null -eq (Get-InstallPluginRoot -Entry $entry -ConfigDir $folder)) 'Missing selected folder has no plugin root'
+    }
+    function Invoke-ClosedInput { @{ExitCode=0; Output=@()} }
+    foreach ($entry in $script:installCatalog.tools) {
+        & $realCommand -Command (@($entry.command) + $entry.plugin.uninstall) -ConfigEnv $entry.configEnv -ConfigDir $folder
+        & $realCommand -Command (@($entry.command) + $entry.plugin.marketplaceRemove) -ConfigEnv $entry.configEnv -ConfigDir $folder
+        Assert-True (-not (Test-Path -LiteralPath $folder)) 'Uninstall commands never create a missing folder for any tool'
+    }
+    function Invoke-ClosedInput {
+        param($Command, $Environment)
+        Assert-True (Test-Path -LiteralPath $Environment[$entry.configEnv] -PathType Container) 'Every tool gets an existing selected folder before install commands'
+        @{ExitCode=0; Output=@('[]')}
+    }
+    foreach ($entry in $script:installCatalog.tools) {
+        $null = Invoke-LegionInstallSteps -Tool $entry.id -Source $repo -ConfigEnv $entry.configEnv -ConfigDir $folder
+        Remove-Item -LiteralPath $folder
+    }
     $state = @{ Installed = $false; Mutations = 0; FailListing = $false }
     function Invoke-ClosedInput {
-        param($Command)
-        Assert-Equal $folder $env:CODEX_HOME 'Fresh Codex uses the selected home'
+        param($Command, $Environment)
+        Assert-Equal $folder $Environment.CODEX_HOME 'Fresh Codex uses the selected home'
         if ($Command -contains 'list') {
             if (-not (Test-Path -LiteralPath $folder)) {
                 return @{ ExitCode=1; Output=@(); ErrorOutput=@('Error: failed to resolve CODEX_HOME', "CODEX_HOME points to `"$folder`", but that path does not exist") }

@@ -3,6 +3,19 @@ $repo = Split-Path $PSScriptRoot -Parent
     . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $entry = Get-InstallTool -Tool claude
+    $realProcess = ${function:Invoke-ClosedInput}
+    $savedOverride = $env:CLAUDE_CONFIG_DIR
+    try {
+        $env:CLAUDE_CONFIG_DIR = 'inherited-account'
+        foreach ($empty in @($null, '')) {
+            $child = & $realProcess -Command @('pwsh', '-NoProfile', '-Command', '[Console]::Write((Test-Path Env:CLAUDE_CONFIG_DIR))') -Environment @{CLAUDE_CONFIG_DIR=$empty}
+            Assert-Equal 'False' ($child.Output -join '') 'Default-home child removes inherited config variable'
+            Assert-Equal 'inherited-account' $env:CLAUDE_CONFIG_DIR 'Child environment leaves caller untouched'
+        }
+    } finally {
+        if ($null -eq $savedOverride) { Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue }
+        else { $env:CLAUDE_CONFIG_DIR = $savedOverride }
+    }
     $captured = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/listings/claude-plugins.json')
     Assert-True (Test-InstallListing -Kind plugin -Tool claude -Lines $captured -IncludeDisabled) 'Captured user-scope Claude plugin is installed despite projectEnabled false'
     $sandbox = Join-Path $repo ('.agents/temp/default-environment-' + [guid]::NewGuid().ToString('N'))
@@ -14,10 +27,12 @@ $repo = Split-Path $PSScriptRoot -Parent
     $saved = [Environment]::GetEnvironmentVariable('CLAUDE_CONFIG_DIR', 'Process')
     $observed = [Collections.Generic.List[string]]::new()
     function Invoke-ClosedInput {
-        param($Command)
+        param($Command, $Environment)
         $observed.Add(($Command -join '|'))
         # Real Claude returns [] when the variable is present but empty.
-        $output = if (Test-Path Env:CLAUDE_CONFIG_DIR) { @('[]') } else { $captured }
+        Assert-True ($Environment.ContainsKey('CLAUDE_CONFIG_DIR')) 'Default listing explicitly overrides inherited config'
+        Assert-True ([string]::IsNullOrEmpty($Environment.CLAUDE_CONFIG_DIR)) 'Default listing requests removal in the child'
+        $output = $captured
         @{ExitCode=0; Output=$output; ErrorOutput=@()}
     }
     function Invoke-InstallRefresh { }

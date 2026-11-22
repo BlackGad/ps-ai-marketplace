@@ -129,19 +129,21 @@ $fixturePlugin = Join-Path $fixtureHome 'installed-update'
 New-Item -ItemType Directory -Path $fixturePlugin -Force | Out-Null
 '{"name":"legion","version":"0.3.0"}' | Set-Content -LiteralPath (Join-Path $fixturePlugin 'plugin.json')
 $state = @{ Calls=0; Default=0; Account=0 }
+$inheritedAccount = Join-Path $fixtureHome 'inherited-account'
+New-Item -ItemType Directory -Path $inheritedAccount, (Join-Path $fixtureHome '.legion/agents/codex-a') -Force | Out-Null
 function Invoke-ClosedInput {
-    param($Command)
+    param($Command, $Environment)
     $state.Calls++
-    if ($env:CODEX_HOME -eq [IO.Path]::GetFullPath('inherited-account')) { $state.Default++ }
-    elseif ($env:CODEX_HOME -eq (Join-Path $fixtureHome '.legion/agents/codex-a')) { $state.Account++ }
+    if ($Environment.CODEX_HOME -eq $inheritedAccount) { $state.Default++ }
+    elseif ($Environment.CODEX_HOME -eq (Join-Path $fixtureHome '.legion/agents/codex-a')) { $state.Account++ }
     else { throw 'Incorrect config target' }
     if ($Command[2] -eq 'remove') { throw 'Update removed plugin approval' }
     return @{ ExitCode=0; Output=@("legion@ps-legion-marketplace installed, enabled $fixturePlugin") }
 }
-$env:CODEX_HOME = 'inherited-account'
+$env:CODEX_HOME = $inheritedAccount
 $null = Invoke-LegionInstaller -Source $fixtureHome -Tools codex -Update -Yes
 if ($state.Calls -ne 8 -or $state.Default -ne 4 -or $state.Account -ne 4) { throw 'Incorrect update target count' }
-if ($env:CODEX_HOME -ne 'inherited-account') { throw 'Caller config environment changed' }
+if ($env:CODEX_HOME -ne $inheritedAccount) { throw 'Caller config environment changed' }
 'standalone update passed'
 '@ | Set-Content -LiteralPath $runner
     foreach ($runtime in $runtimes) {
@@ -157,12 +159,13 @@ if ($env:CODEX_HOME -ne 'inherited-account') { throw 'Caller config environment 
     } else {
         "#!/bin/sh`nexec pwsh -NoProfile -File '$listingScript' codex `"`$@`"" | Set-Content -LiteralPath (Join-Path $fakeBin 'codex')
     }
-    'param($Installer); & $Installer -Update -DryRun -Tools codex -ConfigDir selected -Source (Split-Path $Installer)' |
+    'param($Installer); $selected = Join-Path (Split-Path $Installer) selected; New-Item -ItemType Directory -Path $selected -Force | Out-Null; & $Installer -Update -DryRun -Tools codex -ConfigDir $selected -Source (Split-Path $Installer)' |
         Set-Content -LiteralPath $runner
     foreach ($runtime in $runtimes) {
         $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', $standalone)
         Assert-Equal 0 $result.ExitCode 'Expanded archive entry accepts update preview'
-        Assert-True ($result.Output -contains 'CODEX_HOME=selected codex plugin add legion@ps-legion-marketplace') 'Expanded archive forwards update mode'
+        $selected = Join-Path (Split-Path $standalone) 'selected'
+        Assert-True ($result.Output -contains "CODEX_HOME=$selected codex plugin add legion@ps-legion-marketplace") 'Expanded archive forwards update mode'
         Assert-True (-not (($result.Output -join "`n").Contains('marketplace add'))) 'Update preview does not add marketplaces'
     }
 

@@ -1,12 +1,14 @@
 $repo = Split-Path $PSScriptRoot -Parent
+$fixtureConfig0 = Join-Path $env:HOME 'selected account'
+New-Item -ItemType Directory -Path $fixtureConfig0 -Force | Out-Null
 & {
     . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $script:installCatalog = Get-InstallCatalog -Source $repo
     $calls = [Collections.Generic.List[string]]::new()
     $state = @{ Added=$false; Refreshed=$false; FailRefresh=$false }
     function Invoke-ClosedInput {
-        param($Command)
-        Assert-Equal 'selected account' $env:CLAUDE_CONFIG_DIR 'Fresh install uses selected config'
+        param($Command, $Environment)
+        Assert-Equal $fixtureConfig0 $Environment.CLAUDE_CONFIG_DIR 'Fresh install uses selected config'
         $line = $Command -join '|'
         $calls.Add($line)
         switch ($line) {
@@ -25,11 +27,11 @@ $repo = Split-Path $PSScriptRoot -Parent
         }
         return @{ExitCode=0; Output=@()}
     }
-    $null = Invoke-LegionInstallSteps -Tool claude -Source 'BlackGad/ps-legion-marketplace' -ConfigEnv CLAUDE_CONFIG_DIR -ConfigDir 'selected account'
+    $null = Invoke-LegionInstallSteps -Tool claude -Source 'BlackGad/ps-legion-marketplace' -ConfigEnv CLAUDE_CONFIG_DIR -ConfigDir $fixtureConfig0
     Assert-True $state.Refreshed 'Fresh GitHub marketplace is refreshed before plugin install'
     Assert-Equal 'claude|plugin|install|legion@ps-legion-marketplace' $calls[-1] 'Plugin install follows refresh'
     $calls.Clear()
     $state.FailRefresh=$true
-    Assert-Throws { Invoke-LegionInstallSteps -Tool claude -Source 'BlackGad/ps-legion-marketplace' -ConfigEnv CLAUDE_CONFIG_DIR -ConfigDir 'selected account' } 'Failed marketplace refresh stops plugin install'
+    Assert-Throws { Invoke-LegionInstallSteps -Tool claude -Source 'BlackGad/ps-legion-marketplace' -ConfigEnv CLAUDE_CONFIG_DIR -ConfigDir $fixtureConfig0 } 'Failed marketplace refresh stops plugin install'
     Assert-True (-not ($calls -contains 'claude|plugin|install|legion@ps-legion-marketplace')) 'Plugin never installs from a failed refresh'
 }

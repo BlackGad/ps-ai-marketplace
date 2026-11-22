@@ -11,7 +11,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $calls = [Collections.Generic.List[object]]::new()
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome ($sandbox)
     function Invoke-ClosedInput {
-        param($Command)
+        param($Command, $Environment)
         if ($Command[0] -eq 'fourth-cli') { return @{ExitCode=0; Output=@('legion@ps-legion-marketplace (v0.3.0) (enabled)')} }
         $calls.Add($Command)
         @{ExitCode=0; Output=@()}

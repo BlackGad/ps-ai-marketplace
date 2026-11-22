@@ -6,8 +6,8 @@ $repo = Split-Path $PSScriptRoot -Parent
     $checkout = Join-Path $sandbox 'checkout'
     $state = @{ Installed = $false; Calls = [Collections.Generic.List[string]]::new(); FailRefresh = $false }
     function Invoke-ClosedInput {
-        param($Command)
-        Assert-Equal $sandbox $env:CODEX_HOME 'Stale marketplace recovery uses selected account'
+        param($Command, $Environment)
+        Assert-Equal $sandbox $Environment.CODEX_HOME 'Stale marketplace recovery uses selected account'
         $line = $Command -join '|'
         if ($line -eq 'codex|plugin|marketplace|list|--json') {
             return @{ ExitCode=0; Output=@(@{ marketplaces=@(@{ name='ps-legion-marketplace'; root=$checkout; marketplaceSource=@{sourceType='git';source='https://github.com/BlackGad/ps-legion-marketplace.git'} }) } | ConvertTo-Json -Depth 10 -Compress) }

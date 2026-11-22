@@ -26,14 +26,14 @@ foreach ($case in $Cases) {
         function Read-Host { param($Prompt) $questions.Add($Prompt); $state.Answer }
         function claude { param($Version) Assert-Equal '--version' $Version 'Only version probes run directly'; 'fixture CLI' }
         function Invoke-ClosedInput {
-            param($Command)
+            param($Command, $Environment)
             if ($Command[0] -eq $fixturePwsh) {
                 $refreshes.Add($Command[3])
                 $output = & $Command[0] @($Command | Select-Object -Skip 1) 2>&1
                 return @{ ExitCode=$LASTEXITCODE; Output=@($output); ErrorOutput=@() }
             }
             Assert-Equal 'claude' $Command[0] 'Only fixture Claude calls are allowed'
-            $folder = [string]$env:CLAUDE_CONFIG_DIR
+            $folder = [string]$Environment.CLAUDE_CONFIG_DIR
             if ($Command -contains 'list') {
                 if ($Command -contains 'marketplace') { return @{ExitCode=0;Output=@(Get-FixtureMarketplaceListing -Tool claude -Source $repo)} }
                 $listing = if ($installed[$folder]) { '[{"id":"legion@ps-legion-marketplace","enabled":true,"installPath":' + (ConvertTo-Json $plugin -Compress) + '}]' } else { '[]' }
@@ -45,12 +45,12 @@ foreach ($case in $Cases) {
         $savedPath = $env:PATH
         $savedOS = $env:OS
         $savedClaude = $env:CLAUDE_CONFIG_DIR
-        $options = @{ Tools=@('claude'); Source=$repo; Catalog=$catalog; ConfigDir='fixture-account' }
+        $options = @{ Tools=@('claude'); Source=$repo; Catalog=$catalog; ConfigDir=(Join-Path $scratch 'fixture-account') }
         try {
             $env:OS = 'Windows_NT'
             switch ($case) {
                 'InstallRunsRefresh' {
-                    function Get-UpdateConfigDirs { @('fixture-one','fixture-two') }
+                    function Get-UpdateConfigDirs { @((Join-Path $scratch 'fixture-one'), (Join-Path $scratch 'fixture-two')) }
                     $null = Invoke-LegionInstaller @options -Yes
                     Assert-Equal 2 $refreshes.Count 'InstallRunsRefresh: refresh runs once for each installed folder'
                     $command = Join-Path $scratch '.legion/bin/legion'
@@ -103,7 +103,7 @@ foreach ($case in $Cases) {
         } finally {
             $env:PATH=$savedPath
             $env:OS=$savedOS
-            Set-InstallConfigEnvironment -Name CLAUDE_CONFIG_DIR -Value $savedClaude
+            [Environment]::SetEnvironmentVariable('CLAUDE_CONFIG_DIR', $savedClaude, 'Process')
             $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
             if (-not [IO.Path]::GetFullPath($scratch).StartsWith($allowed)) { throw 'Unsafe cleanup' }
             Remove-Item -LiteralPath $scratch -Recurse -Force

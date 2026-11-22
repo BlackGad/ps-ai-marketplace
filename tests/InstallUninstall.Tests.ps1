@@ -28,9 +28,9 @@ $repo = Split-Path $PSScriptRoot -Parent
         $state.Answer
     }
     function Invoke-ClosedInput {
-        param([string[]]$Command)
+        param([string[]]$Command, $Environment)
         $entry = $catalog.tools | Where-Object command -EQ $Command[0]
-        $folder = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
+        $folder = $Environment[$entry.configEnv]
         $calls.Add("$($entry.id):$folder|$($Command -join '|')")
         $line = $Command -join '|'
         if ($line -eq "$($entry.command)|plugin|list$(if ($entry.id -eq 'claude') { '|--json' })") {
@@ -62,6 +62,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     }
     try {
         New-Item -ItemType Directory -Path $bin, (Split-Path $personalisation), $account, $secondAccount -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $sandbox 'inherited-account'), (Join-Path $sandbox 'custom account'), (Join-Path $sandbox 'selected') -Force | Out-Null
         $agents = @(
             @{id='codex-a';tool='codex';configDir='~/.legion/agents/codex-a'},
             @{id='codex-b';tool='codex';configDir='~/.legion/agents/codex-b'},

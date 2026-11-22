@@ -6,7 +6,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $fixturePlugin = New-InstallFixturePlugin -Path (Join-Path (Get-InstallHome) 'installed')
     function Invoke-InstallRefresh { }
     function Invoke-ClosedInput {
-        param($Command)
+        param($Command, $Environment)
         Assert-Equal 'copilot' $Command[0] 'Only fake Copilot commands run'
         if ($Command -contains 'list') {
             $listing = if ($Command -contains 'marketplace') { Get-FixtureMarketplaceListing -Tool copilot } else { "legion@ps-legion-marketplace installed (enabled) $fixturePlugin" }

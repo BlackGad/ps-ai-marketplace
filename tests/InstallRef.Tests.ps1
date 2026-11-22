@@ -6,7 +6,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     function Ensure-InstallPowerShell { $true }
     function Get-UpdateConfigDirs { ,@('') }
     function Invoke-ClosedInput {
-        param($Command)
+        param($Command, $Environment)
         if ($Command -contains 'list') { return @{ ExitCode=0; Output=@('[]') } }
         throw "Unexpected CLI call: $($Command -join ' ')"
     }
@@ -32,7 +32,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     } catch { $failures += $_.Exception.Message }
     try {
         function Invoke-ClosedInput {
-            param($Command)
+            param($Command, $Environment)
             Assert-Equal 'codex|plugin|marketplace|list|--json' ($Command -join '|') 'KindIsPassed: marketplace listing is selected explicitly'
             @{ ExitCode=0; Output=@('{"marketplaces":[{"name":"ps-legion-marketplace","root":"fixture"}]}') }
         }

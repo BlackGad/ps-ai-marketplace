@@ -11,7 +11,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     function Test-InstallCommandAvailable { $true }
     function Get-UpdateConfigDirs { ,@('') }
     function Invoke-ClosedInput {
-        param($Command)
+        param($Command, $Environment)
         if ($Command -notcontains 'list') { throw 'DryRun attempted a write or version command' }
         $calls.Add(($Command -join '|'))
         $file = if ($Command -contains 'marketplace') { "$($Command[0])-marketplaces.json" } else { 'claude-plugins.json' }

@@ -1,4 +1,8 @@
 $root = Split-Path $PSScriptRoot -Parent
+$fixtureConfig0 = Join-Path $env:HOME 'selected-account'
+New-Item -ItemType Directory -Path $fixtureConfig0 -Force | Out-Null
+$fixtureConfig1 = Join-Path $env:HOME 'fixture-account'
+New-Item -ItemType Directory -Path $fixtureConfig1 -Force | Out-Null
 . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
 $script = Join-Path $root 'plugins/legion/install.ps1'
 . $script -NoRun
@@ -34,8 +38,8 @@ Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install 
     function codex { param($Version) Assert-Equal '--version' $Version 'Fake CLI only handles version'; 'fixture-version' }
     $calls = [Collections.Generic.List[string]]::new()
     function Invoke-ClosedInput {
-        param([string[]]$Command)
-        Assert-Equal 'selected-account' $env:CODEX_HOME 'Install uses selected account for checks and writes'
+        param([string[]]$Command, $Environment)
+        Assert-Equal $fixtureConfig0 $Environment.CODEX_HOME 'Install uses selected account for checks and writes'
         $calls.Add(($Command -join '|'))
         if ($Command -contains 'marketplace' -and $Command -contains 'list') {
             return @{ ExitCode=0; Output=@(Get-FixtureMarketplaceListing -Tool codex) }
@@ -45,7 +49,7 @@ Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install 
     $previous = $env:CODEX_HOME
     try {
         $env:CODEX_HOME = 'default-account'
-        $null = Invoke-LegionInstaller -Tools codex -Source $root -ConfigDir selected-account -Yes
+        $null = Invoke-LegionInstaller -Tools codex -Source $root -ConfigDir $fixtureConfig0 -Yes
         Assert-Equal 4 $calls.Count 'Fake install checks and performs both steps'
         Assert-True ($calls -contains 'codex|plugin|add|legion@ps-legion-marketplace') 'Fake install performs plugin write'
         Assert-Equal 'default-account' $env:CODEX_HOME 'Install restores caller account'
@@ -73,7 +77,7 @@ $enabledFixture = ($disabledFixture -join "`n").Replace('"enabled": false', '"en
 Assert-True (Test-InstallListing -Kind plugin -Tool claude -Lines $enabledFixture) 'Enabled Claude JSON plugin is done'
 $script:observedClaudeList = ''
 function Invoke-ClosedInput {
-    param([string[]]$Command)
+    param([string[]]$Command, $Environment)
     $script:observedClaudeList = $Command -join '|'
     return @{ ExitCode = 0; Output = $disabledFixture }
 }
@@ -90,9 +94,9 @@ function Invoke-InstallCommand {
     $script:installedSteps[$Command -join '|'] = $true
     'installed'
 }
-$firstInstall = @(Invoke-LegionInstallSteps -Tool codex -Source 'local source' -ConfigEnv CODEX_HOME -ConfigDir 'fixture-account')
+$firstInstall = @(Invoke-LegionInstallSteps -Tool codex -Source 'local source' -ConfigEnv CODEX_HOME -ConfigDir $fixtureConfig1)
 Assert-Equal 3 @($firstInstall | Where-Object { $_ -eq 'installed' }).Count 'First install adds and refreshes marketplace, then installs plugin'
-$secondInstall = @(Invoke-LegionInstallSteps -Tool codex -Source 'local source' -ConfigEnv CODEX_HOME -ConfigDir 'fixture-account')
+$secondInstall = @(Invoke-LegionInstallSteps -Tool codex -Source 'local source' -ConfigEnv CODEX_HOME -ConfigDir $fixtureConfig1)
 Assert-Equal 2 @($secondInstall | Where-Object { $_ -match '^skip: .*\(already done\)$' }).Count 'Second install skips both steps'
 
 # Listing checks must inspect the selected account rather than the caller's default account.
@@ -102,13 +106,13 @@ $savedCodexHome = $env:CODEX_HOME
 try {
     $env:CODEX_HOME = 'default-account'
     function Invoke-ClosedInput {
-        param([string[]]$Command)
-        if ($env:CODEX_HOME -eq 'selected-account') {
+        param([string[]]$Command, $Environment)
+        if ($Environment.CODEX_HOME -eq $fixtureConfig0) {
             return @{ ExitCode = 0; Output = @('legion@ps-legion-marketplace  installed, enabled') }
         }
         return @{ ExitCode = 0; Output = @('legion@ps-legion-marketplace  not installed') }
     }
-    Assert-True (Test-InstallStepDone -Command @('codex', 'plugin', 'add', 'legion@ps-legion-marketplace') -ConfigEnv CODEX_HOME -ConfigDir 'selected-account') 'Install check sees selected account listing'
+    Assert-True (Test-InstallStepDone -Command @('codex', 'plugin', 'add', 'legion@ps-legion-marketplace') -ConfigEnv CODEX_HOME -ConfigDir $fixtureConfig0) 'Install check sees selected account listing'
     Assert-Equal 'default-account' $env:CODEX_HOME 'Install check restores caller account'
 } finally {
     $env:CODEX_HOME = $savedCodexHome

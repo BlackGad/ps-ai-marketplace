@@ -10,8 +10,8 @@ $repo = Split-Path $PSScriptRoot -Parent
     $refreshed = [Collections.Generic.List[string]]::new()
     $listed = [Collections.Generic.List[string]]::new()
     function Get-FakeKey {
-        param($Entry)
-        $folder = [Environment]::GetEnvironmentVariable($Entry.configEnv, 'Process')
+        param($Entry, $Environment)
+        $folder = $Environment[$Entry.configEnv]
         $physical = Resolve-InstallConfigDir $Entry.plugin.defaultConfigDir
         $name = if ($folder -and $folder -cne $physical) { [IO.Path]::GetFullPath($folder) } else { 'default' }
         return "$($Entry.id)|$name"
@@ -21,7 +21,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         param([string[]]$Command, $Environment)
         if ($Command[0] -ceq $refreshRuntime) { $refreshed.Add($Command[3]); return @{ ExitCode = 0; Output = @(); ErrorOutput = @() } }
         $entry = $catalog.tools | Where-Object command -CEQ $Command[0]
-        $key = Get-FakeKey $entry
+        $key = Get-FakeKey -Entry $entry -Environment $Environment
         $line = $Command -join '|'
         if ($line -ceq ((@($entry.command) + $entry.plugin.list) -join '|')) {
             $listed.Add($key)

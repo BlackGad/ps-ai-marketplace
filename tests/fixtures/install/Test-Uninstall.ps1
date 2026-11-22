@@ -10,7 +10,7 @@ function Ensure-InstallPowerShell { throw 'Uninstall tried to install prerequisi
 function Read-Host { throw 'Yes or DryRun must never prompt' }
 $state = @{ Plugin=$true; Marketplace=$true; Writes=0; Calls=0 }
 function Invoke-ClosedInput {
-    param($Command)
+    param($Command, $Environment)
     $state.Calls++
     $line = $Command -join '|'
     if ($Command[2] -eq 'list') {

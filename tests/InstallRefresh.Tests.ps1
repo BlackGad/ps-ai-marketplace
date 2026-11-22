@@ -7,13 +7,15 @@ $repo = Split-Path $PSScriptRoot -Parent
     $oldPlugin = Join-Path $sandbox 'cache/old'
     $newPlugin = Join-Path $sandbox 'cache/new'
     $marker = Join-Path $sandbox 'refreshed.txt'
+    $selectedAccount = Join-Path $sandbox 'selected-account'
+    New-Item -ItemType Directory -Path $selectedAccount -Force | Out-Null
     $state = @{Updated=$false; Fail=$false; Missing=$false; Disappeared=$false}
     $realClosedInput = ${function:Invoke-ClosedInput}
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome (Join-Path $sandbox 'selected-home')
     function Invoke-ClosedInput {
-        param($Command)
-        if ($Command[0] -ne 'claude') { return & $realClosedInput -Command $Command }
-        Assert-Equal 'selected-account' $env:CLAUDE_CONFIG_DIR 'Listing and update use selected account'
+        param($Command, $Environment)
+        if ($Command[0] -ne 'claude') { return & $realClosedInput -Command $Command -Environment $Environment }
+        Assert-Equal $selectedAccount $Environment.CLAUDE_CONFIG_DIR 'Listing and update use selected account'
         if ($Command -contains 'marketplace' -and $Command -contains 'list') { return @{ExitCode=0;Output=@('[]')} }
         if ($Command[2] -eq 'list') {
             if ($state.Missing -or ($state.Updated -and $state.Disappeared)) { return @{ExitCode=0;Output=@('[]')} }
@@ -33,33 +35,33 @@ $repo = Split-Path $PSScriptRoot -Parent
         }
         'throw "stale refresh script invoked"' | Set-Content (Join-Path $oldPlugin 'bin/legion-refresh.ps1')
         ('param($HomeRoot); $HomeRoot | Set-Content -LiteralPath ''' + $marker.Replace("'", "''") + '''') | Set-Content (Join-Path $newPlugin 'bin/legion-refresh.ps1')
-        $null = Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account
+        $null = Invoke-LegionUpdateSteps -Entry $entry -ConfigDir $selectedAccount
         Assert-True (Test-Path -LiteralPath $marker) 'Successful update invokes freshly installed refresh script'
         Assert-Equal (Get-InstallHome) ((Get-Content $marker -Raw).Trim()) 'Refresh receives the selected owner home'
         Remove-Item $marker
         $state.Fail=$true
-        Assert-Throws { Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account } 'Failed update propagates'
+        Assert-Throws { Invoke-LegionUpdateSteps -Entry $entry -ConfigDir $selectedAccount } 'Failed update propagates'
         Assert-True (-not (Test-Path $marker)) 'Failed update never refreshes generated artifacts'
         $state.Fail=$false
         $state.Missing=$true
-        $null = Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account
+        $null = Invoke-LegionUpdateSteps -Entry $entry -ConfigDir $selectedAccount
         Assert-True (Test-Path $marker) 'Missing plugin is installed then its fresh artifacts are refreshed'
         Remove-Item $marker
         $state.Missing=$false
-        $null = Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account -DryRun
+        $null = Invoke-LegionUpdateSteps -Entry $entry -ConfigDir $selectedAccount -DryRun
         Assert-True (-not (Test-Path $marker)) 'Preview never invokes refresh'
         $state.Disappeared=$true
         New-Item -ItemType Directory -Path (Join-Path $sandbox 'selected-home/.claude/plugins/cache/ps-legion-marketplace/legion') -Force | Out-Null
         Copy-Item -LiteralPath $newPlugin -Destination (Join-Path $sandbox 'selected-home/.claude/plugins/cache/ps-legion-marketplace/legion/0.3.0') -Recurse
         $previousConfig = $env:CLAUDE_CONFIG_DIR
         try {
-            $env:CLAUDE_CONFIG_DIR = 'selected-account'
-            Assert-Throws { Invoke-InstallRefresh -Entry $entry } 'Absent post-update plugin cannot use a leftover cache'
+            $env:CLAUDE_CONFIG_DIR = $selectedAccount
+            Assert-Throws { Invoke-InstallRefresh -Entry $entry -ConfigDir $selectedAccount } 'Absent post-update plugin cannot use a leftover cache'
         } finally { $env:CLAUDE_CONFIG_DIR = $previousConfig }
         Assert-True (-not (Test-Path $marker)) 'Leftover cache is never refreshed as an installed plugin'
         $state.Disappeared=$false
         Remove-Item (Join-Path $newPlugin 'bin/legion-refresh.ps1')
-        Assert-Throws { Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account } 'Unresolvable installed refresh script is reported'
+        Assert-Throws { Invoke-LegionUpdateSteps -Entry $entry -ConfigDir $selectedAccount } 'Unresolvable installed refresh script is reported'
     } finally {
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
         if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe refresh fixture cleanup' }
@@ -75,7 +77,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $calls = [Collections.Generic.List[object]]::new()
     . (Join-Path $PSScriptRoot 'fixtures/install/InstallerSandbox.ps1') -InstallFixtureHome (Join-Path $sandbox 'selected-home')
     function Invoke-ClosedInput {
-        param($Command)
+        param($Command, $Environment)
         if ($Command[0] -eq 'copilot') { return @{ExitCode=0;Output=@('legion@ps-legion-marketplace (v0.3.0) (enabled)')} }
         $calls.Add($Command)
         @{ExitCode=0;Output=@()}
@@ -104,14 +106,16 @@ $repo = Split-Path $PSScriptRoot -Parent
         '{"name":"legion","version":"0.6.0"}' | Set-Content -LiteralPath (Join-Path $livePlugin 'plugin.json')
         '# inert live refresh fixture' | Set-Content -LiteralPath (Join-Path $livePlugin 'bin/legion-refresh.ps1')
         function Invoke-ClosedInput {
-            param($Command)
+            param($Command, $Environment)
             if ($Command[0] -eq 'copilot') {
                 return @{ ExitCode = 0; Output = @('Live Plugins (loaded from a local marketplace directory, never copied):', '  • legion@ps-legion-marketplace (v0.6.0) (enabled)', "      from $marketplace") }
             }
             $calls.Add($Command)
             return @{ ExitCode = 0; Output = @() }
         }
-        $null = Invoke-InstallRefresh -Entry (Get-InstallTool copilot) -ConfigDir (Join-Path $sandbox 'fresh-account')
+        $freshAccount = Join-Path $sandbox 'fresh-account'
+        New-Item -ItemType Directory -Path $freshAccount -Force | Out-Null
+        $null = Invoke-InstallRefresh -Entry (Get-InstallTool copilot) -ConfigDir $freshAccount
         Assert-Equal 2 $calls.Count 'Live Copilot update refreshes without a copied plugin cache'
         Assert-Equal ([IO.Path]::GetFullPath((Join-Path $livePlugin 'bin/legion-refresh.ps1'))) ([IO.Path]::GetFullPath($calls[1][3])) 'Live refresh follows the marketplace plugin source'
     } finally {

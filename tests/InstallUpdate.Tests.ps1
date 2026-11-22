@@ -39,11 +39,17 @@ $repo = Split-Path $PSScriptRoot -Parent
     function Get-InstallSourceText { throw 'Tests must not use network' }
     $calls = [Collections.Generic.List[string]]::new()
     $state = @{ Missing=$false; FailList=$false; FailUpdate=$false }
+    $selected = Join-Path $sandbox 'selected'
+    $selectedAccount = Join-Path $sandbox 'selected account'
+    $absent = Join-Path $sandbox 'absent'
+    $fixtureFolders = @($agents.configDir | ForEach-Object { Resolve-InstallConfigDir $_ })
+    $fixtureFolders += @((Join-Path $sandbox 'inherited-account'), $selected, $selectedAccount, $absent)
+    New-Item -ItemType Directory -Path $fixtureFolders -Force | Out-Null
     function Test-InstallCommandAvailable { param($Name) $Name -in @('claude','codex','copilot') }
     function Invoke-ClosedInput {
-        param([string[]]$Command)
+        param([string[]]$Command, $Environment)
         $entry = $catalog.tools | Where-Object command -EQ $Command[0]
-        $folder = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
+        $folder = $Environment[$entry.configEnv]
         $calls.Add("$($entry.id):$folder|$($Command -join '|')")
         if ($Command -contains 'marketplace' -and $Command -contains 'list') {
             return @{ExitCode=0; Output=@('[]')}
@@ -64,15 +70,15 @@ $repo = Split-Path $PSScriptRoot -Parent
     $saved.FOURTH_HOME = [Environment]::GetEnvironmentVariable('FOURTH_HOME', 'Process')
     foreach ($entry in $catalog.tools) {
         $saved[$entry.configEnv] = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
-        [Environment]::SetEnvironmentVariable($entry.configEnv, 'inherited-account', 'Process')
+        [Environment]::SetEnvironmentVariable($entry.configEnv, (Join-Path $sandbox 'inherited-account'), 'Process')
     }
     try {
         $output = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Update -Yes)
         Assert-Equal 28 $calls.Count 'Seven distinct targets each list before and after two refresh steps'
         foreach ($entry in $catalog.tools) {
-            $inherited = [IO.Path]::GetFullPath('inherited-account')
+            $inherited = [IO.Path]::GetFullPath((Join-Path $sandbox 'inherited-account'))
             Assert-True ($calls -contains "$($entry.id):$inherited|$($entry.command)|plugin|list$(if ($entry.id -eq 'claude') { '|--json' })") 'Default config honors inherited account override'
-            Assert-Equal 'inherited-account' ([Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')) 'Update restores caller config env'
+            Assert-Equal (Join-Path $sandbox 'inherited-account') ([Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')) 'Update restores caller config env'
         }
         $custom = Join-Path $sandbox 'custom account'
         Assert-True ($calls -contains "claude:$custom|claude|plugin|update|legion@ps-legion-marketplace") 'Registered custom folder refreshes'
@@ -88,9 +94,9 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-True (($preview -join "`n").Contains('custom account')) 'Dry run includes recorded accounts'
 
         $calls.Clear()
-        $null = Invoke-LegionInstaller -Tools copilot -ConfigDir 'selected account' -Source $repo -Catalog $catalog -Update -Yes
+        $null = Invoke-LegionInstaller -Tools copilot -ConfigDir $selectedAccount -Source $repo -Catalog $catalog -Update -Yes
         Assert-Equal 4 $calls.Count 'Tools and ConfigDir narrow to exactly one target'
-        Assert-True ($calls[2].StartsWith('copilot:selected account|')) 'Selected folder scopes mutation'
+        Assert-True ($calls[2].StartsWith("copilot:$selectedAccount|")) 'Selected folder scopes mutation'
 
         # One update question also covers installing a missing plugin.
         $calls.Clear()
@@ -98,27 +104,27 @@ $repo = Split-Path $PSScriptRoot -Parent
         $script:answer = 'n'
         $script:questions = 0
         function Read-Host { $script:questions++; $script:answer }
-        $declined = @(Invoke-LegionInstaller -Tools claude -ConfigDir absent -Source $repo -Catalog $catalog -Update)
+        $declined = @(Invoke-LegionInstaller -Tools claude -ConfigDir $absent -Source $repo -Catalog $catalog -Update)
         Assert-Equal 1 $script:questions 'A missing plugin asks before a fresh install'
         Assert-Equal 0 @($calls | Where-Object { $_ -match '\|(add|install)\|' }).Count 'A declined install adds no marketplace and installs nothing'
-        Assert-True (($declined -join "`n") -match 'Update legion for claude in absent \(not installed\)') 'Preview names the missing install before declining'
+        Assert-True (($declined -join "`n").Contains("Update legion for claude in $absent (not installed)")) 'Preview names the missing install before declining'
         Assert-True ($declined -contains 'Nothing changed. Run again with -Yes to apply.') 'A declined update explains that nothing changed'
         $calls.Clear()
         $script:questions = 0
-        $null = Invoke-LegionInstaller -Tools claude -ConfigDir absent -Source $repo -Catalog $catalog -Update -DryRun
+        $null = Invoke-LegionInstaller -Tools claude -ConfigDir $absent -Source $repo -Catalog $catalog -Update -DryRun
         Assert-Equal 0 $script:questions 'A dry run never asks'
         $script:answer = 'y'
         $calls.Clear()
-        $output = @(Invoke-LegionInstaller -Tools claude -ConfigDir absent -Source $repo -Catalog $catalog -Update)
-        Assert-True ($calls -contains "claude:absent|claude|plugin|marketplace|add|$(Resolve-InstallSource $repo)") 'Update registers marketplace for missing plugin'
-        Assert-True ($calls -contains 'claude:absent|claude|plugin|install|legion@ps-legion-marketplace') 'Update installs missing plugin'
+        $output = @(Invoke-LegionInstaller -Tools claude -ConfigDir $absent -Source $repo -Catalog $catalog -Update)
+        Assert-True ($calls -contains "claude:$absent|claude|plugin|marketplace|add|$(Resolve-InstallSource $repo)") 'Update registers marketplace for missing plugin'
+        Assert-True ($calls -contains "claude:$absent|claude|plugin|install|legion@ps-legion-marketplace") 'Update installs missing plugin'
         Assert-True (($output -join "`n") -notmatch 'skip: .*\(not installed\)') 'Missing plugin is no longer skipped'
         $state.Missing = $false
 
         foreach ($failure in @('FailList','FailUpdate')) {
             $state[$failure] = $true
-            Assert-Throws { $null = Invoke-LegionInstaller -Tools claude -ConfigDir selected -Source $repo -Catalog $catalog -Update } "$failure propagates"
-            Assert-Equal 'inherited-account' $env:CLAUDE_CONFIG_DIR 'Failure restores config env'
+            Assert-Throws { $null = Invoke-LegionInstaller -Tools claude -ConfigDir $selected -Source $repo -Catalog $catalog -Update } "$failure propagates"
+            Assert-Equal (Join-Path $sandbox 'inherited-account') $env:CLAUDE_CONFIG_DIR 'Failure restores config env'
             $state[$failure] = $false
         }
 

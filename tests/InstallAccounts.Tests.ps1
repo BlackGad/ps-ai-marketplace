@@ -18,10 +18,12 @@ $repo = Split-Path $PSScriptRoot -Parent
     $calls = [Collections.Generic.List[string]]::new()
     $installed = @{}
     $state = @{ Fail=$false }
+    $selected = Join-Path $sandbox 'selected'
+    New-Item -ItemType Directory -Path $selected -Force | Out-Null
     function Invoke-ClosedInput {
-        param([string[]]$Command)
+        param([string[]]$Command, $Environment)
         $entry = $catalog.tools | Where-Object command -CEQ $Command[0]
-        $folder = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
+        $folder = $Environment[$entry.configEnv]
         $key = "$($entry.id):$folder"
         $calls.Add("$key|$($Command -join '|')")
         if ($state.Fail) { throw 'fixture failure' }
@@ -42,15 +44,15 @@ $repo = Split-Path $PSScriptRoot -Parent
     $savedClaude = $env:CLAUDE_CONFIG_DIR
     $savedCodex = $env:CODEX_HOME
     try {
-        $env:CLAUDE_CONFIG_DIR = 'inherited-account'
-        $env:CODEX_HOME = 'inherited-account'
+        $env:CLAUDE_CONFIG_DIR = (Join-Path $sandbox 'inherited-account')
+        $env:CODEX_HOME = (Join-Path $sandbox 'inherited-account')
         $null = Invoke-LegionInstaller -Source $repo -Catalog $catalog -Yes
-        $inherited = [IO.Path]::GetFullPath('inherited-account')
+        $inherited = [IO.Path]::GetFullPath((Join-Path $sandbox 'inherited-account'))
         $expected = @("claude:$inherited", "claude:$(Join-Path $sandbox '.claude-account2')", "codex:$inherited", "codex:$(Join-Path $sandbox '.codex-account2')") | Sort-Object
         $targets = @($calls | ForEach-Object { ($_ -split '\|')[0] } | Sort-Object -Unique)
         Assert-Equal ($expected -join '|') ($targets -join '|') 'Install covers defaults and recorded folders once'
         Assert-Equal 4 $installed.Count 'Install installs each distinct target'
-        Assert-Equal 'inherited-account' $env:CLAUDE_CONFIG_DIR 'Install restores inherited environment'
+        Assert-Equal (Join-Path $sandbox 'inherited-account') $env:CLAUDE_CONFIG_DIR 'Install restores inherited environment'
         $calls.Clear()
         $null = Invoke-LegionInstaller -Source $repo -Catalog $catalog -Yes
         Assert-Equal 0 @($calls | Where-Object { $_ -match '\|plugin\|(install|add)\|' }).Count 'Repeat install skips installed plugins'
@@ -66,18 +68,18 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-Equal ($expected -join '|') ($targets -join '|') 'Update and install use the same targets'
         Assert-Equal 4 $installed.Count 'Update installs every missing target'
         Assert-Equal 4 @($calls | Where-Object { $_ -match '\|marketplace\|add\|' }).Count 'Update registers missing marketplaces'
-        Assert-Equal 'inherited-account' $env:CODEX_HOME 'Update restores inherited environment'
+        Assert-Equal (Join-Path $sandbox 'inherited-account') $env:CODEX_HOME 'Update restores inherited environment'
         foreach ($update in @($false, $true)) {
             $calls.Clear()
-            $null = Invoke-LegionInstaller -Source $repo -Catalog $catalog -Tools claude -ConfigDir selected -Update:$update -DryRun
-            Assert-Equal 'claude:selected' (($calls | ForEach-Object { ($_ -split '\|')[0] } | Sort-Object -Unique) -join '|') 'Both modes honor tool and folder narrowing'
+            $null = Invoke-LegionInstaller -Source $repo -Catalog $catalog -Tools claude -ConfigDir $selected -Update:$update -DryRun
+            Assert-Equal "claude:$selected" (($calls | ForEach-Object { ($_ -split '\|')[0] } | Sort-Object -Unique) -join '|') 'Both modes honor tool and folder narrowing'
         }
         $state.Fail = $true
         Assert-Throws { Invoke-LegionInstaller -Source $repo -Catalog $catalog -Tools claude -Yes } 'Install listing failure propagates'
-        Assert-Equal 'inherited-account' $env:CLAUDE_CONFIG_DIR 'Failed default install restores inherited environment'
+        Assert-Equal (Join-Path $sandbox 'inherited-account') $env:CLAUDE_CONFIG_DIR 'Failed default install restores inherited environment'
     } finally {
-        Set-InstallConfigEnvironment -Name CLAUDE_CONFIG_DIR -Value $savedClaude
-        Set-InstallConfigEnvironment -Name CODEX_HOME -Value $savedCodex
+        [Environment]::SetEnvironmentVariable('CLAUDE_CONFIG_DIR', $savedClaude, 'Process')
+        [Environment]::SetEnvironmentVariable('CODEX_HOME', $savedCodex, 'Process')
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
         if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe cleanup' }
         Remove-Item -LiteralPath $sandbox -Recurse -Force

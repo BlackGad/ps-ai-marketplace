@@ -1,4 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
+$fixtureConfig0 = Join-Path $env:HOME 'selected account'
+New-Item -ItemType Directory -Path $fixtureConfig0 -Force | Out-Null
 . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
 & {
     . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
@@ -9,8 +11,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         $state = @{ Added=$false }
         $writes = [Collections.Generic.List[string]]::new()
         function Invoke-ClosedInput {
-            param($Command)
-            Assert-Equal 'selected account' ([Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')) 'Every step uses selected config'
+            param($Command, $Environment)
+            Assert-Equal $fixtureConfig0 ($Environment[$entry.configEnv]) 'Every step uses selected config'
             $line = $Command -join '|'
             if ($line -ceq ((@($entry.command) + $entry.plugin.marketplaceList) -join '|')) {
                 $source = if ($state.Added) { 'example/new-source' } else { '' }
@@ -26,12 +28,12 @@ $repo = Split-Path $PSScriptRoot -Parent
             if ($Command -contains 'example/new-source' -or $Command -contains 'example/new-source#stable') { $state.Added=$true }
             return @{ExitCode=0; Output=@()}
         }
-        $null = Invoke-LegionInstallSteps -Tool $entry.id -Source 'example/new-source' -ConfigEnv $entry.configEnv -ConfigDir 'selected account'
+        $null = Invoke-LegionInstallSteps -Tool $entry.id -Source 'example/new-source' -ConfigEnv $entry.configEnv -ConfigDir $fixtureConfig0
         Assert-True ($writes -contains ((@($entry.command) + $entry.plugin.install) -join '|')) "$($entry.id) newly added marketplace reinstalls an existing cached plugin"
         Assert-Equal 3 $writes.Count "$($entry.id) runs add, refresh and install from descriptor"
         Assert-Equal ((@($entry.command) + $entry.plugin.marketplaceUpdate) -join '|') $writes[1] 'Refresh uses tool data'
         $writes.Clear()
-        $repeat = @(Invoke-LegionInstallSteps -Tool $entry.id -Source 'example/new-source' -ConfigEnv $entry.configEnv -ConfigDir 'selected account')
+        $repeat = @(Invoke-LegionInstallSteps -Tool $entry.id -Source 'example/new-source' -ConfigEnv $entry.configEnv -ConfigDir $fixtureConfig0)
         Assert-Equal 0 $writes.Count 'Matching marketplace and installed plugin remain idempotent'
         Assert-Equal 2 @($repeat | Where-Object { $_ -match '^skip: ' }).Count 'Repeat skips both steps'
     }

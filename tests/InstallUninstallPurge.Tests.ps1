@@ -39,9 +39,9 @@ function Test-PurgeScenario {
             return $answer
         }
         function Invoke-ClosedInput {
-            param($Command)
+            param($Command, $Environment)
             $entry = $catalog.tools | Where-Object command -CEQ $Command[0]
-            $folder = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
+            $folder = $Environment[$entry.configEnv]
             Assert-True ($folder.StartsWith($fixtureHome + [IO.Path]::DirectorySeparatorChar)) 'Every CLI gets a temporary config folder'
             if ($Command[2] -eq 'list') {
                 $line = if ($entry.id -eq 'claude') { if ($state.Installed) { '[{"id":"legion@ps-legion-marketplace","enabled":true}]' } else { '[]' } }

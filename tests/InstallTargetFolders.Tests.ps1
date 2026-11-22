@@ -12,10 +12,10 @@ $repo = Split-Path $PSScriptRoot -Parent
     $fixturePlugin = New-InstallFixturePlugin -Path (Join-Path $sandbox 'installed')
     $calls = New-Object 'Collections.Generic.List[string]'
     function Invoke-ClosedInput {
-        param([string[]]$Command)
+        param([string[]]$Command, $Environment)
         if ($Command -notcontains 'list') { throw 'Preview attempted a write' }
         $entry = $catalog.tools | Where-Object command -CEQ $Command[0]
-        $folder = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
+        $folder = $Environment[$entry.configEnv]
         $calls.Add("$($entry.id):$folder")
         $output = if ($Command -contains 'marketplace') {
             Get-FixtureMarketplaceListing -Tool $entry.id -Source 'BlackGad/ps-legion-marketplace'
@@ -27,7 +27,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     $saved = @{}
     foreach ($entry in $catalog.tools) {
         $saved[$entry.configEnv] = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
-        Set-InstallConfigEnvironment -Name $entry.configEnv -Value $null
+        Remove-Item -LiteralPath "Env:$($entry.configEnv)" -ErrorAction SilentlyContinue
     }
     try {
         foreach ($entry in $catalog.tools) {
@@ -59,7 +59,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 
             # The caller's environment defines the default even if tool data points elsewhere.
             $override = Join-Path $sandbox 'override'
-            Set-InstallConfigEnvironment -Name $entry.configEnv -Value ($override.Replace('\', '/') + '/')
+            [Environment]::SetEnvironmentVariable($entry.configEnv, ($override.Replace('\', '/') + '/'), 'Process')
             @{agents=@(@{tool=$entry.id;configDir='~/override/'}, @{tool=$entry.id;configDir='~/other/'}, @{tool=$entry.id;configDir='~/other'})} |
                 ConvertTo-Json | Set-Content -LiteralPath $file
             $folders = Get-UpdateConfigDirs -Tool $entry.id
@@ -69,7 +69,7 @@ $repo = Split-Path $PSScriptRoot -Parent
             Remove-Item -LiteralPath $file
             Assert-Equal $override (Get-UpdateConfigDirs -Tool $entry.id)[0] 'Environment override is honored without records'
             Assert-Equal 'selected' (Get-UpdateConfigDirs -Tool $entry.id -ConfigDir selected)[0] 'Explicit folder still narrows selection'
-            Set-InstallConfigEnvironment -Name $entry.configEnv -Value $null
+            Remove-Item -LiteralPath "Env:$($entry.configEnv)" -ErrorAction SilentlyContinue
         }
 
         # Folder metadata and environment names also work for a tool unknown to the installer.
@@ -79,7 +79,10 @@ $repo = Split-Path $PSScriptRoot -Parent
         @{agents=@(@{tool='fixture-agent';configDir='~/.fixture-data/'})} | ConvertTo-Json | Set-Content -LiteralPath $file
         Assert-Equal (Join-Path $sandbox '.fixture-data') ((Get-UpdateConfigDirs -Tool fixture-agent) -join '|') 'Target selection uses descriptor data'
     } finally {
-        foreach ($name in $saved.Keys) { Set-InstallConfigEnvironment -Name $name -Value $saved[$name] }
+        foreach ($name in $saved.Keys) {
+            if ($null -eq $saved[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
+            else { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
+        }
         $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
         if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe target fixture cleanup' }
         Remove-Item -LiteralPath $sandbox -Recurse -Force
