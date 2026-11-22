@@ -75,6 +75,37 @@ function Test-PurgeScenario {
 }
 
 Test-PurgeScenario {
+    $sharedHomePath = ${function:Resolve-LegionHomePath}
+    $expanded = [Collections.Generic.List[string]]::new()
+    function Resolve-LegionHomePath {
+        param([string]$Path, [string]$HomeRoot)
+        Assert-Equal $fixtureHome $HomeRoot 'Shared expansion receives the selected home'
+        $expanded.Add($Path)
+        & $sharedHomePath -Path $Path -HomeRoot $HomeRoot
+    }
+    foreach ($path in @('~/selected/', '~\selected\', '~/nested/../selected/')) {
+        Assert-Equal (Join-Path $fixtureHome 'selected') (Resolve-InstallConfigDir $path) 'Home aliases normalize to one folder'
+    }
+    Assert-Equal $fixtureHome (Resolve-InstallConfigDir '~') 'Bare tilde selects the home itself'
+    Assert-True ($expanded.Count -ge 3) 'Installer delegates leading tilde expansion to the shared helper'
+}
+
+Test-PurgeScenario {
+    $walks = [Collections.Generic.List[string]]::new()
+    $sharedWalk = ${function:Test-LegionOwnerPathSafe}
+    function Test-LegionOwnerPathSafe {
+        param([string]$Path, [string]$StopRoot)
+        $walks.Add($StopRoot)
+        & $sharedWalk -Path $Path -StopRoot $StopRoot
+    }
+    $file = New-PurgeFile '.legion/bin/codex-a'
+    Assert-True (Test-InstallGeneratedPathSafe -Path $file -Bin (Split-Path $file)) 'Generated files use the shared link walk'
+    Assert-Equal $file (Get-InstallSafePath -Root $fixtureHome -Relative '.legion/bin/codex-a' -AllowFile) 'Purge paths use the shared link walk'
+    Assert-Equal 2 $walks.Count 'Both path guards delegate the ancestor walk'
+    foreach ($root in $walks) { Assert-Equal $fixtureHome $root 'Installer link walks stop at the selected home' }
+}
+
+Test-PurgeScenario {
     $login = New-PurgeFile '.legion/agents/codex-a/auth.json' 'fake login'
     $notes = New-PurgeFile '.legion/configuration/notes.md' 'notes'
     $repoFile = New-PurgeFile 'repositories/my-project/.legion/configuration/project.json' 'repository data'

@@ -17,6 +17,7 @@ if (-not $PSScriptRoot) { throw 'Run the legion installer from the expanded arch
 $pathsLibrary = Join-Path $PSScriptRoot 'bin/lib/paths.ps1'
 if (-not (Test-Path -LiteralPath $pathsLibrary -PathType Leaf)) { throw 'The legion installer requires bin/lib/paths.ps1 from the expanded archive.' }
 . $pathsLibrary
+$script:installPathComparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
 
 function Get-InstallSourceText {
     param([string]$Url)
@@ -292,17 +293,14 @@ function Resolve-InstallConfigDir {
     param([string]$Path)
     $Path = $Path.Replace('\', '/')
     if ($Path -eq '~') { $Path = Get-InstallHome }
-    elseif ($Path.StartsWith('~/')) { $Path = Join-Path (Get-InstallHome) $Path.Substring(2) }
-    $Path = [IO.Path]::GetFullPath($Path)
-    if ($Path.Length -gt [IO.Path]::GetPathRoot($Path).Length) { $Path = $Path.TrimEnd('\', '/') }
-    return $Path
+    $Path = Resolve-LegionHomePath -Path $Path -HomeRoot (Get-InstallHome)
+    return [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Path))
 }
 
 function Test-InstallRealProfile {
-    $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     $selected = [IO.Path]::GetFullPath((Get-InstallHome)).TrimEnd('\', '/')
     $profileHome = [IO.Path]::GetFullPath([Environment]::GetFolderPath('UserProfile')).TrimEnd('\', '/')
-    return [string]::Equals($selected, $profileHome, $comparison)
+    return [string]::Equals($selected, $profileHome, $script:installPathComparison)
 }
 
 function Get-UpdateConfigDirs {
@@ -313,18 +311,17 @@ function Get-UpdateConfigDirs {
     $defaultFolder = if ($override) { $override } else { $entry.plugin.defaultConfigDir }
     if ($defaultFolder) { $defaultFolder = Resolve-InstallConfigDir $defaultFolder }
     $folders = @()
+    $seen = [Collections.Generic.HashSet[string]]::new((Get-LegionPathComparer))
     $file = Get-InstallOwnerPath -Name Settings
     if (Test-Path -LiteralPath $file -PathType Leaf) {
         $data = Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         foreach ($agent in $data.agents) {
             if ($agent.tool -cne $Tool -or [string]::IsNullOrWhiteSpace($agent.configDir)) { continue }
             $folder = Resolve-InstallConfigDir $agent.configDir
-            $alreadyListed = if ($env:OS -eq 'Windows_NT') { $folders -contains $folder } else { $folders -ccontains $folder }
-            if (-not $alreadyListed) { $folders += $folder }
+            if ($seen.Add($folder)) { $folders += $folder }
         }
     }
-    $defaultListed = if ($env:OS -eq 'Windows_NT') { $folders -contains $defaultFolder } else { $folders -ccontains $defaultFolder }
-    if (-not $defaultListed) {
+    if (-not $seen.Contains($defaultFolder)) {
         # Keep the CLI's implicit default only when no recorded account selects it.
         # A home other than the real profile has its own default folder; never hand the CLI its real default.
         $target = if ($override -or -not (Test-InstallRealProfile)) { $defaultFolder } else { '' }
@@ -521,10 +518,9 @@ function Get-UninstallFiles {
 function Test-InstallGeneratedPathSafe {
     param([string]$Path, [string]$Bin)
     $currentPath = [IO.Path]::GetFullPath($Path)
-    $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
-    if (-not $currentPath.StartsWith($Bin + [IO.Path]::DirectorySeparatorChar, $comparison)) { throw 'Unsafe generated file path' }
+    if (-not $currentPath.StartsWith($Bin + [IO.Path]::DirectorySeparatorChar, $script:installPathComparison)) { throw 'Unsafe generated file path' }
     $homeRoot = [IO.Path]::GetFullPath((Get-InstallHome)).TrimEnd('\', '/')
-    if (-not $currentPath.StartsWith($homeRoot + [IO.Path]::DirectorySeparatorChar, $comparison)) { throw 'Unsafe generated file path' }
+    if (-not $currentPath.StartsWith($homeRoot + [IO.Path]::DirectorySeparatorChar, $script:installPathComparison)) { throw 'Unsafe generated file path' }
     if (-not (Test-LegionOwnerPathSafe -Path $currentPath -StopRoot (Get-InstallHome))) {
         Write-Host "skip: $Path (linked folder)"
         return $false
@@ -551,15 +547,14 @@ function Get-InstallSafePath {
     }
     $rootPath = [IO.Path]::GetFullPath($Root)
     $path = [IO.Path]::GetFullPath((Join-Path $rootPath $Relative))
-    $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     $prefix = $rootPath.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
-    if (-not $path.StartsWith($prefix, $comparison)) { throw 'Unsafe path outside the root' }
+    if (-not $path.StartsWith($prefix, $script:installPathComparison)) { throw 'Unsafe path outside the root' }
     if (-not (Test-Path -LiteralPath $path)) { return }
     if (-not $AllowFile -and -not (Test-Path -LiteralPath $path -PathType Container)) { return }
     $homeRoot = [IO.Path]::GetFullPath((Get-InstallHome))
     $homePrefix = $homeRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
     # Selected config folders may live outside home; home paths never walk above it.
-    $stopRoot = if ($path.StartsWith($homePrefix, $comparison)) { $homeRoot } else { [IO.Path]::GetPathRoot($path) }
+    $stopRoot = if ($path.StartsWith($homePrefix, $script:installPathComparison)) { $homeRoot } else { [IO.Path]::GetPathRoot($path) }
     if (-not (Test-LegionOwnerPathSafe -Path $path -StopRoot $stopRoot)) {
         Write-Host "skip: plugin cache $path (linked folder)"
         return
@@ -595,7 +590,6 @@ function Get-InstallPurgeJsonText {
         }
         $object = $token.Value -eq '{'
         $close = if ($object) { '}' } else { ']' }
-        $children = @()
         $previousComma = -1
         $names = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
         while ($Cursor.Value -lt $tokens.Count -and $tokens[$Cursor.Value].Value -ne $close) {
@@ -612,7 +606,7 @@ function Get-InstallPurgeJsonText {
             }
             $value = Read-PurgeJsonNode -Cursor $Cursor -Depth ($Depth + 1)
             $member = [pscustomobject]@{ Key=$name; Start=$start; End=$value.End; Node=$value; BeforeComma=$previousComma; AfterComma=-1 }
-            $children += $member
+            $node.Children += $member
             if ($Cursor.Value -lt $tokens.Count -and $tokens[$Cursor.Value].Value -eq ',') {
                 $member.AfterComma = $tokens[$Cursor.Value].Index
                 $previousComma = $member.AfterComma
@@ -621,7 +615,6 @@ function Get-InstallPurgeJsonText {
         }
         if ($Cursor.Value -ge $tokens.Count) { throw 'Unclosed JSON container' }
         $node.End = $tokens[$Cursor.Value].Index + 1
-        $node.Children = $children
         $Cursor.Value++
         return $node
     }
@@ -745,6 +738,7 @@ function Get-InstallPurgePlan {
     # Purge is global even if the preceding uninstall selected only some targets.
     $paths = @()
     $edits = @()
+    $editedPaths = [Collections.Generic.HashSet[string]]::new((Get-LegionPathComparer))
     $manualSteps = @()
     $pathEntries = @((Get-InstallLegionPath 'bin'), (Get-InstallLegionPath 'tools/pwsh'))
     $userPath = if ($env:OS -eq 'Windows_NT') { Get-InstallUserPath } else { '' }
@@ -801,11 +795,10 @@ function Get-InstallPurgePlan {
                 $path = Get-InstallSafePath -Root $folder -Relative $relative -AllowFile 6>$null
                 if (-not $path -and (Test-Path -LiteralPath (Join-Path $folder $relative))) { $manualSteps += "Manual step: $(Join-Path $folder $relative) (linked path; left in place)" }
                 if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) {
-                    $alreadyEdited = if ($env:OS -eq 'Windows_NT') { $edits.Path -contains $path } else { $edits.Path -ccontains $path }
-                    if ($alreadyEdited) { continue }
+                    if ($editedPaths.Contains($path)) { continue }
                     $edit = Get-InstallPurgeEdit -Path $path -Kind $setting.kind
                     if ($edit.Manual) { $manualSteps += "Manual step: $path (remove its legion entries; could not match them safely)" }
-                    elseif ($edit) { $edits += $edit }
+                    elseif ($edit) { $edits += $edit; [void]$editedPaths.Add($path) }
                 }
             }
         }
@@ -827,11 +820,9 @@ function Show-InstallPurgePlan {
     foreach ($edit in $Plan.Edits) { foreach ($name in $edit.Entries) { "Remove entry: $($edit.Path): $name" } }
     $items = @($Plan.Paths)
     if ($Plan.Legion) { $items += [pscustomobject]@{ Path=$Plan.Legion; EmptyOnly=$false } }
-    $shown = @()
+    $shown = [Collections.Generic.HashSet[string]]::new((Get-LegionPathComparer))
     foreach ($item in $items) {
-        $key = if ($env:OS -eq 'Windows_NT') { $item.Path.ToLowerInvariant() } else { $item.Path }
-        if ($shown -ccontains $key) { continue }
-        $shown += $key
+        if (-not $shown.Add($item.Path)) { continue }
         if (Test-Path -LiteralPath $item.Path -PathType Container) {
             $count = @(Get-ChildItem -LiteralPath $item.Path -File -Recurse -Force).Count
             $note = if ($item.EmptyOnly) { ' (if empty)' } elseif ($item.Path -ceq $Plan.Legion) { ' (last: all settings, notes, account folders, logins and launchers)' } else { '' }
@@ -1099,11 +1090,10 @@ function Get-InstallPluginRoot {
         } catch { }
     }
     if (-not $paths.Count) {
-        $homeRoot = Get-InstallHome
         if (-not $Entry.plugin.installedRoot) { throw "$($Entry.id) plugin descriptor needs installedRoot to locate its installed refresh script." }
         if (-not $ConfigDir -and -not $Entry.plugin.defaultConfigDir) { throw "$($Entry.id) plugin descriptor needs defaultConfigDir to locate its installed refresh script." }
         $configRoot = if ($ConfigDir) { $ConfigDir } else { $Entry.plugin.defaultConfigDir }
-        if ($configRoot -match '^~[/\\]') { $configRoot = Join-Path $homeRoot $configRoot.Substring(2) }
+        $configRoot = Resolve-LegionHomePath -Path $configRoot -HomeRoot (Get-InstallHome)
         $cacheRoot = Join-Path $configRoot $Entry.plugin.installedRoot
         if (Test-Path -LiteralPath $cacheRoot -PathType Container) {
             $manifestFolders = @('.claude-plugin', '.codex-plugin')

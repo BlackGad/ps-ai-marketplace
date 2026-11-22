@@ -130,13 +130,14 @@ $repo = Split-Path $PSScriptRoot -Parent
 
         $caseAgents = @(@{tool='claude';configDir=(Join-Path $sandbox 'account-a')}, @{tool='claude';configDir=(Join-Path $sandbox 'Account-a')})
         @{agents=$caseAgents} | ConvertTo-Json | Set-Content -LiteralPath $personalisation
-        $savedOS = $env:OS
+        $sharedComparer = ${function:Get-LegionPathComparer}
         try {
-            $env:OS = 'fixture-unix'
+            function Get-LegionPathComparer { $caseComparer }
+            $caseComparer = [StringComparer]::Ordinal
             Assert-Equal 3 (Get-UpdateConfigDirs -Tool claude).Count 'Case-distinct Unix folders both update'
-            $env:OS = 'Windows_NT'
+            $caseComparer = [StringComparer]::OrdinalIgnoreCase
             Assert-Equal 2 (Get-UpdateConfigDirs -Tool claude).Count 'Windows folders deduplicate without case sensitivity'
-        } finally { $env:OS = $savedOS }
+        } finally { Set-Item -LiteralPath Function:Get-LegionPathComparer -Value $sharedComparer }
         Remove-Item -LiteralPath $personalisation
         $calls.Clear()
         $null = Invoke-LegionInstaller -Tools claude -Source $repo -Catalog $catalog -Update -Yes
