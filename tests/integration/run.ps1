@@ -503,10 +503,20 @@ function Invoke-SetupFirst {
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
         Assert-IntegrationTrue ($userPath.Split(';') -contains $bin) '.legion/bin is not on the user PATH'
     } else {
-        Assert-IntegrationText $lines 'export PATH='
+        Assert-IntegrationTrue ((Get-IntegrationProfileLineCount) -eq 1) 'the shell profile must hold exactly one marked legion line after install and setup'
     }
     $script:Ctx.HomeSnapshot = Get-IntegrationHomeSnapshot
     return $lines
+}
+
+# The marked legion lines in the shell profiles under the integration home (SHELL picks which profile legion writes).
+function Get-IntegrationProfileLineCount {
+    $count = 0
+    foreach ($name in @('.zshrc', '.bashrc', '.profile')) {
+        $path = Join-Path $script:Ctx.HomeRoot $name
+        if (Test-Path -LiteralPath $path) { $count += @([IO.File]::ReadAllLines($path) | Where-Object { $_ -ceq '# Added by legion' }).Count }
+    }
+    return $count
 }
 
 function Assert-AccountsHaveLegion {
@@ -812,6 +822,7 @@ function Assert-IntegrationPurged {
 
 function Assert-IntegrationPurgeComplete {
     Assert-IntegrationTrue (-not (Test-Path -LiteralPath (Join-Path $script:Ctx.HomeRoot '.legion'))) 'legion home remains after purge'
+    Assert-IntegrationTrue ((Get-IntegrationProfileLineCount) -eq 0) 'the marked legion line remains in the shell profile after purge'
     foreach ($target in $script:Ctx.PurgeTargets) { Assert-IntegrationPurged $target }
     foreach ($tool in $script:IntegrationTools) {
         $result = Invoke-IntegrationCli -Tool $tool -Arguments @('--version') -Folder (Get-IntegrationToolFolder $tool)

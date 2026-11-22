@@ -116,6 +116,8 @@ Invoke-InstallTestCase 'Tool' {
         $realDownloadResolver = ${function:Get-ToolDownload}
         $realInstalledCheck = ${function:Test-ToolInstalled}
         $sandbox = New-InstallTestFolder 'restructure/install-tests'
+        # These steps fake the Windows registry PATH; Add-LegionUserPath picks its writer from OS.
+        $env:OS = 'Windows_NT'
         $originalProcessPath = $env:PATH
         $sources = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/sources.json') -Raw | ConvertFrom-Json -AsHashtable
         $testHash = '1' * 64

@@ -30,11 +30,11 @@ try {
             $entry = Get-LegionFootprints -HomeRoot $fixtureHome -Kind path-entry
             Assert-Equal "~/$name" $entry.path "$shell footprint names the profile"
             Assert-Equal 'legion' ($entry.owners -join '|') "$shell footprint is purge only"
-            $stamp = (Get-Item $profilePath).LastWriteTimeUtc.Ticks
+            $stamp = (Get-Item -Force $profilePath).LastWriteTimeUtc.Ticks
             $index = [IO.File]::ReadAllText((Get-LegionOwnerPath -HomeRoot $fixtureHome -Name Index))
             $repeat = @(Invoke-Setup -HomeRoot $fixtureHome -Yes)
             Assert-True ($repeat -contains 'skip: shell profile PATH (already done)') "$shell repeat reports the skip"
-            Assert-Equal $stamp (Get-Item $profilePath).LastWriteTimeUtc.Ticks "$shell repeat does not rewrite the profile"
+            Assert-Equal $stamp (Get-Item -Force $profilePath).LastWriteTimeUtc.Ticks "$shell repeat does not rewrite the profile"
             Assert-Equal $index ([IO.File]::ReadAllText((Get-LegionOwnerPath -HomeRoot $fixtureHome -Name Index))) "$shell repeat keeps the index bytes"
             Assert-Equal $false (Get-SetupPlan -HomeRoot $fixtureHome).NeedsPath "$shell plan reads the profile before a new terminal"
             Remove-Item -LiteralPath (Get-LegionOwnerPath -HomeRoot $fixtureHome -Name Index)
