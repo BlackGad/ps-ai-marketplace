@@ -65,8 +65,17 @@ def read(repo: Path) -> None:
         return
     done.mkdir(parents=True, exist_ok=True)
     for item in messages:
-        payload = json.loads(item.read_text(encoding="utf-8"))
-        print(f"from: {payload['from']}\nat: {payload['at']}\n{payload['text']}\n", flush=True)
+        try:
+            payload = json.loads(item.read_text(encoding="utf-8"))
+            sender, at, text = payload["from"], payload["at"], payload["text"]
+            if not all(isinstance(value, str) for value in (sender, at, text)):
+                raise TypeError(item.name)
+        except (OSError, ValueError, KeyError, TypeError):
+            print(f"warning: skipped unreadable inbox file {item.name}", file=sys.stderr, flush=True)
+        else:
+            # The sender is one line and the body is indented, so message text cannot fake a header.
+            body = "\n".join(f"    {line}" for line in text.splitlines() or [""])
+            print(f"from: {' '.join(sender.split())}\nat: {at}\ntext:\n{body}\n", flush=True)
         item.rename(done / item.name)
 
 
@@ -81,7 +90,7 @@ $ErrorActionPreference = 'Stop'
 $lease = Get-LegionLease -Repo $env:LEGION_INBOX_REPO
 if ($lease.State -ne 'held' -or $lease.Data.tool -ne 'codex' -or -not $lease.Data.session) { exit 0 }
 $wrapper = Get-LegionWrapperCommand -Id $lease.Data.account -HomeRoot $env:LEGION_INBOX_HOME
-$pointer = 'New legion inbox message from ' + $env:LEGION_INBOX_SENDER + '; read it with legion-py inbox read.'
+$pointer = 'New legion inbox message from ' + $env:LEGION_INBOX_SENDER + '; read it as the legion-overseer inbox reference describes (inbox.md).'
 $result = Invoke-LegionProcess -Command $wrapper -Arguments @('queue', '--thread', $lease.Data.session, '--message', $pointer) -TimeoutSeconds 15
 exit $result.ExitCode
 """

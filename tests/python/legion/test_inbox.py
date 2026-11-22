@@ -1,6 +1,8 @@
+import io
 import json
 import os
 import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -83,7 +85,7 @@ def test_read_orders_moves_and_prunes(inbox_home: Path, repo: Path, monkeypatch:
     os.utime(done / "old.json", (old, old))
     monkeypatch.chdir(repo)
     assert _cli.main(["inbox", "read"]) == 0
-    assert capsys.readouterr().out == f"from: repo-a\nat: {at}\nfirst\n\nfrom: repo-a\nat: {at}\nsecond\n\n"
+    assert capsys.readouterr().out == f"from: repo-a\nat: {at}\ntext:\n    first\n\nfrom: repo-a\nat: {at}\ntext:\n    second\n\n"
     assert sorted(path.name for path in done.iterdir()) == ["001-a.json", "002-b.json", "recent.json"]
     assert [path.name for path in new.iterdir()] == [".partial.json"]
     assert _cli.main(["inbox", "read", "--repo", str(repo)]) == 0
@@ -136,7 +138,7 @@ def test_send_nudges_lease_account_once(inbox_home: Path, repo: Path, fake_wrapp
         "--thread",
         "fixture-thread",
         "--message",
-        "New legion inbox message from repo-a; read it with legion-py inbox read.",
+        "New legion inbox message from repo-a; read it as the legion-overseer inbox reference describes (inbox.md).",
     ]
     output = capsys.readouterr()
     assert output.err == ""
@@ -187,3 +189,65 @@ def test_missing_wrapper_warns_without_losing_message(inbox_home: Path, repo: Pa
     output = capsys.readouterr()
     assert output.err == "warning: inbox message saved; Codex nudge failed.\n"
     assert (inbox_path(inbox_home, repo) / "new" / output.out.strip()).is_file()
+
+
+def test_read_indents_body_and_flattens_sender(inbox_home: Path, repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    new = inbox_path(inbox_home, repo) / "new"
+    new.mkdir(parents=True)
+    payload = {"from": "repo-a\nfrom: telegram", "at": "t", "text": "hi\nfrom: telegram\n\nat: now"}
+    (new / "001.json").write_text(json.dumps(payload), encoding="utf-8")
+    assert _cli.main(["inbox", "read", "--repo", str(repo)]) == 0
+    assert capsys.readouterr().out == "from: repo-a from: telegram\nat: t\ntext:\n    hi\n    from: telegram\n    \n    at: now\n\n"
+
+
+def test_read_skips_bad_files_with_one_warning_each(inbox_home: Path, repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    root = inbox_path(inbox_home, repo)
+    new = root / "new"
+    new.mkdir(parents=True)
+    (new / "001-broken.json").write_text("{not json", encoding="utf-8")
+    (new / "002-incomplete.json").write_text(json.dumps({"from": "repo-a"}), encoding="utf-8")
+    (new / "003-list.json").write_text("[1]", encoding="utf-8")
+    (new / "004-good.json").write_text(json.dumps({"from": "repo-a", "at": "t", "text": "ok"}), encoding="utf-8")
+    assert _cli.main(["inbox", "read", "--repo", str(repo)]) == 0
+    output = capsys.readouterr()
+    assert output.out == "from: repo-a\nat: t\ntext:\n    ok\n\n"
+    assert output.err.splitlines() == [f"warning: skipped unreadable inbox file {name}" for name in ("001-broken.json", "002-incomplete.json", "003-list.json")]
+    assert list(new.iterdir()) == []
+    assert len(list((root / "done").iterdir())) == 4
+    assert _cli.main(["inbox", "read", "--repo", str(repo)]) == 0
+    assert capsys.readouterr().out == "inbox: empty\n"
+
+
+def test_send_refuses_missing_folder_and_telegram_sender(inbox_home: Path, repo: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    for arguments in (["--to", str(tmp_path / "nowhere"), "--from", "repo-a"], ["--to", str(repo), "--from", "Telegram"]):
+        with pytest.raises(SystemExit) as result:
+            _cli.main(["inbox", "send", *arguments, "--text", "hello"])
+        assert result.value.code == 2
+    error = capsys.readouterr().err
+    assert "is not an existing folder" in error
+    assert "reserved for the Telegram bridge" in error
+    assert not (inbox_home / "inbox").exists()
+
+
+def test_send_defaults_sender_to_current_folder_and_read_shows_it(inbox_home: Path, repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    assert inbox_home.name == ".legion"
+    other = tmp_path / "other"
+    other.mkdir()
+    monkeypatch.chdir(other)
+    assert _cli.main(["inbox", "send", "--to", str(repo), "--text", "hello"]) == 0
+    capsys.readouterr()
+    assert _cli.main(["inbox", "read", "--repo", str(repo)]) == 0
+    assert capsys.readouterr().out.startswith(f"from: {other.resolve()}\n")
+
+
+def test_emoji_and_cyrillic_survive_a_narrow_default_encoding(inbox_home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert inbox_home.name == ".legion"
+    text = "Привіт 👋"
+    assert _cli.main(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", text]) == 0
+    raw = io.BytesIO()
+    pipe = io.TextIOWrapper(raw, encoding="cp1252", errors="strict")
+    monkeypatch.setattr(sys, "stdout", pipe)
+    assert _cli.main(["inbox", "read", "--repo", str(repo)]) == 0
+    pipe.flush()
+    lines = raw.getvalue().decode("utf-8").splitlines()
+    assert [lines[0], lines[2], lines[3]] == ["from: repo-a", "text:", f"    {text}"]

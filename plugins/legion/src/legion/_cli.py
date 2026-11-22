@@ -1,5 +1,7 @@
 import argparse
+import io
 import json
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
@@ -8,6 +10,10 @@ from . import _bridge, _inbox, _telegram
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    # A pipe on Windows defaults to the ANSI code page; messages carry any text.
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8")
     manifest_path = Path(__file__).resolve().parents[2] / "plugin.json"
     version = json.loads(manifest_path.read_text(encoding="utf-8"))["version"]
     parser = argparse.ArgumentParser(prog="legion-py", description="Legion Python helpers")
@@ -17,7 +23,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     actions = inbox.add_subparsers(dest="action", required=True)
     send = actions.add_parser("send", help="Send a message to a repository overseer")
     send.add_argument("--to", required=True, type=Path)
-    send.add_argument("--from", dest="sender", required=True)
+    send.add_argument("--from", dest="sender", default=str(Path.cwd().resolve()), help="the sender's repository path (default: current folder)")
     send.add_argument("--text", required=True)
     read = actions.add_parser("read", help="Read this repository's inbox")
     read.add_argument("--repo", type=Path, default=Path.cwd())
@@ -47,6 +53,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _bridge.run(args.channel, args.repo)
     if args.command == "inbox":
         if args.action == "send":
+            if args.sender.strip().lower() == "telegram":
+                parser.error("--from telegram is reserved for the Telegram bridge")
+            if not args.to.is_dir():
+                parser.error(f"--to {args.to} is not an existing folder")
             _inbox.send(args.to, args.sender, args.text)
         else:
             _inbox.read(args.repo)
