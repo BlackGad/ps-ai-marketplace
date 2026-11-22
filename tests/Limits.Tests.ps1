@@ -1,3 +1,4 @@
+. (Join-Path $PSScriptRoot 'lib/workspace.ps1')
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
 $root = Split-Path $PSScriptRoot -Parent
@@ -12,14 +13,7 @@ New-Item -ItemType Directory -Path (Join-Path $home1 '.legion/configuration'), $
 
 # The three fake CLIs all run the one fixture script.
 foreach ($name in @('claude', 'codex', 'copilot')) {
-    $target = Join-Path $fixtures 'fake-cli.ps1'
-    if ($IsWindows) {
-        Set-Content -LiteralPath (Join-Path $fakeBin "$name.ps1") -Value "& '$target' @args; exit `$LASTEXITCODE"
-    } else {
-        $path = Join-Path $fakeBin $name
-        Set-Content -LiteralPath $path -Value "#!/bin/sh`nexec pwsh -NoProfile -File '$target' `"`$@`""
-        [IO.File]::SetUnixFileMode($path, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
-    }
+    New-TestCommandStub -Folder $fakeBin -Name $name -Script (Join-Path $fixtures 'fake-cli.ps1') | Out-Null
 }
 $agents = @(
     @{ id = 'claude-a'; tool = 'claude'; configDir = '~/.legion/agents/claude-a' }
@@ -29,11 +23,10 @@ $agents = @(
 )
 foreach ($agent in $agents) {
     if ($agent.provider) { continue }
-    $target = Join-Path $fakeBin $(if ($IsWindows) { "$($agent.tool).ps1" } else { $agent.tool })
+    $target = Join-Path $fakeBin $(if ($IsWindows) { "$($agent.tool).cmd" } else { $agent.tool })
     New-LegionWrappers -Id $agent.id -Tool $agent.tool -HomeRoot $home1 -ConfigDir $agent.configDir -RealCommand $target | Out-Null
 }
-@{ schemaVersion = 1; agents = $agents; channels = @() } | ConvertTo-Json -Depth 10 |
-    Set-Content -LiteralPath (Join-Path $home1 '.legion/configuration/personalisation.json')
+Write-TestPersonalisation -HomeRoot $home1 -Agents $agents | Out-Null
 
 function Get-Fixture { param([string]$Name) return Join-Path $fixtures $Name }
 function Get-Time { param([long]$Seconds) return [DateTimeOffset]::FromUnixTimeSeconds($Seconds).ToLocalTime().ToString('yyyy-MM-dd HH:mm') }

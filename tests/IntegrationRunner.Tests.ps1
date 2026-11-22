@@ -16,60 +16,45 @@ try {
     $plainOutput = @(Invoke-IntegrationScript $plainScript)
     Assert-Equal '1|PlainText' ($plainOutput -join "`n") 'child PowerShell disables colour rendering'
 
-    # Each fake step gives a first and a repeat case with a time above zero.
-    $fake = @(
-        @{ Name = 'one'; DependsOn = @(); First = { Start-Sleep -Milliseconds 5 }; Repeat = { Start-Sleep -Milliseconds 5 } }
-        @{ Name = 'two'; DependsOn = @('one'); First = { Start-Sleep -Milliseconds 5 }; Repeat = { Start-Sleep -Milliseconds 5 } }
-    )
-    $cases = @(Invoke-IntegrationSteps -Steps $fake)
-    Assert-Equal 4 $cases.Count 'two cases per step'
-    Assert-Equal 'one' $cases[0].Name 'first-run case name'
-    Assert-Equal 'one (repeat)' $cases[1].Name 'repeat case name'
-    Assert-True ((-not $cases[0].Repeat) -and $cases[1].Repeat) 'Repeat flag marks the second run'
-    foreach ($case in $cases) {
-        Assert-Equal 'passed' $case.Result "$($case.Name) passed"
-        Assert-True ($case.Seconds -gt 0) "$($case.Name) has a time above zero"
+    # Ordered first/repeat cases stop after a failure anywhere in the list.
+    foreach ($failureIndex in -1, 0, 1) {
+        $ran = [Collections.Generic.List[int]]::new()
+        $fake = @(foreach ($index in 0..3) {
+            $current = $index
+            $fail = $failureIndex
+            @{ Name = $(if ($index -lt 2) { 'one' } else { 'two' }); Repeat = [bool]($index % 2)
+               Action = { $ran.Add($current); if ($current -eq $fail) { throw 'boom' }; 'output' }.GetNewClosure() }
+        })
+        $cases = @(Invoke-IntegrationSteps -Steps $fake)
+        Assert-Equal 4 $cases.Count 'one result per listed action'
+        Assert-Equal 'one,one (repeat),two,two (repeat)' ($cases.Name -join ',') 'first and repeat case names'
+        Assert-True ((-not $cases[0].Repeat) -and $cases[1].Repeat) 'repeat flag retained'
+        if ($failureIndex -lt 0) {
+            Assert-Equal '0,1,2,3' ($ran -join ',') 'successful actions run in order'
+            Assert-Equal 'passed,passed,passed,passed' ($cases.Result -join ',') 'all actions passed'
+        } else {
+            Assert-Equal $failureIndex $ran[-1] 'no action runs after the failure'
+            Assert-Equal 'failed' $cases[$failureIndex].Result 'throwing action fails'
+            Assert-Equal 'boom' $cases[$failureIndex].Message 'failure retains its message'
+            foreach ($case in $cases[($failureIndex + 1)..3]) {
+                Assert-Equal 'skipped' $case.Result 'all remaining cases are skipped'
+                Assert-Equal "previous step failed: $($cases[$failureIndex].Name)" $case.Message 'skip names the failed action'
+                Assert-Equal 0 $case.Seconds 'skipped action has zero duration'
+            }
+        }
+        foreach ($case in $cases | Where-Object Result -ne 'skipped') { Assert-True ($case.Seconds -gt 0) 'executed actions have timings' }
     }
-
-    # A throwing step fails; dependants skip without running; independent steps still run.
-    $script:counter = 0
-    $script:independent = 0
-    $failing = @(
-        @{ Name = 'bad'; DependsOn = @(); First = { throw 'boom' }; Repeat = { } }
-        @{ Name = 'child'; DependsOn = @('bad'); First = { $script:counter++ }; Repeat = { $script:counter++ } }
-        @{ Name = 'grandchild'; DependsOn = @('child'); First = { $script:counter++ }; Repeat = { $script:counter++ } }
-        @{ Name = 'free'; DependsOn = @(); First = { $script:independent++ }; Repeat = { $script:independent++ } }
-    )
-    $cases = @(Invoke-IntegrationSteps -Steps $failing)
-    $byName = @{}
-    foreach ($case in $cases) { $byName[$case.Name] = $case }
-    Assert-Equal 'failed' $byName['bad'].Result 'throwing step fails'
-    Assert-True ($byName['bad'].Message -like '*boom*') 'failure keeps the message'
-    Assert-Equal 'skipped' $byName['child'].Result 'dependant is skipped'
-    Assert-Equal 'needs bad' $byName['child'].Message 'dependant says what it needs'
-    Assert-Equal 'skipped' $byName['child (repeat)'].Result 'dependant repeat is skipped'
-    Assert-Equal 'skipped' $byName['grandchild'].Result 'second-level dependant is skipped'
-    Assert-Equal 'needs child' $byName['grandchild'].Message 'second-level dependant names its direct parent'
-    Assert-Equal 0 $script:counter 'dependant blocks never run'
-    Assert-Equal 2 $script:independent 'independent step still ran both times'
-    Assert-Equal 'passed' $byName['free'].Result 'independent step passed'
-
-    # A step that returns Skipped is skipped with that message; its dependants skip too.
-    $script:counter = 0
-    $skipping = @(
-        @{ Name = 'codex'; DependsOn = @(); First = { @{ Skipped = 'codex refuses a local folder' } }; Repeat = { $script:counter++ } }
-        @{ Name = 'after'; DependsOn = @('codex'); First = { $script:counter++ }; Repeat = { $script:counter++ } }
-    )
-    $cases = @(Invoke-IntegrationSteps -Steps $skipping)
-    Assert-Equal 'skipped' $cases[0].Result 'returned Skipped is skipped'
-    Assert-Equal 'codex refuses a local folder' $cases[0].Message 'skip keeps its reason'
-    Assert-Equal 'skipped' $cases[1].Result 'its repeat is skipped too'
-    Assert-Equal 'needs codex' $cases[2].Message 'dependant of a skipped step says needs'
-    Assert-Equal 0 $script:counter 'no block ran after a skip'
+    # An explicit skip also stops the ordered sequence and keeps its reason.
+    $cases = @(Invoke-IntegrationSteps -Steps @(
+        @{ Name = 'skip'; Action = { @{ Skipped = 'local folder refused' } } }
+        @{ Name = 'after'; Action = { throw 'must not run' } }
+    ))
+    Assert-Equal 'skipped,skipped' ($cases.Result -join ',') 'explicit skip stops later actions'
+    Assert-Equal 'local folder refused' $cases[0].Message 'skip reason retained'
 
     # Step output goes to a log file when a log folder is given.
     $logs = Join-Path $tempRoot 'logs'
-    $logged = @(@{ Name = 'talk'; DependsOn = @(); First = { 'hello log' }; Repeat = { 'again' } })
+    $logged = @(@{ Name = 'talk'; Action = { 'hello log' } })
     Invoke-IntegrationSteps -Steps $logged -LogFolder $logs | Out-Null
     Assert-True ((Get-Content -LiteralPath (Join-Path $logs 'talk.log') -Raw) -like '*hello log*') 'step output is logged'
 
@@ -80,8 +65,9 @@ try {
     $installer = Join-Path $tempRoot 'installer.ps1'
     Set-Content -LiteralPath $installer -Value @('Write-Output "installer stdout"', 'Write-Output "installer stdout"', 'Write-Host "installer host output"', '[Console]::Error.WriteLine("installer stderr")')
     $installerSteps = @(
-        @{ Name = 'installer-pass'; DependsOn = @(); First = { $null = Invoke-IntegrationScript $installer }; Repeat = { $null = Invoke-IntegrationScript $installer } }
-        @{ Name = 'installer-assert'; DependsOn = @(); First = { $buffer = Invoke-IntegrationScript $installer; throw 'version assertion' }; Repeat = { } }
+        @{ Name = 'installer-pass'; Action = { $null = Invoke-IntegrationScript $installer } }
+        @{ Name = 'installer-pass'; Repeat = $true; Action = { $null = Invoke-IntegrationScript $installer } }
+        @{ Name = 'installer-assert'; Action = { $buffer = Invoke-IntegrationScript $installer; throw 'version assertion' } }
     )
     $null = Invoke-IntegrationSteps -Steps $installerSteps -LogFolder $logs
     foreach ($name in 'installer-pass', 'installer-pass-repeat', 'installer-assert') {
@@ -168,14 +154,23 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     Assert-True (-not (Test-Path -LiteralPath $refusedOut)) 'a refused run writes nothing'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $tempRoot 'home'))) 'a refused run does not create the home'
 
-    # The real steps exist in the spec's order and depend on what they need (never run here).
+    # Dry listing: building the complete real-CLI sequence invokes no action.
     $steps = @(Get-IntegrationSteps -HomeRoot (Join-Path $tempRoot 'home') -Checkout $root -Work (Join-Path $tempRoot 'work') -Os 'linux')
-    Assert-Equal 'install-cli-claude,install-cli-codex,install-cli-copilot,install-legion,setup,add,remove,repo-private,repo-shared,uninstall,reinstall,restore-launchers,purge' (($steps.Name) -join ',') 'step order'
-    Assert-True ($steps.Where({ $_.Name -eq 'reinstall' }).DependsOn -contains 'uninstall') 'reinstall needs uninstall'
-    Assert-True ($steps.Where({ $_.Name -eq 'restore-launchers' }).DependsOn -contains 'reinstall') 'restore-launchers needs reinstall'
-    Assert-True ($steps.Where({ $_.Name -eq 'purge' }).DependsOn -contains 'restore-launchers') 'purge needs restored launchers'
-    Assert-True ($steps.Where({ $_.Name -eq 'setup' }).DependsOn -contains 'install-legion') 'setup needs install-legion'
+    $expected = 'install-cli-claude,install-cli-codex,install-cli-copilot,install-legion,setup,add,remove,repo-private,repo-shared,uninstall,reinstall,restore-launchers,purge'
+    Assert-Equal $expected (($steps | Where-Object { -not $_.Repeat }).Name -join ',') 'first-run step order unchanged'
+    Assert-Equal $expected (($steps | Where-Object Repeat).Name -join ',') 'repeat step order unchanged'
+    Assert-Equal 26 $steps.Count 'all thirteen first/repeat pairs retained'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $tempRoot 'home'))) 'building the steps touches nothing'
+    # Replace every real entry point with a recorder to verify action wiring, not just labels.
+    $script:listedCalls = @()
+    foreach ($functionName in @('Invoke-CliInstallFirst', 'Invoke-CliInstallRepeat', 'Invoke-LegionInstallFirst', 'Invoke-LegionInstallRepeat', 'Invoke-SetupFirst', 'Invoke-SetupRepeat', 'Invoke-AddFirst', 'Invoke-AddRepeat', 'Invoke-RemoveFirst', 'Invoke-RemoveRepeat', 'Invoke-RepoPrivateFirst', 'Invoke-RepoPrivateRepeat', 'Invoke-RepoSharedFirst', 'Invoke-RepoSharedRepeat', 'Invoke-UninstallFirst', 'Invoke-UninstallRepeat', 'Invoke-ReinstallFirst', 'Invoke-ReinstallRepeat', 'Invoke-RestoreLaunchersFirst', 'Invoke-RestoreLaunchersRepeat', 'Invoke-PurgeFirst', 'Invoke-PurgeRepeat')) {
+        Set-Item "Function:$functionName" ([scriptblock]::Create("`$script:listedCalls += '$functionName ' + (`$args -join ' ')"))
+    }
+    $listed = @(Invoke-IntegrationSteps $steps)
+    Assert-Equal 26 $script:listedCalls.Count 'every listed action is wired to a real entry point'
+    Assert-Equal 0 @($listed | Where-Object Result -ne 'passed').Count 'dry sequence passes with fakes'
+    Assert-Equal 'Invoke-CliInstallFirst claude,Invoke-CliInstallRepeat claude,Invoke-CliInstallFirst codex,Invoke-CliInstallRepeat codex,Invoke-CliInstallFirst copilot,Invoke-CliInstallRepeat copilot' ($script:listedCalls[0..5] -join ',') 'each CLI first/repeat receives the right tool'
+    Assert-Equal 'Invoke-LegionInstallFirst ,Invoke-LegionInstallRepeat ,Invoke-SetupFirst ,Invoke-SetupRepeat ,Invoke-AddFirst ,Invoke-AddRepeat ,Invoke-RemoveFirst ,Invoke-RemoveRepeat ,Invoke-RepoPrivateFirst ,Invoke-RepoPrivateRepeat ,Invoke-RepoSharedFirst ,Invoke-RepoSharedRepeat ,Invoke-UninstallFirst ,Invoke-UninstallRepeat ,Invoke-ReinstallFirst ,Invoke-ReinstallRepeat ,Invoke-RestoreLaunchersFirst ,Invoke-RestoreLaunchersRepeat ,Invoke-PurgeFirst ,Invoke-PurgeRepeat ' ($script:listedCalls[6..25] -join ',') 'remaining entry points run in order'
 
     # ---- Fakes below replace the runner's functions; each block loads the real ones again first. ----
     $fakeHome = Join-Path $tempRoot 'fake-home'

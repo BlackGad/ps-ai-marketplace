@@ -19,3 +19,10 @@ function Get-TestTempPath {
     # Keep the runner's linked temp path so every OS exercises linked ancestors.
     return [IO.Path]::GetTempPath()
 }
+
+function Remove-TestFolder {
+    param([string]$Path, [string]$AllowedParent)
+    $full = Resolve-LegionDirectoryPath $Path
+    if (-not (Test-LegionPathUnder -Path $full -Root $AllowedParent)) { throw 'Unsafe test folder cleanup' }
+    if (Test-Path -LiteralPath $full) { Remove-Item -LiteralPath $full -Recurse -Force }
+}

@@ -1,3 +1,4 @@
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $schemaPath = Join-Path $repoRoot 'plugins/legion/schemas/tool.schema.json'
 $skillsRoot = Join-Path $repoRoot 'plugins/legion/skills'
@@ -115,7 +116,5 @@ try {
         Assert-Equal 'fourth' (@(Get-LegionTools).id -join '|') 'Relocated discovery never reads helpers eagerly'
     }
 } finally {
-    $cleanupPath = [IO.Path]::GetFullPath($discoveryRoot)
-    if (-not $cleanupPath.StartsWith($scratchRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe test cleanup path' }
-    Remove-Item -LiteralPath $cleanupPath -Recurse -Force
+    Remove-TestFolder -Path $discoveryRoot -AllowedParent $scratchRoot
 }

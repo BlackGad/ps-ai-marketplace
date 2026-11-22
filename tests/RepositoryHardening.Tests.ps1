@@ -1,30 +1,8 @@
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'lib/repository.ps1')
 $root = Split-Path $PSScriptRoot -Parent
 $setup = Join-Path $root 'plugins/legion/bin/legion-repository.ps1'
 $sandbox = Join-Path $root ('.agents/temp/repository-hardening-' + [guid]::NewGuid().ToString('N'))
-$savedEnv = @{}
-foreach ($name in @('GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM')) {
-    $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-}
-
-function New-HardeningRepo {
-    param([string]$Name)
-    $repo = Join-Path $sandbox $Name
-    New-Item -ItemType Directory -Path $repo -Force | Out-Null
-    git init --quiet $repo
-    git -C $repo config user.name 'Fixture Owner'
-    git -C $repo config user.email 'fixture@example.invalid'
-    'rules' | Set-Content (Join-Path $repo 'AGENTS.md')
-    git -C $repo add .
-    git -C $repo commit --quiet -m 'Fixture'
-    return $repo
-}
-
-function Get-ThrownMessage {
-    param([scriptblock]$Action)
-    try { & $Action | Out-Null } catch { return $_.Exception.Message }
-    return ''
-}
 
 # The git working tree that holds the setup files: the inner repository in Private mode.
 function Get-SetupGitRoot {
@@ -33,16 +11,14 @@ function Get-SetupGitRoot {
     return $Repo
 }
 
-New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
+$savedEnv = Set-TestGitEnvironment -Sandbox $sandbox
 try {
-    $env:GIT_CONFIG_GLOBAL = Join-Path $sandbox 'gitconfig'
-    $env:GIT_CONFIG_NOSYSTEM = '1'
 
     foreach ($mode in @('Shared', 'Private')) {
         $prefix = if ($mode -eq 'Shared') { '.legion/' } else { '' }
 
         # A1: a repeat leaves the owner's untracked files under the setup folders alone.
-        $repo = New-HardeningRepo "a1-untracked-$mode"
+        $repo = New-TestGitRepository -Sandbox $sandbox -Name "a1-untracked-$mode"
         & $setup -Repo $repo -Mode $mode | Out-Null
         $gitRoot = Get-SetupGitRoot $repo $mode
         Set-Content -LiteralPath (Join-Path $repo '.legion/scripts/mine.ps1') -Value 'owner script'
@@ -56,7 +32,7 @@ try {
         Assert-True ($tracked -cnotcontains "$($prefix)scripts/mine.ps1") "A1 $mode`: the owner file stays untracked"
 
         # A1: a file the owner staged in part is refused, not committed.
-        $repo = New-HardeningRepo "a1-partial-$mode"
+        $repo = New-TestGitRepository -Sandbox $sandbox -Name "a1-partial-$mode"
         & $setup -Repo $repo -Mode $mode | Out-Null
         $gitRoot = Get-SetupGitRoot $repo $mode
         $handoff = Join-Path $repo '.legion/state/handoff.md'
@@ -70,7 +46,7 @@ try {
     }
 
     # A2: a rules file name with spaces and non-ASCII letters is staged after an earlier failed commit.
-    $repo = New-HardeningRepo 'a2-quoted'
+    $repo = New-TestGitRepository -Sandbox $sandbox -Name 'a2-quoted'
     $hook = Join-Path $repo '.git/hooks/pre-commit'
     New-Item -ItemType Directory -Path (Split-Path $hook -Parent) -Force | Out-Null
     [IO.File]::WriteAllText($hook, "#!/bin/sh`nexit 1`n")
@@ -94,7 +70,7 @@ try {
         @{ Name = 'state folder'; Mode = 'Private'; Link = '.legion/state'; Type = $folderType; Target = $outside }
     )
     foreach ($case in $linkCases) {
-        $repo = New-HardeningRepo "a3-$($case.Name -replace ' ', '-')"
+        $repo = New-TestGitRepository -Sandbox $sandbox -Name "a3-$($case.Name -replace ' ', '-')"
         New-Item -ItemType Directory -Path (Join-Path $repo '.legion') -Force | Out-Null
         try { New-Item -ItemType $case.Type -Path (Join-Path $repo $case.Link) -Target $case.Target -ErrorAction Stop | Out-Null }
         catch { Write-Host "skip A3 $($case.Name): cannot create a link here"; continue }
@@ -106,7 +82,7 @@ try {
     }
 
     # A1: a Git setting that hides untracked files does not hide the new scaffold from the commit.
-    $repo = New-HardeningRepo 'a1-hidden-untracked'
+    $repo = New-TestGitRepository -Sandbox $sandbox -Name 'a1-hidden-untracked'
     git -C $repo config status.showUntrackedFiles no
     & $setup -Repo $repo -Mode Shared | Out-Null
     Assert-True (@(git -C $repo ls-files) -ccontains '.legion/state/handoff.md') 'A1: showUntrackedFiles=no still commits the new scaffold'
@@ -117,7 +93,7 @@ try {
         @{ Name = 'exclude folder'; Link = '.git/info'; Type = $folderType; Target = $outside }
     )
     foreach ($case in $excludeCases) {
-        $repo = New-HardeningRepo "a3-$($case.Name -replace ' ', '-')"
+        $repo = New-TestGitRepository -Sandbox $sandbox -Name "a3-$($case.Name -replace ' ', '-')"
         $linkPath = Join-Path $repo $case.Link
         Remove-Item -LiteralPath $linkPath -Recurse -Force -ErrorAction SilentlyContinue
         try { New-Item -ItemType $case.Type -Path $linkPath -Target $case.Target -ErrorAction Stop | Out-Null }
@@ -129,7 +105,7 @@ try {
     }
 
     # A4: an edited gate script stays in a rebuilt index with a generic description.
-    $repo = New-HardeningRepo 'a4-edited-gate'
+    $repo = New-TestGitRepository -Sandbox $sandbox -Name 'a4-edited-gate'
     & $setup -Repo $repo -Mode Shared -Gate 'echo first' | Out-Null
     [IO.File]::WriteAllText((Join-Path $repo '.legion/scripts/check-task.ps1'), "Write-Host 'custom gate'`n")
     git -C $repo commit -q -am 'Edit gate'
@@ -142,5 +118,5 @@ try {
     Assert-True ($workflow.Contains('check-task.ps1')) 'A4: the workflow names the edited gate script'
 } finally {
     foreach ($name in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name], 'Process') }
-    Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-TestFolder -Path $sandbox -AllowedParent (Join-Path $root '.agents/temp')
 }

@@ -1,4 +1,5 @@
 param([string]$Finding)
+. (Join-Path $PSScriptRoot 'lib/workspace.ps1')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $statusScript = Join-Path $root 'plugins/legion/bin/legion-status.ps1'
@@ -114,14 +115,10 @@ try {
     $manifest = Join-Path $fixtureHome '.claude/plugins/cache/ps-legion-marketplace/legion/0.6.0/plugin.json'
     New-Item -ItemType Directory -Path $config, $bin, (Split-Path $manifest) -Force | Out-Null
     '{"name":"legion","version":"0.6.0"}' | Set-Content -LiteralPath $manifest
-    @{
-        schemaVersion = 1
-        agents = @(
-            @{ id = 'claude-a'; tool = 'claude'; configDir = '~/.claude' },
-            @{ id = 'codex-a'; tool = 'codex'; configDir = '~/.codex-work' }
-        )
-        channels = @(@{ id = 'my-telegram'; kind = 'telegram'; target = '123'; accounts = @('claude-a') })
-    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $config 'personalisation.json')
+    Write-TestPersonalisation -HomeRoot $fixtureHome -Agents @(
+        @{ id = 'claude-a'; tool = 'claude'; configDir = '~/.claude' }
+        @{ id = 'codex-a'; tool = 'codex'; configDir = '~/.codex-work' }
+    ) -Channels @(@{ id = 'my-telegram'; kind = 'telegram'; target = '123'; accounts = @('claude-a') }) | Out-Null
     $commands = @{ legion = 'legion.ps1' }
     foreach ($name in $commands.Keys) {
         (Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($commands[$name])") -HomeRoot $fixtureHome) |
@@ -141,13 +138,7 @@ try {
     $fakeTool = Join-Path $PSScriptRoot 'fixtures/fake-tools/Invoke-FakeTool.ps1'
     $env:LEGION_FAKE_TOOL_LOG = Join-Path $scratch 'cli-calls.json'
     foreach ($name in @('claude', 'codex', 'copilot')) {
-        if ($IsWindows) {
-            "@pwsh -NoProfile -File `"$fakeTool`" %*" | Set-Content -LiteralPath (Join-Path $fakeBin "$name.cmd")
-        } else {
-            (Get-LegionShimText -Script $fakeTool) |
-                Set-Content -LiteralPath (Join-Path $fakeBin $name)
-            [IO.File]::SetUnixFileMode((Join-Path $fakeBin $name), [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
-        }
+        New-TestCommandStub -Folder $fakeBin -Name $name -Script $fakeTool | Out-Null
     }
     $env:PATH = $fakeBin + [IO.Path]::PathSeparator + $bin + [IO.Path]::PathSeparator + $savedPath
     $before = @(Get-ChildItem -LiteralPath $fixtureHome -File -Recurse | Sort-Object FullName | ForEach-Object {
@@ -225,9 +216,6 @@ try {
     $env:PATH = $savedPath
     $env:LEGION_FAKE_TOOL_LOG = $savedLog
     $env:LEGION_STATUS_BIN = $savedStatusBin
-    $allowed = [IO.Path]::GetFullPath((Join-Path $root '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
-    if ([IO.Path]::GetFullPath($scratch).StartsWith($allowed) -and (Test-Path -LiteralPath $scratch)) {
-        Remove-Item -LiteralPath $scratch -Recurse -Force
-    }
+    Remove-TestFolder -Path $scratch -AllowedParent (Join-Path $root '.agents/temp')
 }
 Assert-Equal $false (Test-Path -LiteralPath $scratch) 'R4 B7 status removes its fixture tree, including the lease lock'

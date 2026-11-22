@@ -5,9 +5,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 $savedPath = $env:PATH
 try {
     # Account ids must not already be commands; keep the machine PATH out of the fake setup.
-    # Unix keeps the system tool folders (chmod); no real claude, codex or copilot lives there.
-    $systemFolders = if ($IsWindows) { @() } else { @('/usr/bin', '/bin') }
-    $env:PATH = (@(Split-Path (Get-Process -Id $PID).Path) + $systemFolders) -join [IO.Path]::PathSeparator
+    $env:PATH = Split-Path (Get-Process -Id $PID).Path
     . (Join-Path $repo 'plugins/legion/bin/legion-setup.ps1') -NoRun
     $bin = Join-Path $sandbox '.legion/bin'
     New-Item -ItemType Directory -Path $bin -Force | Out-Null

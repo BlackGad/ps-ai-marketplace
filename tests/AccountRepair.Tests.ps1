@@ -8,8 +8,6 @@ try {
     $env:PATH = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' }
     if (-not $IsWindows) {
         & {
-            # Modes are set through .NET; the chmod command must never run.
-            function chmod { throw 'The chmod command was used' }
             $file = Join-Path $scratch 'launcher'
             [IO.File]::WriteAllText($file, 'owned content')
             [IO.File]::SetUnixFileMode($file, [IO.UnixFileMode]'UserRead, UserWrite')

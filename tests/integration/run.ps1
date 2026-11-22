@@ -1,7 +1,7 @@
 # Integration suite: install, setup and uninstall on a clean runner with the real CLIs and no login.
 # CI only. Without -NoRun the script refuses to start unless CI is "true", so a local run never touches a real home.
 # -AllowSourceFallback is set by the workflow for runs on main; it lets a CLI that refuses the checkout use the published source at the tested revision.
-# Steps are data: @{ Name; DependsOn = @(<names>); First = { }; Repeat = { } }. A block throws to fail and may return @{ Skipped = '<reason>' }.
+# Ordered actions: @{ Name; Repeat = <bool>; Action = { } }. A failed or skipped action skips the rest.
 param(
     [string]$Out,
     [string]$HomeRoot,
@@ -60,26 +60,20 @@ function New-IntegrationCase {
 
 function Invoke-IntegrationSteps {
     param([object[]]$Steps, [string]$LogFolder)
-    $outcome = @{}
+    $blocked = ''
     foreach ($step in $Steps) {
-        $name = $step.Name
-        $blocker = @($step.DependsOn | Where-Object { $outcome[$_] -ne 'passed' })[0]
-        if ($blocker) {
-            New-IntegrationCase $name 0 'skipped' "needs $blocker" $false
-            New-IntegrationCase $name 0 'skipped' "needs $blocker" $true
-            $outcome[$name] = 'skipped'
+        $name = if ($step.Repeat) { "$($step.Name) (repeat)" } else { $step.Name }
+        if ($blocked) {
+            New-IntegrationCase $step.Name 0 'skipped' $blocked ([bool]$step.Repeat)
             continue
         }
-        $first = Invoke-IntegrationBlock $step.First
-        $repeat = if ($first.Result -eq 'passed') { Invoke-IntegrationBlock $step.Repeat }
-                  else { @{ Seconds = 0; Result = 'skipped'; Log = $null; Message = $(if ($first.Result -eq 'skipped') { $first.Message } else { 'first run did not pass' }) } }
-        New-IntegrationCase $name $first.Seconds $first.Result $first.Message $false
-        New-IntegrationCase $name $repeat.Seconds $repeat.Result $repeat.Message $true
-        $outcome[$name] = if ($first.Result -eq 'passed') { $repeat.Result } else { $first.Result }
+        $result = Invoke-IntegrationBlock $step.Action
+        New-IntegrationCase $step.Name $result.Seconds $result.Result $result.Message ([bool]$step.Repeat)
+        if ($result.Result -ne 'passed') { $blocked = "previous step $($result.Result): $name" }
         if ($LogFolder) {
             New-Item -ItemType Directory -Path $LogFolder -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $LogFolder "$name.log") -Value $first.Log
-            if ($null -ne $repeat.Log) { Set-Content -LiteralPath (Join-Path $LogFolder "$name-repeat.log") -Value $repeat.Log }
+            $logName = if ($step.Repeat) { "$($step.Name)-repeat" } else { $step.Name }
+            Set-Content -LiteralPath (Join-Path $LogFolder "$logName.log") -Value $result.Log
         }
     }
 }
@@ -854,26 +848,26 @@ function Get-IntegrationSteps {
         HomeRoot = $HomeRoot; Checkout = $Checkout; Work = $Work; Os = $Os; AllowFallback = [bool]$AllowFallback
         Versions = [ordered]@{}; Commands = @{}; Targets = @{}; NotTested = [ordered]@{}
     }
-    $steps = @()
     foreach ($tool in $script:IntegrationTools) {
-        $steps += @{
-            Name = "install-cli-$tool"; DependsOn = @()
-            First = [scriptblock]::Create("Invoke-CliInstallFirst '$tool'")
-            Repeat = [scriptblock]::Create("Invoke-CliInstallRepeat '$tool'")
-        }
+        @{ Name = "install-cli-$tool"; Repeat = $false; Action = [scriptblock]::Create("Invoke-CliInstallFirst '$tool'") }
+        @{ Name = "install-cli-$tool"; Repeat = $true; Action = [scriptblock]::Create("Invoke-CliInstallRepeat '$tool'") }
     }
-    $cliSteps = @($script:IntegrationTools | ForEach-Object { "install-cli-$_" })
-    $steps += @{ Name = 'install-legion'; DependsOn = $cliSteps; First = { Invoke-LegionInstallFirst }; Repeat = { Invoke-LegionInstallRepeat } }
-    $steps += @{ Name = 'setup'; DependsOn = @('install-legion'); First = { Invoke-SetupFirst }; Repeat = { Invoke-SetupRepeat } }
-    $steps += @{ Name = 'add'; DependsOn = @('setup'); First = { Invoke-AddFirst }; Repeat = { Invoke-AddRepeat } }
-    $steps += @{ Name = 'remove'; DependsOn = @('add'); First = { Invoke-RemoveFirst }; Repeat = { Invoke-RemoveRepeat } }
-    $steps += @{ Name = 'repo-private'; DependsOn = @(); First = { Invoke-RepoPrivateFirst }; Repeat = { Invoke-RepoPrivateRepeat } }
-    $steps += @{ Name = 'repo-shared'; DependsOn = @(); First = { Invoke-RepoSharedFirst }; Repeat = { Invoke-RepoSharedRepeat } }
-    $steps += @{ Name = 'uninstall'; DependsOn = @('setup'); First = { Invoke-UninstallFirst }; Repeat = { Invoke-UninstallRepeat } }
-    $steps += @{ Name = 'reinstall'; DependsOn = @('uninstall'); First = { Invoke-ReinstallFirst }; Repeat = { Invoke-ReinstallRepeat } }
-    $steps += @{ Name = 'restore-launchers'; DependsOn = @('reinstall'); First = { Invoke-RestoreLaunchersFirst }; Repeat = { Invoke-RestoreLaunchersRepeat } }
-    $steps += @{ Name = 'purge'; DependsOn = @('restore-launchers'); First = { Invoke-PurgeFirst }; Repeat = { Invoke-PurgeRepeat } }
-    return $steps
+    $actions = [ordered]@{
+        'install-legion' = 'LegionInstall'
+        setup = 'Setup'
+        add = 'Add'
+        remove = 'Remove'
+        'repo-private' = 'RepoPrivate'
+        'repo-shared' = 'RepoShared'
+        uninstall = 'Uninstall'
+        reinstall = 'Reinstall'
+        'restore-launchers' = 'RestoreLaunchers'
+        purge = 'Purge'
+    }
+    foreach ($step in $actions.GetEnumerator()) {
+        @{ Name = $step.Key; Repeat = $false; Action = [scriptblock]::Create("Invoke-$($step.Value)First") }
+        @{ Name = $step.Key; Repeat = $true; Action = [scriptblock]::Create("Invoke-$($step.Value)Repeat") }
+    }
 }
 
 # ---- Main -------------------------------------------------------------------------------------

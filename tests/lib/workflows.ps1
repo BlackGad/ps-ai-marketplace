@@ -1,24 +1,16 @@
 # Static checks for GitHub workflow files, read as plain text (no YAML module).
-# Assumes two-space indent: jobs at 2 spaces under `jobs:`, job keys at 4.
+# Regex rules use the repository format: jobs at two spaces, job fields at four.
 
 function Get-WorkflowJobBlocks {
     param([string]$Path)
-    $blocks = @()
-    $inJobs = $false
-    foreach ($line in Get-Content -LiteralPath $Path) {
-        if ($line -match '^jobs:\s*$') { $inJobs = $true; continue }
-        if (-not $inJobs) { continue }
-        if ($line -match '^\S' -and $line -notmatch '^#') { $inJobs = $false; continue }
-        if ($line -match '^  ([A-Za-z0-9_-]+):\s*$') {
-            $blocks += [pscustomobject]@{ Id = $Matches[1]; Name = $Matches[1]; Lines = @() }
-        } elseif ($blocks.Count -gt 0) {
-            $blocks[-1].Lines += $line
-            if ($line -match '^    name:\s*(.+?)\s*$') {
-                $blocks[-1].Name = $Matches[1].Trim("'" + '"')
-            }
-        }
+    $text = Get-Content -LiteralPath $Path -Raw
+    $jobs = [regex]::Match($text, '(?ms)^jobs:[ \t]*\r?\n(?<body>.*?)(?=^\S|\z)').Groups['body'].Value
+    foreach ($job in [regex]::Matches($jobs, '(?ms)^  (?<id>[\w-]+):[ \t]*\r?\n(?<body>.*?)(?=^  [\w-]+:|\z)')) {
+        $id = $job.Groups['id'].Value
+        $body = $job.Groups['body'].Value
+        $name = [regex]::Match($body, '(?m)^    name:[ \t]*(.+?)[ \t]*\r?$')
+        [pscustomobject]@{ Id = $id; Name = $(if ($name.Success) { $name.Groups[1].Value.Trim("'" + '"') } else { $id }); Lines = @($body -split '\r?\n') }
     }
-    $blocks
 }
 
 function Get-WorkflowJobIds {

@@ -1,3 +1,4 @@
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
 # LaunchAdapterContract: invoke adapters, never dot-source their internals.
 & {
     $repoRoot = Split-Path $PSScriptRoot -Parent
@@ -235,9 +236,7 @@ $agentData = Get-Content -LiteralPath $AgentPath -Raw | ConvertFrom-Json
         }
     } finally {
         $env:PATH = $savedPath
-        $cleanupPath = [IO.Path]::GetFullPath($configRoot)
-        if (-not $cleanupPath.StartsWith($scratchRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe test cleanup path' }
-        if (Test-Path -LiteralPath $cleanupPath) { Remove-Item -LiteralPath $cleanupPath -Recurse -Force }
+        Remove-TestFolder -Path $configRoot -AllowedParent $scratchRoot
     }
 }
 

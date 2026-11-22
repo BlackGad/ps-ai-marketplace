@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'lib/paths.ps1')
+. (Join-Path $PSScriptRoot 'lib/workspace.ps1')
 $root = Split-Path $PSScriptRoot -Parent
 $account = Join-Path $root 'plugins/legion/bin/legion-account.ps1'
 # The runner already gives this file a unique temp folder; keep cmd.exe paths short.
@@ -11,7 +11,8 @@ try {
     $homeRoot = Join-Path $tempRoot 'owner $(printf expanded) & quoted '' fixture'
     $config = Join-Path $homeRoot '.legion/configuration'
     New-Item -ItemType Directory -Path $config -Force | Out-Null
-    Copy-Item (Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json') (Join-Path $config 'personalisation.json')
+    $fixture = Get-Content (Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json') -Raw | ConvertFrom-Json
+    Write-TestPersonalisation -HomeRoot $homeRoot -Agents $fixture.agents -Channels $fixture.channels | Out-Null
     $fake = Join-Path $tempRoot 'fake command.ps1'
     @'
 [IO.File]::WriteAllText($env:LEGION_WRAPPER_LOG, (@{ Args=@($args); Home=$env:CODEX_HOME } | ConvertTo-Json))
@@ -41,8 +42,7 @@ exit /b %result%
         $seen = Get-Content $env:LEGION_WRAPPER_LOG -Raw | ConvertFrom-Json
         Assert-Equal 'first|two words|semi;literal' ($seen.Args -join '|') 'Batch forwards literal arguments'
         Assert-Equal (Join-Path (Get-LongPath $homeRoot) '.legion/agents/wrapper-test') $seen.Home 'Batch selects account config'
-        $fakeBatch = Join-Path $tempRoot 'fake command.cmd'
-        '@pwsh -NoProfile -File "' + $fake + '" %*' | Set-Content $fakeBatch
+        $fakeBatch = New-TestCommandStub -Folder $tempRoot -Name 'fake command' -Script $fake
         & $account -Action add -Id wrapper-batch -Tool codex -HomeRoot $homeRoot -Command $fakeBatch | Out-Null
         & (Join-Path $bin 'wrapper-batch.cmd') 'two words'
         Assert-Equal 37 $LASTEXITCODE 'Batch shim returns to the wrapper with its exit code'

@@ -93,6 +93,9 @@ jobs:
 '@
     Assert-Equal 'build,gate' ((Get-WorkflowJobBlocks -Path $named).Id -join ',') 'displayed names do not change job ids'
     Assert-Equal 'gate,another check' ((Get-WorkflowJobBlocks -Path $named).Name -join ',') 'displayed names include quoted names and ignore step names'
+    $withComment = (Get-Content $named -Raw).Replace('  gate:', "# job boundary comment`n  gate:")
+    Set-Content $named ($withComment + "`nconcurrency:`n  group: fixture`n")
+    Assert-Equal 'build,gate' ((Get-WorkflowJobBlocks -Path $named).Id -join ',') 'root comments preserve jobs and later top-level fields stay outside jobs'
 
     $workflowFolder = Join-Path $root '.github/workflows'
     $files = @()
@@ -217,17 +220,11 @@ ${{ (inputs.sha != '' || (github.event_name == 'pull_request' && github.event.pu
         Require-Workflow ($integrationCall -match 'contents: write' -and $integrationCall -match 'pages: write' -and $integrationCall -notmatch 'steps:|runs-on:') 'release caller grants only the callee permission ceiling and cannot execute code itself'
         Require-Workflow ($mark -match 'context=integration' -and $mark.Contains('INTEGRATION_RESULT: ${{ needs.integration-release-pr.result }}') -and $mark -match "INTEGRATION_RESULT -eq 'success'") 'trusted status publisher reports the integration result independently on the resolved SHA'
         # Expressions in env values are data. No event, input or artifact text belongs in shell source.
-        $inRun = $false
-        foreach ($line in $integrationText -split "`n") {
-            if ($line -match '^        run: \|') { $inRun = $true; continue }
-            if ($inRun -and $line -match '^\S|^ {0,9}\S') { $inRun = $false }
-            if ($inRun) { Require-Workflow ($line -notmatch '\$\{\{') 'integration shell source must use env values instead of expression substitution' }
-        }
-
         $scripts = @([regex]::Matches($integrationText, '(?m)^        run: \|\r?\n(?<body>(?:^          [^\r\n]*(?:\r?\n|$)|^\r?\n)*)') | ForEach-Object {
             $_.Groups['body'].Value -replace '(?m)^          ', ''
         })
         foreach ($script in $scripts) {
+            Require-Workflow ($script -notmatch '\$\{\{') 'integration shell source must use env values instead of expression substitution'
             $parseErrors = $null
             [Management.Automation.Language.Parser]::ParseInput($script, [ref]$null, [ref]$parseErrors) | Out-Null
             Require-Workflow ($parseErrors.Count -eq 0) 'inline integration PowerShell parses cleanly'

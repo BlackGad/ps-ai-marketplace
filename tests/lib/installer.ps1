@@ -14,9 +14,7 @@ function New-InstallTestFolder {
 
 function Remove-InstallTestFolder {
     param([string]$Path)
-    $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
-    if (-not [IO.Path]::GetFullPath($Path).StartsWith($allowed)) { throw 'Unsafe test folder cleanup' }
-    Remove-Item -LiteralPath $Path -Recurse -Force
+    Remove-TestFolder -Path $Path -AllowedParent (Join-Path $repo '.agents/temp')
 }
 
 function Get-InstallTestPwsh {

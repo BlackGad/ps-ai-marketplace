@@ -1,3 +1,4 @@
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $repo = Split-Path $PSScriptRoot -Parent
 $scratch = Join-Path $repo ('.agents/temp/shell-path-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
@@ -96,7 +97,5 @@ try {
 } finally {
     Set-Variable IsWindows $savedIsWindows -Force
     $env:SHELL = $savedShell; $env:OS = $savedOS
-    $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
-    if (-not [IO.Path]::GetFullPath($scratch).StartsWith($allowed)) { throw 'Unsafe shell profile fixture cleanup' }
-    Remove-Item -LiteralPath $scratch -Recurse -Force
+    Remove-TestFolder -Path $scratch -AllowedParent (Join-Path $repo '.agents/temp')
 }

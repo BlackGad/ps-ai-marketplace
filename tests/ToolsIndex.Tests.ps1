@@ -1,3 +1,4 @@
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
 # IndexProjectionIsDeterministicAndWriteFree: the standalone catalog is generated data.
 & {
     $repoRoot = Split-Path $PSScriptRoot -Parent
@@ -163,9 +164,7 @@
         Assert-Equal $checkoutBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))) 'Invalid bootstrap source leaves catalog bytes intact'
         Assert-Equal $beforeMissingTime ([IO.File]::GetLastWriteTimeUtc($copyIndex)) 'Invalid bootstrap source leaves catalog mtime intact'
     } finally {
-        $cleanupPath = [IO.Path]::GetFullPath($copyRoot)
-        if (-not $cleanupPath.StartsWith($scratchRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe test cleanup path' }
-        Remove-Item -LiteralPath $cleanupPath -Recurse -Force
+        Remove-TestFolder -Path $copyRoot -AllowedParent $scratchRoot
     }
 }
 
@@ -217,9 +216,7 @@
             Assert-Throws { Get-ToolsIndexTools -SkillsRoot (Join-Path $scratch 'skills') } 'Generator reader rejects non-string hooks.status'
         }
     } finally {
-        $cleanupPath = [IO.Path]::GetFullPath($scratch)
-        if (-not $cleanupPath.StartsWith($scratchRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe test cleanup path' }
-        Remove-Item -LiteralPath $cleanupPath -Recurse -Force
+        Remove-TestFolder -Path $scratch -AllowedParent $scratchRoot
     }
 }
 
@@ -259,8 +256,7 @@
         Assert-Equal $before $state.Reads 'Local source never fetches'
         Assert-Equal '2026-11-18T00:00:00Z' (Get-InstallCatalog -Source $scratch).tools[0].plugin.install[-1] 'Local JSON preserves date-looking argument as text'
     } finally {
-        if (-not ([IO.Path]::GetFullPath($scratch)).StartsWith([IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/restructure')) + [IO.Path]::DirectorySeparatorChar)) { throw 'unsafe cleanup' }
-        Remove-Item -LiteralPath $scratch -Recurse -Force
+        Remove-TestFolder -Path $scratch -AllowedParent (Join-Path $repo '.agents/temp/restructure')
     }
     $invalid = @(
         '{', 'null', '{"schemaVersion":2}',
@@ -395,9 +391,7 @@
 
 
     } finally {
-        $cleanupPath = [IO.Path]::GetFullPath($discoveryRoot)
-        if (-not $cleanupPath.StartsWith($scratchRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe test cleanup path' }
-        Remove-Item -LiteralPath $cleanupPath -Recurse -Force
+        Remove-TestFolder -Path $discoveryRoot -AllowedParent $scratchRoot
     }
 }
 
@@ -441,10 +435,7 @@
     "{$base,`"extra`":1}" | Set-Content (Join-Path $telegram 'channel.json')
     Assert-Throws { Get-ToolsIndexChannels -SkillsRoot $scratch } 'Unknown key without ready rejected'
 
-    $cleanupPath = [IO.Path]::GetFullPath($scratch)
-    $allowed = [IO.Path]::GetFullPath((Join-Path $root '.agents/temp/'))
-    if (-not $cleanupPath.StartsWith($allowed)) { throw 'Unsafe channel fixture cleanup' }
-    Remove-Item -LiteralPath $cleanupPath -Recurse -Force
+    Remove-TestFolder -Path $scratch -AllowedParent (Join-Path $root '.agents/temp')
 }
 
 & {

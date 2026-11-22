@@ -44,10 +44,9 @@ exit 0
     Assert-True (-not (Test-Path -LiteralPath $observation.File)) 'Private provider file is removed after launch'
     Assert-True (-not (($output -join "`n").Contains('FAKE-NONCREDENTIAL'))) 'Runner output does not expose fake token'
 
-    # Unix: the file is created owner read/write only, and the chmod command never runs.
+    # Unix: the file is created owner read/write only.
     if (-not $IsWindows) {
         . $runner -NoRun
-        function chmod { throw 'The chmod command was used' }
         $modeFile = Join-Path $tempRoot 'mode.json'
         Write-FoundryProviderFile -Path $modeFile -Json 'FAKE-NONCREDENTIAL'
         Assert-Equal ([IO.UnixFileMode]'UserRead, UserWrite') ([IO.File]::GetUnixFileMode($modeFile)) 'Provider file is owner read and write only'

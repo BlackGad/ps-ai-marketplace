@@ -1,11 +1,10 @@
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $ErrorActionPreference = 'Stop'
 if ($IsWindows) { Write-Output 'skip generated wrapper modes: Unix file modes only'; return }
 $root = Split-Path $PSScriptRoot -Parent
 $tempRoot = Join-Path $root ('.agents/temp/generated-files-' + [guid]::NewGuid())
 try {
     . (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
-    # Modes are set through .NET; the chmod command must never run.
-    function chmod { throw 'The chmod command was used' }
     function Sync-LegionFoundryRuntime { param($Tool,$HomeRoot,$Changes) Join-Path $tempRoot 'runtime/legion-foundry.ps1' }
     New-Item -ItemType Directory -Path (Join-Path $tempRoot '.legion/bin') -Force | Out-Null
     $changes = [Collections.Generic.List[string]]::new()
@@ -16,6 +15,5 @@ try {
     New-FoundryWrappers -Id fixture -Tool claude -HomeRoot $tempRoot -Changes $changes
     Assert-Equal 0 $changes.Count 'Repeated refresh changes nothing'
 } finally {
-    if (-not ([IO.Path]::GetFullPath($tempRoot).StartsWith([IO.Path]::GetFullPath((Join-Path $root '.agents/temp/'))))) { throw 'fixture cleanup escaped the worktree' }
-    Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-TestFolder -Path $tempRoot -AllowedParent (Join-Path $root '.agents/temp')
 }

@@ -1,3 +1,4 @@
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $sandbox = Join-Path $repo ('.agents/temp/restructure/update-hook-' + [guid]::NewGuid().ToString('N'))
@@ -71,7 +72,5 @@ function Get-LegionUpdateText {
         $env:LEGION_TASK = $savedTask
     }
 } finally {
-    $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/restructure')) + [IO.Path]::DirectorySeparatorChar
-    if (-not ([IO.Path]::GetFullPath($sandbox)).StartsWith($allowed)) { throw 'unsafe update hook cleanup' }
-    Remove-Item -LiteralPath $sandbox -Recurse -Force
+    Remove-TestFolder -Path $sandbox -AllowedParent (Join-Path $repo '.agents/temp/restructure')
 }

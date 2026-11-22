@@ -1,11 +1,8 @@
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'lib/repository.ps1')
 $root = Split-Path $PSScriptRoot -Parent
 $setup = Join-Path $root 'plugins/legion/bin/legion-repository.ps1'
 $sandbox = Join-Path $root ('.agents/temp/repository-scaffold-' + [guid]::NewGuid().ToString('N'))
-$savedEnv = @{}
-foreach ($name in @('GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM')) {
-    $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-}
 
 function New-ScaffoldRepo {
     param([string]$Name, [string[]]$RulesFiles = @('AGENTS.md'))
@@ -25,12 +22,8 @@ function Get-FileText {
     return [IO.File]::ReadAllText($Path)
 }
 
-New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
+$savedEnv = Set-TestGitEnvironment -Sandbox $sandbox
 try {
-    $env:GIT_CONFIG_GLOBAL = Join-Path $sandbox 'gitconfig'
-    $env:GIT_CONFIG_NOSYSTEM = '1'
-    "[user]`nname = Fixture`nemail = fixture@example.invalid`n[commit]`ngpgsign = false`n[init]`ndefaultBranch = main`n" |
-        Set-Content -LiteralPath $env:GIT_CONFIG_GLOBAL
 
     # A fresh Private repo (its path has a space) gets all eight items, the filled choices, and one inner commit.
     $repo = New-ScaffoldRepo 'private fresh'
@@ -119,7 +112,5 @@ try {
     foreach ($name in $savedEnv.Keys) {
         [Environment]::SetEnvironmentVariable($name, $savedEnv[$name], 'Process')
     }
-    $allowed = [IO.Path]::GetFullPath((Join-Path $root '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
-    if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe repository fixture cleanup' }
-    Remove-Item -LiteralPath $sandbox -Recurse -Force
+    Remove-TestFolder -Path $sandbox -AllowedParent (Join-Path $root '.agents/temp')
 }
