@@ -25,27 +25,21 @@ function Write-StatusAccounts {
 }
 
 function Write-StatusCommands {
-    param([string]$Bin)
+    param([string]$Bin, [string]$HomeRoot)
 
-    $commands = Get-LegionOwnerCommands
-    $missing = @()
-    $blocked = @()
-    $stale = @()
-    $permissions = @()
-    foreach ($name in $commands.Keys) {
-        $files = @($name)
-        if ($IsWindows) { $files += "$name.cmd" }
-        $states = @($files | ForEach-Object { Get-LegionOwnerCommandState -Path (Join-Path $Bin $_) -Script $commands[$name] })
-        if ($states -contains 'blocked') { $blocked += $name }
-        elseif ($states -contains 'missing') { $missing += $name }
-        elseif ($states -contains 'stale') { $stale += $name }
-        elseif (@($files | Where-Object { -not (Test-LegionLauncherExecutable -Path (Join-Path $Bin $_)) }).Count) { $permissions += $name }
+    $rows = @(Get-LegionCommandState -Bin $Bin -HomeRoot $HomeRoot)
+    $labels = [ordered]@{ blocked = 'blocked'; missing = 'missing'; stale = 'stale'; unbound = 'unbound'; permission = 'not executable' }
+    # Each command is reported once, under its most serious state.
+    $worst = @{}
+    foreach ($name in ($rows.Name | Select-Object -Unique)) {
+        $worst[$name] = @($labels.Keys | Where-Object { $_ -in @($rows | Where-Object Name -EQ $name).State })[0]
     }
-    if ($blocked.Count) { 'commands: blocked ' + ($blocked -join ', ') }
-    if ($missing.Count) { 'commands: missing ' + ($missing -join ', ') }
-    if ($stale.Count) { 'commands: stale ' + ($stale -join ', ') }
-    if ($permissions.Count) { 'commands: not executable ' + ($permissions -join ', ') }
-    if (-not $blocked.Count -and -not $missing.Count -and -not $stale.Count -and -not $permissions.Count) { 'commands: yes' }
+    $reported = $false
+    foreach ($state in $labels.Keys) {
+        $names = @($worst.Keys | Where-Object { $worst[$_] -eq $state })
+        if ($names.Count) { 'commands: ' + $labels[$state] + ' ' + ($names -join ', '); $reported = $true }
+    }
+    if (-not $reported) { 'commands: yes' }
 }
 
 function Write-StatusRepository {
@@ -82,7 +76,7 @@ if (-not $NoRun) {
     $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
     $onPath = if (Test-LegionPathEntry -Path $env:PATH -Folder $bin) { 'yes' } else { 'no' }
     "path ~/.legion/bin on PATH: $onPath"
-    Write-StatusCommands -Bin $bin
+    Write-StatusCommands -Bin $bin -HomeRoot $HomeRoot
     foreach ($channel in $settings.channels) {
         "channels $($channel.id) ($($channel.kind)) -> $($channel.accounts -join ', ')"
     }

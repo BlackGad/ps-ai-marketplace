@@ -103,3 +103,40 @@ Assert-Equal $null (Get-LegionOwnerCommandTarget -Text $dollarText -Script legio
 [IO.File]::WriteAllText($batchPath, (Get-LegionShimText -Script $percentScript -Windows))
 Assert-Equal 'owned' (Get-LegionOwnerCommandState -Path $batchPath -Script legion.ps1) 'A batch shim target with a percent sign resolves to its real file'
 Assert-Equal $percentScript (Get-LegionOwnerCommandTarget -Text (Get-LegionShimText -Script $percentScript -Windows) -Script legion.ps1 -Batch).Path 'Batch quoting is decoded'
+
+# One command state for setup and status: each launcher file gets one of missing, blocked, stale, unbound, permission, owned.
+$stateBin = Join-Path $scratch 'state-bin'
+$stateHome = Join-Path $scratch 'state-home'
+New-Item -ItemType Directory -Path $stateBin, $stateHome -Force | Out-Null
+$runner = Join-Path $scratch 'real/bin/legion.ps1'
+New-Item -ItemType Directory -Path (Split-Path $runner) -Force | Out-Null
+'' | Set-Content -LiteralPath $runner
+$stateFiles = @('legion')
+if ($IsWindows) { $stateFiles += 'legion.cmd' }
+$getStates = { (Get-LegionCommandState -Bin $stateBin -HomeRoot $stateHome).State | Select-Object -Unique }
+Assert-Equal 'missing' (& $getStates) 'State of absent command files'
+foreach ($name in $stateFiles) {
+    $isBatch = $name.EndsWith('.cmd')
+    $file = Join-Path $stateBin $name
+    [IO.File]::WriteAllText($file, (Get-LegionShimText -Script $runner -Windows:$isBatch -HomeRoot $stateHome))
+    if (-not $isBatch -and -not $IsWindows) { [IO.File]::SetUnixFileMode($file, [IO.File]::GetUnixFileMode($file) -bor [IO.UnixFileMode]::UserExecute) }
+}
+$unbound = @(Get-LegionCommandState -Bin $stateBin -HomeRoot $stateHome)
+Assert-Equal $stateFiles.Count $unbound.Count 'One state row per command file'
+Assert-Equal 'legion' $unbound[0].Name 'State row names the command'
+if ($IsWindows) {
+    # The Windows launcher test cannot set the execute bit; Test-LegionLauncherExecutable accepts .cmd by name.
+    Assert-Equal 'owned' (& $getStates) 'A bound command is owned'
+} else {
+    Assert-Equal 'owned' (& $getStates) 'A bound executable command is owned'
+    [IO.File]::SetUnixFileMode((Join-Path $stateBin 'legion'), [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+    Assert-Equal 'permission' (& $getStates) 'A command without the execute bit needs permission'
+}
+$otherHome = Join-Path $scratch 'other-home'
+Assert-Equal 'owned' ((Get-LegionCommandState -Bin $stateBin -HomeRoot $otherHome).State | Select-Object -Unique) 'A command with its own -HomeRoot is not rebound'
+foreach ($name in $stateFiles) { [IO.File]::WriteAllText((Join-Path $stateBin $name), (Get-LegionShimText -Script $runner -Windows:$name.EndsWith('.cmd'))) }
+Assert-Equal 'unbound' ((Get-LegionCommandState -Bin $stateBin -HomeRoot $otherHome).State | Select-Object -Unique) 'A command without -HomeRoot is unbound for a selected home'
+Remove-Item -LiteralPath $runner
+Assert-Equal 'stale' (& $getStates) 'A command whose script is gone is stale'
+[IO.File]::WriteAllText((Join-Path $stateBin 'legion'), 'owner file')
+Assert-True ((& $getStates) -contains 'blocked') 'A foreign command file is blocked'

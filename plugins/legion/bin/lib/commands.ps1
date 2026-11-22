@@ -86,6 +86,26 @@ function Get-LegionOwnerCommandState {
     return 'owned'
 }
 
+# One state per owner command file, for setup and status: missing, blocked, stale, unbound (owned, but not
+# bound to a selected home), permission (owned, not executable) or owned.
+function Get-LegionCommandState {
+    param([string]$Bin, [string]$HomeRoot)
+
+    foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
+        $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
+        foreach ($suffix in $suffixes) {
+            $path = Join-Path $Bin "$($entry.Key)$suffix"
+            $state = Get-LegionOwnerCommandState -Path $path -Script $entry.Value
+            if ($state -eq 'owned' -and (Get-LegionShimHomeArgument -HomeRoot $HomeRoot -Windows:($suffix -eq '.cmd'))) {
+                $target = Read-LegionOwnerCommandTarget -Path $path -Script $entry.Value
+                if ($target.Arguments -inotcontains '-HomeRoot') { $state = 'unbound' }
+            }
+            if ($state -eq 'owned' -and -not (Test-LegionLauncherExecutable -Path $path)) { $state = 'permission' }
+            [pscustomobject]@{ Name = $entry.Key; Script = $entry.Value; Path = $path; Windows = ($suffix -eq '.cmd'); State = $state }
+        }
+    }
+}
+
 # Point an owned command at a new script and keep the owner's own flags.
 function Update-LegionOwnerCommandText {
     param([string]$Text, [string]$Script, [string]$Runner, [switch]$Windows, [string]$HomeRoot)

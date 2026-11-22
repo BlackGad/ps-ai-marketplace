@@ -8,11 +8,7 @@ if (Test-Path -LiteralPath $file) {
     $owner = Read-LegionJson -Path $file
     foreach ($agent in $owner.agents) {
         if (-not $agent.provider) {
-            $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
-            $missing = @($suffixes | Where-Object {
-                -not (Test-LegionLauncherExecutable -Path (Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$($agent.id)$_"))
-            }).Count -gt 0
-            if (-not $missing) { continue }
+            if (-not (Test-LegionLauncherMissing -Id $agent.id -HomeRoot $HomeRoot)) { continue }
             $folder = $agent.configDir
             if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }
             $target = Get-LegionWrapperTarget -Id $agent.id -Tool $agent.tool -HomeRoot $HomeRoot -ConfigDir $folder

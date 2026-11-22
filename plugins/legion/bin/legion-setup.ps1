@@ -163,11 +163,7 @@ function New-SetupAccountRow {
     # Login is owner-only; infer the guidance from our managed folder without reading credentials.
     $managed = Get-LegionNewAccountDir -Id $Agent.id -HomeRoot $HomeRoot
     $nextStep = if (-not $Adopted -and -not $Agent.provider -and $folder -ceq $managed) { "log in: run $($Agent.id)" } else { 'ready' }
-    $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
-    $missingWrappers = @($suffixes | Where-Object {
-        $wrapper = Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$($Agent.id)$_"
-        -not (Test-LegionLauncherExecutable -Path $wrapper)
-    }).Count -gt 0
+    $missingWrappers = Test-LegionLauncherMissing -Id $Agent.id -HomeRoot $HomeRoot
     $target = $null
     if ($missingWrappers -and -not $New -and -not $Agent.provider) { $target = Get-LegionWrapperTarget -Id $Agent.id -Tool $Tool.id -HomeRoot $HomeRoot -ConfigDir $folder }
     if ($missingWrappers -and -not $New -and -not $Agent.provider -and -not $target) { $nextStep = "target needed: $($Agent.id); ask the owner for the registered executable" }
@@ -231,23 +227,6 @@ function Get-SetupAccounts {
     return $rows.ToArray()
 }
 
-function Get-SetupCommands {
-    param([string]$HomeRoot)
-    foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
-        $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
-        foreach ($suffix in $suffixes) {
-            $path = Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$($entry.Key)$suffix"
-            $state = Get-LegionOwnerCommandState -Path $path -Script $entry.Value
-            if ($state -eq 'owned' -and (Get-LegionShimHomeArgument -HomeRoot $HomeRoot -Windows:($suffix -eq '.cmd'))) {
-                $target = Read-LegionOwnerCommandTarget -Path $path -Script $entry.Value
-                if ($target.Arguments -inotcontains '-HomeRoot') { $state = 'unbound' }
-            }
-            if ($state -eq 'owned' -and -not (Test-LegionLauncherExecutable -Path $path)) { $state = 'permission' }
-            [pscustomobject]@{ Name = $entry.Key; Script = $entry.Value; Path = $path; Windows = ($suffix -eq '.cmd'); State = $state }
-        }
-    }
-}
-
 function Get-SetupPlan {
     param([string[]]$Add, [string]$Id, [string]$HomeRoot)
     $settings = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings
@@ -267,7 +246,7 @@ function Get-SetupPlan {
     return @{
         HomeRoot = $HomeRoot; Settings = $settings; Data = $data; Accounts = $accounts; MissingTools = $missing
         Notes = (Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Notes); Bin = $bin
-        Commands = @(Get-SetupCommands -HomeRoot $HomeRoot); NeedsPath = (-not (Test-LegionPathEntry -Path $path -Folder $bin))
+        Commands = @(Get-LegionCommandState -Bin $bin -HomeRoot $HomeRoot); NeedsPath = (-not (Test-LegionPathEntry -Path $path -Folder $bin))
         Version = $version
     }
 }

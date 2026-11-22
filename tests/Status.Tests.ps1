@@ -24,7 +24,7 @@ try {
             New-Item -ItemType Directory -Path $permissionBin -Force | Out-Null
             foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
                 foreach ($suffix in $(if ($IsWindows) { @('', '.cmd') } else { @('') })) {
-                    Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($entry.Value)") -Windows:([bool]$suffix) |
+                    Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($entry.Value)") -Windows:([bool]$suffix) -HomeRoot $fixtureHome |
                         Set-Content -LiteralPath (Join-Path $permissionBin "$($entry.Key)$suffix")
                     if (-not $IsWindows -and $entry.Key -ne 'legion') {
                         $path = Join-Path $permissionBin $entry.Key
@@ -35,9 +35,17 @@ try {
             if ($IsWindows) {
                 function Test-LegionLauncherExecutable { param($Path) return ((Split-Path $Path -Leaf) -ne 'legion') }
             }
-            $lines = @(Write-StatusCommands -Bin $permissionBin)
+            $lines = @(Write-StatusCommands -Bin $permissionBin -HomeRoot $fixtureHome)
             Assert-True ($lines -contains 'commands: not executable legion') 'R4 B5 status names a command needing execute permission'
             Assert-True ($lines -notcontains 'commands: yes') 'R4 B5 nonexecutable commands are not ready'
+            $unboundBin = Join-Path $scratch 'unbound-bin'
+            New-Item -ItemType Directory -Path $unboundBin -Force | Out-Null
+            foreach ($suffix in $(if ($IsWindows) { @('', '.cmd') } else { @('') })) {
+                Get-LegionShimText -Script (Join-Path $root 'plugins/legion/bin/legion.ps1') -Windows:([bool]$suffix) |
+                    Set-Content -LiteralPath (Join-Path $unboundBin "legion$suffix")
+            }
+            $lines = @(Write-StatusCommands -Bin $unboundBin -HomeRoot $fixtureHome)
+            Assert-True ($lines -contains 'commands: unbound legion') 'Status names a command not bound to the selected home, as setup does'
         }
     }
     if (-not $Finding -or $Finding -eq 'G3') {
@@ -122,14 +130,14 @@ try {
     } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $config 'personalisation.json')
     $commands = Get-LegionOwnerCommands
     foreach ($name in $commands.Keys) {
-        (Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($commands[$name])")) |
+        (Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($commands[$name])") -HomeRoot $fixtureHome) |
             Set-Content -LiteralPath (Join-Path $bin $name)
         if (-not $IsWindows) {
             $path = Join-Path $bin $name
             [IO.File]::SetUnixFileMode($path, ([IO.File]::GetUnixFileMode($path) -bor [IO.UnixFileMode]::UserExecute))
         }
         if ($IsWindows) {
-            (Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($commands[$name])") -Windows) |
+            (Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($commands[$name])") -Windows -HomeRoot $fixtureHome) |
                 Set-Content -LiteralPath (Join-Path $bin "$name.cmd")
         }
     }
