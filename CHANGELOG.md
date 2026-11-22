@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.12.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.11.0...v0.12.0) (2026-11-22)
+
+
+### Features
+
+* **bin:** one limits command for every tool ([e054896](https://github.com/BlackGad/ps-legion-marketplace/commit/e054896c7e11170a370add95122459a745df32d2))
+* **install:** one-line install for macOS and Linux that sets up PowerShell 7 ([e054896](https://github.com/BlackGad/ps-legion-marketplace/commit/e054896c7e11170a370add95122459a745df32d2))
+* **install:** uninstall and purge from a footprint index ([e054896](https://github.com/BlackGad/ps-legion-marketplace/commit/e054896c7e11170a370add95122459a745df32d2))
+* **setup:** add legion to the shell profile PATH on macOS and Linux ([e054896](https://github.com/BlackGad/ps-legion-marketplace/commit/e054896c7e11170a370add95122459a745df32d2))
+
+
+### Fixes
+
+* **install:** PowerShell 7.4 is the minimum ([e054896](https://github.com/BlackGad/ps-legion-marketplace/commit/e054896c7e11170a370add95122459a745df32d2))
+* **install:** record only what legion adds and ask before recording it ([e054896](https://github.com/BlackGad/ps-legion-marketplace/commit/e054896c7e11170a370add95122459a745df32d2))
+* **install:** refuse a linked ~/.legion/bin and stop purge when records changed after its preview ([e054896](https://github.com/BlackGad/ps-legion-marketplace/commit/e054896c7e11170a370add95122459a745df32d2))
+* **install:** remove the owner command when its last target is uninstalled ([e054896](https://github.com/BlackGad/ps-legion-marketplace/commit/e054896c7e11170a370add95122459a745df32d2))
+* **limits:** limit checks no longer load the current repository's settings and hooks ([e054896](https://github.com/BlackGad/ps-legion-marketplace/commit/e054896c7e11170a370add95122459a745df32d2))
+
+
+### Documentation
+
+* **overseer:** three rules at the top of the checklist ([e054896](https://github.com/BlackGad/ps-legion-marketplace/commit/e054896c7e11170a370add95122459a745df32d2))
+
 ## [0.11.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.10.0...v0.11.0) (2026-11-21)
 
 
