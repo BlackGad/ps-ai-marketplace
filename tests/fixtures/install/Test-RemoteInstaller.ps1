@@ -1,4 +1,5 @@
 param([string]$Installer, [string]$Repo, [switch]$NoRun)
+. (Join-Path $PSScriptRoot '../../lib/installer.ps1')
 
 function New-InstallTextRunner {
     param([string]$Path)
@@ -43,8 +44,7 @@ $script:installCatalog=Get-Content (Join-Path $Repo 'tests/fixtures/install/cata
     Assert-Equal 'fourth-cli|plugin|marketplace|add|local source' ((Get-InstallCommands fourth 'local source')[0] -join '|') 'Standalone fourth command uses catalog'
     Assert-True (-not (Test-InstallListing -Kind plugin -Tool claude -Lines @('[{"id":"legion@ps-legion-marketplace","enabled":"true"}]'))) 'Windows PowerShell JSON rejects string true'
 }
-$sandbox=Join-Path $Repo ('.agents/temp/restructure/remote-install-' + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
+$sandbox = New-InstallTestFolder 'restructure/remote-install'
 $savedPath=$env:PATH
 $fixturePwshExe=(Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
 try {
@@ -179,8 +179,5 @@ if ($env:CODEX_HOME -ne $inheritedAccount) { throw 'Caller config environment ch
     }
 } finally {
     $env:PATH = $savedPath
-    $resolved = [IO.Path]::GetFullPath($sandbox)
-    $allowed = [IO.Path]::GetFullPath((Join-Path $Repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
-    if (-not $resolved.StartsWith($allowed, [StringComparison]::OrdinalIgnoreCase)) { throw 'unsafe test cleanup path' }
-    Remove-Item -LiteralPath $resolved -Recurse -Force
+    Remove-InstallTestFolder $sandbox
 }

@@ -1,14 +1,13 @@
-$ErrorActionPreference = 'Stop'
-$repo = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'lib/installer.ps1')
 
 # Every scenario has its own home, all three config overrides, and an outside-home
 # sentinel. No test boundary can invoke a real CLI, registry writer or downloader.
 function Test-PurgeScenario {
     param([scriptblock]$Body)
     & {
-        . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
+        . $installerPath -NoRun
         $catalog = Get-InstallCatalog -Source $repo
-        $scratch = Join-Path $repo ('.agents/temp/purge-' + [guid]::NewGuid().ToString('N'))
+        $scratch = New-InstallTestFolder 'purge'
         $fixtureHome = Join-Path $scratch 'home'
         $outside = Join-Path $scratch 'fake-real'
         $saved = @{}
@@ -67,9 +66,7 @@ function Test-PurgeScenario {
             Assert-Equal $outsideHash (Get-FileHash (Join-Path $outside 'keep.txt')).Hash 'Fake real folder bytes unchanged'
             Assert-Equal 1 @(Get-ChildItem $outside -Recurse -Force).Count 'Fake real folder inventory unchanged'
             foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
-            $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
-            if (-not [IO.Path]::GetFullPath($scratch).StartsWith($allowed)) { throw 'Unsafe purge fixture cleanup' }
-            Remove-Item -LiteralPath $scratch -Recurse -Force
+            Remove-InstallTestFolder $scratch
         }
     }
 }
