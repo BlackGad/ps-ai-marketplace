@@ -483,16 +483,27 @@ function Invoke-WebRequest { param($Uri,$OutFile) Copy-Item -LiteralPath $script
     }
 }
 
+Invoke-InstallTestCase 'CommaSeparatedTools' {
+    . $installerPath -NoRun
+    $catalog = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw | ConvertFrom-Json
+    $seen = [System.Collections.Generic.List[string]]::new()
+    function Invoke-ClosedInput { throw 'No child process expected' }
+    function Get-UpdateConfigDirs { ,@('fixture-account') }
+    function Invoke-LegionInstallSteps { param($Tool) $seen.Add($Tool) }
+    $output = @(Invoke-LegionInstaller -Catalog $catalog -Tools @('codex,claude', 'copilot') -DryRun)
+    Assert-Equal 'codex|claude|copilot' ($seen -join '|') 'Comma-separated and array tool selections keep their order'
+    Assert-True ($output -contains 'Install legion for codex, claude, copilot') 'Install summary lists split tool ids'
+    function Invoke-LegionUninstall { param($Tools) foreach ($tool in $Tools) { $seen.Add($tool) } }
+    $seen.Clear()
+    $null = Invoke-LegionInstaller -Catalog $catalog -Tools 'codex,claude' -Uninstall -DryRun
+    Assert-Equal 'codex|claude' ($seen -join '|') 'Uninstall receives split tool ids too'
+}
+
 Invoke-InstallTestCase 'Shell' {
     # The shell bootstrap needs no PowerShell, JSON utility, package manager or sudo.
     $launcher = Join-Path $repo 'install.sh'
     Assert-True (Test-Path -LiteralPath $launcher) 'POSIX bootstrap exists'
     Assert-True (-not ([IO.File]::ReadAllText($launcher)).Contains("`r")) 'Shell bootstrap uses LF'
-    $bootstrap = Get-Content (Join-Path $repo 'tools/bootstrap.json') -Raw | ConvertFrom-Json
-    $catalog = Get-Content (Join-Path $repo 'plugins/legion/tools.json') -Raw | ConvertFrom-Json
-    Assert-Equal ($bootstrap.posix | ConvertTo-Json -Depth 10 -Compress) ($catalog.bootstrap.posix | ConvertTo-Json -Depth 10 -Compress) 'Catalog preserves the POSIX bootstrap recipe'
-    Assert-True ($null -ne $catalog.bootstrap.posix.assetNames.macos) 'Catalog has the macOS archive recipe'
-    Assert-True ($null -ne $catalog.bootstrap.posix.assetNames.linux) 'Catalog has the Linux archive recipe'
     $shell = Get-Command sh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($shell) {
         & $shell.Source -n $launcher
@@ -503,7 +514,7 @@ Invoke-InstallTestCase 'Shell' {
     & {
         $scratch = New-InstallTestFolder 'install-shell'
         $saved = @{}
-        $variables = @('HOME', 'PATH', 'FAKE_ROOT', 'FAKE_REAL_PWSH', 'FAKE_PWSH_PRESENT', 'FAKE_OS', 'FAKE_CPU', 'FAKE_EXIT')
+        $variables = @('HOME', 'PATH', 'FAKE_ROOT', 'FAKE_REAL_PWSH', 'FAKE_PWSH_PRESENT', 'FAKE_OS', 'FAKE_CPU', 'FAKE_EXIT', 'FAKE_SHA256SUM')
         foreach ($name in $variables) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
         try {
             $bin = Join-Path $scratch 'bin'
@@ -515,6 +526,7 @@ Invoke-InstallTestCase 'Shell' {
             $env:FAKE_OS = 'Linux'
             $env:FAKE_CPU = 'x86_64'
             $env:FAKE_EXIT = '0'
+            $env:FAKE_SHA256SUM = (Get-Command sha256sum -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
             $env:PATH = $bin + [IO.Path]::PathSeparator + $env:PATH
             $pwshFake = @'
 #!/bin/sh
@@ -529,16 +541,19 @@ exec "$FAKE_REAL_PWSH" "$@"
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -o) output=$2; shift 2 ;;
+        -w) format=$2; shift 2 ;;
         -*) shift ;;
         *) url=$1; shift ;;
     esac
 done
 printf '%s\n' "$url" >> "$FAKE_ROOT/downloads"
 case "$url" in
-    */tools.json) cp "$FAKE_ROOT/catalog.json" "$output" ;;
     */install.ps1) cp "$FAKE_ROOT/stub.ps1" "$output" ;;
-    */latest) cp "$FAKE_ROOT/release.json" "$output" ;;
-    https://github.com/PowerShell/PowerShell/releases/download/*) cp "$FAKE_ROOT/pwsh.tar.gz" "$output" ;;
+    https://github.com/PowerShell/PowerShell/releases/latest)
+        [ "$format" = '%{url_effective}' ] && [ "$output" = /dev/null ] || exit 1
+        cat "$FAKE_ROOT/redirect" ;;
+    */hashes.sha256) cp "$FAKE_ROOT/hashes.sha256" "$output" ;;
+    https://github.com/PowerShell/PowerShell/releases/download/v7.9.0/powershell-*.tar.gz) cp "$FAKE_ROOT/pwsh.tar.gz" "$output" ;;
     *) echo "Unexpected download: $url" >&2; exit 1 ;;
 esac
 '@
@@ -567,20 +582,17 @@ exit ([int]$env:FAKE_EXIT)
                 Assert-Equal 0 $LASTEXITCODE 'Fake executable is ready'
             }
             [IO.File]::WriteAllText((Join-Path $scratch 'stub.ps1'), $stub)
-            # A compact catalog also works; the launcher must not rely on JSON layout.
-            [IO.File]::WriteAllText((Join-Path $scratch 'catalog.json'), ($catalog | ConvertTo-Json -Depth 100 -Compress))
             & tar -czf (Join-Path $scratch 'pwsh.tar.gz') -C $bin pwsh
             Assert-Equal 0 $LASTEXITCODE 'Fixture archive is ready'
             $digest = (Get-FileHash (Join-Path $scratch 'pwsh.tar.gz') -Algorithm SHA256).Hash.ToLowerInvariant()
 
             function Set-ShellRelease {
-                param([string]$Name, [string]$Hash = $digest)
-                # Minified metadata, extra objects, escaped quotes, and reordered asset fields.
-                $release = @{ body='Ignore "name" and escaped \ text'; tag_name='v7.9.0'; assets=@(
-                    @{ name='unrelated.tar.gz'; digest="sha256:$digest"; browser_download_url='https://invalid.example/unrelated' },
-                    @{ browser_download_url="https://github.com/PowerShell/PowerShell/releases/download/v7.9.0/$Name"; uploader=@{name='nested'}; digest="sha256:$Hash"; name=$Name }
-                ) }
-                [IO.File]::WriteAllText((Join-Path $scratch 'release.json'), ($release | ConvertTo-Json -Depth 10 -Compress))
+                param([string]$Name, [string]$Hash = $digest, [switch]$Utf8)
+                [IO.File]::WriteAllText((Join-Path $scratch 'redirect'), 'https://github.com/PowerShell/PowerShell/releases/tag/v7.9.0')
+                # Official hashes are UTF-16LE with BOM and CRLF; accept plain UTF-8 too.
+                $hashes = "$Hash *$Name`r`n$digest *$Name.backup`r`n"
+                $encoding = if ($Utf8) { [Text.UTF8Encoding]::new($false) } else { [Text.Encoding]::Unicode }
+                [IO.File]::WriteAllText((Join-Path $scratch 'hashes.sha256'), $hashes, $encoding)
             }
             function Invoke-ShellCase {
                 param([string[]]$Options = @(), [switch]$Stream)
@@ -592,11 +604,12 @@ exit ([int]$env:FAKE_EXIT)
                 return @{ Code=$LASTEXITCODE; Output=$output; Home=$env:HOME }
             }
             $env:FAKE_PWSH_PRESENT = '1'
-            $result = Invoke-ShellCase -Options @('--main', '--update', '--uninstall', '--purge', '--dry-run', '--yes', '--tools', 'codex,claude', '--config-dir', (Join-Path $scratch 'account with spaces'))
+            $configDir = Join-Path $scratch 'account with spaces;$(literal)&value'
+            $result = Invoke-ShellCase -Options @('--main', '--update', '--uninstall', '--purge', '--dry-run', '--yes', '--tools', 'codex,claude', '--config-dir', $configDir)
             Assert-Equal 0 $result.Code "Existing PowerShell hands over successfully: $($result.Output)"
             $handoff = Get-Content (Join-Path $scratch 'handoff.json') -Raw | ConvertFrom-Json
-            Assert-Equal 'codex|claude' ($handoff.Tools -join '|') 'Tools are a typed array'
-            Assert-Equal (Join-Path $scratch 'account with spaces') $handoff.ConfigDir 'Config folder is one literal argument'
+            Assert-Equal 'codex,claude' ($handoff.Tools -join '|') 'Tools cross the shell boundary as one literal argument'
+            Assert-Equal $configDir $handoff.ConfigDir 'Config folder spaces and shell metacharacters remain literal'
             Assert-Equal 'main' $handoff.Ref 'Main selects the main track'
             foreach ($option in @('Update', 'Uninstall', 'Purge', 'DryRun', 'Yes')) { Assert-Equal $true $handoff.$option "$option is mapped" }
             Assert-True (-not ((Get-Content (Join-Path $scratch 'downloads') -Raw).Contains('/latest'))) 'Existing PowerShell needs no runtime download'
@@ -613,7 +626,7 @@ exit ([int]$env:FAKE_EXIT)
             New-Item -ItemType Directory -Path (Join-Path $checkout 'plugins/legion') -Force | Out-Null
             Copy-Item $launcher (Join-Path $checkout 'install.sh')
             Copy-Item (Join-Path $scratch 'stub.ps1') (Join-Path $checkout 'install.ps1')
-            Copy-Item (Join-Path $scratch 'catalog.json') (Join-Path $checkout 'plugins/legion/tools.json')
+            '{}' | Set-Content (Join-Path $checkout 'plugins/legion/tools.json')
             $launcher = Join-Path $checkout 'install.sh'
             Assert-Equal 0 (Invoke-ShellCase).Code 'Checkout runs its sibling stub'
             Assert-True (-not (Test-Path (Join-Path $scratch 'downloads'))) 'Checkout handoff downloads nothing'
@@ -642,6 +655,8 @@ exit ([int]$env:FAKE_EXIT)
                 Assert-True (Test-Path (Join-Path $scratch 'handoff.json')) 'Installer ran after verification'
                 $downloads = Get-Content (Join-Path $scratch 'downloads') -Raw
                 Assert-True ($downloads.Contains("powershell-7.9.0-$($platform.Asset).tar.gz")) 'Platform and CPU choose the official asset'
+                Assert-True ($downloads.Contains('/releases/download/v7.9.0/hashes.sha256')) 'Hashes come from the selected release'
+                Assert-True (-not ($downloads.Contains('.json'))) 'Bootstrap downloads no JSON'
                 Assert-True ($downloads.Contains('/stable/install.ps1')) 'Default track downloads the stable stub'
                 Remove-Item (Join-Path $scratch 'downloads')
                 $output = @('' | & $shell.Source $launcher 2>&1) -join "`n"
@@ -650,6 +665,34 @@ exit ([int]$env:FAKE_EXIT)
                 Assert-True (-not ((Get-Content (Join-Path $scratch 'downloads') -Raw).Contains('/latest'))) 'Repeat does not download PowerShell'
                 Assert-Equal 0 @(Get-ChildItem (Join-Path $result.Home '.legion/temp') -Force).Count 'Scratch is removed after handoff'
             }
+            Set-ShellRelease -Name 'powershell-7.9.0-osx-arm64.tar.gz' -Utf8
+            Assert-Equal 0 (Invoke-ShellCase -Options @('--yes')).Code 'Plain UTF-8 hashes also verify'
+            if ($env:FAKE_SHA256SUM) {
+                # Exercise the macOS shasum branch on Linux without its sha256sum on PATH.
+                foreach ($name in @('mkdir', 'mktemp', 'rm', 'dirname', 'tar', 'gzip', 'chmod', 'awk', 'tr', 'cat', 'cp')) {
+                    $command = (Get-Command $name -CommandType Application | Select-Object -First 1).Source
+                    New-Item -ItemType SymbolicLink -Path (Join-Path $bin $name) -Target $command | Out-Null
+                }
+                $shasum = Join-Path $bin 'shasum'
+                $shasumFake = @'
+#!/bin/sh
+printf 'shasum\n' >> "$FAKE_ROOT/hash-command"
+exec "$FAKE_SHA256SUM" "$3"
+'@
+                [IO.File]::WriteAllText($shasum, $shasumFake.Replace("`r", '') + "`n")
+                & chmod +x $shasum
+                $fullPath = $env:PATH
+                try {
+                    $env:PATH = $bin
+                    $result = Invoke-ShellCase -Options @('--yes')
+                    Assert-Equal 0 $result.Code "macOS shasum fallback verifies the archive: $($result.Output)"
+                    Assert-Equal 'shasum' (Get-Content (Join-Path $scratch 'hash-command') -Raw).Trim() 'Fallback actually calls shasum'
+                } finally { $env:PATH = $fullPath }
+            }
+            Set-ShellRelease -Name 'unrelated.tar.gz'
+            $result = Invoke-ShellCase -Options @('--yes')
+            Assert-True ($result.Code -ne 0) 'A missing archive hash fails before extraction'
+            Assert-True (-not (Test-Path (Join-Path $scratch 'handoff.json'))) 'Missing hash never runs the installer'
             Set-ShellRelease -Name 'powershell-7.9.0-osx-arm64.tar.gz' -Hash ('0' * 64)
             $result = Invoke-ShellCase -Options @('--yes')
             Assert-True ($result.Code -ne 0) 'Hash mismatch fails'
@@ -662,7 +705,13 @@ exit ([int]$env:FAKE_EXIT)
                 $result = Invoke-ShellCase -Options @('--yes')
                 Assert-True ($result.Code -ne 0) 'Missing or invalid SHA-256 metadata fails'
                 Assert-True (-not (Test-Path (Join-Path $scratch 'handoff.json'))) 'Invalid digest never runs the installer'
-                Assert-True (-not ((Get-Content (Join-Path $scratch 'downloads') -Raw).Contains('/releases/download/'))) 'Invalid digest never downloads an archive'
+                Assert-True (-not ((Get-Content (Join-Path $scratch 'downloads') -Raw).Contains('.tar.gz'))) 'Invalid digest never downloads an archive'
+            }
+            foreach ($redirect in @('https://example.test/tag/v7.9.0', 'https://github.com/PowerShell/PowerShell/releases/latest', 'https://github.com/PowerShell/PowerShell/releases/tag/v../outside')) {
+                [IO.File]::WriteAllText((Join-Path $scratch 'redirect'), $redirect)
+                $result = Invoke-ShellCase -Options @('--yes')
+                Assert-True ($result.Code -ne 0) 'Invalid release redirect fails'
+                Assert-True (-not ((Get-Content (Join-Path $scratch 'downloads') -Raw).Contains('/releases/download/'))) 'Invalid redirect never downloads release assets'
             }
             $env:FAKE_CPU = 'unsupported'
             $result = Invoke-ShellCase -Options @('--yes')

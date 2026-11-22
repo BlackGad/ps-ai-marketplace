@@ -376,50 +376,15 @@ Invoke-InstallTestCase 'Tool' {
                 $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
                 Assert-Throws { Get-ToolPortableCommand fourth } 'Unsafe portable path rejected'
             }
-            # CompactSchemaKeepsRuntimeGuards: copied loaders fail before fake execution/extraction.
+            # Descriptor shape and required adapters are checked by the generator.
             $data.install.windows.portableCommand = 'fourth-v*/fourth-cli.exe'
-            foreach ($change in @(
-                { param($d) $d.plugin | Add-Member -NotePropertyName cacheDir -NotePropertyValue '../outside' -Force },
-                { param($d) $d.overseerArgs = @('--flag',42) }
-            )) {
-                $bad = $data | ConvertTo-Json -Depth 100 | ConvertFrom-Json
-                & $change $bad
-                $bad | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
-                Assert-Throws { Invoke-ToolInstall -Tool fourth -Platform windows -Yes } 'Unsafe descriptor stops before installation'
-            }
             $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
-            $adapter = Join-Path $fourthSkill 'scripts/foundry-launch.ps1'
-            Move-Item -LiteralPath $adapter -Destination ($adapter + '.held')
-            Assert-Throws { Invoke-ToolInstall -Tool fourth -Platform windows -Yes } 'Missing adapter stops before installation'
-            Move-Item -LiteralPath ($adapter + '.held') -Destination $adapter
-            Assert-Equal 0 $calls.Count 'Rejected descriptors execute no commands'
-            $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
+            Assert-Equal 0 $calls.Count 'Invalid portable paths execute no commands'
             foreach ($badPath in @('../fourth-sibling',(Join-Path $sandbox 'outside'),'sub/../../fourth-sibling')) {
                 Assert-Throws { Install-ToolZip -Tool fourth -Archive unused.zip -PathFolder $badPath } 'Unsafe PATH folder rejected'
             }
             Assert-Equal 0 $extractions.Count 'Invalid paths never extract'
             Assert-Equal 1 $writes.Count 'Invalid paths never write PATH'
-            $helpersPath = Join-Path $plugin 'bin/install-tool/helpers.json'
-            $helpers = Get-Content $helpersPath -Raw | ConvertFrom-Json -AsHashtable
-            $data.install.macos.needs = @('fourth')
-            $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
-            Assert-Throws { Get-ToolRecipe -Tool fourth -Platform macos } 'Self prerequisite is rejected before recursion'
-            $data.install.macos.needs = @('node','missing-helper')
-            $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
-            $beforeCommands = $calls.Count
-            Assert-Throws { Invoke-ToolInstall -Tool fourth -Platform macos -Yes } 'Unknown later prerequisite is rejected before any install'
-            Assert-Equal $beforeCommands $calls.Count 'Invalid prerequisite list executes no earlier helper'
-            $data.install.macos.needs = @('node')
-            $data | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
-            $helpers.node.macos.needs = @('git')
-            $helpers.git.macos.needs = @('node')
-            $helpers | ConvertTo-Json -Depth 100 | Set-Content $helpersPath
-            Assert-Throws { Get-ToolRecipe -Tool fourth -Platform macos } 'Helper dependency cycle is rejected'
-            $helpers.node.macos.needs = @()
-            $helpers.git.macos.needs = @()
-            $helpers.fourth = $helpers.az
-            $helpers | ConvertTo-Json -Depth 100 | Set-Content $helpersPath
-            Assert-Throws { Get-ToolRecipe -Tool fourth -Platform windows } 'Helper/agent id collision fails before installation'
         } finally {
             $env:PATH = $savedPath
             Remove-InstallTestFolder $sandbox

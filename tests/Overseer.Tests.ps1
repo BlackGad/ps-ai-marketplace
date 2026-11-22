@@ -69,9 +69,7 @@ catch { Assert-Equal 'selected channels cannot share one launch' $_.Exception.Me
     $launch = Get-OverseerLaunch -Personalisation $copy -AccountId claude-a -Channel @('main','alerts','alerts') -HomeRoot $tempRoot
     Assert-Equal '--channels|plugin:telegram@claude-plugins-official|--channels|second value||2026-11-19|semi;literal|quote''value|--|continue as the overseer' ($launch.Args -join '|') 'SameKindFlagsPreserveArgv never deduplicates individual strings'
     'different' | Set-Content (Join-Path $fixtureKindFolder 'SKILL.md')
-    $missingSkill = Join-Path $plugin 'skills/legion-telegram/SKILL.md'
-    Move-Item -LiteralPath $missingSkill -Destination ($missingSkill + '.fixture')
-    Assert-Throws { Get-OverseerLaunch -Personalisation $copy -AccountId claude-a -Channel main } 'Missing channel skill fails before execution'
+
 }
 function Test-OverseerInteractive { return $false }
 $repoPath = Join-Path $tempRoot 'My Projects'

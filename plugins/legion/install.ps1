@@ -981,6 +981,7 @@ function Add-InstallPowerShellLink {
 
 function Invoke-LegionInstaller {
     param([string[]]$Tools, [string]$Source = 'BlackGad/ps-legion-marketplace', [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, $Catalog, [ValidateSet('release','main')][string]$Ref = 'release', [switch]$Update, [switch]$Uninstall, [switch]$Purge)
+    $Tools = $Tools -split ','
     if ($Update -and $Uninstall) { throw 'Choose either -Update or -Uninstall.' }
     if ($Purge -and -not $Uninstall) { throw '-Purge requires -Uninstall.' }
     $script:installCatalog = Get-InstallCatalog -Source $Source -Ref $Ref -Catalog $Catalog

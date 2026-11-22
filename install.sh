@@ -4,58 +4,6 @@ set -eu
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 
-# Emit JSON string leaves as path<TAB>value. No jq, Python or PowerShell is
-# needed to read the catalog and GitHub metadata. Control escapes are spaces;
-# the URLs, asset names and SHA-256 digests we consume are ASCII strings.
-json_strings() {
-    awk '
-    function whitespace() { while (substr(source, pos, 1) ~ /[ \t\r\n]/ && pos <= length(source)) pos++ }
-    function string(    value, c, escape) {
-        if (substr(source, pos++, 1) != "\"") exit 1
-        while (pos <= length(source)) {
-            c = substr(source, pos++, 1)
-            if (c == "\"") return value
-            if (c == "\\") {
-                escape = substr(source, pos++, 1)
-                if (escape == "u") { c = "?"; pos += 4 }
-                else if (escape ~ /["\\\/]/) c = escape
-                else if (escape ~ /[bfnrt]/) c = " "
-                else exit 1
-            }
-            value = value c
-        }
-        exit 1
-    }
-    function parse(path,    c, key, item, child) {
-        whitespace(); c = substr(source, pos, 1)
-        if (c == "\"") { print path "\t" string(); return }
-        if (c == "{" || c == "[") {
-            pos++; whitespace(); item = 0
-            if (substr(source, pos, 1) == (c == "{" ? "}" : "]")) { pos++; return }
-            while (pos <= length(source)) {
-                if (c == "{") {
-                    key = string(); whitespace()
-                    if (substr(source, pos++, 1) != ":") exit 1
-                } else key = item++
-                child = (path == "" ? key : path "." key)
-                parse(child); whitespace()
-                if (substr(source, pos, 1) == (c == "{" ? "}" : "]")) { pos++; return }
-                if (substr(source, pos++, 1) != ",") exit 1
-                whitespace()
-            }
-            exit 1
-        }
-        # Numbers, true, false and null contain no string leaves.
-        if (c !~ /[-0-9tfn]/) exit 1
-        while (pos <= length(source) && substr(source, pos, 1) !~ /[ \t\r\n,}\]]/) pos++
-    }
-    { source = source $0 "\n" }
-    END { pos = 1; parse(""); whitespace(); if (pos <= length(source)) exit 1 }
-    ' "$1"
-}
-
-json_field() { awk -F '\t' -v key="$2" '$1 == key { print $2; exit }' "$1"; }
-
 is_pwsh7() {
     "$1" -NoProfile -Command 'if ($PSVersionTable.PSVersion.Major -eq 7) { exit 0 }; exit 1' >/dev/null 2>&1
 }
@@ -103,7 +51,7 @@ main() {
             fi
             case "$answer" in y|Y|yes|YES|Yes) ;; *) printf '%s\n' 'Nothing changed. Run again with --yes to apply.'; return 0 ;; esac
         fi
-        case "$(uname -s)" in Darwin) platform=macos ;; Linux) platform=linux ;; *) fail 'Supported platforms: macOS and Linux.' ;; esac
+        case "$(uname -s)" in Darwin) platform=osx ;; Linux) platform=linux ;; *) fail 'Supported platforms: macOS and Linux.' ;; esac
         case "$(uname -m)" in x86_64|amd64) arch=x64 ;; arm64|aarch64) arch=arm64 ;; *) fail 'Supported CPUs: x64 and arm64.' ;; esac
     fi
 
@@ -122,27 +70,19 @@ main() {
     fi
 
     if [ -z "$pwsh" ]; then
-        if [ -n "$checkout" ]; then cp "$checkout/plugins/legion/tools.json" "$temporary/catalog.json"
-        else curl -fsSL "$base/plugins/legion/tools.json" -o "$temporary/catalog.json"; fi
-        json_strings "$temporary/catalog.json" >"$temporary/catalog.fields" || fail 'Invalid bootstrap catalog JSON.'
-        metadata=$(json_field "$temporary/catalog.fields" bootstrap.posix.metadataUrl)
-        template=$(json_field "$temporary/catalog.fields" "bootstrap.posix.assetNames.$platform")
-        [ -n "$metadata" ] && [ -n "$template" ] || fail 'PowerShell archive recipe is missing from the catalog.'
-        curl -fsSL "$metadata" -o "$temporary/release.json"
-        json_strings "$temporary/release.json" >"$temporary/release.fields" || fail 'Invalid PowerShell release JSON.'
-        version=$(json_field "$temporary/release.fields" tag_name)
-        version=${version#v}
+        release=https://github.com/PowerShell/PowerShell/releases
+        redirect=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$release/latest")
+        case "$redirect" in "$release/tag/v"*) version=${redirect#"$release/tag/v"} ;; *) fail 'Invalid PowerShell release redirect.' ;; esac
         case "$version" in ''|*[!0-9.]*) fail 'Invalid PowerShell release version.' ;; esac
-        asset_name=$(printf '%s\n' "$template" | sed "s/{version}/$version/g; s/{arch}/$arch/g")
-        asset=$(awk -F '\t' -v name="$asset_name" '$1 ~ /^assets\.[0-9]+\.name$/ && $2 == name { sub(/\.name$/, "", $1); print $1; exit }' "$temporary/release.fields")
-        [ -n "$asset" ] || fail 'PowerShell archive is missing from the official release.'
-        url=$(json_field "$temporary/release.fields" "$asset.browser_download_url")
-        digest=$(json_field "$temporary/release.fields" "$asset.digest")
-        hash=${digest#sha256:}
-        case "$digest" in sha256:*) ;; *) fail 'PowerShell SHA-256 digest is missing from the official release.' ;; esac
-        case "$hash" in *[!a-fA-F0-9]*) fail 'Invalid PowerShell SHA-256 digest.' ;; esac
+        asset_name=powershell-$version-$platform-$arch.tar.gz
+        url=$release/download/v$version/$asset_name
+        curl -fsSL "$release/download/v$version/hashes.sha256" -o "$temporary/hashes.sha256"
+        # The release hash list is UTF-16LE with BOM and CRLF. Its names and
+        # digests are ASCII; remove NUL bytes, the BOM bytes and CR without iconv.
+        hash=$(LC_ALL=C tr -d '\000\377\376\357\273\277\r' <"$temporary/hashes.sha256" |
+            awk -v name="$asset_name" '$2 == name || $2 == "*" name { print $1; exit }')
+        case "$hash" in ''|*[!a-fA-F0-9]*) fail 'Invalid PowerShell SHA-256 digest.' ;; esac
         [ "${#hash}" = 64 ] || fail 'Invalid PowerShell SHA-256 digest.'
-        case "$url" in https://github.com/PowerShell/PowerShell/releases/download/*) ;; *) fail 'Invalid official PowerShell archive URL.' ;; esac
         curl -fsSL "$url" -o "$temporary/pwsh.tar.gz"
         if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$temporary/pwsh.tar.gz")
         elif command -v shasum >/dev/null 2>&1; then actual=$(shasum -a 256 "$temporary/pwsh.tar.gz")
@@ -165,24 +105,9 @@ main() {
         installer=$temporary/install.ps1
         curl -fsSL "$base/install.ps1" -o "$installer"
     fi
-    # -File binds one string per shell argument. Split --tools here so the root
-    # stub receives a typed array, keeping spaces and shell metacharacters literal.
-    cat >"$temporary/launch.ps1" <<'POWERSHELL'
-param([string]$Installer, [string]$Tools, [string]$ConfigDir,
-    [string]$Ref, [switch]$Update, [switch]$Uninstall, [switch]$Purge,
-    [switch]$DryRun, [switch]$Yes)
-$ErrorActionPreference = 'Stop'
-$parameters = @{}
-foreach ($name in $PSBoundParameters.Keys) {
-    if ($name -eq 'Installer') { continue }
-    $parameters[$name] = if ($name -eq 'Tools') { [string[]]$Tools.Split(',') } else { $PSBoundParameters[$name] }
-}
-& $Installer @parameters
-exit $LASTEXITCODE
-POWERSHELL
     if ( : </dev/tty ) 2>/dev/null; then
-        "$pwsh" -NoProfile -File "$temporary/launch.ps1" -Installer "$installer" "$@" </dev/tty
-    else "$pwsh" -NoProfile -File "$temporary/launch.ps1" -Installer "$installer" "$@"; fi
+        "$pwsh" -NoProfile -File "$installer" "$@" </dev/tty
+    else "$pwsh" -NoProfile -File "$installer" "$@"; fi
 }
 
 main "$@"

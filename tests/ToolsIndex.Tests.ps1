@@ -11,7 +11,7 @@
     Assert-Equal 0 $noRunOutput.Count 'NoRun only defines functions'
     Assert-Equal $trackedTime ([IO.File]::GetLastWriteTimeUtc($indexPath)) 'NoRun does not write the index'
 
-    $tools = @(Get-LegionTools)
+    $tools = @(Get-ToolsIndexTools)
     $bootstrap = Get-Content (Join-Path $repoRoot 'tools/bootstrap.json') -Raw | ConvertFrom-Json
     $rendered = Get-ToolsIndexContent -Tools $tools -Bootstrap $bootstrap
     Assert-True ($rendered -is [string]) 'Renderer returns one string'
@@ -72,7 +72,7 @@
         Assert-Throws { & $copyGenerator -Check } 'New tool makes the catalog stale'
         & $copyGenerator | Out-Null
         $extended = Get-Content -LiteralPath $copyIndex -Raw | ConvertFrom-Json
-        Assert-Equal (@(Get-LegionTools -SkillsRoot (Join-Path $copyRoot 'plugins/legion/skills')).id -join '|') ($extended.tools.id -join '|') 'A fourth skill enters the index without shared edits'
+        Assert-Equal (@(Get-ToolsIndexTools -SkillsRoot (Join-Path $copyRoot 'plugins/legion/skills')).id -join '|') ($extended.tools.id -join '|') 'A fourth skill enters the index without shared edits'
         $fourthDescriptor = Get-Content (Join-Path $copyRoot 'plugins/legion/skills/legion-fourth/tool.json') -Raw | ConvertFrom-Json
         Assert-Equal $fourthDescriptor.command ($extended.tools | Where-Object id -CEQ $fourthDescriptor.id).command 'Fourth tool executable comes from its descriptor'
         & $copyGenerator -Check | Out-Null
@@ -119,6 +119,22 @@
             Assert-Equal $checkoutBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))) 'Invalid tool metadata leaves catalog intact'
         }
         [IO.File]::WriteAllText($codexPath, $validCodex)
+
+        # The real generator also validates descriptors that are not projected.
+        $channelPath = Join-Path $copyRoot 'plugins/legion/skills/legion-telegram/channel.json'
+        $validChannel = [IO.File]::ReadAllText($channelPath)
+        [IO.File]::WriteAllText($channelPath, '{"schemaVersion":1,"id":"telegram","launch":{"unknown":[]}}')
+        Assert-Throws { & $copyGenerator } 'Generation rejects a channel bound to an unknown tool'
+        Assert-Throws { & $copyGenerator -Check } 'Check validates channel descriptors too'
+        Assert-Equal $checkoutBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))) 'Invalid channel leaves the catalog intact'
+        [IO.File]::WriteAllText($channelPath, $validChannel)
+        $helpersPath = Join-Path $copyRoot 'plugins/legion/bin/install-tool/helpers.json'
+        $validHelpers = [IO.File]::ReadAllText($helpersPath)
+        [IO.File]::WriteAllText($helpersPath, '{"node":{"check":42}}')
+        Assert-Throws { & $copyGenerator } 'Generation rejects malformed helper recipes'
+        Assert-Throws { & $copyGenerator -Check } 'Check validates helper recipes too'
+        Assert-Equal $checkoutBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))) 'Invalid helpers leave the catalog intact'
+        [IO.File]::WriteAllText($helpersPath, $validHelpers)
 
         $bootstrapPath = Join-Path $copyRoot 'tools/bootstrap.json'
         $validBootstrap = [IO.File]::ReadAllText($bootstrapPath)
@@ -190,7 +206,7 @@
                 $descriptor.plugin.$field = $value
                 Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile $schema -ErrorAction SilentlyContinue)) "Schema rejects invalid plugin.$field"
                 $descriptor | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $descriptorFolder 'tool.json')
-                Assert-Throws { Get-LegionTools -SkillsRoot (Join-Path $scratch 'skills') } "Generator reader rejects invalid plugin.$field"
+                Assert-Throws { Get-ToolsIndexTools -SkillsRoot (Join-Path $scratch 'skills') } "Generator reader rejects invalid plugin.$field"
             }
         }
         foreach ($value in @($null, 42, @('status'))) {
@@ -198,7 +214,7 @@
             $descriptor.hooks.status = $value
             Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile $schema -ErrorAction SilentlyContinue)) 'Schema rejects non-string hooks.status'
             $descriptor | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $descriptorFolder 'tool.json')
-            Assert-Throws { Get-LegionTools -SkillsRoot (Join-Path $scratch 'skills') } 'Generator reader rejects non-string hooks.status'
+            Assert-Throws { Get-ToolsIndexTools -SkillsRoot (Join-Path $scratch 'skills') } 'Generator reader rejects non-string hooks.status'
         }
     } finally {
         $cleanupPath = [IO.Path]::GetFullPath($scratch)
@@ -267,4 +283,173 @@
     Assert-Equal 1 $state.Actions 'Valid invocation reaches install steps once'
     . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     Assert-Equal ($before + 1) $state.Reads 'Dot source NoRun fetches nothing'
+}
+
+# Build-time tool and helper validation (moved from runtime discovery tests).
+& {
+    $repoRoot = Split-Path $PSScriptRoot -Parent
+    . (Join-Path $repoRoot 'tools/update-tools-index.ps1') -NoRun
+    $helpersPath = Join-Path $repoRoot 'plugins/legion/bin/install-tool/helpers.json'
+    $fourthJson = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw
+    $scratchRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '.agents/temp/restructure'))
+    $discoveryRoot = Join-Path $scratchRoot ('discovery-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $discoveryRoot -Force | Out-Null
+    function New-TestToolSkill {
+        param([string]$Name = 'legion-fourth', [scriptblock]$Change = {})
+        $folder = Join-Path $discoveryRoot $Name
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') -Destination $folder -Recurse
+        $data = $fourthJson | ConvertFrom-Json -AsHashtable
+        $null = & $Change $data
+        $data | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $folder 'tool.json')
+        return $folder
+    }
+    try {
+        $folder = New-TestToolSkill
+        $first = New-TestToolSkill -Name legion-aaa -Change { param($d) $d.id = 'aaa' }
+        $cultureBefore = [cultureinfo]::CurrentCulture
+        try {
+            foreach ($cultureName in @('en-US', 'da-DK')) {
+                [cultureinfo]::CurrentCulture = [cultureinfo]::GetCultureInfo($cultureName)
+                Assert-Equal 'aaa|fourth' (@(Get-ToolsIndexTools -SkillsRoot $discoveryRoot).id -join '|') 'Discovery order is ordinal across cultures'
+                # Both neighbors mismatch; the first diagnostic must also be stable.
+                $badData = $fourthJson | ConvertFrom-Json -AsHashtable
+                $badData.id = 'zzz'
+                $badData | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $first 'tool.json')
+                $badData.id = 'other'
+                $badData | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $folder 'tool.json')
+                $message = ''
+                try { Get-ToolsIndexTools -SkillsRoot $discoveryRoot | Out-Null } catch { $message = $_.Exception.Message }
+                Assert-True ($message.Contains("tool id 'zzz'")) 'Invalid neighbor diagnostics use ordinal folder order'
+                $badData.id = 'aaa'
+                $badData | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $first 'tool.json')
+                Set-Content -LiteralPath (Join-Path $folder 'tool.json') -Value $fourthJson
+            }
+        } finally { [cultureinfo]::CurrentCulture = $cultureBefore }
+        Move-Item -LiteralPath $first -Destination (Join-Path $discoveryRoot 'first-disabled')
+
+        $original = Get-Content -LiteralPath (Join-Path $folder 'tool.json') -Raw
+        foreach ($change in @(
+            { param($d) $d.id = 'mismatch' },
+            { param($d) $d.id = '../outside' },
+            { param($d) $d.schemaVersion = 2 },
+            { param($d) $d.Remove('command') },
+            { param($d) $d.unexpected = 'value' },
+            { param($d) $d.plugin.listing.rejectPattern = '[' },
+            { param($d) $d.install.windows.download.zip.assetPattern = '[' },
+            { param($d) $d.install.windows.portableCommand = '../outside.exe' },
+            { param($d) $d.plugin.cacheDir = 'cache/../../outside' },
+            { param($d) $d.overseerArgs = @('--flag', 42) }
+        )) {
+            $data = $original | ConvertFrom-Json -AsHashtable
+            $null = & $change $data
+            $data | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $folder 'tool.json')
+            Assert-Throws { Get-ToolsIndexTools -SkillsRoot $discoveryRoot | Out-Null } 'Invalid neighboring descriptor stops discovery'
+        }
+        '{invalid' | Set-Content -LiteralPath (Join-Path $folder 'tool.json')
+        Assert-Throws { Get-ToolsIndexTools -SkillsRoot $discoveryRoot | Out-Null } 'Malformed descriptors stop generation'
+        Set-Content -LiteralPath (Join-Path $folder 'tool.json') -Value $original
+        foreach ($requiredFile in @('SKILL.md', 'scripts/foundry-launch.ps1')) {
+            $path = Join-Path $folder $requiredFile
+            Move-Item -LiteralPath $path -Destination ($path + '.held')
+            Assert-Throws { Get-ToolsIndexTools -SkillsRoot $discoveryRoot | Out-Null } 'Missing skill/capability script stops discovery'
+            Move-Item -LiteralPath ($path + '.held') -Destination $path
+        }
+        $duplicate = New-TestToolSkill -Name legion-duplicate
+        $message = ''
+        try { Get-ToolsIndexTools -SkillsRoot $discoveryRoot | Out-Null } catch { $message = $_.Exception.Message }
+        Assert-True ($message.Contains("duplicate tool id 'fourth'")) 'Duplicate diagnostic wins over directory mismatch'
+        Move-Item -LiteralPath $duplicate -Destination (Join-Path $discoveryRoot 'duplicate-disabled')
+
+        $recipes = Get-ToolsIndexRecipes -SkillsRoot $discoveryRoot
+        $badHelpers = Get-Content -LiteralPath $helpersPath -Raw | ConvertFrom-Json -AsHashtable
+        $badHelpers.fourth = $recipes.fourth
+        $testHelpers = Join-Path $discoveryRoot 'helpers.json'
+        $badHelpers | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $testHelpers
+        Assert-Throws { Get-ToolsIndexRecipes -SkillsRoot $discoveryRoot -HelpersPath $testHelpers | Out-Null } 'Helper/agent collision rejected'
+        $badHelpers.Remove('fourth')
+        $validHelpers = $badHelpers | ConvertTo-Json -Depth 100
+        foreach ($field in @('assetPattern')) {
+            $badHelpers = $validHelpers | ConvertFrom-Json -AsHashtable
+            $badHelpers.git.windows.download.msi[$field] = '['
+            $badHelpers | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $testHelpers
+            Assert-Throws { Get-ToolsIndexRecipes -SkillsRoot $discoveryRoot -HelpersPath $testHelpers | Out-Null } 'Invalid helper regex rejected'
+        }
+        $badHelpers = $validHelpers | ConvertFrom-Json -AsHashtable
+        $badHelpers.node.windows.download.zip.Remove('checksumUrl')
+        $badHelpers | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $testHelpers
+        Assert-Throws { Get-ToolsIndexRecipes -SkillsRoot $discoveryRoot -HelpersPath $testHelpers | Out-Null } 'Malformed helper recipe rejected'
+
+        # Prerequisite validation belongs to the build; no installer is invoked.
+        foreach ($needs in @(@('fourth'), @('node', 'missing-helper'))) {
+            $data = $original | ConvertFrom-Json -AsHashtable
+            $data.install.macos.needs = $needs
+            $data | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $folder 'tool.json')
+            Assert-Throws { Get-ToolsIndexRecipes -SkillsRoot $discoveryRoot } 'Self and unknown helper prerequisites fail generation'
+        }
+        Set-Content -LiteralPath (Join-Path $folder 'tool.json') -Value $original
+        $badHelpers = $validHelpers | ConvertFrom-Json -AsHashtable
+        $badHelpers.node.macos.needs = @('git')
+        $badHelpers.git.macos.needs = @('node')
+        $badHelpers | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $testHelpers
+        Assert-Throws { Get-ToolsIndexRecipes -SkillsRoot $discoveryRoot -HelpersPath $testHelpers } 'Helper dependency cycles fail generation'
+
+
+    } finally {
+        $cleanupPath = [IO.Path]::GetFullPath($discoveryRoot)
+        if (-not $cleanupPath.StartsWith($scratchRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe test cleanup path' }
+        Remove-Item -LiteralPath $cleanupPath -Recurse -Force
+    }
+}
+
+# Build-time channel validation (moved from runtime channel tests).
+& {
+    $root = Split-Path $PSScriptRoot -Parent
+    . (Join-Path $root 'tools/update-tools-index.ps1') -NoRun
+    $scratch = Join-Path $root ('.agents/temp/channel-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory $scratch -Force | Out-Null
+    Copy-Item (Join-Path $root 'plugins/legion/skills/legion-claude') $scratch -Recurse
+    $skill = Join-Path $scratch 'legion-fixture-channel'
+    Copy-Item (Join-Path $PSScriptRoot 'fixtures/channels/legion-fixture-channel') $skill -Recurse
+    $descriptor = @(Get-ToolsIndexChannels -SkillsRoot $scratch)[0]
+    Assert-Equal '|two words|2026-11-19|semi;literal|quote''value' ($descriptor.launch.claude -join '|') 'LiteralChannelArguments'
+    Assert-Equal 'fixture-channel' $descriptor.id 'DiscoverSecondChannelKind'
+    foreach ($bad in @(
+        '{"schemaVersion":2,"id":"fixture-channel","launch":{"claude":[]}}',
+        '{"schemaVersion":1,"id":"wrong","launch":{"claude":[]}}',
+        '{"schemaVersion":1,"id":"fixture-channel","launch":{"unknown":[]}}',
+        '{"schemaVersion":1,"id":"fixture-channel","launch":{"claude":[1]}}'
+    )) {
+        $bad | Set-Content (Join-Path $skill 'channel.json')
+        Assert-Throws { Get-ToolsIndexChannels -SkillsRoot $scratch } 'Malformed descriptor fails'
+    }
+    # ready is an accepted fourth key; any other extra key is rejected
+    Remove-Item -LiteralPath $skill -Recurse -Force
+    $telegram = Join-Path $scratch 'legion-telegram'
+    New-Item -ItemType Directory $telegram -Force | Out-Null
+    Copy-Item (Join-Path $root 'plugins/legion/skills/legion-telegram/SKILL.md') $telegram
+    $ready = '"ready":{"command":"bun","pluginFolder":{"claude":"plugins/cache/claude-plugins-official/telegram"}}'
+    $base = '"schemaVersion":1,"id":"telegram","launch":{"claude":[]}'
+    "{$base,$ready}" | Set-Content (Join-Path $telegram 'channel.json')
+    Assert-Equal 'bun' (@(Get-ToolsIndexChannels -SkillsRoot $scratch | Where-Object id -CEQ telegram)[0].ready.command) 'Ready accepted'
+    $missingSkill = Join-Path $telegram 'SKILL.md'
+    Move-Item -LiteralPath $missingSkill -Destination ($missingSkill + '.held')
+    Assert-Throws { Get-ToolsIndexChannels -SkillsRoot $scratch } 'Missing channel skill fails generation'
+    Move-Item -LiteralPath ($missingSkill + '.held') -Destination $missingSkill
+
+    "{$base,$ready,`"extra`":1}" | Set-Content (Join-Path $telegram 'channel.json')
+    Assert-Throws { Get-ToolsIndexChannels -SkillsRoot $scratch } 'Unknown fifth key rejected'
+    "{$base,`"extra`":1}" | Set-Content (Join-Path $telegram 'channel.json')
+    Assert-Throws { Get-ToolsIndexChannels -SkillsRoot $scratch } 'Unknown key without ready rejected'
+
+    $cleanupPath = [IO.Path]::GetFullPath($scratch)
+    $allowed = [IO.Path]::GetFullPath((Join-Path $root '.agents/temp/'))
+    if (-not $cleanupPath.StartsWith($allowed)) { throw 'Unsafe channel fixture cleanup' }
+    Remove-Item -LiteralPath $cleanupPath -Recurse -Force
+}
+
+& {
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'tools/update-tools-index.ps1') -NoRun
+    # FlatNeeds: a helper may not have prerequisites.
+    $recipes = @{ tool = @{ macos = @{ needs = @('helper') } }; helper = @{ macos = @{ needs = @('other') } }; other = @{ macos = @{ needs = @() } } }
+    Assert-Throws { Assert-LegionInstallNeeds -Tool tool -Platform macos -Recipes $recipes -HelperIds @('helper', 'other') } 'A helper with prerequisites is rejected'
 }

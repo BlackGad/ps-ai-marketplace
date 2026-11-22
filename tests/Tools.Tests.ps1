@@ -10,7 +10,7 @@ $shippedRecipes = Get-LegionInstallRecipes
 Assert-True ($shippedRecipes.ContainsKey('bun') -and $shippedRecipes.ContainsKey('node')) 'Shared helper recipes load'
 $fourthJson = Get-Content (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth/tool.json') -Raw
 
-# DiscoverFourthAndRejectInvalidNeighbors: folder additions need no shared id list.
+# Folder additions need no shared id list; descriptors are validated at build time.
 $toolsModule = Join-Path $repoRoot 'plugins/legion/bin/lib/tools.ps1'
 Assert-True (Test-Path -LiteralPath $toolsModule) 'Tool discovery module exists'
 . $toolsModule
@@ -60,55 +60,11 @@ try {
         foreach ($cultureName in @('en-US', 'da-DK')) {
             [cultureinfo]::CurrentCulture = [cultureinfo]::GetCultureInfo($cultureName)
             Assert-Equal 'aaa|fourth' (@(Get-LegionTools -SkillsRoot $discoveryRoot).id -join '|') 'Discovery order is ordinal across cultures'
-            # Both neighbors mismatch; the first diagnostic must also be stable.
-            $badData = $fourthJson | ConvertFrom-Json -AsHashtable
-            $badData.id = 'zzz'
-            $badData | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $first 'tool.json')
-            $badData.id = 'other'
-            $badData | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $folder 'tool.json')
-            $message = ''
-            try { Get-LegionTools -SkillsRoot $discoveryRoot | Out-Null } catch { $message = $_.Exception.Message }
-            Assert-True ($message.Contains("tool id 'zzz'")) 'Invalid neighbor diagnostics use ordinal folder order'
-            $badData.id = 'aaa'
-            $badData | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $first 'tool.json')
-            Set-Content -LiteralPath (Join-Path $folder 'tool.json') -Value $fourthJson
         }
     } finally { [cultureinfo]::CurrentCulture = $cultureBefore }
     Move-Item -LiteralPath $first -Destination (Join-Path $discoveryRoot 'first-disabled')
 
     $original = Get-Content -LiteralPath (Join-Path $folder 'tool.json') -Raw
-    foreach ($change in @(
-        { param($d) $d.id = 'mismatch' },
-        { param($d) $d.id = '../outside' },
-        { param($d) $d.schemaVersion = 2 },
-        { param($d) $d.Remove('command') },
-        { param($d) $d.unexpected = 'value' },
-        { param($d) $d.plugin.listing.rejectPattern = '[' },
-        { param($d) $d.install.windows.download.zip.assetPattern = '[' },
-        { param($d) $d.install.windows.portableCommand = '../outside.exe' },
-        { param($d) $d.plugin.cacheDir = 'cache/../../outside' },
-        { param($d) $d.overseerArgs = @('--flag', 42) }
-    )) {
-        $data = $original | ConvertFrom-Json -AsHashtable
-        $null = & $change $data
-        $data | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $folder 'tool.json')
-        Assert-Throws { Get-LegionTools -SkillsRoot $discoveryRoot | Out-Null } 'Invalid neighboring descriptor stops discovery'
-    }
-    '{invalid' | Set-Content -LiteralPath (Join-Path $folder 'tool.json')
-    Assert-Throws { Get-LegionTool -Tool absent -SkillsRoot $discoveryRoot | Out-Null } 'Malformed neighbors cannot be hidden by a lookup'
-    Set-Content -LiteralPath (Join-Path $folder 'tool.json') -Value $original
-    foreach ($requiredFile in @('SKILL.md', 'scripts/foundry-launch.ps1')) {
-        $path = Join-Path $folder $requiredFile
-        Move-Item -LiteralPath $path -Destination ($path + '.held')
-        Assert-Throws { Get-LegionTools -SkillsRoot $discoveryRoot | Out-Null } 'Missing skill/capability script stops discovery'
-        Move-Item -LiteralPath ($path + '.held') -Destination $path
-    }
-    $duplicate = New-TestToolSkill -Name legion-duplicate
-    $message = ''
-    try { Get-LegionTools -SkillsRoot $discoveryRoot | Out-Null } catch { $message = $_.Exception.Message }
-    Assert-True ($message.Contains("duplicate tool id 'fourth'")) 'Duplicate diagnostic wins over directory mismatch'
-    Move-Item -LiteralPath $duplicate -Destination (Join-Path $discoveryRoot 'duplicate-disabled')
-
     $data = $original | ConvertFrom-Json -AsHashtable
     $data.foundry = $null
     $data | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $folder 'tool.json')
@@ -141,35 +97,18 @@ try {
     Assert-Equal $dateArgument $dateTool.overseerArgs[0] 'Descriptor date-like argument text is unchanged'
     Assert-Equal $dateArgument $dateTool.install.linux.commands[0][1] 'Nested command date-like text is unchanged'
     Set-Content -LiteralPath (Join-Path $folder 'tool.json') -Value $original
-    $badHelpers = Get-Content -LiteralPath $helpersPath -Raw | ConvertFrom-Json -AsHashtable
-    $badHelpers.fourth = $recipes.fourth
+    $validHelpers = Get-Content -LiteralPath $helpersPath -Raw
     $testHelpers = Join-Path $discoveryRoot 'helpers.json'
-    $badHelpers | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $testHelpers
-    Assert-Throws { Get-LegionInstallRecipes -SkillsRoot $discoveryRoot -HelpersPath $testHelpers | Out-Null } 'Helper/agent collision rejected'
-    $badHelpers.Remove('fourth')
-    $validHelpers = $badHelpers | ConvertTo-Json -Depth 100
-    foreach ($field in @('assetPattern')) {
-        $badHelpers = $validHelpers | ConvertFrom-Json -AsHashtable
-        $badHelpers.git.windows.download.msi[$field] = '['
-        $badHelpers | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $testHelpers
-        Assert-Throws { Get-LegionInstallRecipes -SkillsRoot $discoveryRoot -HelpersPath $testHelpers | Out-Null } 'Invalid helper regex rejected'
-    }
     $badHelpers = $validHelpers | ConvertFrom-Json -AsHashtable
     $badHelpers.node.check = @('node', $dateArgument)
     $badHelpers | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $testHelpers
     $dateRecipes = Get-LegionInstallRecipes -SkillsRoot $discoveryRoot -HelpersPath $testHelpers
     Assert-True ($dateRecipes.node.check[1] -is [string]) 'Helper date-like arguments remain strings'
     Assert-Equal $dateArgument $dateRecipes.node.check[1] 'Helper date-like argument text is unchanged'
-    $badHelpers = $validHelpers | ConvertFrom-Json -AsHashtable
-    $badHelpers.node.windows.download.zip.Remove('checksumUrl')
-    $badHelpers | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $testHelpers
-    Assert-Throws { Get-LegionInstallRecipes -SkillsRoot $discoveryRoot -HelpersPath $testHelpers | Out-Null } 'Malformed helper recipe rejected'
-
     # A minimal relocated runtime must discover without an installer helper map.
     $runtime = Join-Path $discoveryRoot 'runtime'
-    New-Item -ItemType Directory -Path (Join-Path $runtime 'bin/lib'), (Join-Path $runtime 'schemas'), (Join-Path $runtime 'skills') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $runtime 'bin/lib'), (Join-Path $runtime 'skills') -Force | Out-Null
     Copy-Item -LiteralPath $toolsModule -Destination (Join-Path $runtime 'bin/lib/tools.ps1')
-    Copy-Item -LiteralPath $schemaPath -Destination (Join-Path $runtime 'schemas/tool.schema.json')
     Copy-Item -LiteralPath $folder -Destination (Join-Path $runtime 'skills/legion-fourth') -Recurse
     & {
         . (Join-Path $runtime 'bin/lib/tools.ps1')

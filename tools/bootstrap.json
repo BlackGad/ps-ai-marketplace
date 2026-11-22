@@ -13,12 +13,5 @@
         "pathFolder": ""
       }
     }
-  },
-  "posix": {
-    "metadataUrl": "https://api.github.com/repos/PowerShell/PowerShell/releases/latest",
-    "assetNames": {
-      "macos": "powershell-{version}-osx-{arch}.tar.gz",
-      "linux": "powershell-{version}-linux-{arch}.tar.gz"
-    }
   }
 }

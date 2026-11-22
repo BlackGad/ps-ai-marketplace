@@ -20,25 +20,7 @@ Copy-Item (Join-Path $PSScriptRoot 'fixtures/channels/legion-fixture-channel') $
 $descriptor = @(Get-LegionChannels $scratch)[0]
 Assert-Equal '|two words|2026-11-19|semi;literal|quote''value' ($descriptor.launch.claude -join '|') 'LiteralChannelArguments'
 Assert-Equal 'fixture-channel' $descriptor.id 'DiscoverSecondChannelKind'
-foreach ($bad in @(
-    '{"schemaVersion":2,"id":"fixture-channel","launch":{"claude":[]}}',
-    '{"schemaVersion":1,"id":"wrong","launch":{"claude":[]}}',
-    '{"schemaVersion":1,"id":"fixture-channel","launch":{"unknown":[]}}',
-    '{"schemaVersion":1,"id":"fixture-channel","launch":{"claude":[1]}}'
-)) {
-    $bad | Set-Content (Join-Path $skill 'channel.json')
-    Assert-Throws { Get-LegionChannels $scratch } 'Malformed descriptor fails'
-}
-# ready is an accepted fourth key; any other extra key is rejected
-Remove-Item -LiteralPath $skill -Recurse -Force
-$telegram = Join-Path $scratch 'legion-telegram'
-New-Item -ItemType Directory $telegram -Force | Out-Null
-Copy-Item (Join-Path $root 'plugins/legion/skills/legion-telegram/SKILL.md') $telegram
-$ready = '"ready":{"command":"bun","pluginFolder":{"claude":"plugins/cache/claude-plugins-official/telegram"}}'
-$base = '"schemaVersion":1,"id":"telegram","launch":{"claude":[]}'
-"{$base,$ready}" | Set-Content (Join-Path $telegram 'channel.json')
-Assert-Equal 'bun' (@(Get-LegionChannels $scratch | Where-Object id -CEQ telegram)[0].ready.command) 'Ready accepted'
-"{$base,$ready,`"extra`":1}" | Set-Content (Join-Path $telegram 'channel.json')
-Assert-Throws { Get-LegionChannels $scratch } 'Unknown fifth key rejected'
-"{$base,`"extra`":1}" | Set-Content (Join-Path $telegram 'channel.json')
-Assert-Throws { Get-LegionChannels $scratch } 'Unknown key without ready rejected'
+$cleanupPath = [IO.Path]::GetFullPath($scratch)
+$allowed = [IO.Path]::GetFullPath((Join-Path $root '.agents/temp/'))
+if (-not $cleanupPath.StartsWith($allowed)) { throw 'Unsafe channel fixture cleanup' }
+Remove-Item -LiteralPath $cleanupPath -Recurse -Force

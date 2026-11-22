@@ -56,7 +56,3 @@ try {
     Assert-LegionWrapperPath (Join-Path $tempHome '.legion/bin/claude-a') 'claude-a'
     Assert-True $true 'A wrapper path under a plain home passes the link check'
 } finally { Remove-Item -LiteralPath $tempHome -Recurse -Force }
-
-# FlatNeeds: a helper may not have prerequisites.
-$recipes = @{ tool = @{ macos = @{ needs = @('helper') } }; helper = @{ macos = @{ needs = @('other') } }; other = @{ macos = @{ needs = @() } } }
-Assert-Throws { Assert-LegionInstallNeeds -Tool tool -Platform macos -Recipes $recipes -HelperIds @('helper', 'other') } 'A helper with prerequisites is rejected'
