@@ -17,8 +17,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-True (Test-InstallStepDone -Command $command -Kind marketplace) "$tool existing registration is reused regardless of source"
     }
     foreach ($invalid in @(@{'bad-name'='1'}, @{FIXTURE_FLAG=$true})) {
-        $catalog = Get-InstallCatalog -Source $repo
-        $catalog.tools[0].plugin.listingEnv = $invalid
-        Assert-Throws { Get-InstallCatalog -Catalog $catalog } 'Invalid listing environment is rejected before any process starts'
+        $descriptor = Get-Content (Join-Path $repo 'plugins/legion/skills/legion-claude/tool.json') -Raw | ConvertFrom-Json
+        $descriptor.plugin | Add-Member listingEnv $invalid -Force
+        Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile (Join-Path $repo 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) 'Invalid listing environment is rejected before catalog generation'
     }
 }

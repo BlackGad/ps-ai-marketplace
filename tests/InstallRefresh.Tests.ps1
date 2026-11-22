@@ -42,7 +42,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-True (-not (Test-Path $marker)) 'Failed update never refreshes generated artifacts'
         $state.Fail=$false
         $state.Missing=$true
-        $null = Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account -Yes
+        $null = Invoke-LegionUpdateSteps -Entry $entry -ConfigDir selected-account
         Assert-True (Test-Path $marker) 'Missing plugin is installed then its fresh artifacts are refreshed'
         Remove-Item $marker
         $state.Missing=$false

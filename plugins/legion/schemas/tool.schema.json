@@ -59,7 +59,6 @@
       "properties": {
         "paths": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/exactRelativePath"}},
         "emptyDirs": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/exactRelativePath"}},
-        "legacyHookTrust": {"type": "boolean"},
         "settings": {
           "type": "array", "items": {
             "type": "object", "additionalProperties": false, "required": ["path", "kind"],

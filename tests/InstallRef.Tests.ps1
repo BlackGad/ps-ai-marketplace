@@ -41,9 +41,9 @@ $repo = Split-Path $PSScriptRoot -Parent
     } catch { $failures += $_.Exception.Message }
     try {
         foreach ($value in @($null, 'not an array', 42, @(1))) {
-            $bad = Get-InstallCatalog -Source $repo
-            $bad.tools[0].plugin | Add-Member -NotePropertyName marketplaceAddRef -NotePropertyValue $value -Force
-            Assert-Throws { Get-InstallCatalog -Catalog $bad } 'CatalogRequiresRefArray'
+            $bad = Get-Content (Join-Path $repo 'plugins/legion/skills/legion-claude/tool.json') -Raw | ConvertFrom-Json
+            $bad.plugin.marketplaceAddRef = $value
+            Assert-True (-not (Test-Json -Json ($bad | ConvertTo-Json -Depth 100) -SchemaFile (Join-Path $repo 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) 'CatalogRequiresRefArray'
         }
         'PASS CatalogRequiresRefArray'
     } catch { $failures += $_.Exception.Message }

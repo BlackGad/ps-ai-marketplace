@@ -2,6 +2,17 @@ $repo = Split-Path $PSScriptRoot -Parent
 & {
     . (Join-Path $PSScriptRoot 'fixtures/install/UninstallSandbox.ps1')
     try {
+        Assert-True ([bool](Get-Command Get-InstallSafePath -ErrorAction SilentlyContinue)) 'One safe-path helper serves cache cleanup and purge'
+        $safeRoot = Join-Path $sandbox 'safe-paths'
+        New-FixtureCache (Join-Path $safeRoot 'cache')
+        $safeFile = Join-Path $safeRoot 'cache/fixture.txt'
+        Assert-Equal (Join-Path $safeRoot 'cache') (Get-InstallSafePath -Root $safeRoot -Relative 'cache') 'Safe folder resolves under its root'
+        Assert-Equal $safeFile (Get-InstallSafePath -Root $safeRoot -Relative 'cache/fixture.txt' -AllowFile) 'Safe file resolves when allowed'
+        Assert-True (-not (Get-InstallSafePath -Root $safeRoot -Relative 'cache/fixture.txt')) 'Folder-only cleanup skips files'
+        Assert-True (-not (Get-InstallSafePath -Root $safeRoot -Relative 'missing')) 'Missing safe path has nothing to remove'
+        foreach ($unsafe in @('', '../outside', '..\outside', '/outside', '\outside', 'C:/outside', 'C:outside', '.', 'cache/../outside', '~/outside', 'cache/*', 'cache/?', 'cache/./child', 'cache//child', 'cache/')) {
+            Assert-Throws { Get-InstallSafePath -Root $safeRoot -Relative $unsafe -AllowFile } "Safe-path helper rejects '$unsafe' before looking at the filesystem"
+        }
         foreach ($tool in @('claude','codex','copilot')) {
             $relative = if ($tool -eq 'copilot') { 'installed-plugins/legion-marketplace' } else { 'plugins/cache/ps-legion-marketplace' }
             $entry = $catalog.tools | Where-Object id -CEQ $tool
@@ -51,7 +62,10 @@ $repo = Split-Path $PSScriptRoot -Parent
         $original = $entry.plugin.cacheDir
         foreach ($unsafe in @('../other-marketplace', '/outside', 'C:/outside', '.', 'plugins/../other', '~/outside', 'plugins/*', 'plugins/./cache')) {
             $entry.plugin.cacheDir=$unsafe
-            Assert-Throws { Get-InstallCatalog -Catalog $catalog } 'Unsafe cache path rejected before any CLI command'
+            Assert-Throws { Get-UninstallCachePath -Entry $entry -ConfigDir $folder } 'Unsafe catalog cache path rejected at the cleanup boundary'
+            $writes.Clear()
+            Assert-Throws { Invoke-LegionInstaller -Catalog $catalog -Tools codex -ConfigDir $folder -Uninstall -Yes } 'Bad relative path in a catalog stops uninstall'
+            Assert-Equal 0 $writes.Count 'Unsafe catalog path never reaches a CLI write or cache deletion'
             $descriptor = Get-Content (Join-Path $repo 'plugins/legion/skills/legion-codex/tool.json') -Raw | ConvertFrom-Json
             $descriptor.plugin.cacheDir=$unsafe
             Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile (Join-Path $repo 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) 'Schema rejects unsafe cache path'

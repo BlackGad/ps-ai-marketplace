@@ -12,9 +12,9 @@ $repo = Split-Path $PSScriptRoot -Parent
         Assert-Equal $expected[$tool.id][1] ($tool.plugin.update -join '|') "$($tool.id) plugin refresh metadata"
     }
     foreach ($field in @('marketplaceUpdate', 'update')) {
-        $bad = $catalog | ConvertTo-Json -Depth 100 | ConvertFrom-Json
-        $bad.tools[0].plugin.$field = 'invalid'
-        Assert-Throws { Get-InstallCatalog -Catalog $bad } "Invalid $field rejected before action"
+        $bad = Get-Content (Join-Path $repo 'plugins/legion/skills/legion-claude/tool.json') -Raw | ConvertFrom-Json
+        $bad.plugin.$field = 'invalid'
+        Assert-True (-not (Test-Json -Json ($bad | ConvertTo-Json -Depth 100) -SchemaFile (Join-Path $repo 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) "Invalid $field rejected before catalog generation"
     }
 }
 

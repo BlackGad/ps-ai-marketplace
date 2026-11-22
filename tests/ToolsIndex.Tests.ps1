@@ -23,6 +23,7 @@
     [Array]::Reverse($reversed)
     Assert-Equal $rendered (Get-ToolsIndexContent -Tools $reversed -Bootstrap $bootstrap) 'Renderer sorts input by id'
     $index = $rendered | ConvertFrom-Json
+    Assert-True (-not $rendered.Contains('legacyHookTrust')) 'Catalog has no legacy Codex trust cleanup flag'
     Assert-Equal 1 $index.schemaVersion 'Catalog schema version'
     Assert-Equal ($bootstrap.windows.download.zip | ConvertTo-Json -Depth 100 -Compress) ($index.bootstrap.windows.download.zip | ConvertTo-Json -Depth 100 -Compress) 'Bootstrap ZIP recipe preserves validation and integrity metadata'
     Assert-Equal ($tools.id -join '|') ($index.tools.id -join '|') 'Catalog tools are sorted'
@@ -91,6 +92,54 @@
         Assert-Equal $checkoutBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))) 'Checkout preserves LF index bytes with autocrlf enabled'
         & $copyGenerator -Check | Out-Null
 
+        $codexPath = Join-Path $copyRoot 'plugins/legion/skills/legion-codex/tool.json'
+        $validCodex = [IO.File]::ReadAllText($codexPath)
+        foreach ($unsafe in @('../outside', '/outside', 'C:/outside', 'plugins/*', 'plugins/?')) {
+            $bad = $validCodex | ConvertFrom-Json
+            $bad.plugin.cacheDir = $unsafe
+            [IO.File]::WriteAllText($codexPath, ($bad | ConvertTo-Json -Depth 100))
+            Assert-Throws { & $copyGenerator } 'Generator rejects an unsafe relative cache path'
+            Assert-Throws { & $copyGenerator -Check } 'Check rejects an unsafe relative cache path'
+            Assert-Equal $checkoutBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))) 'Invalid descriptor leaves the generated catalog intact'
+        }
+        [IO.File]::WriteAllText($codexPath, $validCodex)
+
+        foreach ($change in @(
+            { param($d) $d.command = 12 },
+            { param($d) $d.plugin.listing.format = @('json') },
+            { param($d) $d.plugin.marketplaceAdd = 'bad' },
+            { param($d) $d.id = 'claude' },
+            { param($d) $d.plugin = @($d.plugin) },
+            { param($d) $d.plugin.listing = @($d.plugin.listing) }
+        )) {
+            $bad = $validCodex | ConvertFrom-Json
+            & $change $bad
+            [IO.File]::WriteAllText($codexPath, ($bad | ConvertTo-Json -Depth 100))
+            Assert-Throws { & $copyGenerator } 'Generator rejects malformed or duplicate tool metadata'
+            Assert-Equal $checkoutBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))) 'Invalid tool metadata leaves catalog intact'
+        }
+        [IO.File]::WriteAllText($codexPath, $validCodex)
+
+        $bootstrapPath = Join-Path $copyRoot 'tools/bootstrap.json'
+        $validBootstrap = [IO.File]::ReadAllText($bootstrapPath)
+        [IO.File]::WriteAllText($bootstrapPath, '[' + $validBootstrap + ']')
+        Assert-Throws { & $copyGenerator } 'Generator rejects a bootstrap array in place of an object'
+        Assert-Equal $checkoutBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))) 'Invalid bootstrap root leaves catalog intact'
+        foreach ($change in @(
+            { param($b) $b.windows.download.zip.kind = @('zip') },
+            { param($b) $b.windows.wingetId = $false },
+            { param($b) $b.windows.download.zip.pathFolder = '../outside' },
+            { param($b) $b.windows.download.zip.metadataUrl = $null },
+            { param($b) $b.windows = @($b.windows) }
+        )) {
+            $bad = $validBootstrap | ConvertFrom-Json
+            & $change $bad
+            [IO.File]::WriteAllText($bootstrapPath, ($bad | ConvertTo-Json -Depth 100))
+            Assert-Throws { & $copyGenerator } 'Generator rejects malformed bootstrap metadata'
+            Assert-Equal $checkoutBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copyIndex))) 'Invalid bootstrap metadata leaves catalog intact'
+        }
+        [IO.File]::WriteAllText($bootstrapPath, $validBootstrap)
+
         Remove-Item -LiteralPath (Join-Path $copyRoot 'tools/bootstrap.json')
         $beforeMissingTime = [IO.File]::GetLastWriteTimeUtc($copyIndex)
         Assert-Throws { & $copyGenerator } 'Missing PowerShell bootstrap recipe stops generation'
@@ -116,6 +165,8 @@
     $scratchRoot = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/restructure'))
     $scratch = Join-Path $scratchRoot ('catalog-boundaries-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path (Join-Path $scratch 'plugins/legion') -Force | Out-Null
+    $descriptorFolder = Join-Path $scratch 'skills/legion-fourth'
+    New-Item -ItemType Directory -Path $descriptorFolder -Force | Out-Null
     try {
         foreach ($boundary in @('empty-string-arguments', 'empty-arrays', 'empty-hook-status')) {
             $descriptor = $descriptorJson | ConvertFrom-Json
@@ -138,16 +189,16 @@
                 $descriptor = $descriptorJson | ConvertFrom-Json
                 $descriptor.plugin.$field = $value
                 Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile $schema -ErrorAction SilentlyContinue)) "Schema rejects invalid plugin.$field"
-                Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'plugins/legion/tools.json')
-                Assert-Throws { Get-InstallCatalog -Source $scratch } "Loader rejects invalid plugin.$field"
+                $descriptor | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $descriptorFolder 'tool.json')
+                Assert-Throws { Get-LegionTools -SkillsRoot (Join-Path $scratch 'skills') } "Generator reader rejects invalid plugin.$field"
             }
         }
         foreach ($value in @($null, 42, @('status'))) {
             $descriptor = $descriptorJson | ConvertFrom-Json
             $descriptor.hooks.status = $value
             Assert-True (-not (Test-Json -Json ($descriptor | ConvertTo-Json -Depth 100) -SchemaFile $schema -ErrorAction SilentlyContinue)) 'Schema rejects non-string hooks.status'
-            Get-ToolsIndexContent -Tools @($descriptor) -Bootstrap $bootstrap | Set-Content -LiteralPath (Join-Path $scratch 'plugins/legion/tools.json')
-            Assert-Throws { Get-InstallCatalog -Source $scratch } 'Loader rejects non-string hooks.status'
+            $descriptor | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $descriptorFolder 'tool.json')
+            Assert-Throws { Get-LegionTools -SkillsRoot (Join-Path $scratch 'skills') } 'Generator reader rejects non-string hooks.status'
         }
     } finally {
         $cleanupPath = [IO.Path]::GetFullPath($scratch)
@@ -156,7 +207,7 @@
     }
 }
 
-# Bad catalog metadata must stop before the PowerShell 7 installer reaches install steps.
+# The installer checks the catalog envelope; the generator validates descriptors.
 & {
     $repo = Split-Path $PSScriptRoot -Parent
     . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
@@ -197,30 +248,12 @@
     }
     $invalid = @(
         '{', 'null', '{"schemaVersion":2}',
-        $fixtureText.Replace('"tools": [','"tools": 1, "unused": ['),
-        $fixtureText.Replace('"command": "claude"','"command": 12'),
-        $fixtureText.Replace('"format": "json"','"format": ["json"]'),
-        $fixtureText.Replace('"kind": "zip"','"kind": ["zip"]'),
-        $fixtureText.Replace('"marketplaceAdd": [','"marketplaceAdd": "bad", "unused": ['),
-        $fixtureText.Replace('"wingetId": "Microsoft.PowerShell"','"wingetId": false'),
-        $fixtureText.Replace('"pathFolder": ""','"pathFolder": "../outside"'),
-        $fixtureText.Replace('"metadataUrl": "https://api.github.com/repos/PowerShell/PowerShell/releases/latest"','"metadataUrl": null'),
-        $fixtureText.Replace('"id": "codex"','"id": "claude"')
+        $fixtureText.Replace('"tools": [','"tools": 1, "unused": [')
     )
     foreach ($bad in $invalid) {
         $fixtureText = $bad
         Assert-Throws { Invoke-LegionInstaller -Source 'example/market' -DryRun } 'Invalid catalog fails before install steps'
         Assert-Equal 0 $state.Actions 'Invalid catalog never reaches install steps'
-    }
-    foreach ($field in @('plugin','listing','bootstrap','windows')) {
-        $bad = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw | ConvertFrom-Json
-        switch ($field) {
-            plugin { $bad.tools[0].plugin = @($bad.tools[0].plugin) }
-            listing { $bad.tools[0].plugin.listing = @($bad.tools[0].plugin.listing) }
-            bootstrap { $bad.bootstrap = @($bad.bootstrap) }
-            windows { $bad.bootstrap.windows = @($bad.bootstrap.windows) }
-        }
-        Assert-Throws { Get-InstallCatalog -Catalog $bad } 'Consumed object nodes cannot be arrays'
     }
     function Get-InstallSourceText { throw 'fixture metadata unavailable' }
     Assert-Throws { Invoke-LegionInstaller -Source 'example/market' -DryRun } 'Fetch failure stops before install steps'

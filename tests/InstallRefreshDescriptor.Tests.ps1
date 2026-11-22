@@ -47,9 +47,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         foreach ($badValue in @('../outside','/absolute','C:/absolute','~/../outside',42,'')) {
             $bad = $descriptor | ConvertTo-Json -Depth 100 | ConvertFrom-Json
             $bad.plugin.$field = $badValue
-            $catalog = Get-InstallCatalog -Source $repo
-            $catalog.tools[0].plugin = $bad.plugin
-            Assert-Throws { Get-InstallCatalog -Catalog $catalog } "Standalone loader rejects unsafe plugin.$field"
+            Assert-True (-not (Test-Json -Json ($bad | ConvertTo-Json -Depth 100) -SchemaFile (Join-Path $repo 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) "Schema rejects unsafe plugin.$field before catalog generation"
         }
     }
 }

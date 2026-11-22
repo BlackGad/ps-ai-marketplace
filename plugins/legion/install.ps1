@@ -24,40 +24,6 @@ function Get-InstallSourceText {
     return (Invoke-WebRequest -Uri $Url -UseBasicParsing -ErrorAction Stop).Content
 }
 
-function Assert-InstallString {
-    param($Value, [string]$Field, [switch]$AllowEmpty)
-    if ($Value -isnot [string] -or (-not $AllowEmpty -and [string]::IsNullOrWhiteSpace($Value))) {
-        throw "invalid catalog field '$Field': expected string"
-    }
-}
-
-function Assert-InstallArguments {
-    param($Value, [string]$Field)
-    if ($Value -isnot [array]) { throw "invalid catalog field '$Field': expected argument array" }
-    foreach ($argument in $Value) { Assert-InstallString $argument $Field -AllowEmpty }
-}
-
-function Assert-InstallObject {
-    param($Value, [string]$Field)
-    if ($Value -isnot [pscustomobject] -and $Value -isnot [Collections.IDictionary]) {
-        throw "invalid catalog field '$Field': expected object"
-    }
-}
-
-function Assert-InstallRelativePath {
-    param($Value, [string]$Field, [switch]$AllowEmpty)
-    Assert-InstallString $Value $Field -AllowEmpty:$AllowEmpty
-    if ($Value -match '(^[/\\]|:|(^|[/\\])\.\.([/\\]|$))') { throw "invalid catalog field '$Field': expected relative path" }
-}
-
-function Assert-InstallExactRelativePath {
-    param($Value, [string]$Field)
-    Assert-InstallRelativePath $Value $Field
-    if ($Value -match '(^~|(^|[/\\])\.([/\\]|$)|[*?]|[/\\]$|[/\\]{2})') {
-        throw "invalid catalog ${Field}: expected exact relative path"
-    }
-}
-
 function Get-InstallBranch {
     param([ValidateSet('release','main')][string]$Ref = 'release')
     if ($Ref -eq 'main') { return 'main' }
@@ -82,107 +48,10 @@ function Get-InstallCatalog {
         if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $jsonOptions.DateKind = 'String' }
         $Catalog = $content | ConvertFrom-Json @jsonOptions
     }
-    Assert-InstallObject $Catalog 'catalog'
-    if ($null -eq $Catalog -or ($Catalog.schemaVersion -isnot [int] -and $Catalog.schemaVersion -isnot [long]) -or $Catalog.schemaVersion -ne 1) {
+    if ($null -eq $Catalog -or $Catalog.schemaVersion -ne 1) {
         throw 'unsupported tools catalog schemaVersion (expected 1)'
     }
     if ($Catalog.tools -isnot [array]) { throw 'invalid catalog tools: expected array' }
-    $ids = @()
-    foreach ($tool in $Catalog.tools) {
-        Assert-InstallObject $tool 'tool'
-        Assert-InstallString $tool.id 'id'
-        if ($tool.id -cnotmatch '^[a-z][a-z0-9-]*$' -or $ids -contains $tool.id) { throw 'invalid or duplicate catalog tool id' }
-        $ids += $tool.id
-        Assert-InstallString $tool.command 'command'
-        Assert-InstallString $tool.configEnv 'configEnv'
-        if ($tool.configEnv -cnotmatch '^[A-Z_][A-Z0-9_]*$') { throw 'invalid catalog configEnv' }
-        Assert-InstallObject $tool.plugin 'plugin'
-        foreach ($field in @('marketplaceAdd','marketplaceAddRef','marketplaceRemove','install','uninstall','marketplaceList','list','marketplaceUpdate','update')) {
-            Assert-InstallArguments $tool.plugin.$field "plugin.$field"
-        }
-
-        if ($null -ne $tool.plugin.listingEnv) {
-            $environment = $tool.plugin.listingEnv
-            Assert-InstallObject $environment 'plugin.listingEnv'
-            $names = if ($environment -is [Collections.IDictionary]) { $environment.Keys } else { $environment.PSObject.Properties.Name }
-            foreach ($name in $names) {
-                if ($name -cnotmatch '^[A-Z_][A-Z0-9_]*$') { throw 'invalid catalog listingEnv name' }
-                Assert-InstallString $environment.$name "plugin.listingEnv.$name" -AllowEmpty
-            }
-        }
-        foreach ($field in @('defaultConfigDir','installedRoot','cacheDir')) {
-            $present = if ($tool.plugin -is [Collections.IDictionary]) { $tool.plugin.Contains($field) } else { $null -ne $tool.plugin.PSObject.Properties[$field] }
-            if (-not $present) { continue }
-            $value = $tool.plugin.$field
-            Assert-InstallString $value "plugin.$field"
-            if ($field -eq 'defaultConfigDir') {
-                if (-not $value.StartsWith('~/')) { throw 'invalid catalog plugin.defaultConfigDir: expected ~/ relative path' }
-                Assert-InstallRelativePath $value.Substring(2) 'plugin.defaultConfigDir'
-            } else {
-                Assert-InstallRelativePath $value "plugin.$field"
-                if ($value -match '^~[/\\]') { throw "invalid catalog plugin.${field}: expected relative path" }
-            }
-            if ($field -eq 'cacheDir') { Assert-InstallExactRelativePath $value 'plugin.cacheDir' }
-        }
-        if ($null -ne $tool.plugin.purge) {
-            $purge = $tool.plugin.purge
-            Assert-InstallObject $purge 'plugin.purge'
-            Assert-InstallArguments $purge.paths 'plugin.purge.paths'
-            if ($null -ne $purge.emptyDirs) { Assert-InstallArguments $purge.emptyDirs 'plugin.purge.emptyDirs' }
-            foreach ($path in (@($purge.paths) + @($purge.emptyDirs))) {
-                if ($null -ne $path) { Assert-InstallExactRelativePath $path 'plugin.purge path' }
-            }
-            if ($null -ne $purge.legacyHookTrust -and $purge.legacyHookTrust -isnot [bool]) { throw 'invalid plugin.purge.legacyHookTrust' }
-            if ($purge.settings -isnot [array]) { throw 'plugin.purge.settings must be an array' }
-            foreach ($setting in $purge.settings) {
-                Assert-InstallObject $setting 'plugin.purge.settings entry'
-                Assert-InstallExactRelativePath $setting.path 'plugin.purge.settings.path'
-                if ($setting.kind -cnotin @('settings', 'marketplaces', 'claude', 'copilot', 'toml')) { throw 'invalid plugin.purge.settings.kind' }
-            }
-        }
-        $listing = $tool.plugin.listing
-        Assert-InstallObject $listing 'listing'
-        Assert-InstallString $listing.format 'listing.format'
-        if ($listing.format -ceq 'json') {
-            Assert-InstallString $listing.idField 'listing.idField'
-            Assert-InstallString $listing.enabledField 'listing.enabledField'
-        } elseif ($listing.format -ceq 'lines') {
-            Assert-InstallString $listing.rejectPattern 'listing.rejectPattern' -AllowEmpty
-            $null = [regex]::new($listing.rejectPattern)
-        } else { throw 'invalid catalog listing format' }
-        $marketplaceListing = $tool.plugin.marketplaceListing
-        if ($null -eq $marketplaceListing) { throw 'marketplaceListing is required' }
-        if ($null -ne $marketplaceListing) {
-            Assert-InstallObject $marketplaceListing 'marketplaceListing'
-            if ($marketplaceListing.format -cne 'json') { throw 'invalid catalog marketplace listing format' }
-            Assert-InstallString $marketplaceListing.nameField 'marketplaceListing.nameField'
-
-            foreach ($field in @('collectionField', 'rootField')) {
-                if ($null -ne $marketplaceListing.$field) { Assert-InstallString $marketplaceListing.$field "marketplaceListing.$field" }
-            }
-
-        }
-        Assert-InstallObject $tool.hooks 'hooks'
-        Assert-InstallString $tool.hooks.status 'hooks.status' -AllowEmpty
-        Assert-InstallString $tool.hooks.hint 'hooks.hint' -AllowEmpty
-        Assert-InstallString $tool.installHint 'installHint' -AllowEmpty
-    }
-    Assert-InstallObject $Catalog.bootstrap 'bootstrap'
-    $windows = $Catalog.bootstrap.windows
-    Assert-InstallObject $windows 'bootstrap.windows'
-    Assert-InstallString $windows.wingetId 'bootstrap.windows.wingetId'
-    Assert-InstallRelativePath $windows.portableCommand 'bootstrap.windows.portableCommand'
-    Assert-InstallObject $windows.download 'bootstrap.windows.download'
-    $zip = $windows.download.zip
-    Assert-InstallObject $zip 'bootstrap.zip'
-    foreach ($field in @('kind','resolver','verification')) { Assert-InstallString $zip.$field "bootstrap.zip.$field" }
-    if ($zip.kind -cne 'zip' -or $zip.resolver -cne 'release-assets' -or $zip.verification -cne 'asset-digest') {
-        throw 'invalid catalog bootstrap ZIP recipe'
-    }
-    Assert-InstallString $zip.metadataUrl 'bootstrap.zip.metadataUrl'
-    Assert-InstallString $zip.assetPattern 'bootstrap.zip.assetPattern'
-    $null = [regex]::new($zip.assetPattern)
-    Assert-InstallRelativePath $zip.pathFolder 'bootstrap.zip.pathFolder' -AllowEmpty
     return $Catalog
 }
 
@@ -330,7 +199,7 @@ function Test-InstallListing {
         return $false
     }
     $listing = $entry.plugin.listing
-    if ($listing -and $listing.format -eq 'json') {
+    if ($listing.format -eq 'json') {
         try {
             $plugins = @((($Lines -join "`n") | ConvertFrom-Json -ErrorAction Stop))
             return [bool](@($plugins | Where-Object {
@@ -339,8 +208,8 @@ function Test-InstallListing {
             }).Count)
         } catch { throw "$Tool plugin listing returned invalid JSON" }
     }
-    $reject = if ($IncludeDisabled) { 'not installed' } elseif ($listing) { $listing.rejectPattern } else { 'not installed|disabled' }
-    $pattern = if ($Tool) { '(^|[\s`])legion@ps-legion-marketplace(\s|`|"|$)' } else { 'legion@ps-legion-marketplace' }
+    $reject = if ($IncludeDisabled) { 'not installed' } else { $listing.rejectPattern }
+    $pattern = '(^|[\s`])legion@ps-legion-marketplace(\s|`|"|$)'
     $matching = @($Lines) | Where-Object { $_ -match $pattern }
     return [bool](@($matching) | Where-Object { -not $reject -or $_ -notmatch $reject })
 }
@@ -383,29 +252,25 @@ function Invoke-LegionInstallSteps {
         $command = $commands[$index]
         $kind = if ($index -eq 0) { 'marketplace' } else { 'plugin' }
         if (-not $marketplaceAdded -and (Test-InstallStepDone -Command $command -Kind $kind -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir)) {
-            if ($index -eq 0) {
-                $rootReady = $true
-                if ($entry.plugin.marketplaceListing.rootField) {
-                    $rootReady = Test-InstallStepDone -Command $command -Kind marketplace -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir -RequireRoot
-                }
-                $pluginReady = Test-InstallStepDone -Command $commands[1] -Kind plugin -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir
-                if (-not $rootReady -or -not $pluginReady) {
-                    if (-not $entry.plugin.marketplaceUpdate.Count) { throw "$Tool has no marketplace refresh command" }
-                    $refresh = @($entry.command) + $entry.plugin.marketplaceUpdate
-                    if ($DryRun) { Format-InstallCommand -Command $refresh -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
-                    else { Invoke-InstallCommand -Command $refresh -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
-                    $marketplaceAdded = $true
-                    continue
-                }
+            if ($index -ne 0) {
+                "skip: $($command -join ' ') (already done)"
+                continue
+            }
+            $rootReady = $true
+            if ($entry.plugin.marketplaceListing.rootField) {
+                $rootReady = Test-InstallStepDone -Command $command -Kind marketplace -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir -RequireRoot
+            }
+            $pluginReady = Test-InstallStepDone -Command $commands[1] -Kind plugin -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir
+            if ($rootReady -and $pluginReady) {
                 "skip: $($command -join ' ') (already done)"
                 "skip: $($commands[1] -join ' ') (already done)"
                 return
             }
-            "skip: $($command -join ' ') (already done)"
-            continue
+            if (-not $entry.plugin.marketplaceUpdate.Count) { throw "$Tool has no marketplace refresh command" }
+        } else {
+            if ($DryRun) { Format-InstallCommand -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
+            else { Invoke-InstallCommand -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
         }
-        if ($DryRun) { Format-InstallCommand -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
-        else { Invoke-InstallCommand -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
         if ($index -eq 0) {
             $marketplaceAdded = $true
             if ($entry.plugin.marketplaceUpdate.Count) {
@@ -466,7 +331,6 @@ function Get-UpdateConfigDirs {
     $defaultFolder = if ($override) { $override } else { $entry.plugin.defaultConfigDir }
     if ($defaultFolder) { $defaultFolder = Resolve-InstallConfigDir $defaultFolder }
     $folders = @()
-    $homeRoot = Get-InstallHome
     $file = Get-InstallOwnerPath -Name Settings
     if (Test-Path -LiteralPath $file -PathType Leaf) {
         $data = Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
@@ -687,28 +551,38 @@ function Test-InstallGeneratedPathSafe {
 }
 
 function Get-UninstallCachePath {
-    param($Entry, [string]$ConfigDir, [switch]$AllowFile)
+    param($Entry, [string]$ConfigDir)
     if (-not $Entry.plugin.cacheDir) { return }
     if (-not $ConfigDir) {
         if (-not $Entry.plugin.defaultConfigDir) { throw 'Missing plugin.defaultConfigDir for cache cleanup' }
         $ConfigDir = Join-Path (Get-InstallHome) $Entry.plugin.defaultConfigDir.Substring(2)
     }
-    $root = [IO.Path]::GetFullPath($ConfigDir).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
-    $path = [IO.Path]::GetFullPath((Join-Path $root $Entry.plugin.cacheDir))
+    return Get-InstallSafePath -Root $ConfigDir -Relative $Entry.plugin.cacheDir
+}
+
+function Get-InstallSafePath {
+    param([string]$Root, $Relative, [switch]$AllowFile)
+    # Catalogs are generated and schema-checked, but deletion paths must still be exact and relative.
+    if ($Relative -isnot [string] -or [string]::IsNullOrWhiteSpace($Relative) -or
+        $Relative -match '(^[/\\~]|:|(^|[/\\])\.{1,2}([/\\]|$)|[*?]|[/\\]$|[/\\]{2})') {
+        throw 'Unsafe relative path: expected an exact path under the root'
+    }
+    $rootPath = [IO.Path]::GetFullPath($Root)
+    $path = [IO.Path]::GetFullPath((Join-Path $rootPath $Relative))
     $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
-    if (-not $path.StartsWith($root + [IO.Path]::DirectorySeparatorChar, $comparison)) { throw 'Unsafe plugin cache path' }
+    $prefix = $rootPath.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    if (-not $path.StartsWith($prefix, $comparison)) { throw 'Unsafe path outside the root' }
     if (-not (Test-Path -LiteralPath $path)) { return }
     if (-not $AllowFile -and -not (Test-Path -LiteralPath $path -PathType Container)) { return }
-    # Refuse linked ancestors and linked contents, including junctions on Windows PowerShell.
-    $current = $path
-    while ($current) {
-        if ((Get-Item -LiteralPath $current -Force -ErrorAction Stop).Attributes -band [IO.FileAttributes]::ReparsePoint) {
-            Write-Host "skip: plugin cache $path (linked folder)"
-            return
-        }
-        $current = Split-Path $current -Parent
+    $homeRoot = [IO.Path]::GetFullPath((Get-InstallHome))
+    $homePrefix = $homeRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    # Selected config folders may live outside home; home paths never walk above it.
+    $stopRoot = if ($path.StartsWith($homePrefix, $comparison)) { $homeRoot } else { [IO.Path]::GetPathRoot($path) }
+    if (-not (Test-LegionOwnerPathSafe -Path $path -StopRoot $stopRoot)) {
+        Write-Host "skip: plugin cache $path (linked folder)"
+        return
     }
-    $pending = New-Object 'Collections.Generic.Stack[string]'
+    $pending = [Collections.Generic.Stack[string]]::new()
     if (Test-Path -LiteralPath $path -PathType Container) { $pending.Push($path) }
     while ($pending.Count) {
         foreach ($item in (Get-ChildItem -LiteralPath $pending.Pop() -Force -ErrorAction Stop)) {
@@ -884,24 +758,6 @@ function Get-InstallPurgeEdit {
     }
 }
 
-function Get-InstallPurgeTrustPath {
-    param([string]$ConfigDir)
-    # Codex legacy_trust_path: SHA256 of length-prefixed config path and plugin ID.
-    $stream = New-Object IO.MemoryStream
-    $hash = [Security.Cryptography.SHA256]::Create()
-    try {
-        foreach ($part in @([IO.Path]::GetFullPath((Join-Path $ConfigDir 'config.toml')), 'legion@ps-legion-marketplace')) {
-            $bytes = [Text.Encoding]::UTF8.GetBytes($part)
-            $length = [BitConverter]::GetBytes([uint64]$bytes.Length)
-            if (-not [BitConverter]::IsLittleEndian) { [Array]::Reverse($length) }
-            $stream.Write($length, 0, $length.Length)
-            $stream.Write($bytes, 0, $bytes.Length)
-        }
-        $name = ([BitConverter]::ToString($hash.ComputeHash($stream.ToArray()))).Replace('-', '').ToLowerInvariant()
-        return ".hook-trust/$name"
-    } finally { $stream.Dispose(); $hash.Dispose() }
-}
-
 function Get-InstallPurgePlan {
     param([string]$ConfigDir)
     # Purge is global even if the preceding uninstall selected only some targets.
@@ -945,17 +801,14 @@ function Get-InstallPurgePlan {
             $seen += $key
             $purge = $entry.plugin.purge
             $relativePaths = @($entry.plugin.cacheDir) + @($purge.paths)
-            if ($purge.legacyHookTrust) { $relativePaths += Get-InstallPurgeTrustPath -ConfigDir $folder }
             foreach ($relative in $relativePaths) {
                 if (-not $relative) { continue }
-                $descriptor = @{ plugin=@{ cacheDir=$relative } }
-                $path = Get-UninstallCachePath -Entry $descriptor -ConfigDir $folder -AllowFile 6>$null
+                $path = Get-InstallSafePath -Root $folder -Relative $relative -AllowFile 6>$null
                 if ($path) { $paths += [pscustomobject]@{ Path=$path; Root=$folder; Relative=$relative; EmptyOnly=$false } }
                 elseif (Test-Path -LiteralPath (Join-Path $folder $relative)) { $manualSteps += "Manual step: $(Join-Path $folder $relative) (linked path; left in place)" }
             }
             foreach ($relative in $purge.emptyDirs) {
-                $descriptor = @{ plugin=@{ cacheDir=$relative } }
-                $path = Get-UninstallCachePath -Entry $descriptor -ConfigDir $folder 6>$null
+                $path = Get-InstallSafePath -Root $folder -Relative $relative 6>$null
                 # List the parent only if its remaining children are already planned for removal.
                 if ($path -and -not @(Get-ChildItem -LiteralPath $path -Force | Where-Object { $_.FullName -notin $paths.Path }).Count) {
                     $paths += [pscustomobject]@{ Path=$path; Root=$folder; Relative=$relative; EmptyOnly=$true }
@@ -963,8 +816,7 @@ function Get-InstallPurgePlan {
             }
             foreach ($setting in $purge.settings) {
                 $relative = $setting.path
-                $descriptor = @{ plugin=@{ cacheDir=$relative } }
-                $path = Get-UninstallCachePath -Entry $descriptor -ConfigDir $folder -AllowFile 6>$null
+                $path = Get-InstallSafePath -Root $folder -Relative $relative -AllowFile 6>$null
                 if (-not $path -and (Test-Path -LiteralPath (Join-Path $folder $relative))) { $manualSteps += "Manual step: $(Join-Path $folder $relative) (linked path; left in place)" }
                 if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) {
                     $alreadyEdited = if ($env:OS -eq 'Windows_NT') { $edits.Path -contains $path } else { $edits.Path -ccontains $path }
@@ -976,8 +828,7 @@ function Get-InstallPurgePlan {
             }
         }
     }
-    $legionDescriptor = @{ plugin=@{ cacheDir='.legion' } }
-    $legion = Get-UninstallCachePath -Entry $legionDescriptor -ConfigDir (Get-InstallHome) 6>$null
+    $legion = Get-InstallSafePath -Root (Get-InstallHome) -Relative '.legion' 6>$null
     if (-not $legion -and (Test-Path -LiteralPath (Get-InstallLegionPath ''))) { $manualSteps += 'Manual step: legion home contains linked paths; left in place.' }
     return [pscustomobject]@{
         Paths=$paths; Edits=$edits; Legion=$legion; HomeRoot=(Get-InstallHome); ManualSteps=$manualSteps
@@ -1006,7 +857,6 @@ function Show-InstallPurgePlan {
         } else { "Remove file: $($item.Path)" }
     }
     foreach ($step in $Plan.ManualSteps) { $step }
-    'Codex hook approvals for folders legion no longer knows cannot be identified and are left in place.'
 }
 
 function Invoke-InstallPurgePlan {
@@ -1021,14 +871,12 @@ function Invoke-InstallPurgePlan {
     }
     foreach ($edit in $Plan.Edits) {
         # Refuse a concurrent settings write rather than overwriting the owner's changes.
-        $descriptor = @{ plugin=@{ cacheDir=([IO.Path]::GetFileName($edit.Path)) } }
-        $safe = Get-UninstallCachePath -Entry $descriptor -ConfigDir (Split-Path $edit.Path) -AllowFile
+        $safe = Get-InstallSafePath -Root (Split-Path $edit.Path) -Relative ([IO.Path]::GetFileName($edit.Path)) -AllowFile
         if (-not $safe -or [Convert]::ToBase64String([IO.File]::ReadAllBytes($edit.Path)) -cne [Convert]::ToBase64String($edit.Before)) { throw 'Settings changed after preview; run purge again.' }
         [IO.File]::WriteAllBytes($edit.Path, $edit.After)
     }
     foreach ($item in $Plan.Paths) {
-        $descriptor = @{ plugin=@{ cacheDir=$item.Relative } }
-        $safe = Get-UninstallCachePath -Entry $descriptor -ConfigDir $item.Root -AllowFile
+        $safe = Get-InstallSafePath -Root $item.Root -Relative $item.Relative -AllowFile
         if (-not $safe -or $safe -cne $item.Path) { continue }
         if ($item.EmptyOnly -and @(Get-ChildItem -LiteralPath $safe -Force).Count) { continue }
         Remove-Item -LiteralPath $safe -Recurse -Force -ErrorAction Stop
@@ -1036,8 +884,7 @@ function Invoke-InstallPurgePlan {
     # The running installer may be a private copy under this tree; functions are
     # already loaded. Legion's caller tolerates its copy having been removed.
     if ($Plan.Legion) {
-        $descriptor = @{ plugin=@{ cacheDir='.legion' } }
-        $safe = Get-UninstallCachePath -Entry $descriptor -ConfigDir $Plan.HomeRoot
+        $safe = Get-InstallSafePath -Root $Plan.HomeRoot -Relative '.legion'
         if ($safe -and $safe -ceq $Plan.Legion) { Remove-Item -LiteralPath $safe -Recurse -Force -ErrorAction Stop }
     }
 }
@@ -1141,7 +988,6 @@ function Invoke-LegionUninstall {
                 }
             }
         }
-        $bin = [IO.Path]::GetFullPath((Get-InstallLegionPath 'bin'))
         foreach ($path in $files) {
             # The preview is not ownership: a file or any ancestor may have changed since then.
             if (@(Get-UninstallFiles -Tools $Tools -ConfigDir $ConfigDir -Owner $owner -KeepOwnerCommands:($survivors.Count -gt 0)) -cnotcontains $path) { continue }
@@ -1159,7 +1005,6 @@ function Invoke-LegionUninstall {
     }
     $configuration = Get-InstallLegionPath 'configuration'
     $accounts = Get-InstallLegionPath 'agents'
-    $bin = Get-InstallLegionPath 'bin'
     if (Test-Path -LiteralPath $configuration) { "Kept settings and notes: $configuration" }
     if (Test-Path -LiteralPath $accounts) { "Kept account folders and logins: $accounts" }
     if (Test-Path -LiteralPath $bin) { "Kept account launchers: $bin" }
@@ -1178,7 +1023,7 @@ function Invoke-LegionUninstall {
 }
 
 function Invoke-LegionUpdateSteps {
-    param($Entry, [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, [string]$Source = 'BlackGad/ps-legion-marketplace', [ValidateSet('release','main')][string]$Ref = 'release', [string]$PluginRoot)
+    param($Entry, [string]$ConfigDir, [switch]$DryRun, [string]$Source = 'BlackGad/ps-legion-marketplace', [ValidateSet('release','main')][string]$Ref = 'release', [string]$PluginRoot)
     $configEnv = $Entry.configEnv
     $previous = [Environment]::GetEnvironmentVariable($configEnv, 'Process')
     try {
@@ -1352,7 +1197,7 @@ function Invoke-LegionInstaller {
         }
         $Source = Resolve-InstallSource -Source $Source
         foreach ($target in $targets) {
-            Invoke-LegionUpdateSteps -Entry $target.Entry -ConfigDir $target.Folder -PluginRoot $target.Root -Source $Source -Ref $Ref -DryRun:$DryRun -Yes
+            Invoke-LegionUpdateSteps -Entry $target.Entry -ConfigDir $target.Folder -PluginRoot $target.Root -Source $Source -Ref $Ref -DryRun:$DryRun
         }
         if (-not $DryRun) { 'done: restart your sessions; run legion in the repository' }
         return

@@ -805,12 +805,6 @@ function Assert-IntegrationPurged {
     Assert-IntegrationTrue ($listing.ExitCode -eq 0) "$($Target.Tool) marketplace listing failed after purge"
     Assert-IntegrationTrue (-not (Test-IntegrationListing -Kind marketplace -Tool $Target.Tool -Lines $listing.Lines)) "legion marketplace is still registered in $($Target.Folder)"
     $paths = @($info.plugin.cacheDir) + @($info.plugin.purge.paths) + @($info.plugin.purge.emptyDirs)
-    if ($info.plugin.purge.legacyHookTrust) {
-        $paths += & {
-            . (Join-Path $script:Ctx.Checkout 'plugins/legion/install.ps1') -NoRun
-            Get-InstallPurgeTrustPath -ConfigDir $Target.Folder
-        }
-    }
     foreach ($relative in $paths) {
         if (-not $relative) { continue }
         $path = Join-Path $Target.Folder $relative

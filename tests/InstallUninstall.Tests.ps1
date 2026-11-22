@@ -184,8 +184,8 @@ exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-
     . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $catalog = Get-InstallCatalog -Source $repo
     foreach ($field in @('uninstall','marketplaceRemove')) {
-        $bad = $catalog | ConvertTo-Json -Depth 100 | ConvertFrom-Json
-        $bad.tools[0].plugin | Add-Member $field 'invalid' -Force
-        Assert-Throws { Get-InstallCatalog -Catalog $bad } "Invalid $field rejected before mutation"
+        $bad = Get-Content (Join-Path $repo 'plugins/legion/skills/legion-claude/tool.json') -Raw | ConvertFrom-Json
+        $bad.plugin.$field = 'invalid'
+        Assert-True (-not (Test-Json -Json ($bad | ConvertTo-Json -Depth 100) -SchemaFile (Join-Path $repo 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) "Invalid $field rejected before catalog generation"
     }
 }

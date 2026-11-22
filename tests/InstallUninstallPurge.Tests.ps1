@@ -103,7 +103,7 @@ Test-PurgeScenario {
     Assert-True (-not (Test-Path (Join-Path $fixtureHome 'override-copilot/plugin-data/ps-legion-marketplace'))) 'Purge removes Copilot data and empty marketplace parent'
     Assert-Equal '{"enabledPlugins":{"other@else":true},"theme":"dark"}' ([IO.File]::ReadAllText($settings)) 'Only legion member and its comma removed'
     Assert-Equal 'repository data' ([IO.File]::ReadAllText($repoFile)) 'Repository legion folder preserved'
-    Assert-True ($output.Contains('folders legion no longer knows')) 'Prints hook baseline limitation'
+    Assert-True (-not $output.Contains('hook approvals')) 'Purge no longer advertises legacy hook-trust cleanup'
     $repeat = @(Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes)
     Assert-True ($repeat -contains 'skip: purge (already done)') 'Repeated purge skips without writes'
 }
@@ -198,14 +198,26 @@ Test-PurgeScenario {
 Test-PurgeScenario {
     $state.Missing=$true
     $config = Join-Path $fixtureHome '.codex'
-    $baseline = New-PurgeFile ('.codex/' + (Get-InstallPurgeTrustPath -ConfigDir $config)) 'legion bundle hash'
+    # Reproduce the historical key only in this fixture to prove it stays untouched.
+    $bytes = [Collections.Generic.List[byte]]::new()
+    foreach ($part in @([IO.Path]::GetFullPath((Join-Path $config 'config.toml')), 'legion@ps-legion-marketplace')) {
+        $textBytes = [Text.Encoding]::UTF8.GetBytes($part)
+        $length = [BitConverter]::GetBytes([uint64]$textBytes.Length)
+        if (-not [BitConverter]::IsLittleEndian) { [Array]::Reverse($length) }
+        $bytes.AddRange($length)
+        $bytes.AddRange($textBytes)
+    }
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { $key = ([BitConverter]::ToString($hash.ComputeHash($bytes.ToArray()))).Replace('-', '').ToLowerInvariant() }
+    finally { $hash.Dispose() }
+    $baseline = New-PurgeFile ".codex/.hook-trust/$key" 'legion bundle hash'
     $unknown = New-PurgeFile '.codex/.hook-trust/unknown-baseline' 'unattributable hash'
     $otherData = New-PurgeFile 'override-copilot/plugin-data/ps-legion-marketplace/other/keep.txt' 'other plugin'
     $otherCache = New-PurgeFile '.codex/plugins/cache/other-marketplace/other/1.0/plugin.json' 'other cache'
     $data = New-PurgeFile '.codex/plugins/data/legion-ps-legion-marketplace/state.json'
     $checkout = New-PurgeFile '.codex/.tmp/marketplaces/ps-legion-marketplace/.git/config'
     $null = Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes
-    Assert-True (-not (Test-Path $baseline)) 'Known Codex baseline removed'
+    Assert-Equal 'legion bundle hash' ([IO.File]::ReadAllText($baseline)) 'Legacy Codex baseline preserved'
     Assert-Equal 'unattributable hash' ([IO.File]::ReadAllText($unknown)) 'Unknown baseline preserved'
     Assert-True (-not (Test-Path $data)) 'Codex plugin data removed'
     Assert-True (-not (Test-Path $checkout)) 'Managed marketplace checkout removed'
@@ -310,12 +322,9 @@ Test-PurgeScenario {
     Assert-True (-not (Test-Path $owned)) 'Applier removes the folder declared by the descriptor'
     Assert-Equal '{"enabledPlugins":{},"other":1}' ([IO.File]::ReadAllText($settings)) 'Applier uses the descriptor settings file and preserves unrelated bytes'
     $entry.plugin.purge.paths=@('../fake-real')
-    Assert-Throws { Get-InstallCatalog -Catalog $catalog } 'Standalone catalog rejects purge paths outside a tool folder'
+    Assert-Throws { Get-InstallPurgePlan } 'Purge rejects catalog paths outside a tool folder'
     $descriptor = Get-Content (Join-Path $repo 'plugins/legion/skills/legion-claude/tool.json') -Raw | ConvertFrom-Json
     $descriptor.plugin.purge.settings[0].path='../outside.json'
     $invalid = $descriptor | ConvertTo-Json -Depth 100
-    # The standalone installer also runs on 5.1; JSON Schema validation is a 7-only check.
-    if (Get-Command Test-Json -ErrorAction SilentlyContinue) {
-        Assert-True (-not (Test-Json -Json $invalid -SchemaFile (Join-Path $repo 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) 'Tool schema rejects settings paths outside the config folder'
-    }
+    Assert-True (-not (Test-Json -Json $invalid -SchemaFile (Join-Path $repo 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) 'Tool schema rejects settings paths outside the config folder'
 }
