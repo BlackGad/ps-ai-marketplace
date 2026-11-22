@@ -32,11 +32,11 @@ if (-not (Test-Path -LiteralPath $file)) {
 } else { $data = Read-LegionJson -Path $file }
 switch ($Action) {
     add {
-        $descriptor = Get-LegionTool -Tool $Tool
+        $null = Get-LegionTool -Tool $Tool
         $existing = Get-LegionAgent -Data $data -Id $Id
         if ($Provider -eq 'foundry') {
             if ($ConfigDir) { throw '-ConfigDir is for existing subscription accounts; omit it for Foundry.' }
-            if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
+            $null = Get-LegionFoundryTool -Tool $Tool
             Assert-LegionId -Id $Id
 
             $Endpoint = ConvertTo-FoundryEndpoint -Url $Endpoint

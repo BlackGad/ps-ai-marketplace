@@ -42,9 +42,9 @@ try {
     # All machine, CLI and network seams are inert; account creation still runs the real add path.
     function Test-SetupCommand { param($Name) return ($Name -cnotin $script:missingTools) }
     function Test-SetupToolInstalled { param($Tool) return ($Tool -cnotin $script:missingTools) }
-    function Get-SetupUserPath { return $script:userPath }
-    function Get-SetupMachinePath { return '' }
-    function Set-SetupUserPath { param($Value) $script:pathWrites.Add($Value); $script:userPath = $Value }
+    function Get-InstallUserPath { return $script:userPath }
+    function Get-InstallMachinePath { return '' }
+    function Set-InstallUserPath { param($Path) $script:pathWrites.Add($Path); $script:userPath = $Path }
     function Find-SetupInstaller { return (Join-Path $tempRoot 'inert-installer.ps1') }
     function Invoke-SetupToolInstall {
         param($Tool)
@@ -408,7 +408,7 @@ try {
                 $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ieq '$env:PATH'
             }, $true)
             Assert-Equal 0 $assignments.Count 'B3 command probing never assigns process PATH'
-            function Get-SetupMachinePath { return '' }
+            function Get-InstallMachinePath { return '' }
             $script:userPath = $fakeBin
             $env:PATH = if ($IsWindows) { $systemBin } else { $fixturePath }
             $before = $env:PATH

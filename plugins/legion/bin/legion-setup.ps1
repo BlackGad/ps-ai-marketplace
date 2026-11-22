@@ -15,50 +15,15 @@ $script:SetupPluginRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'lib/commands.ps1')
 . (Join-Path $PSScriptRoot 'install-tool/recipe.ps1')
 
-function Get-SetupUserPath {
-    # Preserve expandable entries such as %USERPROFILE% rather than writing their expanded values.
-    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
-    if (-not $key) { return '' }
-    try { return [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) }
-    finally { $key.Dispose() }
-}
-
-function Set-SetupUserPath {
-    param([string]$Value)
-    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
-    try {
-        $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
-        if ($key.GetValueNames() -icontains 'Path') { $kind = $key.GetValueKind('Path') }
-        $key.SetValue('Path', $Value, $kind)
-    } finally { $key.Dispose() }
-    # Notify other Windows applications without requiring a sign-out.
-    if (-not ('LegionSetup.Environment' -as [type])) {
-        Add-Type -Namespace LegionSetup -Name Environment -MemberDefinition @'
-[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-public static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UIntPtr parameter, string value, uint flags, uint timeout, out UIntPtr result);
-'@
-    }
-    $result = [UIntPtr]::Zero
-    [void][LegionSetup.Environment]::SendMessageTimeout([IntPtr]0xffff, 0x1a, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
-}
-
-function Get-SetupMachinePath {
-    return [Environment]::GetEnvironmentVariable('Path', 'Machine')
-}
-
 function Find-SetupCommand {
     param([string]$Name)
     $command = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($command) { return $command.Source }
     if ($IsWindows) {
         # Probe newly installed commands without changing the calling process's PATH.
-        foreach ($path in @((Get-SetupUserPath), (Get-SetupMachinePath))) {
-            if (-not $path) { continue }
-            foreach ($entry in $path.Split(';', [StringSplitOptions]::RemoveEmptyEntries)) {
-                $expanded = [Environment]::ExpandEnvironmentVariables($entry)
-                $command = Get-Command (Join-Path $expanded $Name) -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($command) { return $command.Source }
-            }
+        foreach ($folder in (Get-LegionPersistentFolders)) {
+            $command = Get-Command (Join-Path $folder $Name) -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($command) { return $command.Source }
         }
     }
     return $null
@@ -78,12 +43,8 @@ function Invoke-SetupProcess {
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     if ($IsWindows) {
-        foreach ($path in @((Get-SetupUserPath), (Get-SetupMachinePath))) {
-            if (-not $path) { continue }
-            foreach ($entry in $path.Split(';', [StringSplitOptions]::RemoveEmptyEntries)) {
-                $expanded = [Environment]::ExpandEnvironmentVariables($entry)
-                if (-not (Test-LegionPathEntry -Path $start.Environment['PATH'] -Folder $expanded)) { $start.Environment['PATH'] += ";$expanded" }
-            }
+        foreach ($folder in (Get-LegionPersistentFolders)) {
+            if (-not (Test-LegionPathEntry -Path $start.Environment['PATH'] -Folder $folder)) { $start.Environment['PATH'] += ";$folder" }
         }
     }
     foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
@@ -132,7 +93,7 @@ function Invoke-SetupInstaller {
 
 function Resolve-SetupFolder {
     param([string]$Folder, [string]$HomeRoot)
-    if ($Folder.StartsWith('~/') -or $Folder.StartsWith('~\')) { $Folder = Join-Path $HomeRoot $Folder.Substring(2) }
+    $Folder = Resolve-LegionHomePath -Path $Folder -HomeRoot $HomeRoot
     $fullPath = [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Folder))
     return [IO.Path]::TrimEndingDirectorySeparator($fullPath)
 }
@@ -198,7 +159,7 @@ function Get-SetupAddedAccount {
     }
     if (-not $Id) { $Id = Get-SetupNextId -Tool $toolId -Data $Data }
     if (-not $folder) { $folder = Get-LegionNewAccountDir -Id $Id -HomeRoot $HomeRoot }
-    $existing = @($Data.agents | Where-Object { $_.id -ceq $Id })[0]
+    $existing = Get-LegionAgent -Data $Data -Id $Id
     if ($existing) {
         if ($existing.tool -cne $toolId -or $existing.provider -or -not (Get-LegionPathComparer).Equals((Resolve-SetupFolder $existing.configDir $HomeRoot), $folder)) { throw "account '$Id' already exists with other values" }
     } else { Assert-LegionNewId -Id $Id -Data $Data }
@@ -241,7 +202,7 @@ function Get-SetupPlan {
         if ($tool.id -cin @($needsStockCommand.Tool.id) -and -not (Test-SetupCommand -Name $tool.command)) { $missing += $tool }
     }
     $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
-    $path = if ($IsWindows) { Get-SetupUserPath } else { $env:PATH }
+    $path = if ($IsWindows) { Get-InstallUserPath } else { $env:PATH }
     $version = (Read-LegionJson (Join-Path $script:SetupPluginRoot 'plugin.json')).version
     return @{
         HomeRoot = $HomeRoot; Settings = $settings; Data = $data; Accounts = $accounts; MissingTools = $missing
@@ -412,11 +373,7 @@ function Set-SetupPath {
         if (-not $Plan.NeedsPath) { 'skip: path (already done)' }
         return
     }
-    if ($Plan.NeedsPath) {
-        $current = Get-SetupUserPath
-        $updated = if ($current) { $current.TrimEnd(';') + ';' + $Plan.Bin } else { $Plan.Bin }
-        Set-SetupUserPath -Value $updated
-    } else { 'skip: path (already done)' }
+    if ($Plan.NeedsPath) { Add-LegionUserPath -Folder $Plan.Bin } else { 'skip: path (already done)' }
     if (-not (Test-LegionPathEntry -Path $env:PATH -Folder $Plan.Bin)) { $env:PATH += ";$($Plan.Bin)" }
 }
 

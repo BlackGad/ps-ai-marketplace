@@ -31,20 +31,38 @@ function Get-LegionChannels {
     }
 }
 
-function Resolve-LegionChannel {
-    param($Personalisation, [string]$Id, [string]$Tool, [string]$SkillsRoot = (Join-Path $PSScriptRoot '../../skills'))
+# The one channel lookup: the binding in the owner's settings, exactly one.
+function Get-LegionChannelBinding {
+    param($Personalisation, [string]$Id)
     $matches = @($Personalisation.channels | Where-Object id -CEQ $Id)
     if ($matches.Count -ne 1) { throw "unknown or duplicate channel '$Id'" }
-    $channel = $matches[0]
+    return $matches[0]
+}
+
+# The channel kind descriptor (its launch map), or an error for an unknown kind.
+function Get-LegionChannelKind {
+    param([string]$Kind, [string]$SkillsRoot = (Join-Path $PSScriptRoot '../../skills'))
+    $descriptor = @(Get-LegionChannels $SkillsRoot | Where-Object id -CEQ $Kind)[0]
+    if (-not $descriptor) { throw "unknown channel kind '$Kind'" }
+    return $descriptor
+}
+
+function Test-LegionChannelLaunchesTool {
+    param($Descriptor, [string]$Tool)
+    return $Tool -cin $Descriptor.launch.PSObject.Properties.Name
+}
+
+function Resolve-LegionChannel {
+    param($Personalisation, [string]$Id, [string]$Tool, [string]$SkillsRoot = (Join-Path $PSScriptRoot '../../skills'))
+    $channel = Get-LegionChannelBinding -Personalisation $Personalisation -Id $Id
     if ($channel.target -isnot [string] -or -not $channel.target -or $channel.id -cnotmatch '^[a-z][a-z0-9-]*$') { throw "invalid channel '$Id'" }
-    $descriptor = @(Get-LegionChannels $SkillsRoot | Where-Object id -CEQ $channel.kind)[0]
-    if (-not $descriptor) { throw "unknown channel kind '$($channel.kind)'" }
-    if ($Tool -cnotin $descriptor.launch.PSObject.Properties.Name) { throw "channel '$Id' does not support tool '$Tool'" }
+    $descriptor = Get-LegionChannelKind -Kind $channel.kind -SkillsRoot $SkillsRoot
+    if (-not (Test-LegionChannelLaunchesTool $descriptor $Tool)) { throw "channel '$Id' does not support tool '$Tool'" }
     if (-not @($channel.accounts).Count -or @($channel.accounts | Select-Object -Unique).Count -ne @($channel.accounts).Count) { throw "invalid channel accounts '$Id'" }
     foreach ($accountId in $channel.accounts) {
         $account = @($Personalisation.agents | Where-Object id -CEQ $accountId)
         if ($account.Count -ne 1) { throw "channel '$Id': unknown account '$accountId'" }
-        if ($account[0].tool -cnotin $descriptor.launch.PSObject.Properties.Name) { throw "channel '$Id': unsupported bound tool '$($account[0].tool)'" }
+        if (-not (Test-LegionChannelLaunchesTool $descriptor $account[0].tool)) { throw "channel '$Id': unsupported bound tool '$($account[0].tool)'" }
     }
     [pscustomobject]@{
         Id=$channel.id; Kind=$channel.kind; Target=$channel.target; Accounts=@($channel.accounts)

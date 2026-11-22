@@ -99,7 +99,7 @@ try {
         Assert-True ($lines -match "on PATH: $expectedPath") 'E3 status uses the shared platform PATH test'
         $needsPath = & {
             . (Join-Path $root 'plugins/legion/bin/legion-setup.ps1') -NoRun
-            function Get-SetupUserPath { return $env:PATH }
+            function Get-InstallUserPath { return $env:PATH }
             (Get-SetupPlan -HomeRoot $fixtureHome).NeedsPath
         }
         Assert-Equal (-not $IsWindows) $needsPath 'E3 setup uses the same platform PATH test as status'

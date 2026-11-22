@@ -29,18 +29,15 @@ function Get-LegionReferenceIssues {
         foreach ($id in $channel.accounts) {
             if ($id -cnotin $ids) { "channel '$($channel.id)': unknown account '$id'" }
         }
-        if ($Data.channels.Count) {
-            try {
-                $descriptor = @(Get-LegionChannels | Where-Object id -CEQ $channel.kind)[0]
-                if (-not $descriptor) { throw "unknown channel kind '$($channel.kind)'" }
-                foreach ($id in $channel.accounts) {
-                    $agent = Get-LegionAgent -Data $Data -Id $id
-                    if ($agent -and $agent.tool -cnotin $descriptor.launch.PSObject.Properties.Name) {
-                        "channel '$($channel.id)': unsupported tool '$($agent.tool)'"
-                    }
+        try {
+            $descriptor = Get-LegionChannelKind -Kind $channel.kind
+            foreach ($id in $channel.accounts) {
+                $agent = Get-LegionAgent -Data $Data -Id $id
+                if ($agent -and -not (Test-LegionChannelLaunchesTool $descriptor $agent.tool)) {
+                    "channel '$($channel.id)': unsupported tool '$($agent.tool)'"
                 }
-            } catch { $_.Exception.Message }
-        }
+            }
+        } catch { $_.Exception.Message }
     }
 }
 

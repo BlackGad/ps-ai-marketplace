@@ -60,22 +60,16 @@ function Test-LegionOwnedWrapper {
     $item = Get-Item -LiteralPath $Path -Force
     $expectedName = if ($item.Extension -ceq '.cmd') { "$Id.cmd" } else { $Id }
     if ($item.Name -cne $expectedName -or (Split-Path $item.DirectoryName -Leaf) -cne 'bin' -or (Split-Path (Split-Path $item.DirectoryName) -Leaf) -cne '.legion') { return $false }
-    $current = $item.FullName
-    while ($current) {
-        if ((Get-Item -LiteralPath $current -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { return $false }
-        $current = Split-Path $current -Parent
-    }
+    if (-not (Test-LegionOwnerPathSafe $item.FullName -StopRoot (Split-Path (Split-Path $item.DirectoryName)))) { return $false }
     $header = Get-LegionLauncherHeader -Id $Id -Windows:($item.Extension -ceq '.cmd')
     return [bool](@([IO.File]::ReadAllLines($Path) | Where-Object { $_ -ceq $header }).Count)
 }
 
 function Assert-LegionWrapperPath {
     param([string]$Path, [string]$Id)
-    $current = [IO.Path]::GetFullPath($Path)
-    while ($current) {
-        if ((Test-Path -LiteralPath $current) -and ((Get-Item -LiteralPath $current -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "linked wrapper path '$Path'" }
-        $current = Split-Path $current -Parent
-    }
+    # A wrapper lives at <home>/.legion/bin/<name>; the link walk stops at <home>.
+    $full = [IO.Path]::GetFullPath($Path)
+    if (-not (Test-LegionOwnerPathSafe $full -StopRoot (Split-Path (Split-Path (Split-Path $full))))) { throw "linked wrapper path '$Path'" }
     if ((Test-Path -LiteralPath $Path) -and -not (Test-LegionOwnedWrapper $Path $Id)) { throw "wrapper collision '$Path'" }
 }
 
@@ -203,8 +197,7 @@ function Write-FoundryToolConfig {
 
 function Sync-LegionFoundryRuntime {
     param([string]$Tool, [string]$HomeRoot, [Collections.Generic.List[string]]$Changes)
-    $descriptor = Get-LegionTool -Tool $Tool
-    if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
+    $descriptor = Get-LegionFoundryTool -Tool $Tool
     $runtime = [IO.Path]::GetFullPath((Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Runtime))
     if (-not (Test-LegionOwnerPathSafe $runtime -StopRoot $HomeRoot)) { throw 'Runtime path contains a link; resolve it before refreshing' }
     $binRoot = Split-Path $PSScriptRoot -Parent
@@ -248,8 +241,7 @@ function New-FoundryWrappers {
 
 function Get-LegionFoundryDiscovery {
     param([string]$Endpoint, [string]$Tool)
-    $descriptor = Get-LegionTool -Tool $Tool
-    if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
+    $descriptor = Get-LegionFoundryTool -Tool $Tool
     $check = Test-FoundryToken -Login
     if (-not $check.Ok) { throw $check.Error }
     Get-FoundryDeployments -Endpoint $Endpoint -Tool $Tool
@@ -324,8 +316,7 @@ function Select-LegionFoundryStandard {
 
 function New-LegionFoundryProvider {
     param([string]$Endpoint, [string]$Tool, [string[]]$Deployments, [string]$Default, [string[]]$Aliases, [switch]$Standard, $Discovery, $Existing)
-    $descriptor = Get-LegionTool -Tool $Tool
-    if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
+    $descriptor = Get-LegionFoundryTool -Tool $Tool
     if ($Standard) {
         $discovered = @($Discovery.Deployments)
         if ($Deployments.Count) {

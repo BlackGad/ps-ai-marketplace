@@ -106,6 +106,14 @@ function Get-LegionTool {
     return $selected
 }
 
+# The one Foundry capability check: the tool descriptor, or an error when the tool has no Foundry support.
+function Get-LegionFoundryTool {
+    param([string]$Tool)
+    $descriptor = Get-LegionTool -Tool $Tool
+    if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
+    return $descriptor
+}
+
 function Get-LegionToolScript {
     param($Tool, [ValidateSet('foundry-launch', 'foundry-config')][string]$Name)
 
@@ -116,13 +124,13 @@ function Get-LegionToolScript {
     return $null
 }
 
+# Needs are one level: each need is a known helper, and a helper needs nothing itself.
 function Assert-LegionInstallNeeds {
-    param([string]$Tool, [string]$Platform, [hashtable]$Recipes, [string[]]$HelperIds, [string[]]$Trail = @())
+    param([string]$Tool, [string]$Platform, [hashtable]$Recipes, [string[]]$HelperIds)
 
-    if ($Tool -cin $Trail) { throw "cyclic helper prerequisites: $(($Trail + $Tool) -join ' -> ')" }
     foreach ($need in $Recipes[$Tool].$Platform.needs) {
         if ($need -cnotin $HelperIds) { throw "unknown helper prerequisite '$need' for '$Tool'" }
-        Assert-LegionInstallNeeds -Tool $need -Platform $Platform -Recipes $Recipes -HelperIds $HelperIds -Trail (@($Trail) + $Tool)
+        if (@($Recipes[$need].$Platform.needs).Count) { throw "helper '$need' cannot have prerequisites" }
     }
 }
 

@@ -17,8 +17,7 @@ function Get-FoundryLaunch {
 
 function Get-FoundryToolCommand {
     param([string]$Tool, [string]$HomeRoot)
-    $descriptor = Get-LegionTool -Tool $Tool
-    if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
+    $descriptor = Get-LegionFoundryTool -Tool $Tool
     $bin = [IO.Path]::GetFullPath((Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'))
     $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     foreach ($command in @(Get-Command $descriptor.command -CommandType Application,ExternalScript -All -ErrorAction SilentlyContinue)) {

@@ -142,16 +142,36 @@ function Test-InstallPathEntry {
     return $false
 }
 
+# The one place that adds a folder to the saved user PATH (Windows registry); a repeat changes nothing.
+function Add-LegionUserPath {
+    param([string]$Folder)
+    $userPath = Get-InstallUserPath
+    if (Test-InstallPathEntry -Path $userPath -Entry $Folder -Separator ';') { return }
+    $updated = if ($userPath) { $userPath.TrimEnd(';') + ';' + $Folder } else { $Folder }
+    Set-InstallUserPath -Path $updated
+}
+
 function Add-InstallPowerShellPath {
     param([string]$Path)
-    $userPath = Get-InstallUserPath
-    if (-not (Test-InstallPathEntry -Path $userPath -Entry $Path -Separator ';')) {
-        $updated = if ($userPath) { $userPath.TrimEnd(';') + ';' + $Path } else { $Path }
-        Set-InstallUserPath -Path $updated
-    }
+    Add-LegionUserPath -Folder $Path
     if (-not (Test-InstallPathEntry -Path $env:PATH -Entry $Path -Separator ([string][IO.Path]::PathSeparator))) {
         $env:PATH = $Path + [IO.Path]::PathSeparator + $env:PATH
     }
+}
+
+function Get-InstallMachinePath {
+    return [Environment]::GetEnvironmentVariable('Path', 'Machine')
+}
+
+# Windows: the folders on the saved user and machine PATH, expanded. A new install shows up here before a new terminal.
+function Get-LegionPersistentFolders {
+    $folders = foreach ($path in @((Get-InstallUserPath), (Get-InstallMachinePath))) {
+        foreach ($entry in ([string]$path).Split(';', [StringSplitOptions]::RemoveEmptyEntries)) {
+            $folder = [Environment]::ExpandEnvironmentVariables($entry.Trim().Trim('"'))
+            if ($folder) { $folder }
+        }
+    }
+    return @($folders)
 }
 
 function Get-LegionRuntimeFiles {
