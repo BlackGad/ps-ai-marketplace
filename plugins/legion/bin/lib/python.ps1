@@ -25,7 +25,6 @@ function Invoke-LegionPython {
             'uv is missing. Ask the owner before installing it.'
             ('After the owner says yes: pwsh -NoProfile -File "' + (Join-Path $pluginRoot 'bin/legion-install-tool.ps1') + '" -Tool uv -Yes')
         )
-        $output | ForEach-Object { Write-Host $_ }
         return @{ ExitCode = 127; Output = ($output -join "`n"); Error = '' }
     }
     return Invoke-LegionProcess -Command $python.Command -Arguments $python.Arguments -Environment $python.Environment

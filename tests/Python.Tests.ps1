@@ -38,6 +38,8 @@ try {
 
     & {
         function Get-Command { param($Name, $CommandType, $ErrorAction) return $null }
+        $shown = @(Invoke-LegionPython -Arguments @('--version') -HomeRoot $HOME 6>&1 | Where-Object { $_ -isnot [hashtable] })
+        Assert-Equal 0 $shown.Count 'Missing uv hint is returned once, not also written to the host'
         $result = Invoke-LegionPython -Arguments @('--version') -HomeRoot $HOME
         Assert-Equal 127 $result.ExitCode 'Missing uv exit code'
         Assert-True (($result.Output -join "`n").Contains('uv is missing')) 'Missing uv plain message'
@@ -47,3 +49,8 @@ try {
     $env:PATH = $savedPath
     $env:UV_PROJECT_ENVIRONMENT = $savedEnvironment
 }
+
+$utf8Text = 'Привіт 👋'
+$child = Invoke-LegionProcess -Command (Get-Process -Id $PID).Path -Arguments @('-NoProfile', '-Command', "[Console]::OutputEncoding = [Text.UTF8Encoding]::new(`$false); [Console]::Out.Write('$utf8Text'); [Console]::Error.Write('$utf8Text')")
+Assert-Equal $utf8Text $child.Output 'Child stdout is decoded as UTF-8'
+Assert-Equal $utf8Text $child.Error 'Child stderr is decoded as UTF-8'
