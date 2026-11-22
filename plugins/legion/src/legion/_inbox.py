@@ -1,10 +1,10 @@
+import asyncio
 import hashlib
 import json
 import ntpath
 import os
 import posixpath
 import re
-import subprocess
 import sys
 import time
 import uuid
@@ -49,7 +49,7 @@ def send(repo: Path, sender: str, text: str) -> None:
     finally:
         temporary.unlink(missing_ok=True)
     print(name, flush=True)
-    _nudge(repo.resolve(), sender)
+    asyncio.run(_nudge(repo.resolve(), sender))
 
 
 def read(repo: Path) -> None:
@@ -70,7 +70,7 @@ def read(repo: Path) -> None:
         item.rename(done / item.name)
 
 
-def _nudge(repo: Path, sender: str) -> None:
+async def _nudge(repo: Path, sender: str) -> None:
     if not (repo / ".legion/temp/overseer.lock").is_file():
         return
     # Reuse lease lifetime checks and platform wrapper selection from PowerShell.
@@ -92,9 +92,17 @@ exit $result.ExitCode
         "LEGION_INBOX_SENDER": sender,
     }
     try:
-        result = subprocess.run(["pwsh", "-NoProfile", "-NonInteractive", "-Command", command], env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=False)
-        if result.returncode == 0:
+        process = await asyncio.create_subprocess_exec(
+            "pwsh", "-NoProfile", "-NonInteractive", "-Command", command, env=environment, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+        )
+        try:
+            result = await asyncio.wait_for(process.wait(), timeout=30)
+        finally:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+        if result == 0:
             return
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, TimeoutError):
         pass
     print("warning: inbox message saved; Codex nudge failed.", file=sys.stderr)
