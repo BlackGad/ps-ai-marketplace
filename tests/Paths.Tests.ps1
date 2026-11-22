@@ -24,7 +24,10 @@ try {
     Assert-True (-not (Test-LegionPathUnder -Path $scratch -Root $physical)) 'Equal paths require AllowEqual'
     Assert-True (Test-LegionPathUnder -Path (Join-Path $scratch 'missing/leaf') -Root $physical) 'Missing leaves resolve their linked ancestors'
     Assert-True (-not (Test-LegionPathUnder -Path ($physical + '-sibling') -Root $scratch)) 'Sibling prefixes stay outside the root'
-    Assert-Equal $IsWindows (Test-LegionPathUnder -Path $scratch.ToUpperInvariant() -Root $physical -AllowEqual) 'Resolved identity follows OS case rules'
+    $upperCase = $scratch.ToUpperInvariant()
+    $sameDirectory = $IsWindows -or ((Test-Path -LiteralPath $upperCase -PathType Container) -and
+        ((Resolve-LegionDirectoryPath $upperCase) -ceq $physical))
+    Assert-Equal $sameDirectory (Test-LegionPathUnder -Path $upperCase -Root $physical -AllowEqual) 'Resolved identity follows file system case rules'
     Assert-True (Test-LegionOwnerPathSafe -Path (Join-Path $scratch 'missing/leaf') -StopRoot $scratch) 'Safety walks stop below linked ancestors'
     Assert-True (Test-LegionOwnerPathSafe -Path $scratch -StopRoot $guard) 'Safety walks stop at the home below its linked ancestor'
     Assert-Throws { Test-LegionOwnerPathSafe -Path $guard -StopRoot $scratch } 'Safety walks reject paths outside their stop root'
