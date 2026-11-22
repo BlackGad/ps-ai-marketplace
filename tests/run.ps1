@@ -1,4 +1,4 @@
-param([string]$JUnitPath)
+param([string]$JUnitPath, [string]$Name = '*')
 
 . (Join-Path $PSScriptRoot 'lib/junit.ps1')
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
@@ -11,17 +11,17 @@ if (Test-Path -LiteralPath $catalogPath) {
     $configEnvs = (Get-Content $catalogPath -Raw | ConvertFrom-Json).tools.configEnv
 }
 $toolConfigEnvs = @($configEnvs)
-$configEnvs += @('LEGION_ROLE', 'LEGION_TASK', 'HOME', 'USERPROFILE')
+$configEnvs += @('LEGION_ROLE', 'LEGION_TASK', 'HOME', 'USERPROFILE', 'LEGION_TEST_GUARD')
 function Get-TestOutsideSnapshot {
     param([string]$Path)
     return @(Get-ChildItem -LiteralPath $Path -File -Recurse -Force | Sort-Object FullName | ForEach-Object { $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash }) -join '|'
 }
-foreach ($test in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Sort-Object Name) {
+foreach ($test in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Where-Object Name -Like $Name | Sort-Object Name) {
     # Tests select fixture homes and modes; inherited overrides must not affect them.
     $savedConfig = @{}
-    foreach ($name in $configEnvs) {
-        $savedConfig[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-        Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+    foreach ($configEnv in $configEnvs) {
+        $savedConfig[$configEnv] = [Environment]::GetEnvironmentVariable($configEnv, 'Process')
+        Remove-Item -LiteralPath "Env:$configEnv" -ErrorAction SilentlyContinue
     }
     $guard = Join-Path $PSScriptRoot ('../.agents/temp/test-home-' + [guid]::NewGuid().ToString('N'))
     $guardHome = Join-Path $guard 'home'
@@ -32,7 +32,8 @@ foreach ($test in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Sort-Objec
     $outsideSnapshot = Get-TestOutsideSnapshot $outside
     $env:HOME = $guardHome
     $env:USERPROFILE = $guardHome
-    foreach ($name in $toolConfigEnvs) { [Environment]::SetEnvironmentVariable($name, (Join-Path $guardHome $name), 'Process') }
+    $env:LEGION_TEST_GUARD = $guardHome
+    foreach ($configEnv in $toolConfigEnvs) { [Environment]::SetEnvironmentVariable($configEnv, (Join-Path $guardHome $configEnv), 'Process') }
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $result = 'passed'
     $message = ''
@@ -57,9 +58,9 @@ foreach ($test in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Sort-Objec
             Write-Output "FAIL $($test.Name): $message"
         }
         $cases += @{ Name = $test.Name; ClassName = 'unit'; Seconds = $watch.Elapsed.TotalSeconds; Result = $result; Message = $message }
-        foreach ($name in $configEnvs) {
-            if ($null -eq $savedConfig[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
-            else { [Environment]::SetEnvironmentVariable($name, $savedConfig[$name], 'Process') }
+        foreach ($configEnv in $configEnvs) {
+            if ($null -eq $savedConfig[$configEnv]) { Remove-Item -LiteralPath "Env:$configEnv" -ErrorAction SilentlyContinue }
+            else { [Environment]::SetEnvironmentVariable($configEnv, $savedConfig[$configEnv], 'Process') }
         }
         $guardPath = [IO.Path]::GetFullPath($guard)
         $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.agents/temp/'))

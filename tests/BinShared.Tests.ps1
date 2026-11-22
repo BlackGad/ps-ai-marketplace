@@ -12,16 +12,26 @@ $state = @{ Path = 'first'; Writes = 0 }
 function Get-InstallUserPath { $state.Path }
 function Set-InstallUserPath { param($Path) $state.Path = $Path; $state.Writes++ }
 $savedOS = $env:OS
+$pathHome = Join-Path $root ('.agents/temp/binshared-path-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $pathHome -Force | Out-Null
 try {
     $env:OS = 'Windows_NT'
-    Add-LegionUserPath -Folder 'C:\legion\bin' -HomeRoot $env:HOME
+    Add-LegionUserPath -Folder 'C:\legion\bin' -HomeRoot $pathHome
     Assert-Equal 'first;C:\legion\bin' $state.Path 'Add-LegionUserPath appends the folder'
-    Add-LegionUserPath -Folder 'C:\legion\bin\' -HomeRoot $env:HOME
+    Add-LegionUserPath -Folder 'C:\legion\bin\' -HomeRoot $pathHome
     Assert-Equal 1 $state.Writes 'A repeat (even with a trailing slash) writes nothing'
     $state.Path = ''
-    Add-LegionUserPath -Folder 'C:\legion\bin' -HomeRoot $env:HOME
+    Add-LegionUserPath -Folder 'C:\legion\bin' -HomeRoot $pathHome
     Assert-Equal 'C:\legion\bin' $state.Path 'An empty user PATH becomes the folder'
-} finally { $env:OS = $savedOS }
+    $footprints = @(Get-LegionFootprints -HomeRoot $pathHome -Kind path-entry)
+    Assert-Equal 1 $footprints.Count 'Repeated PATH writes record one footprint in the fixture home'
+    Assert-Equal 'C:\legion\bin' $footprints[0].value 'The fixture records the PATH folder'
+} finally {
+    $env:OS = $savedOS
+    $allowed = [IO.Path]::GetFullPath((Join-Path $root '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
+    if (-not [IO.Path]::GetFullPath($pathHome).StartsWith($allowed)) { throw 'Unsafe PATH fixture cleanup' }
+    Remove-Item -LiteralPath $pathHome -Recurse -Force
+}
 
 # PersistentFolders: saved user and machine PATH entries, expanded, quotes and blanks dropped.
 $env:LEGION_BINSHARED = 'C:\expanded'

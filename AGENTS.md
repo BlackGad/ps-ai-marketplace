@@ -41,6 +41,8 @@ Versions and the changelog are made by the release workflow. Task branches and p
 pwsh -NoProfile -File tests/run.ps1
 ```
 
+Run a single file with `pwsh -NoProfile -File tests/run.ps1 -Name <file>` (wildcards allowed), never directly.
+
 The last line must be `<n> passed, 0 failed`. Tests never call real `az`, `claude`, `codex`, `copilot`, winget or the network; use the fakes in `tests/` and replace download functions.
 
 CI runs the same command on Windows, macOS and Linux, and runs the integration suite (`tests/integration/run.ps1`) on every pull request; both are required checks.
