@@ -55,6 +55,13 @@ Assert-True $started.HasExited 'The bridge stops'
 Assert-True (-not (Test-Path -LiteralPath (Join-Path $botFolder 'bridge.pid'))) 'Stopping removes the bridge pid file'
 Stop-OverseerBridge -Process $null -Bridge $launch.Bridge
 
+# A pid file that names a running process (another bridge) survives this launch's shutdown.
+$other = Start-OverseerBridge -Bridge $launch.Bridge -Repo $repoPath
+Set-Content -LiteralPath (Join-Path $botFolder 'bridge.pid') -Value $PID
+Stop-OverseerBridge -Process $other -Bridge $launch.Bridge
+Assert-Equal "$PID" ((Get-Content -LiteralPath (Join-Path $botFolder 'bridge.pid')) -join '') 'Stopping keeps a pid file whose process is still alive'
+Remove-Item -LiteralPath (Join-Path $botFolder 'bridge.pid')
+
 # In place: start before the session, stop after it, also when the session fails.
 & {
     $state = @{ Events = @() }
@@ -82,6 +89,7 @@ if ($IsWindows) {
         Assert-True ($start -ge 0 -and $start -lt $session -and $session -lt $stop) 'The new tab starts the bridge, runs the session, then stops the bridge'
         Assert-True ($decoded.Contains('telegram bridge --channel main --repo')) 'The new tab starts the bridge for the channel'
         Assert-True ($decoded.Contains('$bridge.Kill($true)') -and $decoded.Contains("bridge.pid'") -and $decoded.EndsWith('exit $code')) 'The new tab stops the bridge and keeps the session exit code'
+        Assert-True ($decoded.Contains('Get-Process -Id') -and $decoded.Contains('WaitForExit')) 'The new tab removes the pid file only when its process is gone'
         $dryTab = @(Start-OverseerLaunch -Repo $repoPath -Launch $launch -DryRun)
         Assert-True (@($dryTab | Where-Object { "$_" -like 'bridge: *' }).Count -eq 1 -and $dryTab -contains 'wt') 'Dry run for the new tab shows the bridge'
         $state.Arguments = @()

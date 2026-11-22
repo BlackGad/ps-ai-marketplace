@@ -244,11 +244,14 @@ function Start-OverseerBridge {
 }
 
 # The bridge is killed with the whole uv process tree, so it cannot remove its own pid file.
+# Remove the file only when the process it names is gone: a refused second bridge must not delete the running one's marker.
 function Stop-OverseerBridge {
     param($Process, $Bridge)
     if (-not $Process) { return }
-    try { $Process.Kill($true) } catch { Write-Verbose "bridge already stopped: $_" }
-    Remove-Item -LiteralPath (Join-Path $Bridge.Folder 'bridge.pid') -Force -ErrorAction Ignore
+    try { $Process.Kill($true); $null = $Process.WaitForExit(5000) } catch { Write-Verbose "bridge already stopped: $_" }
+    $pidFile = Join-Path $Bridge.Folder 'bridge.pid'
+    $named = Get-Content -LiteralPath $pidFile -ErrorAction Ignore
+    if (-not $named -or -not (Get-Process -Id ([int]$named) -ErrorAction Ignore)) { Remove-Item -LiteralPath $pidFile -Force -ErrorAction Ignore }
 }
 
 function Start-OverseerLaunch {
@@ -276,7 +279,9 @@ function Start-OverseerLaunch {
             $start = "`$env:UV_PROJECT_ENVIRONMENT = $(& $quote $bridge.Environment.UV_PROJECT_ENVIRONMENT); " +
                 "`$bridge = Start-Process -FilePath $(& $quote $bridge.Command) -ArgumentList $(& $quote $bridge.ArgumentText) -NoNewWindow -PassThru " +
                 "-RedirectStandardOutput $(& $quote (Join-Path $bridge.Folder 'bridge.log')) -RedirectStandardError $(& $quote (Join-Path $bridge.Folder 'bridge.err')); "
-            $stop = "`$bridge.Kill(`$true); Remove-Item -LiteralPath $(& $quote (Join-Path $bridge.Folder 'bridge.pid')) -Force -ErrorAction Ignore"
+            $pidFile = & $quote (Join-Path $bridge.Folder 'bridge.pid')
+            $stop = "`$bridge.Kill(`$true); `$null = `$bridge.WaitForExit(5000); `$named = Get-Content -LiteralPath $pidFile -ErrorAction Ignore; " +
+                "if (-not `$named -or -not (Get-Process -Id ([int]`$named) -ErrorAction Ignore)) { Remove-Item -LiteralPath $pidFile -Force -ErrorAction Ignore }"
             $commandText = "Remove-Item $cleared -ErrorAction Ignore; $($assignments -join '')$start" +
                 'try { & ' + ($literals -join ' ') + '; $code = $LASTEXITCODE } finally { ' + $stop + ' }; exit $code'
         }
