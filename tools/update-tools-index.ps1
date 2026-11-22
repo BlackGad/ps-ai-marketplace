@@ -81,7 +81,7 @@ function Get-ToolsIndexChannels {
             if ($required -cnotin $keys) { throw "invalid channel descriptor '$path'" }
         }
         foreach ($key in $keys) {
-            if ($key -cnotin @('schemaVersion', 'id', 'launch', 'ready')) { throw "invalid channel descriptor '$path'" }
+            if ($key -cnotin @('schemaVersion', 'id', 'launch', 'ready', 'state')) { throw "invalid channel descriptor '$path'" }
         }
         if ($data.schemaVersion -isnot [long] -or $data.schemaVersion -ne 1 -or $data.id -isnot [string] -or $data.id -cnotmatch '^[a-z][a-z0-9-]*$') { throw "invalid channel identity '$path'" }
         if ($folder.Name -cne "legion-$($data.id)") { throw "channel folder does not match '$($data.id)'" }

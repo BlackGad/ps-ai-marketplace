@@ -155,7 +155,7 @@ function Get-OverseerLaunch {
     }
     if ($Channel.Count -and -not $common.Count) { throw 'selected channels cannot share one launch' }
     foreach ($id in $Channel) {
-        $destination = Resolve-LegionChannel $Personalisation $id $Tool
+        $destination = Resolve-LegionChannel $Personalisation $id $Tool -HomeRoot $HomeRoot
         if ($AccountId -cnotin $destination.Accounts) { throw "account '$AccountId' is not bound to channel '$id'" }
         $resolved += $destination
     }
@@ -165,6 +165,16 @@ function Get-OverseerLaunch {
         if ($destination.Kind -cin $kinds) { continue }
         $kinds += $destination.Kind
         foreach ($arg in $destination.LaunchArguments) { $channelArgs.Add($arg) }
+    }
+    # One bot folder per session: a second channel with its own folder cannot share the launch.
+    $stateful = @($resolved | Where-Object State)
+    $statefulIds = @($stateful.Id | Select-Object -Unique)
+    if ($statefulIds.Count -gt 1) { throw "A session can use only one $($stateful[0].Kind) channel (one bot folder per session); asked for: $($statefulIds -join ', ')" }
+    $environment = [ordered]@{}
+    $removed = @()
+    foreach ($destination in $stateful) {
+        $environment[$destination.State.Variable] = $destination.State.Folder
+        $removed += $destination.State.Remove
     }
     $launchArgs = [Collections.Generic.List[string]]::new()
     if ($Resume -ceq 'claude') { $launchArgs.AddRange([string[]]@('--resume', $Session)) }
@@ -177,7 +187,7 @@ function Get-OverseerLaunch {
         $launchArgs.Add('--')
     }
     $launchArgs.Add('continue as the overseer')
-    return @{Command=(Get-LegionWrapperCommand $AccountId $HomeRoot);Args=$launchArgs.ToArray()}
+    return @{Command=(Get-LegionWrapperCommand $AccountId $HomeRoot);Args=$launchArgs.ToArray();Environment=$environment;Remove=@($removed | Select-Object -Unique)}
 }
 
 # Clear parent session markers and terminal overrides for a resumable interactive session.
@@ -186,15 +196,19 @@ function Get-OverseerParentVariables {
 }
 
 function Invoke-OverseerInRepo {
-    param([string]$Repo, [string]$Command, [string[]]$Arguments)
+    param([string]$Repo, [string]$Command, [string[]]$Arguments, [Collections.IDictionary]$Environment = @{}, [string[]]$Remove = @())
     $saved = @{}
     Push-Location -LiteralPath $Repo
     try {
-        foreach ($pattern in Get-OverseerParentVariables) {
+        foreach ($pattern in @(Get-OverseerParentVariables) + $Remove) {
             foreach ($variable in Get-Item -Path "Env:$pattern" -ErrorAction Ignore) {
                 $saved[$variable.Name] = $variable.Value
                 [Environment]::SetEnvironmentVariable($variable.Name, $null)
             }
+        }
+        foreach ($name in $Environment.Keys) {
+            if (-not $saved.ContainsKey($name)) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+            [Environment]::SetEnvironmentVariable($name, $Environment[$name])
         }
         & $Command @Arguments
     }
@@ -209,21 +223,26 @@ function Start-OverseerLaunch {
     # Terminal parses semicolons as its own commands. Use the current terminal for literal ones.
     # An owner launch stays in the current terminal so its exit code is seen.
     $terminal = $null
-    if ($IsWindows -and -not $InPlace -and -not (($Repo + $Launch.Command + ($Launch.Args -join '')) -match ';')) {
+    $environment = if ($Launch.Environment) { $Launch.Environment } else { @{} }
+    $remove = @($Launch.Remove)
+    $environmentText = @($environment.Keys | ForEach-Object { "env $_=$($environment[$_])" })
+    if ($IsWindows -and -not $InPlace -and -not (($Repo + $Launch.Command + ($Launch.Args -join '') + ($environment.Values -join '')) -match ';')) {
         $terminal = Get-Command wt -CommandType Application -ErrorAction SilentlyContinue
     }
     if ($terminal) {
         $literals = @($Launch.Command) + $Launch.Args | ForEach-Object { "'" + $_.Replace("'", "''") + "'" }
-        $cleared = (Get-OverseerParentVariables | ForEach-Object { "Env:$_" }) -join ', '
-        $commandText = "Remove-Item $cleared -ErrorAction Ignore; & " + ($literals -join ' ') + '; exit $LASTEXITCODE'
+        $cleared = (@(Get-OverseerParentVariables) + $remove | ForEach-Object { "Env:$_" }) -join ', '
+        # A new terminal tab may not inherit this process's environment, so the command line sets it itself.
+        $assignments = $environment.Keys | ForEach-Object { "`$env:$_ = '" + $environment[$_].Replace("'", "''") + "'; " }
+        $commandText = "Remove-Item $cleared -ErrorAction Ignore; $($assignments -join '')& " + ($literals -join ' ') + '; exit $LASTEXITCODE'
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($commandText))
         $terminalArgs = @('new-tab', '-d', $Repo, (Get-Process -Id $PID).Path, '-NoProfile', '-EncodedCommand', $encoded)
-        if ($DryRun) { @('wt') + $terminalArgs }
+        if ($DryRun) { $environmentText + @('wt') + $terminalArgs }
         else { & $terminal.Source @terminalArgs }
     } elseif ($DryRun) {
-        @($Repo, $Launch.Command) + $Launch.Args
+        $environmentText + @($Repo, $Launch.Command) + $Launch.Args
     } else {
-        Invoke-OverseerInRepo -Repo $Repo -Command $Launch.Command -Arguments $Launch.Args
+        Invoke-OverseerInRepo -Repo $Repo -Command $Launch.Command -Arguments $Launch.Args -Environment $environment -Remove $remove
     }
 }
 
@@ -284,7 +303,10 @@ function Invoke-Overseer {
     }
     $launch = Get-OverseerLaunch -Personalisation $personalisation -AccountId $selected.id -Tool $Tool -Channel $Channel -Arguments $Arguments -HomeRoot $HomeRoot -Session $session -Resume $resume
     $save = @{ Repo = $Repo; HomeRoot = $HomeRoot; Account = $selected.id; Channel = $Channel; Arguments = $Arguments }
-    if (-not $DryRun) { Save-OverseerLastLaunch @save -Session $session }
+    if (-not $DryRun) {
+        Save-OverseerLastLaunch @save -Session $session
+        foreach ($folder in $launch.Environment.Values) { New-Item -ItemType Directory -Path $folder -Force | Out-Null }
+    }
     $channelText = if ($Channel.Count) { $Channel -join ', ' } else { 'none' }
     Write-Host ($(if ($resume) { 'resuming' } else { 'starting' }) + " overseer: $($selected.id), channel $channelText")
     # Reset first: a stale code must not look like a failed launch.
