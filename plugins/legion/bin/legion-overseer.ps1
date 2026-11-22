@@ -11,9 +11,7 @@ param(
     [switch]$NoRun
 )
 
-$launcherNoRun = $NoRun
-. (Join-Path $PSScriptRoot 'legion-validate.ps1') -NoRun
-
+. (Join-Path $PSScriptRoot 'lib/settings.ps1')
 . (Join-Path $PSScriptRoot 'lib/common.ps1')
 . (Join-Path $PSScriptRoot 'lib/channels.ps1')
 
@@ -310,7 +308,7 @@ function Invoke-Overseer {
     }
 }
 
-if (-not $launcherNoRun) {
+if (-not $NoRun) {
     try { Invoke-Overseer -Repo $Repo -HomeRoot $HomeRoot -Account $Account -Tool $Tool -Channel $Channel -Arguments $Arguments -NoChannel:$NoChannel -DryRun:$DryRun -Pick:$Pick }
     catch {
         if (-not $_.Exception.Data.Contains('LegionLaunchExitCode')) { throw }

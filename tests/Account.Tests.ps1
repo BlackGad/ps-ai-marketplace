@@ -9,7 +9,7 @@ $fake = Join-Path $homeRoot 'external.ps1'
 $notes = Join-Path (Split-Path $file) 'notes.md'
 'Keep the owner answers.' | Set-Content $notes
 & $accountScript -Action register -Id claude-a -Tool claude -Command $fake -ConfigDir '~/existing' -HomeRoot $homeRoot | Out-Null
-. $accountScript -NoRun -HomeRoot $homeRoot
+. (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
 # DerivedWrapperWithoutSavedCommand / AdoptedShortcutSurvivesLifecycle
 $data = Read-LegionJson $file
 Assert-True (-not $data.agents[0].PSObject.Properties['command']) 'No saved command'

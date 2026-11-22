@@ -8,10 +8,7 @@ param(
     [switch]$NoRun
 )
 
-# Dot-sourcing the account script resets same-named variables, so keep the request first.
-$request = @{ Action = $Action; Id = $Id; Kind = $Kind; Target = $Target; Accounts = @($Accounts); HomeRoot = $HomeRoot }
-$channelNoRun = $NoRun
-. (Join-Path $PSScriptRoot 'legion-account.ps1') -NoRun -HomeRoot $HomeRoot
+. (Join-Path $PSScriptRoot 'lib/accounts.ps1')
 . (Join-Path $PSScriptRoot 'lib/channels.ps1')
 
 function Test-ChannelCommand {
@@ -83,16 +80,16 @@ function Get-ChannelCheck {
     }
 }
 
-if ($channelNoRun) { return }
+if ($NoRun) { return }
 
-$file = Get-LegionOwnerPath -HomeRoot $request.HomeRoot -Name Settings
-if ($request.Action -eq 'check') {
-    Get-ChannelCheck -Kind $request.Kind -Accounts $request.Accounts -HomeRoot $request.HomeRoot
+$file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings
+if ($Action -eq 'check') {
+    Get-ChannelCheck -Kind $Kind -Accounts @($Accounts) -HomeRoot $HomeRoot
     return
 }
 $data = Read-LegionJson -Path $file
-switch ($request.Action) {
-    add { Add-ChannelBinding $data $file $request.Id $request.Kind $request.Target $request.Accounts }
-    remove { Remove-ChannelBinding $data $file $request.Id }
+switch ($Action) {
+    add { Add-ChannelBinding $data $file $Id $Kind $Target @($Accounts) }
+    remove { Remove-ChannelBinding $data $file $Id }
     default { throw '-Action add, remove or check is required' }
 }

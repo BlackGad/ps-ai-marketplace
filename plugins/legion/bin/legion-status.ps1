@@ -5,9 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# Dot-sourcing the validator with -NoRun overwrites $NoRun, so preserve the caller's choice.
-$statusNoRun = $NoRun
-. (Join-Path $PSScriptRoot 'legion-validate.ps1') -NoRun
+. (Join-Path $PSScriptRoot 'lib/settings.ps1')
 . (Join-Path $PSScriptRoot 'lib/common.ps1')
 . (Join-Path $PSScriptRoot 'lib/installed.ps1')
 . (Join-Path $PSScriptRoot 'lib/commands.ps1')
@@ -74,7 +72,7 @@ function Write-StatusRepository {
 }
 
 # Main: inspect settings, commands and repository without starting a CLI or changing files.
-if (-not $statusNoRun) {
+if (-not $NoRun) {
     $file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings
     $settings = $null
     if (Test-Path -LiteralPath $file -PathType Leaf) {

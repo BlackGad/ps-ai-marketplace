@@ -103,7 +103,7 @@ try {
     $bin = Join-Path $homeRoot '.legion/bin'
     New-Item -ItemType Directory -Path $bin -Force | Out-Null
     $bundledRunner = & {
-        . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -HomeRoot $homeRoot
+        . (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
         foreach ($id in @('codex','copilot')) { $null = Sync-LegionFoundryRuntime -Tool $id -HomeRoot $homeRoot }
         Sync-LegionFoundryRuntime -Tool claude -HomeRoot $homeRoot
     }

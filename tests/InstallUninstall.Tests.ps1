@@ -84,7 +84,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-Path $bin 'legion')
         # Use the actual runtime publisher, with no CLI or network boundary involved.
         & {
-            . (Join-Path $repo 'plugins/legion/bin/legion-account.ps1') -NoRun
+            . (Join-Path $repo 'plugins/legion/bin/lib/accounts.ps1')
             $null = Sync-LegionFoundryRuntime -Tool codex -HomeRoot $sandbox
         }
         $runtime = Join-Path $bin '.runtime'

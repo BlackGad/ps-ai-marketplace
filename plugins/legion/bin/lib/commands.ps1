@@ -9,11 +9,14 @@ function Get-LegionOwnerCommands {
     }
 }
 
+function ConvertTo-LegionShellLiteral {
+    param([string]$Value)
+    return "'" + $Value.Replace("'", "'" + '"' + "'" + '"' + "'") + "'"
+}
+
 function Get-LegionShimText {
     param([string]$Script, [switch]$Windows, [string]$HomeRoot)
 
-    # Load the existing quoting helper only when generating a shim, so status stays read-only and lean.
-    . (Join-Path $PSScriptRoot '../legion-account.ps1') -NoRun -HomeRoot $HomeRoot
     $homeArgument = Get-LegionShimHomeArgument -HomeRoot $HomeRoot -Windows:$Windows
     if ($Windows) { return '@pwsh -NoProfile -File "' + $Script.Replace('%', '%%') + '"' + $homeArgument + ' %* & (goto) 2>nul & exit /b' + "`r`n" }
     return "#!/bin/sh`n" + 'exec pwsh -NoProfile -File ' + (ConvertTo-LegionShellLiteral $Script) + $homeArgument + ' "$@"' + "`n"

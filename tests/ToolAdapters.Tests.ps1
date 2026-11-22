@@ -204,7 +204,7 @@ $agentData = Get-Content -LiteralPath $AgentPath -Raw | ConvertFrom-Json
         New-Item -ItemType Directory -Path (Split-Path $personalisation -Parent) -Force | Out-Null
         [IO.File]::WriteAllText($personalisation, '{"schemaVersion":1,"agents":[]}')
         & {
-            . (Join-Path $pluginCopy 'bin/legion-account.ps1') -HomeRoot $homeCopy
+            . (Join-Path $pluginCopy 'bin/lib/accounts.ps1')
             foreach ($adapterId in @('copilot', 'fourth')) {
                 $absentDir = Join-Path $homeCopy $adapterId
                 $configAgent = @{ tool = $adapterId; configDir = $absentDir; provider = $configProvider }

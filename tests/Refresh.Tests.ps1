@@ -8,7 +8,7 @@ try {
     $alternateHome = Join-Path $tempRoot 'alternate home'
     & $refresh -HomeRoot $alternateHome | Out-Null
     & {
-        . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -NoRun
+        . (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
         foreach ($name in @('legion')) {
             $path = Join-Path $alternateHome ".legion/bin/$name"
             Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "RefreshCreatesMissing creates $name"
@@ -55,7 +55,7 @@ try {
     } | ConvertTo-Json -Depth 20 | Set-Content $file
     $ownerBytes = [IO.File]::ReadAllText($file)
     & {
-        . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -NoRun
+        . (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
         New-FoundryWrappers -Id foundry-a -Tool claude -HomeRoot $tempRoot
     }
     'stale runtime' | Set-Content (Join-Path $runtime 'legion-foundry.ps1')
@@ -73,7 +73,7 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
     '@pwsh -NoProfile -File "C:\old\cache\bin\legion.ps1" -Account chosen -Repo "\\server\team$\work folder" %*' | Set-Content $cmdShim
     & $refresh -HomeRoot $tempRoot | Out-Null
     $homeFlag = & {
-        . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -NoRun
+        . (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
         '-HomeRoot ' + (ConvertTo-LegionShellLiteral $tempRoot)
     }
     Assert-True ((Get-Content $shim -Raw).Contains($homeFlag)) 'R4 B4 refresh binds an older unbound command to the selected home'

@@ -50,7 +50,7 @@ exit /b %result%
 
         # Keep the wrapper outside the unusual path so this tests its literal runner argument.
         & {
-        . $account -NoRun -HomeRoot $tempRoot
+        . (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
         $fakeFolder = Join-Path $tempRoot 'runtime %LEGION_WRAPPER_EXPAND%'
         New-Item -ItemType Directory -Path $fakeFolder -Force | Out-Null
         $fakeRunner = Join-Path $fakeFolder 'legion-foundry.ps1'

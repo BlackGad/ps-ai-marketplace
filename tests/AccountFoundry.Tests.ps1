@@ -1,6 +1,6 @@
 $root = Split-Path $PSScriptRoot -Parent
 $accountScript = Join-Path $root 'plugins/legion/bin/legion-account.ps1'
-. (Join-Path $root 'plugins/legion/bin/legion-validate.ps1') -NoRun
+. (Join-Path $root 'plugins/legion/bin/lib/settings.ps1')
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $savedPath = $env:PATH
@@ -246,7 +246,7 @@ approval_policy = "never"
         Assert-True ((Get-Content $collisionWrapper -Raw).Contains('preserved-cli')) 'Account creation still works after runtime installation'
         $pluginCopy = Join-Path $tempRoot 'source-plugin'
         Copy-Item (Join-Path $root 'plugins/legion') $pluginCopy -Recurse
-        . (Join-Path $pluginCopy 'bin/legion-account.ps1') -HomeRoot $homeRoot
+        . (Join-Path $pluginCopy 'bin/lib/accounts.ps1')
         $null = Sync-LegionFoundryRuntime -Tool codex -HomeRoot $homeRoot
         $allFiles = @(Get-ChildItem $runtime -Recurse -File)
         $snapshot = @($allFiles | ForEach-Object { $_.LastWriteTimeUtc.Ticks.ToString() + ':' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($_.FullName)) }) -join '|'

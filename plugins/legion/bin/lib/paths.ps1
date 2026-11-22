@@ -57,6 +57,13 @@ function Test-LegionOwnerPathSafe {
     return $false
 }
 
+# Expand a leading ~/ or ~\ to the home root; any other path stays as given.
+function Resolve-LegionHomePath {
+    param([string]$Path, [string]$HomeRoot = $HOME)
+    if ($Path -match '^~[/\\]') { return Join-Path $HomeRoot $Path.Substring(2) }
+    return $Path
+}
+
 function Get-LegionRepoPath {
     param([string]$Repo, [string]$Path)
     return Join-Path (Join-Path $Repo '.legion') $Path

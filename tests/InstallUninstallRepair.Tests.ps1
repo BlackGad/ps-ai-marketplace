@@ -3,7 +3,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 & {
     . (Join-Path $PSScriptRoot 'fixtures/install/UninstallSandbox.ps1')
     . (Join-Path $repo 'plugins/legion/bin/lib/commands.ps1')
-    . (Join-Path $repo 'plugins/legion/bin/legion-account.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/bin/lib/accounts.ps1')
     $bin = Join-Path $sandbox '.legion/bin'
     $installed = [Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::Ordinal)
     $pluginPaths = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)

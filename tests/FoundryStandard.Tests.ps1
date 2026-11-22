@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 $accountScript = Join-Path $repo 'plugins/legion/bin/legion-account.ps1'
-. $accountScript -NoRun
+. (Join-Path $repo 'plugins/legion/bin/lib/accounts.ps1')
 . (Join-Path $PSScriptRoot 'FakeAz.ps1')
 
 $claude = Get-LegionTool -Tool claude

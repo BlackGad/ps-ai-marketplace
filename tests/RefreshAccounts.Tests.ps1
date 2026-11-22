@@ -4,7 +4,7 @@ $scratch = Join-Path $root ('.agents/temp/refresh-accounts-' + [guid]::NewGuid()
 $savedPath = $env:PATH
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 try {
-    . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -NoRun
+    . (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
     $refresh = Join-Path $root 'plugins/legion/bin/legion-refresh.ps1'
     $fakeBin = Join-Path $scratch 'fake tools'
     New-Item -ItemType Directory -Path $fakeBin -Force | Out-Null

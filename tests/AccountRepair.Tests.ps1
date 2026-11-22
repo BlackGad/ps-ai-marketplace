@@ -4,7 +4,7 @@ $scratch = Join-Path $root ('.agents/temp/account-repair-' + [guid]::NewGuid().T
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 $savedPath = $env:PATH
 try {
-    . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -NoRun
+    . (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
     $env:PATH = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' }
     # Exercise interrupted chmod even on Windows; chmod itself is an inert seam.
     & {

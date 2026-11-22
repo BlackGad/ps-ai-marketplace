@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 . (Join-Path $repo 'plugins/legion/bin/lib/commands.ps1')
-. (Join-Path $repo 'plugins/legion/bin/legion-account.ps1') -NoRun
+. (Join-Path $repo 'plugins/legion/bin/lib/accounts.ps1')
 $scratch = Join-Path $repo ('.agents/temp/install-owner-commands-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 try {

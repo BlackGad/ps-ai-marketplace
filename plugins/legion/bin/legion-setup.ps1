@@ -8,12 +8,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# The account script has its own parameters; keep this script's arguments across dot-sourcing.
-$setupArguments = @{ Add = $Add; Id = $Id; Yes = $Yes; HomeRoot = $HomeRoot; Source = $Source }
-$setupNoRun = $NoRun
 $script:SetupBin = $PSScriptRoot
 $script:SetupPluginRoot = Split-Path $PSScriptRoot -Parent
-. (Join-Path $PSScriptRoot 'legion-account.ps1') -NoRun
+. (Join-Path $PSScriptRoot 'lib/accounts.ps1')
 . (Join-Path $PSScriptRoot 'lib/installed.ps1')
 . (Join-Path $PSScriptRoot 'lib/commands.ps1')
 . (Join-Path $PSScriptRoot 'install-tool/recipe.ps1')
@@ -498,4 +495,4 @@ function Invoke-Setup {
 }
 
 # Main: parse adds and build the plan before any persistent change, then print it or apply and show the table.
-if (-not $setupNoRun) { Invoke-Setup @setupArguments }
+if (-not $NoRun) { Invoke-Setup -Add $Add -Id $Id -Yes:$Yes -HomeRoot $HomeRoot -Source $Source }

@@ -1,7 +1,7 @@
 param([string]$HomeRoot = $HOME)
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'legion-account.ps1') -NoRun -HomeRoot $HomeRoot
+. (Join-Path $PSScriptRoot 'lib/accounts.ps1')
 $changes = [Collections.Generic.List[string]]::new()
 $file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings
 if (Test-Path -LiteralPath $file) {
