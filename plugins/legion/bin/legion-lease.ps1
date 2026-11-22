@@ -83,6 +83,7 @@ if (-not $Tool -or -not $Account) { throw 'take requires -Tool and -Account' }
 if (-not $ownerProcess) { throw 'lease owner process is not running' }
 New-Item -ItemType Directory -Path (Split-Path $path -Parent) -Force | Out-Null
 $data = @{ tool = $Tool; account = $Account; pid = $ProcessId; processStartedAt = $processStartedAt; host = $hostName; startedAt = [DateTimeOffset]::UtcNow.ToString('o') }
+if ($Tool -eq 'codex' -and $env:CODEX_THREAD_ID) { $data.session = $env:CODEX_THREAD_ID }
 for ($attempt = 0; $attempt -lt 2; $attempt++) {
     try {
         $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)

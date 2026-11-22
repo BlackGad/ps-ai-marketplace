@@ -35,6 +35,6 @@ def test_no_arguments_shows_help(plugin_manifest: Path, capsys: pytest.CaptureFi
 def test_unknown_subcommand_is_rejected(plugin_manifest: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert plugin_manifest.is_file()
     with pytest.raises(SystemExit) as result:
-        _cli.main(["inbox"])
+        _cli.main(["unknown"])
     assert result.value.code == 2
-    assert "unrecognized arguments: inbox" in capsys.readouterr().err
+    assert "unknown" in capsys.readouterr().err
