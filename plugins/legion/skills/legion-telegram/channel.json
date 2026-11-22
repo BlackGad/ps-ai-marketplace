@@ -2,7 +2,8 @@
   "schemaVersion": 1,
   "id": "telegram",
   "launch": {
-    "claude": ["--channels", "plugin:telegram@claude-plugins-official"]
+    "claude": ["--channels", "plugin:telegram@claude-plugins-official"],
+    "codex": []
   },
   "state": {
     "claude": {
@@ -11,6 +12,13 @@
       "remove": ["TELEGRAM_BOT_TOKEN"],
       "tokenFile": ".env",
       "setup": "run /telegram:configure in that session"
+    },
+    "codex": {
+      "variable": "TELEGRAM_STATE_DIR",
+      "folder": "channels/telegram",
+      "remove": ["TELEGRAM_BOT_TOKEN"],
+      "tokenFile": ".env",
+      "setup": "pair the bot on Claude first"
     }
   },
   "ready": {
