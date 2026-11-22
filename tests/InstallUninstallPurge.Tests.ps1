@@ -183,10 +183,16 @@ Test-PurgeScenario {
     Assert-True (((Get-LegionHelp) -join "`n").Contains('uninstall [--purge]')) 'Help includes purge'
     # Exercise the local root entry point without invoking any CLI or registry API.
     $entry = Get-Content (Join-Path $repo 'install.ps1') -Raw
-    $record = @{}
-    function Get-InstallSourceText { "param([switch]`$Uninstall,[switch]`$Purge,[switch]`$Yes,[string]`$HomeRoot) `$record.Purge = [bool]`$Purge" }
+    $pluginFolder=Join-Path $fixtureHome 'archive/top/plugins/legion'
+    New-Item -ItemType Directory -Path $pluginFolder -Force | Out-Null
+    'param([switch]$Uninstall,[switch]$Purge,[switch]$Yes,[string]$HomeRoot); [string][bool]$Purge | Set-Content (Join-Path $HomeRoot "purge-forwarded.txt")' |
+        Set-Content (Join-Path $pluginFolder 'install.ps1')
+    Copy-Item (Join-Path $repo 'plugins/legion/tools.json') (Join-Path $pluginFolder 'tools.json')
+    $archive=Join-Path $fixtureHome 'plugin.zip'
+    Compress-Archive -Path (Join-Path $fixtureHome 'archive/top') -DestinationPath $archive
+    function Invoke-InstallArchiveDownload { param($Url,$OutFile) Copy-Item -LiteralPath (Join-Path $fixtureHome 'plugin.zip') -Destination $OutFile }
     $null = & ([scriptblock]::Create($entry)) -Uninstall -Purge -Yes -HomeRoot $fixtureHome
-    Assert-True $record.Purge 'Downloaded root one-liner forwards purge'
+    Assert-Equal 'True' ((Get-Content (Join-Path $fixtureHome 'purge-forwarded.txt') -Raw).Trim()) 'Downloaded root one-liner forwards purge'
 }
 
 Test-PurgeScenario {

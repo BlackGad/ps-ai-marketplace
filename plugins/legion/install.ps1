@@ -12,7 +12,12 @@ param(
     [string]$HomeRoot
 )
 
-# Standalone: this file also runs as downloaded script text in Windows PowerShell 5.1.
+if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'The legion installer requires PowerShell 7. Run the root install.ps1 bootstrap with Windows PowerShell 5.1.' }
+if (-not $PSScriptRoot) { throw 'Run the legion installer from the expanded archive; script text has no PSScriptRoot.' }
+$pathsLibrary = Join-Path $PSScriptRoot 'bin/lib/paths.ps1'
+if (-not (Test-Path -LiteralPath $pathsLibrary -PathType Leaf)) { throw 'The legion installer requires bin/lib/paths.ps1 from the expanded archive.' }
+. $pathsLibrary
+
 function Get-InstallSourceText {
     param([string]$Url)
     $ProgressPreference = 'SilentlyContinue'
@@ -225,10 +230,8 @@ function Invoke-ClosedInput {
         $info.FileName = $env:ComSpec
         $line = (@($executable) + $arguments | ForEach-Object { ConvertTo-InstallArgument $_ }) -join ' '
         $info.Arguments = '/d /s /c "' + $line + '"'
-    } elseif ($info.PSObject.Properties['ArgumentList']) {
-        foreach ($argument in $arguments) { $info.ArgumentList.Add($argument) }
     } else {
-        $info.Arguments = ($arguments | ForEach-Object { ConvertTo-InstallArgument $_ }) -join ' '
+        foreach ($argument in $arguments) { $info.ArgumentList.Add($argument) }
     }
     $info.UseShellExecute = $false
     # Codex reads <cwd>/.codex/config.toml as project settings; from the home folder that leaks
@@ -244,25 +247,9 @@ function Invoke-ClosedInput {
         $names = if ($Environment -is [Collections.IDictionary]) { $Environment.Keys } else { $Environment.PSObject.Properties.Name }
         foreach ($name in $names) { $info.EnvironmentVariables[$name] = [string]$Environment.$name }
     }
-    # The stdin pipe must carry nothing, but a UTF-8 console code page makes the pipe send a byte-order mark,
-    # which the CLI reads as one character instead of EOF. PowerShell 5.1 has no StandardInputEncoding, so it
-    # starts the process with a mark-free console input encoding.
-    $noMark = New-Object System.Text.UTF8Encoding -ArgumentList $false
-    $savedInputEncoding = $null
-    $inputEncodingChanged = $false
-    if ($info.PSObject.Properties['StandardInputEncoding']) {
-        $info.StandardInputEncoding = $noMark
-    } else {
-        $savedInputEncoding = [Console]::InputEncoding
-        try {
-            [Console]::InputEncoding = $noMark
-            $inputEncodingChanged = $true
-        } catch {
-            # Without a console, keep the runtime's default input encoding.
-        }
-    }
-    try { $process = [System.Diagnostics.Process]::Start($info) }
-    finally { if ($inputEncodingChanged) { [Console]::InputEncoding = $savedInputEncoding } }
+    # A mark-free UTF-8 stdin sends EOF without a byte-order mark.
+    $info.StandardInputEncoding = [Text.UTF8Encoding]::new($false)
+    $process = [Diagnostics.Process]::Start($info)
     $process.StandardInput.Close()
     $errorTask = $process.StandardError.ReadToEndAsync()
     $output = $process.StandardOutput.ReadToEnd()
@@ -448,18 +435,10 @@ function Get-InstallLegionPath {
     return Join-Path (Join-Path (Get-InstallHome) '.legion') $Path
 }
 
-# Owner-file names live here; standalone install.ps1 carries the same small helpers.
 function Get-InstallOwnerPath {
     param([ValidateSet('Settings', 'Notes', 'Update', 'Runtime', 'Install')][string]$Name,
         [string]$HomeRoot = (Get-InstallHome))
-    $names = @{
-        Settings = 'configuration/personalisation.json'
-        Notes = 'configuration/notes.md'
-        Update = 'temp/update.json'
-        Runtime = 'bin/.runtime'
-        Install = 'temp/install-'
-    }
-    return Join-Path (Join-Path $HomeRoot '.legion') $names[$Name]
+    return Get-LegionOwnerPath -Name $Name -HomeRoot $HomeRoot
 }
 
 function Resolve-InstallConfigDir {
@@ -513,7 +492,7 @@ function Get-InstallOwnerCommands {
     return [ordered]@{ 'legion' = 'legion.ps1' }
 }
 
-# Same rule as lib/commands.ps1 (this file is standalone): the whole file is the generated launcher,
+# Same rule as lib/commands.ps1: the whole file is the generated launcher,
 # one line whose -File argument is the script, and a .cmd file writes % as %%.
 # Returns the script path and its span, or nothing when the file is not a legion command.
 function Get-InstallOwnerCommandTarget {
@@ -677,7 +656,7 @@ function Get-UninstallFiles {
         if (-not $KeepOwnerCommands) { $paths += Get-InstallOwnerCommandPaths -Bin $bin }
         # Exact files published by Sync-LegionFoundryRuntime; never remove the directory tree.
         $runtime = Get-InstallOwnerPath -Name Runtime
-        foreach ($name in @('bin/lib/tools.ps1', 'bin/lib/foundry.ps1', 'bin/lib/paths.ps1', 'bin/legion-foundry.ps1', 'schemas/tool.schema.json')) {
+        foreach ($name in (Get-LegionRuntimeFiles)) {
             $paths += Join-Path $runtime $name
         }
         foreach ($entry in $script:installCatalog.tools) {
@@ -700,15 +679,9 @@ function Test-InstallGeneratedPathSafe {
     if (-not $currentPath.StartsWith($Bin + [IO.Path]::DirectorySeparatorChar, $comparison)) { throw 'Unsafe generated file path' }
     $homeRoot = [IO.Path]::GetFullPath((Get-InstallHome)).TrimEnd('\', '/')
     if (-not $currentPath.StartsWith($homeRoot + [IO.Path]::DirectorySeparatorChar, $comparison)) { throw 'Unsafe generated file path' }
-    while ($currentPath.Length -ge $homeRoot.Length) {
-        $current = Get-Item -LiteralPath $currentPath -Force -ErrorAction SilentlyContinue
-        if (-not $current) { return $false }
-        if ($current.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-            Write-Host "skip: $Path (linked folder)"
-            return $false
-        }
-        if ([string]::Equals($currentPath, $homeRoot, $comparison)) { break }
-        $currentPath = Split-Path $currentPath -Parent
+    if (-not (Test-LegionOwnerPathSafe -Path $currentPath -StopRoot (Get-InstallHome))) {
+        Write-Host "skip: $Path (linked folder)"
+        return $false
     }
     return $true
 }
@@ -1243,9 +1216,8 @@ function Invoke-InstallRefresh {
     if (-not $PluginRoot) { throw "$($Entry.id) legion is absent from the post-update listing; generated artifacts were not refreshed." }
     $refresh = Join-Path $PluginRoot 'bin/legion-refresh.ps1'
     if (-not (Test-Path -LiteralPath $refresh -PathType Leaf)) { throw "$($Entry.id) installed legion refresh script is missing." }
-    $powerShell = Get-InstallPowerShellCommand
-    if (-not $powerShell) { throw 'PowerShell 7 is required to refresh generated legion artifacts.' }
-    $result = Invoke-ClosedInput -Command @($powerShell.Source, '-NoProfile', '-File', $refresh, '-HomeRoot', (Get-InstallHome))
+    $powerShell = (Get-Process -Id $PID).Path
+    $result = Invoke-ClosedInput -Command @($powerShell, '-NoProfile', '-File', $refresh, '-HomeRoot', (Get-InstallHome))
     $result.Output
     $result.ErrorOutput
     if ($result.ExitCode -ne 0) { throw "legion artifact refresh exited $($result.ExitCode)" }
@@ -1339,161 +1311,6 @@ function Test-InstallCommandAvailable {
     return [bool](Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue)
 }
 
-function Get-InstallPowerShellCommand {
-    $command = Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($command) { return $command }
-    $portable = Get-InstallPortablePowerShell
-    if ($portable) { return @{ Source=$portable } }
-    if ($env:OS -eq 'Windows_NT' -and $env:ProgramFiles) {
-        $candidate = Join-Path $env:ProgramFiles 'PowerShell/7/pwsh.exe'
-        if (Test-Path -LiteralPath $candidate) { return @{ Source=$candidate } }
-    }
-}
-
-function Get-InstallPortablePowerShell {
-    $root = Get-InstallLegionPath 'tools/pwsh'
-    $pattern = Join-Path ([WildcardPattern]::Escape($root)) $script:installCatalog.bootstrap.windows.portableCommand
-    $file = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
-    if ($file) { return $file.FullName }
-}
-
-function Get-InstallUserPath {
-    # Read the raw registry value so entries such as %USERPROFILE%\bin stay unexpanded.
-    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
-    if (-not $key) { return '' }
-    try { return [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) }
-    finally { $key.Dispose() }
-}
-
-function Set-InstallUserPath {
-    param([string]$Path)
-    # Keep the existing value kind (normally REG_EXPAND_SZ), then tell Windows the environment changed.
-    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
-    try {
-        $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
-        if ($key.GetValueNames() -icontains 'Path') { $kind = $key.GetValueKind('Path') }
-        $key.SetValue('Path', $Path, $kind)
-    } finally { $key.Dispose() }
-    if (-not ('LegionInstall.Environment' -as [type])) {
-        Add-Type -Namespace LegionInstall -Name Environment -MemberDefinition @'
-[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-public static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UIntPtr parameter, string value, uint flags, uint timeout, out UIntPtr result);
-'@
-    }
-    $result = [UIntPtr]::Zero
-    [void][LegionInstall.Environment]::SendMessageTimeout([IntPtr]0xffff, 0x1a, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
-}
-
-function Test-InstallPathEntry {
-    param([string]$Path, [string]$Entry, [string]$Separator)
-    $target = $Entry.TrimEnd('\', '/')
-    foreach ($part in ($Path -split [regex]::Escape($Separator))) {
-        if ([Environment]::ExpandEnvironmentVariables($part).TrimEnd('\', '/') -ieq $target) { return $true }
-    }
-    return $false
-}
-
-function Add-InstallPowerShellPath {
-    param([string]$Path)
-    $userPath = Get-InstallUserPath
-    if (-not (Test-InstallPathEntry -Path $userPath -Entry $Path -Separator ';')) {
-        $updated = if ($userPath) { $userPath.TrimEnd(';') + ';' + $Path } else { $Path }
-        Set-InstallUserPath -Path $updated
-    }
-    if (-not (Test-InstallPathEntry -Path $env:PATH -Entry $Path -Separator ([string][IO.Path]::PathSeparator))) {
-        $env:PATH = $Path + [IO.Path]::PathSeparator + $env:PATH
-    }
-}
-
-function Invoke-InstallDownload {
-    param([string]$Url, [string]$OutFile)
-    $ProgressPreference = 'SilentlyContinue'
-    Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
-}
-
-function Invoke-InstallWinget {
-    $result = Invoke-ClosedInput -Command @('winget', 'install', '--id', $script:installCatalog.bootstrap.windows.wingetId, '-e')
-    foreach ($line in @($result.Output) + @($result.ErrorOutput)) { Write-Host $line }
-    return $result.ExitCode
-}
-
-function Install-PowerShellZip {
-    $temporary = ((Get-InstallOwnerPath -Name Install) + [guid]::NewGuid().ToString('N'))
-    $metadata = Join-Path $temporary 'release.json'
-    $archive = Join-Path $temporary 'pwsh.zip'
-    try {
-        New-Item -ItemType Directory -Path $temporary -Force -ErrorAction Stop | Out-Null
-        $recipe = $script:installCatalog.bootstrap.windows.download.zip
-        Invoke-InstallDownload -Url $recipe.metadataUrl -OutFile $metadata
-        $release = Get-Content -LiteralPath $metadata -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-        $asset = $release.assets | Where-Object { $_.name -match $recipe.assetPattern } | Select-Object -First 1
-        if (-not $asset -or $asset.digest -notmatch '^sha256:([a-fA-F0-9]{64})$') {
-            throw 'PowerShell ZIP asset or SHA-256 digest is missing from the official release.'
-        }
-        $expectedHash = $Matches[1]
-        Invoke-InstallDownload -Url $asset.browser_download_url -OutFile $archive
-        if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256 -ErrorAction Stop).Hash -ine $expectedHash) {
-            throw 'PowerShell ZIP SHA-256 digest mismatch; download deleted.'
-        }
-        $destination = Get-InstallLegionPath 'tools/pwsh'
-        Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force -ErrorAction Stop
-        if (-not (Get-InstallPortablePowerShell)) { throw 'PowerShell ZIP does not contain the configured executable.' }
-        $folder = $recipe.pathFolder.Replace('{version}', [string]$release.tag_name)
-        Assert-InstallRelativePath $folder 'bootstrap ZIP pathFolder' -AllowEmpty
-        Add-InstallPowerShellPath -Path (Join-Path $destination $folder)
-    } finally {
-        foreach ($file in @($archive, $metadata)) {
-            if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force -ErrorAction Stop }
-        }
-        if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -ErrorAction Stop }
-    }
-}
-
-function Ensure-InstallPowerShell {
-    param([bool]$OnWindows = ($env:OS -eq 'Windows_NT'), [switch]$DryRun, [switch]$Yes)
-    $command = Get-InstallPowerShellCommand
-    if ($command) {
-        Write-Host 'skip: PowerShell 7 (already done)'
-        # A previous portable install may be present before this shell has refreshed PATH.
-        $portable = Get-InstallPortablePowerShell
-        if ($OnWindows -and -not $DryRun -and $portable -and $command.Source -eq $portable -and
-            (Confirm-InstallChange -Yes:$Yes -Question 'Add the portable PowerShell 7 folder to your user PATH? [y/N]')) {
-            Add-InstallPowerShellPath -Path (Split-Path $portable -Parent)
-        }
-        return $true
-    }
-    if (-not $OnWindows) {
-        Write-Host 'PowerShell 7 is missing.'
-        Write-Host 'Install PowerShell 7: https://learn.microsoft.com/powershell/scripting/install/installing-powershell'
-        return $false
-    }
-    if (-not $Yes -or $DryRun) {
-        Write-Host 'PowerShell 7 is missing.'
-        Write-Host ('winget install --id ' + $script:installCatalog.bootstrap.windows.wingetId + ' -e')
-        Write-Host 'ZIP fallback: latest official PowerShell ZIP, verified with its SHA-256 digest, to ~/.legion/tools/pwsh/ (user and process PATH).'
-    }
-    if ($DryRun) { return $false }
-    if (-not (Confirm-InstallChange -Yes:$Yes -Question 'Install PowerShell 7 now? [y/N]')) { return $false }
-    if (Test-InstallCommandAvailable -Name winget) {
-        try {
-            $exitCode = Invoke-InstallWinget
-            if ($exitCode -eq 0) {
-                $command = Get-InstallPowerShellCommand
-                if ($command) {
-                    $folder = Split-Path $command.Source -Parent
-                    if (-not (Test-InstallPathEntry -Path $env:PATH -Entry $folder -Separator ([string][IO.Path]::PathSeparator))) {
-                        $env:PATH = $folder + [IO.Path]::PathSeparator + $env:PATH
-                    }
-                    return $true
-                }
-            }
-            Write-Host 'winget did not make PowerShell 7 available.'
-        } catch { Write-Host 'winget failed to install PowerShell 7.' }
-    } else { Write-Host 'winget is missing.' }
-    Install-PowerShellZip
-    return $true
-}
-
 function Invoke-LegionInstaller {
     param([string[]]$Tools, [string]$Source = 'BlackGad/ps-legion-marketplace', [string]$ConfigDir, [switch]$DryRun, [switch]$Yes, $Catalog, [ValidateSet('release','main')][string]$Ref = 'release', [switch]$Update, [switch]$Uninstall, [switch]$Purge)
     if ($Update -and $Uninstall) { throw 'Choose either -Update or -Uninstall.' }
@@ -1541,9 +1358,7 @@ function Invoke-LegionInstaller {
         return
     }
     "Install legion for $($Tools -join ', ')"
-    $ready = Ensure-InstallPowerShell -DryRun
     $onWindows = $env:OS -eq 'Windows_NT'
-    if (-not $ready -and -not $onWindows -and -not $DryRun) { return }
     $bin = Get-InstallLegionPath 'bin'
     $pathQuestion = ''
     if ($onWindows -and -not (Test-InstallPathEntry -Path (Get-InstallUserPath) -Entry $bin -Separator ';')) {
@@ -1554,7 +1369,6 @@ function Invoke-LegionInstaller {
             'Nothing changed. Run again with -Yes to apply.'
             return
         }
-        if (-not (Ensure-InstallPowerShell -Yes)) { return }
         if ($onWindows) {
             New-Item -ItemType Directory -Path $bin -Force | Out-Null
             Add-InstallPowerShellPath -Path $bin
@@ -1597,7 +1411,7 @@ function Invoke-LegionInstaller {
 
 if (-not $NoRun) {
     $catalog = $null
-    # A checked-out installer uses its matching catalog; downloaded script text fetches it.
+    # The expanded installer uses its matching catalog unless Source selects other data.
     if (-not $PSBoundParameters.ContainsKey('Source') -and
         $PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'tools.json') -PathType Leaf)) {
         $catalog = Get-InstallCatalog -Catalog (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'tools.json') -Raw | ConvertFrom-Json)

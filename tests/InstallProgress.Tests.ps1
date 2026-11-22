@@ -1,6 +1,7 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
     . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
+    . (Join-Path $repo 'install.ps1') -NoRun
     . (Join-Path $repo 'plugins/legion/bin/legion-install-tool.ps1') -NoRun
     $ProgressPreference = 'Continue'
     function Invoke-WebRequest {

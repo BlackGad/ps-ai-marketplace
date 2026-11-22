@@ -9,13 +9,13 @@ Installer options, CLI guides and repository details for maintainers and power u
 
 ## Install
 
-On Windows, run this in Windows PowerShell 5.1 or PowerShell 7 (`pwsh`):
+On Windows, start the bootstrap below in Windows PowerShell 5.1 or PowerShell 7 (`pwsh`). The installer and plugin run in PowerShell 7; 5.1 is used only by the bootstrap to get PowerShell 7 and start the installer:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1)))
 ```
 
-The script checks for PowerShell 7, which the plugin needs at runtime. If it is missing on Windows, the script shows `winget install --id Microsoft.PowerShell -e` and asks before installing. If winget is missing or fails, it offers the official per-user ZIP, verifies its SHA-256 digest, extracts it to `~/.legion/tools/pwsh/`, and adds that folder to the process PATH, and to the user PATH only after you agree. Before installing legion, the script asks once: `Install legion for <tools> now? [y/N]`. Use `-Yes` to skip every question. `-Update`, `-Uninstall` and `-DryRun` do not ask this question. `-Update` asks its own question for a folder where legion is missing (see Install and update targets).
+The bootstrap downloads and expands the plugin archive from the fixed legion repository, then reads its PowerShell recipe. If PowerShell 7 is missing on Windows, it shows `winget install --id Microsoft.PowerShell -e` and asks before installing. If winget is missing or fails, it uses the official per-user ZIP, verifies its SHA-256 digest, extracts it to `~/.legion/tools/pwsh/`, and adds that folder to the process and user PATH after consent. The installer then runs under PowerShell 7 and asks `Install legion for <tools> now? [y/N]`, including a PATH hint when needed. The first install can therefore ask twice. A declined question prints `Nothing changed` and stops successfully. Use `-Yes` to skip questions. Without PowerShell 7, `-DryRun` shows only the PowerShell hint. `-Update` and `-Uninstall` skip the legion install question; update asks its own question for a folder where legion is missing (see Install and update targets). The temporary archive is removed after the run. `-Source` selects marketplace and catalog data; executable installer code always comes from the fixed legion repository or the local checkout.
 
 On macOS or Linux, [install PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) first, then run:
 

@@ -1,4 +1,4 @@
-param([string[]]$Cases = @('InstallRunsRefresh','InstallQuestionNamesPath','InstallMissingPowerShell','InstallUnixPathHint','InstallNextStep','NonInteractiveInstall'))
+param([string[]]$Cases = @('InstallRunsRefresh','InstallQuestionNamesPath','InstallUnixPathHint','InstallNextStep','NonInteractiveInstall'))
 
 $repo = Split-Path $PSScriptRoot -Parent
 $failures = @()
@@ -20,11 +20,7 @@ foreach ($case in $Cases) {
         function Get-InstallHome { $scratch }
         function Get-InstallUserPath { $state.UserPath }
         function Set-InstallUserPath { param($Path) $state.Writes++; $state.UserPath=$Path }
-        function Get-InstallPowerShellCommand { if ($state.Ready) { @{ Source=$fixturePwsh } } }
-        function Get-InstallPortablePowerShell { $null }
         function Test-InstallCommandAvailable { $true }
-        function Invoke-InstallWinget { $state.Winget++; $state.Ready=$true; 0 }
-        function Install-PowerShellZip { $state.Zip++; $state.Ready=$true }
         function Get-InstallSourceText { throw 'Unexpected network access' }
         function Invoke-InstallDownload { throw 'Unexpected download' }
         function Read-Host { param($Prompt) $questions.Add($Prompt); $state.Answer }
@@ -71,29 +67,7 @@ foreach ($case in $Cases) {
                     Assert-Equal 'Install legion for claude now? [y/N]' ($questions -join '|') 'InstallQuestionNamesPath: existing PATH needs no PATH question'
                     Assert-Equal 1 $state.Writes 'InstallQuestionNamesPath: repeat does not rewrite PATH'
                 }
-                'InstallMissingPowerShell' {
-                    $state.Ready=$false
-                    $state.Answer='n'
-                    $declined = @(Invoke-LegionInstaller @options 6>&1)
-                    Assert-Equal 1 $questions.Count 'InstallMissingPowerShell: one question covers prerequisites'
-                    Assert-True (($declined -join "`n").Contains('PowerShell 7 is missing.')) 'InstallMissingPowerShell: preview names prerequisite'
-                    Assert-Equal 0 $state.Winget 'InstallMissingPowerShell: declining installs no prerequisite'
-                    Assert-Equal 0 $state.Writes 'InstallMissingPowerShell: declining writes no PATH'
-                    Assert-Equal 0 $installed.Count 'InstallMissingPowerShell: declining installs no plugin'
-                    $questions.Clear()
-                    $state.Answer='y'
-                    $approved = @(Invoke-LegionInstaller @options 6>&1)
-                    Assert-Equal 1 $questions.Count 'InstallMissingPowerShell: no second prerequisite question'
-                    Assert-Equal 1 @($approved | Where-Object { "$_" -eq 'PowerShell 7 is missing.' }).Count 'InstallMissingPowerShell: prerequisite preview appears once'
-                    Assert-Equal 1 $state.Winget 'InstallMissingPowerShell: the single yes installs PowerShell'
-                    Assert-Equal 1 $installed.Count 'InstallMissingPowerShell: the same yes installs the plugin'
-                    $state.Ready=$false
-                    function Invoke-InstallWinget { $state.Winget++; 1 }
-                    $questions.Clear()
-                    $null = Invoke-LegionInstaller @options
-                    Assert-Equal 1 $questions.Count 'InstallMissingPowerShell: ZIP fallback needs no second question'
-                    Assert-Equal 1 $state.Zip 'InstallMissingPowerShell: the same yes covers ZIP fallback'
-                }
+                # Missing-pwsh consent and both prompts are covered by the stub tests.
                 'InstallUnixPathHint' {
                     $env:OS='fixture-unix'
                     $output = @(Invoke-LegionInstaller @options -Yes)

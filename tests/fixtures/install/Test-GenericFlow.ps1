@@ -1,7 +1,7 @@
 param([string]$Installer, [string]$Catalog, [ValidateSet('fresh','cached','update','registered')][string]$Mode)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'MarketplaceListing.ps1')
-. ([scriptblock]::Create((Get-Content -LiteralPath $Installer -Raw))) -NoRun
+. $Installer -NoRun
 $catalogText = Get-Content -LiteralPath $Catalog -Raw
 $entries = ($catalogText | ConvertFrom-Json).tools
 $fixtureHome = Split-Path $Catalog

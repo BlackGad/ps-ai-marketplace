@@ -2,8 +2,6 @@ $repo = Split-Path $PSScriptRoot -Parent
 & {
     . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $runtimes = @((Get-Command pwsh -CommandType Application | Select-Object -First 1).Source)
-    $legacy = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($legacy) { $runtimes += $legacy.Source }
     $sandbox = Join-Path $repo ('.agents/temp/generic-flow-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
     try {
@@ -11,6 +9,8 @@ $repo = Split-Path $PSScriptRoot -Parent
         $catalog = Join-Path $sandbox 'tools.json'
         Copy-Item -LiteralPath (Join-Path $repo 'plugins/legion/install.ps1') -Destination $installer
         Copy-Item -LiteralPath (Join-Path $repo 'plugins/legion/tools.json') -Destination $catalog
+        New-Item -ItemType Directory -Path (Join-Path $sandbox 'bin/lib') -Force | Out-Null
+        Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/paths.ps1') (Join-Path $sandbox 'bin/lib/paths.ps1')
         $fixture = Join-Path $PSScriptRoot 'fixtures/install/Test-GenericFlow.ps1'
         foreach ($runtime in $runtimes) {
             foreach ($mode in @('fresh','cached','update','registered')) {

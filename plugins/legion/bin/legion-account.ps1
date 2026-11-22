@@ -207,13 +207,12 @@ function Sync-LegionFoundryRuntime {
     $descriptor = Get-LegionTool -Tool $Tool
     if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
     $runtime = [IO.Path]::GetFullPath((Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Runtime))
-    if (-not (Test-LegionOwnerPathSafe $runtime)) { throw 'Runtime path contains a link; resolve it before refreshing' }
+    if (-not (Test-LegionOwnerPathSafe $runtime -StopRoot $HomeRoot)) { throw 'Runtime path contains a link; resolve it before refreshing' }
     $pluginRoot = Split-Path $PSScriptRoot -Parent
     $files = [ordered]@{}
-    foreach ($name in @('lib/tools.ps1', 'lib/foundry.ps1', 'lib/paths.ps1')) {
-        $files["bin/$name"] = Join-Path $PSScriptRoot $name
+    foreach ($name in (Get-LegionRuntimeFiles | Where-Object { $_ -ne 'bin/legion-foundry.ps1' })) {
+        $files[$name] = Join-Path $pluginRoot $name
     }
-    $files['schemas/tool.schema.json'] = Join-Path $pluginRoot 'schemas/tool.schema.json'
     foreach ($name in @('SKILL.md', 'tool.json')) {
         $files["skills/legion-$Tool/$name"] = Join-Path $descriptor.SkillRoot $name
     }
@@ -224,7 +223,7 @@ function Sync-LegionFoundryRuntime {
     $files['bin/legion-foundry.ps1'] = Join-Path $PSScriptRoot 'legion-foundry.ps1'
     foreach ($relativePath in $files.Keys) {
         $target = Join-Path $runtime $relativePath
-        if (-not (Test-LegionOwnerPathSafe $target)) { throw 'Runtime file contains a link; resolve it before refreshing' }
+        if (-not (Test-LegionOwnerPathSafe $target -StopRoot $HomeRoot)) { throw 'Runtime file contains a link; resolve it before refreshing' }
         $bytes = [IO.File]::ReadAllBytes($files[$relativePath])
         if ((Test-Path -LiteralPath $target) -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($target)) -ceq [Convert]::ToBase64String($bytes)) { continue }
         New-Item -ItemType Directory -Path (Split-Path $target -Parent) -Force | Out-Null

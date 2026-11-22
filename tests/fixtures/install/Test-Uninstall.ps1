@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'MarketplaceListing.ps1')
 $catalogText = Get-Content -LiteralPath $Catalog -Raw
 $fixtureHome = Join-Path (Split-Path $Catalog) 'home'
-. ([scriptblock]::Create((Get-Content -LiteralPath $Installer -Raw))) -NoRun
+. $Installer -NoRun
 . (Join-Path $PSScriptRoot 'InstallerSandbox.ps1') -InstallFixtureHome ($fixtureHome)
 function Get-InstallSourceText { $catalogText }
 function Ensure-InstallPowerShell { throw 'Uninstall tried to install prerequisites' }
@@ -40,19 +40,25 @@ $cache = Join-Path $fixtureHome '.codex/plugins/cache/ps-legion-marketplace'
 $other = Join-Path $fixtureHome '.codex/plugins/cache/other-marketplace'
 New-Item -ItemType Directory -Path (Join-Path $cache 'legion/0.1.0'), (Join-Path $cache 'legion/0.4.0'), $other -Force | Out-Null
 'owner cache' | Set-Content (Join-Path $other 'keep.txt')
-# Exercise the downloaded script-block entry point, including top-level parameter forwarding.
+# Exercise the expanded archive entry point, including top-level parameter forwarding.
 $overrides = ''
 foreach ($name in @('Get-InstallHome','Get-InstallSourceText','Ensure-InstallPowerShell','Test-InstallCommandAvailable','Read-Host','Invoke-ClosedInput')) {
     $overrides += "function $name {" + (Get-Command $name -CommandType Function).Definition + "}`n"
 }
 $scriptText = (Get-Content -LiteralPath $Installer -Raw).Replace('if (-not $NoRun) {', $overrides + 'if (-not $NoRun) {')
-$preview = @(& ([scriptblock]::Create($scriptText)) -Uninstall -DryRun -Tools codex)
+$entryFolder = Join-Path $fixtureHome 'entry'
+New-Item -ItemType Directory -Path (Join-Path $entryFolder 'bin/lib') -Force | Out-Null
+Copy-Item (Join-Path (Split-Path $Installer) 'bin/lib/paths.ps1') (Join-Path $entryFolder 'bin/lib/paths.ps1')
+Copy-Item $Catalog (Join-Path $entryFolder 'tools.json')
+$entryInstaller = Join-Path $entryFolder 'install.ps1'
+[IO.File]::WriteAllText($entryInstaller, $scriptText)
+$preview = @(& $entryInstaller -Uninstall -DryRun -Tools codex)
 if ($state.Writes -ne 0 -or -not (Test-Path (Join-Path $bin 'legion')) -or -not (Test-Path $cache)) { throw 'Dry run changed state' }
-& ([scriptblock]::Create($scriptText)) -Uninstall -Yes -Tools codex
+& $entryInstaller -Uninstall -Yes -Tools codex
 if ($state.Writes -ne 2 -or (Test-Path (Join-Path $bin 'legion'))) { throw 'Uninstall did not remove plugin, marketplace and launcher' }
 if (-not (Test-Path (Join-Path $bin 'unrelated'))) { throw 'Uninstall removed owner file' }
 if ((Test-Path $cache) -or -not (Test-Path (Join-Path $other 'keep.txt'))) { throw 'Cache cleanup was not scoped to the marketplace' }
-$repeat = @(& ([scriptblock]::Create($scriptText)) -Uninstall -Tools codex)
+$repeat = @(& $entryInstaller -Uninstall -Tools codex)
 if ($state.Writes -ne 2 -or ($repeat -join "`n") -notmatch 'skip: .*\(not installed\)') { throw 'Repeat uninstall was not safe' }
 if ($repeat -notcontains 'Nothing to uninstall.' -or ($repeat -join "`n") -match 'codex plugin (remove|marketplace remove)') { throw 'Repeat uninstall printed a removal plan' }
 foreach ($line in $repeat) {

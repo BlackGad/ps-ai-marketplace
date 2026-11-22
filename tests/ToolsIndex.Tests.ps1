@@ -156,15 +156,18 @@
     }
 }
 
-# CatalogLoadsBeforeBootstrapInBothRuntimes: bad metadata must stop before mutation.
+# Bad catalog metadata must stop before the PowerShell 7 installer reaches install steps.
 & {
     $repo = Split-Path $PSScriptRoot -Parent
     . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     $fixtureText = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw
     $catalog = $fixtureText | ConvertFrom-Json
-    $state = @{ Reads=0; Bootstrap=0; Url='' }
+    $state = @{ Reads=0; Actions=0; Url='' }
+    function Get-InstallHome { Join-Path $repo '.agents/temp/catalog-home' }
+    function Get-InstallUserPath { Get-InstallLegionPath 'bin' }
+    function Get-UpdateConfigDirs { ,@('fixture-account') }
     function Get-InstallSourceText { param($Url) $state.Reads++; $state.Url=$Url; return $fixtureText }
-    function Ensure-InstallPowerShell { $state.Bootstrap++; return $true }
+    function Invoke-LegionInstallSteps { $state.Actions++ }
     Assert-Equal 3 @( (Get-InstallCatalog -Source 'example/market' -Catalog $catalog).tools ).Count 'Injected catalog is accepted'
     Assert-Equal 0 $state.Reads 'Injected catalog bypasses reads'
     foreach ($ref in @('release','main')) {
@@ -206,8 +209,8 @@
     )
     foreach ($bad in $invalid) {
         $fixtureText = $bad
-        Assert-Throws { Invoke-LegionInstaller -Source 'example/market' -DryRun } 'Invalid catalog fails before bootstrap'
-        Assert-Equal 0 $state.Bootstrap 'Invalid catalog never bootstraps'
+        Assert-Throws { Invoke-LegionInstaller -Source 'example/market' -DryRun } 'Invalid catalog fails before install steps'
+        Assert-Equal 0 $state.Actions 'Invalid catalog never reaches install steps'
     }
     foreach ($field in @('plugin','listing','bootstrap','windows')) {
         $bad = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw | ConvertFrom-Json
@@ -220,15 +223,15 @@
         Assert-Throws { Get-InstallCatalog -Catalog $bad } 'Consumed object nodes cannot be arrays'
     }
     function Get-InstallSourceText { throw 'fixture metadata unavailable' }
-    Assert-Throws { Invoke-LegionInstaller -Source 'example/market' -DryRun } 'Fetch failure stops before bootstrap'
-    Assert-Equal 0 $state.Bootstrap 'Fetch failure never bootstraps'
+    Assert-Throws { Invoke-LegionInstaller -Source 'example/market' -DryRun } 'Fetch failure stops before install steps'
+    Assert-Equal 0 $state.Actions 'Fetch failure never reaches install steps'
     $fixtureText = Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw
     function Get-InstallSourceText { param($Url) $state.Reads++; return $fixtureText }
     $before = $state.Reads
     function Test-InstallStepDone { $false }
     $null = Invoke-LegionInstaller -Source 'example/market' -Tools claude -DryRun
     Assert-Equal ($before + 1) $state.Reads 'Dry run reads metadata exactly once'
-    Assert-Equal 1 $state.Bootstrap 'Valid invocation reaches bootstrap once'
+    Assert-Equal 1 $state.Actions 'Valid invocation reaches install steps once'
     . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
     Assert-Equal ($before + 1) $state.Reads 'Dot source NoRun fetches nothing'
 }

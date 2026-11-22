@@ -127,6 +127,9 @@ function Copy-LegionInstaller {
     $folder = Get-LegionHomePath -Path ('temp/installer-' + [guid]::NewGuid().ToString('N')) -HomeRoot $homeRoot
     New-Item -ItemType Directory -Path $folder -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $script:LegionBin '../install.ps1'), (Join-Path $script:LegionBin '../tools.json') -Destination $folder
+    $libraryFolder = Join-Path $folder 'bin/lib'
+    New-Item -ItemType Directory -Path $libraryFolder -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $script:LegionBin 'lib/paths.ps1') -Destination $libraryFolder
     return $folder
 }
 

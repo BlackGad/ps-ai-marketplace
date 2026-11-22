@@ -1,5 +1,6 @@
 param([string]$Installer, [string]$ChildRuntime)
 $ErrorActionPreference = 'Stop'
+# The real installer subprocess adapter runs in PowerShell 7.
 . $Installer -NoRun
 $command = @'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false

@@ -18,7 +18,7 @@ $repo = Split-Path $PSScriptRoot -Parent
     }
     function Invoke-ClosedInput {
         param($Command)
-        if ($Command[0] -eq 'pwsh') { $state.Refreshes++; return @{ExitCode=0; Output=@()} }
+        if ($Command[0] -eq (Get-Process -Id $PID).Path) { $state.Refreshes++; return @{ExitCode=0; Output=@()} }
         $calls.Add(($Command -join '|'))
         $config = $env:CLAUDE_CONFIG_DIR
         $root = Join-Path $config $entry.plugin.installedRoot
@@ -35,7 +35,6 @@ $repo = Split-Path $PSScriptRoot -Parent
         if ($Command -notcontains 'marketplace') { Write-FixturePlugin -Folder $config -Version $state.Target }
         @{ExitCode=0; Output=@()}
     }
-    function Get-InstallPowerShellCommand { @{Source='pwsh'} }
     function Write-FixturePlugin {
         param($Folder, $Version)
         $root = Join-Path $Folder $entry.plugin.installedRoot

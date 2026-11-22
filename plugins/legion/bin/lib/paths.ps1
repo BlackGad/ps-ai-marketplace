@@ -3,7 +3,7 @@ function Get-LegionHomePath {
     return Join-Path (Join-Path $HomeRoot '.legion') $Path
 }
 
-# Owner-file names live here; standalone install.ps1 carries the same small helpers.
+# Owner-file names shared by the installer and bin scripts.
 function Get-LegionOwnerPath {
     param([ValidateSet('Settings', 'Notes', 'Update', 'Runtime', 'Install')][string]$Name,
         [string]$HomeRoot = $HOME)
@@ -40,13 +40,21 @@ function Set-LegionTextPreservingEncoding {
 }
 
 function Test-LegionOwnerPathSafe {
-    param([string]$Path)
+    param([string]$Path, [Parameter(Mandatory)][string]$StopRoot)
+    $comparer = Get-LegionPathComparer
     $current = [IO.Path]::GetFullPath($Path)
+    $root = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($StopRoot))
+    $prefix = $root.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if (-not $comparer.Equals($current, $root) -and -not $current.StartsWith($prefix, $comparison)) {
+        throw 'Path is outside the link-walk stop root'
+    }
     while ($current) {
         if ((Test-Path -LiteralPath $current) -and ((Get-Item -LiteralPath $current -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { return $false }
+        if ($comparer.Equals($current, $root)) { return $true }
         $current = Split-Path $current -Parent
     }
-    return $true
+    return $false
 }
 
 function Get-LegionRepoPath {
@@ -80,17 +88,65 @@ function Test-LegionLauncherExecutable {
 
 function Test-LegionPathEntry {
     param([string]$Path, [string]$Folder)
-    $comparer = Get-LegionPathComparer
-    foreach ($entry in $Path.Split([IO.Path]::PathSeparator)) {
-        $expanded = if ($IsWindows) { [Environment]::ExpandEnvironmentVariables($entry) } else { $entry }
-        $expanded = $expanded.TrimEnd('/', '\')
-        if ($entry -and $comparer.Equals($expanded, $Folder.TrimEnd('/', '\'))) { return $true }
-    }
-    return $false
+    return Test-InstallPathEntry -Path $Path -Entry $Folder -Separator ([string][IO.Path]::PathSeparator) -Comparer (Get-LegionPathComparer) -ExpandVariables $IsWindows
 }
 
 function Test-LegionSameStartTime {
     # Linux and macOS derive a process start time from the clock, so two reads can differ by a few milliseconds.
     param([datetime]$First, [datetime]$Second)
     return [math]::Abs(($First.ToUniversalTime() - $Second.ToUniversalTime()).TotalMilliseconds) -lt 500
+}
+
+function Get-InstallUserPath {
+    # Read the raw registry value so entries such as %USERPROFILE%\bin stay unexpanded.
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
+    if (-not $key) { return '' }
+    try { return [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) }
+    finally { $key.Dispose() }
+}
+
+function Set-InstallUserPath {
+    param([string]$Path)
+    # Keep the existing value kind (normally REG_EXPAND_SZ), then tell Windows the environment changed.
+    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+    try {
+        $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+        if ($key.GetValueNames() -icontains 'Path') { $kind = $key.GetValueKind('Path') }
+        $key.SetValue('Path', $Path, $kind)
+    } finally { $key.Dispose() }
+    if (-not ('LegionInstall.Environment' -as [type])) {
+        Add-Type -Namespace LegionInstall -Name Environment -MemberDefinition @'
+[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UIntPtr parameter, string value, uint flags, uint timeout, out UIntPtr result);
+'@
+    }
+    $result = [UIntPtr]::Zero
+    [void][LegionInstall.Environment]::SendMessageTimeout([IntPtr]0xffff, 0x1a, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
+}
+
+function Test-InstallPathEntry {
+    param([string]$Path, [string]$Entry, [string]$Separator,
+        [StringComparer]$Comparer = [StringComparer]::OrdinalIgnoreCase, [bool]$ExpandVariables = $true)
+    $target = $Entry.TrimEnd('\', '/')
+    foreach ($part in ($Path -split [regex]::Escape($Separator))) {
+        $expanded = if ($ExpandVariables) { [Environment]::ExpandEnvironmentVariables($part) } else { $part }
+        if ($Comparer.Equals($expanded.TrimEnd('\', '/'), $target)) { return $true }
+    }
+    return $false
+}
+
+function Add-InstallPowerShellPath {
+    param([string]$Path)
+    $userPath = Get-InstallUserPath
+    if (-not (Test-InstallPathEntry -Path $userPath -Entry $Path -Separator ';')) {
+        $updated = if ($userPath) { $userPath.TrimEnd(';') + ';' + $Path } else { $Path }
+        Set-InstallUserPath -Path $updated
+    }
+    if (-not (Test-InstallPathEntry -Path $env:PATH -Entry $Path -Separator ([string][IO.Path]::PathSeparator))) {
+        $env:PATH = $Path + [IO.Path]::PathSeparator + $env:PATH
+    }
+}
+
+function Get-LegionRuntimeFiles {
+    return @('bin/lib/tools.ps1', 'bin/lib/foundry.ps1', 'bin/lib/paths.ps1', 'bin/legion-foundry.ps1', 'schemas/tool.schema.json')
 }

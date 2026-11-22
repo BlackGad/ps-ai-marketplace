@@ -20,6 +20,8 @@ function Ensure-InstallPowerShell { $true }
 function Test-InstallStepDone { $false }
 '@
         $text = [IO.File]::ReadAllText((Join-Path $repo 'plugins/legion/install.ps1')).Replace('if (-not $NoRun) {', $overrides + "`nif (-not `$NoRun) {")
+        New-Item -ItemType Directory -Path (Join-Path $sandbox 'bin/lib') -Force | Out-Null
+        Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/paths.ps1') (Join-Path $sandbox 'bin/lib/paths.ps1')
         $installer = Join-Path $sandbox 'install.ps1'
         [IO.File]::WriteAllText($installer, $text)
         foreach ($extra in @(@(), @('-Source', 'example/market'), @('-Ref', 'main'))) {

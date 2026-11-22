@@ -16,10 +16,10 @@ $repo = Split-Path $PSScriptRoot -Parent
         $name = if ($folder -and $folder -cne $physical) { [IO.Path]::GetFullPath($folder) } else { 'default' }
         return "$($Entry.id)|$name"
     }
-    function Get-InstallPowerShellCommand { return @{ Source = 'pwsh-fake' } }
+    $refreshRuntime = (Get-Process -Id $PID).Path
     function Invoke-ClosedInput {
         param([string[]]$Command, $Environment)
-        if ($Command[0] -ceq 'pwsh-fake') { $refreshed.Add($Command[3]); return @{ ExitCode = 0; Output = @(); ErrorOutput = @() } }
+        if ($Command[0] -ceq $refreshRuntime) { $refreshed.Add($Command[3]); return @{ ExitCode = 0; Output = @(); ErrorOutput = @() } }
         $entry = $catalog.tools | Where-Object command -CEQ $Command[0]
         $key = Get-FakeKey $entry
         $line = $Command -join '|'

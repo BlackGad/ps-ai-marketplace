@@ -32,9 +32,6 @@ $repo = Split-Path $PSScriptRoot -Parent
         $script:pathWrites = 0
         $script:installs = 0
         function Read-Host { param($Prompt) $script:prompts++; return $script:answer }
-        $portable = Join-Path $fixtureHome 'pwsh.exe'
-        function Get-InstallPowerShellCommand { return @{ Source = $portable } }
-        function Get-InstallPortablePowerShell { return $portable }
         function Add-InstallPowerShellPath { param($Path) $script:pathWrites++ }
         function Get-InstallUserPath { Get-InstallLegionPath 'bin' }
         function Invoke-InstallRefresh { }
@@ -43,17 +40,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         function Resolve-InstallSource { param($Source) return $Source }
         function Test-InstallCommandAvailable { param($Name) $true }
         function Invoke-LegionInstallSteps { $script:installs++ }
-        $null = Ensure-InstallPowerShell -OnWindows $true
-        Assert-Equal 0 $script:pathWrites 'P1: a portable PowerShell does not touch the user PATH without consent'
-        $script:answer = 'y'
-        $null = Ensure-InstallPowerShell -OnWindows $true
-        Assert-Equal 1 $script:pathWrites 'P1: the owner can say yes at the prompt'
-        $null = Ensure-InstallPowerShell -OnWindows $true -Yes
-        Assert-Equal 2 $script:pathWrites 'P1: -Yes repairs the PATH'
-        $script:pathWrites = 0
-        $null = Ensure-InstallPowerShell -OnWindows $true -DryRun
-        Assert-Equal 0 $script:pathWrites 'P1: a dry run never repairs the PATH'
-
+        # Portable PowerShell consent is covered with the root stub in InstallBootstrapPowerShell.Tests.ps1.
         $script:answer = 'n'
         $null = Invoke-LegionInstaller -Catalog (Get-InstallCatalog -Source $repo) -Tools codex
         Assert-Equal 0 $script:installs 'P1: no install into the default account without consent'

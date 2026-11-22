@@ -35,7 +35,7 @@ Assert-Equal $env:HOME $env:USERPROFILE 'Both profile variables use the same hom
 foreach ($name in @('HOME', 'USERPROFILE') + @($catalog.tools.configEnv)) {
     $folder = [Environment]::GetEnvironmentVariable($name, 'Process')
     Assert-True ([IO.Path]::IsPathFullyQualified($folder)) "$name is absolute"
-    Assert-True (Test-LegionOwnerPathSafe $folder) "$name has no linked ancestors"
+    Assert-True (Test-LegionOwnerPathSafe $folder -StopRoot $env:HOME) "$name has no linked ancestors"
     if ($name -in $catalog.tools.configEnv) {
         Assert-True ($folder.StartsWith($env:HOME + [IO.Path]::DirectorySeparatorChar)) "$name stays inside the fenced home"
     }

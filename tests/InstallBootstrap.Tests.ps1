@@ -29,6 +29,13 @@ Assert-Equal $signatures[1] $signatures[0] 'BootstrapParamsMatchInstaller: names
         Copy-Item (Join-Path $repo 'plugins/legion/tools.json') (Join-Path $scratch 'plugins/legion/tools.json')
         'throw "Source installer executed"' | Set-Content (Join-Path $scratch 'plugins/legion/install.ps1')
         'throw "Source installer executed"' | Set-Content (Join-Path $scratch 'install.ps1')
+        $archivePlugin=Join-Path $scratch 'archive/single-top/plugins/legion'
+        New-Item -ItemType Directory -Path (Join-Path $archivePlugin 'bin/lib') -Force | Out-Null
+        Copy-Item $plugin (Join-Path $archivePlugin 'install.ps1')
+        Copy-Item (Join-Path $repo 'plugins/legion/tools.json') (Join-Path $archivePlugin 'tools.json')
+        Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/paths.ps1') (Join-Path $archivePlugin 'bin/lib/paths.ps1')
+        $archive=Join-Path $scratch 'plugin.zip'
+        Compress-Archive -Path (Join-Path $scratch 'archive/single-top') -DestinationPath $archive
         $runner = Join-Path $scratch 'invoke-text.ps1'
         New-InstallTextRunner -Path $runner
         $runtimes = @((Get-Command pwsh -CommandType Application | Select-Object -First 1).Source)
@@ -38,32 +45,35 @@ Assert-Equal $signatures[1] $signatures[0] 'BootstrapParamsMatchInstaller: names
             foreach ($branch in @('stable','main')) {
                 $extra = @()
                 if ($branch -eq 'main') { $extra = @('-Ref','main') }
-                $result = Invoke-ClosedInput -Command (@($runtime, '-NoProfile', '-File', $runner, '-Installer', $bootstrap, '-Plugin', $plugin, '-Fixture', $scratch, '-CliPath', $fakeBin) + $extra)
+                $result = Invoke-ClosedInput -Command (@($runtime, '-NoProfile', '-File', $runner, '-Installer', $bootstrap, '-Plugin', $plugin, '-Archive', $archive, '-Fixture', $scratch, '-CliPath', $fakeBin, '-Mode', 'text') + $extra)
                 Assert-Equal 0 $result.ExitCode "BootstrapReleaseUrl: $($result.ErrorOutput -join ' ')"
-                Assert-True ($result.Output -contains "download=https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/$branch/plugins/legion/install.ps1") "BootstrapReleaseUrl: $branch code is downloaded"
+                Assert-True ($result.Output -contains "download=https://github.com/BlackGad/ps-legion-marketplace/archive/refs/heads/$branch.zip") "BootstrapReleaseUrl: $branch code is downloaded"
             }
-            $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', $bootstrap, '-Plugin', $plugin, '-Fixture', $scratch, '-CliPath', $fakeBin, '-NoRelease')
+            $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', $bootstrap, '-Plugin', $plugin, '-Archive', $archive, '-Fixture', $scratch, '-CliPath', $fakeBin, '-Mode', 'text', '-NoRelease')
             Assert-True ($result.ExitCode -ne 0) 'BootstrapNoRelease: failed release stops'
             Assert-True (($result.ErrorOutput -join ' ').Contains('could not find the latest release; try again or run with main')) 'BootstrapNoRelease: useful failure'
             Assert-Equal 1 @($result.Output | Where-Object { $_ -like 'download=*' }).Count 'BootstrapNoRelease: no fallback download'
             foreach ($case in @(
                 @{ Name='BootstrapRunsPluginInstaller'; Installer=$bootstrap; Mode='text'; Downloads='downloads=1' }
                 @{ Name='BootstrapCheckoutRunsOwnCopy'; Installer=$bootstrap; Mode='file'; Downloads='downloads=0' }
-                @{ Name='PluginScriptText'; Installer=$plugin; Mode='text'; Downloads='downloads=0' }
+                @{ Name='PluginArchive'; Installer=$plugin; Mode='file'; Downloads='downloads=0' }
             )) {
-                $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', $case.Installer, '-Plugin', $plugin, '-Fixture', $scratch, '-Mode', $case.Mode, '-CliPath', $fakeBin)
+                $caseRuntime=if ($case.Installer -eq $plugin) { $runtimes[0] } else { $runtime }
+                $result = Invoke-ClosedInput -Command @($caseRuntime, '-NoProfile', '-File', $runner, '-Installer', $case.Installer, '-Plugin', $plugin, '-Archive', $archive, '-Fixture', $scratch, '-Mode', $case.Mode, '-CliPath', $fakeBin)
                 Assert-Equal 0 $result.ExitCode "$($case.Name) in ${runtime}: $($result.Output -join ' ') $($result.ErrorOutput -join ' ')"
-                Assert-True (($result.Output -join "`n").Contains('claude plugin marketplace add')) "$($case.Name): switch reaches the real preview"
+                Assert-True (($result.Output -join "`n").Contains('claude plugin marketplace add')) "$($case.Name): switch reaches the real preview ($($result.Output -join ' '); $($result.ErrorOutput -join ' '))"
                 Assert-True ($result.Output -contains $case.Downloads) "$($case.Name): executable comes from the expected location"
                 Write-Output "PASS $($case.Name) / BootstrapSourceIsData ($runtime)"
             }
             $copy = Join-Path $scratch 'installed'
             New-Item -ItemType Directory -Path $copy -Force | Out-Null
             Copy-Item $plugin (Join-Path $copy 'install.ps1')
+            New-Item -ItemType Directory -Path (Join-Path $copy 'bin/lib') -Force | Out-Null
+            Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/paths.ps1') (Join-Path $copy 'bin/lib/paths.ps1')
             $catalog = Get-Content (Join-Path $repo 'plugins/legion/tools.json') -Raw | ConvertFrom-Json
             $catalog.tools[0].installHint = 'sibling catalog selected'
             $catalog | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $copy 'tools.json')
-            $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', $runner, '-Installer', (Join-Path $copy 'install.ps1'), '-Plugin', $plugin, '-Fixture', $scratch, '-Mode', 'catalog', '-Ref', 'main')
+            $result = Invoke-ClosedInput -Command @($runtimes[0], '-NoProfile', '-File', $runner, '-Installer', (Join-Path $copy 'install.ps1'), '-Plugin', $plugin, '-Archive', $archive, '-Fixture', $scratch, '-Mode', 'catalog', '-Ref', 'main')
             Assert-Equal 0 $result.ExitCode "InstalledCopyCatalog: $($result.Output -join ' ') $($result.ErrorOutput -join ' ')"
             Assert-True (($result.Output -join "`n").Contains('sibling catalog selected')) 'RefKeepsSiblingCatalog: installed file uses its sibling catalog offline with main'
             Assert-True ($result.Output -contains 'downloads=0') 'InstalledCopyCatalog: no download'

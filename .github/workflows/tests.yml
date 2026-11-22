@@ -52,7 +52,7 @@ jobs:
           ref: ${{ inputs.sha || github.sha }}
       - shell: powershell
         run: |
-          foreach ($file in @('install.ps1', 'plugins/legion/install.ps1')) {
+          foreach ($file in @('install.ps1')) {
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $file), [ref]$null, [ref]$errors) | Out-Null
             if ($errors) {
