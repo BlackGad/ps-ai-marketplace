@@ -1,3 +1,4 @@
+import http.client
 import io
 import json
 import urllib.error
@@ -159,3 +160,26 @@ def test_cli_send_and_react(monkeypatch: pytest.MonkeyPatch) -> None:
     assert _cli.main(["telegram", "send", "--channel", "main", "--chat", "42", "--text", "hi", "--file", "x.txt", "--reply-to", "3"]) == 0
     assert [call[1] for call in post.calls] == ["sendMessage", "sendDocument"]
     assert _cli.main(["telegram", "react", "--channel", "main", "--chat", "42", "--message", "3", "--emoji", "x"]) == 0
+
+
+def test_http_layer_errors_never_show_the_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    def invalid(request: Any, **_options: Any) -> Any:
+        raise http.client.InvalidURL(f"URL can't contain control characters. {request.full_url!r}")
+
+    monkeypatch.setattr(_telegram._opener, "open", invalid)
+    with pytest.raises(TelegramError) as caught:
+        _telegram._post(BOT_KEY, "getUpdates", {}, [])
+    assert BOT_KEY not in str(caught.value)
+    assert caught.value.__cause__ is None
+    assert caught.value.__suppress_context__
+
+
+@pytest.mark.parametrize("token", ["no-colon", "123456:has space", "abc:def", "123456:"])
+def test_malformed_token_is_refused_before_use(bot_folder: Path, capsys: pytest.CaptureFixture[str], token: str) -> None:
+    (bot_folder / ".env").write_text(f"TELEGRAM_BOT_TOKEN={token}\n", encoding="utf-8")
+    post = FakePost()
+    assert _telegram.send("main", "42", "hi", "text", None, [], post=post) == 1
+    error = capsys.readouterr().err
+    assert "wrong format" in error
+    assert token not in error
+    assert post.calls == []

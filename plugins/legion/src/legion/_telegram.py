@@ -20,8 +20,7 @@ Post = Callable[[str, str, dict[str, str], list[tuple[str, Path]]], Any]
 
 
 class TelegramError(Exception):
-    """A plain-words failure. `code` is the Bot API error code, or 0 for a network failure."""
-
+    # A plain-words failure. `code` is the Bot API error code, or 0 for a network failure.
     def __init__(self, description: str, code: int = 0) -> None:
         super().__init__(description)
         self.code = code
@@ -39,7 +38,10 @@ def read_token(channel: str) -> str:
         for line in env_file.read_text(encoding="utf-8").splitlines():
             name, _, value = line.partition("=")
             if name.strip() == "TELEGRAM_BOT_TOKEN" and value.strip().strip("\"'"):
-                return value.strip().strip("\"'")
+                token = value.strip().strip("\"'")
+                if not re.fullmatch(r"\d+:[A-Za-z0-9_-]+", token):
+                    raise TelegramError(f"the bot token for channel '{channel}' has a wrong format")
+                return token
     raise TelegramError(f"no bot token for channel '{channel}'; pair the bot on Claude first")
 
 
@@ -67,10 +69,11 @@ def _post(token: str, method: str, fields: dict[str, str], files: list[tuple[str
         # The error text holds the URL, which holds the token: use only Telegram's own description.
         try:
             answer = json.load(error)
-        except ValueError:
+        except Exception:
             answer = {}
         raise TelegramError(answer.get("description", f"HTTP {error.code}"), error.code) from None
-    except (OSError, ValueError):
+    except Exception:
+        # Any HTTP-layer error can quote the URL, so none is chained or shown.
         raise TelegramError("network error", 0) from None
     if not answer.get("ok"):
         raise TelegramError(answer.get("description", "request failed"), answer.get("error_code", 0))

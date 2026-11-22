@@ -33,7 +33,7 @@ def update(update_id: int, sender: int = 42, chat_type: str = "private", text: O
 
 
 class Script:
-    """Fake Bot API: each getUpdates call returns the next scripted reply; an exception reply is raised."""
+    # Fake Bot API: each getUpdates call returns the next scripted reply; an exception reply is raised.
 
     def __init__(self, *replies: Any) -> None:
         self.replies = list(replies)
@@ -133,3 +133,21 @@ def test_missing_bot_folder_is_plain_error(tmp_path: Path, monkeypatch: pytest.M
 def test_process_alive_for_this_process_only() -> None:
     assert _bridge.process_alive(os.getpid())
     assert not _bridge.process_alive(0)
+
+
+def test_disabled_policy_delivers_nothing(bot_folder: Path, tmp_path: Path) -> None:
+    (bot_folder / "access.json").write_text(json.dumps({"dmPolicy": "disabled", "allowFrom": ["42"], "groups": {}}), encoding="utf-8")
+    delivered: list[tuple[str, str]] = []
+    assert run(tmp_path, Script([update(1)], KeyboardInterrupt()), delivered) == 0
+    assert delivered == []
+
+
+def test_pid_file_is_claimed_exclusively(tmp_path: Path) -> None:
+    path = tmp_path / "bridge.pid"
+    assert _bridge._claim_pid_file(path, lambda _pid: False)
+    assert path.read_text(encoding="utf-8") == str(os.getpid())
+    assert not _bridge._claim_pid_file(path, lambda _pid: True)
+    assert path.read_text(encoding="utf-8") == str(os.getpid())
+    path.write_text("4242", encoding="utf-8")
+    assert _bridge._claim_pid_file(path, lambda pid: pid != 4242)
+    assert path.read_text(encoding="utf-8") == str(os.getpid())

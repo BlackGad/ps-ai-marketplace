@@ -8,7 +8,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 from . import _inbox
-from ._telegram import Post, TelegramError, _post, bot_folder, read_token
+from ._telegram import (
+    Post,
+    TelegramError,
+    _post,
+    bot_folder,
+    read_token,
+)
 
 MAX_BACKOFF = 60
 
@@ -40,10 +46,27 @@ def _live_pid(path: Path, alive: Callable[[int], bool]) -> bool:
         return False
 
 
+def _claim_pid_file(path: Path, alive: Callable[[int], bool]) -> bool:
+    # Exclusive create is the claim; a file whose process is dead is replaced once.
+    for _ in range(2):
+        try:
+            with path.open("x", encoding="utf-8") as stream:
+                stream.write(str(os.getpid()))
+        except FileExistsError:
+            if _live_pid(path, alive):
+                return False
+            path.unlink(missing_ok=True)
+        else:
+            return True
+    return False
+
+
 def _allow_from(folder: Path) -> list[str]:
     try:
         access = json.loads((folder / "access.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
+        return []
+    if access.get("dmPolicy") == "disabled":
         return []
     return [str(user) for user in access.get("allowFrom", [])]
 
@@ -87,7 +110,9 @@ def run(
             print(f"telegram: another program is already polling this bot ({name} in the bot folder)", file=sys.stderr)
             return 1
     pid_file = folder / "bridge.pid"
-    pid_file.write_text(str(os.getpid()), encoding="utf-8")
+    if not _claim_pid_file(pid_file, alive):
+        print("telegram: another program is already polling this bot (bridge.pid in the bot folder)", file=sys.stderr)
+        return 1
     offset: Optional[int] = None
     backoff = 1
     try:
