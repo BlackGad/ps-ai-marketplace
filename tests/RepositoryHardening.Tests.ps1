@@ -50,7 +50,7 @@ try {
     $hook = Join-Path $repo '.git/hooks/pre-commit'
     New-Item -ItemType Directory -Path (Split-Path $hook -Parent) -Force | Out-Null
     [IO.File]::WriteAllText($hook, "#!/bin/sh`nexit 1`n")
-    if (-not $IsWindows) { chmod +x $hook }
+    Set-TestExecutable $hook
     $rulesName = 'my rules ' + [char]0x00FC + '.md'
     $message = Get-ThrownMessage { & $setup -Repo $repo -Mode Shared -RulesFile $rulesName }
     Assert-True ($message -ne '') 'A2: the first run fails (hook or staging)'

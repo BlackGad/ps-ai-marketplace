@@ -69,7 +69,7 @@ else { 'legion@ps-legion-marketplace installed, enabled ' + (Join-Path (Split-Pa
         foreach ($tool in @('claude','codex','copilot')) {
             $fake = Join-Path $fakeBin $tool
             "#!/bin/sh`nexec pwsh -NoProfile -File '$listingScript' $tool `"`$@`"" | Set-Content -LiteralPath $fake
-            & chmod +x $fake
+            Set-TestExecutable $fake
         }
     }
     $env:PATH = $fakeBin + [IO.Path]::PathSeparator + (Split-Path $fixturePwshExe -Parent)

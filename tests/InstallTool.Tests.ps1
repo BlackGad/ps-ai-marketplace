@@ -12,7 +12,6 @@ Invoke-InstallTestCase 'Tool' {
         function Invoke-ToolCommand { param($Command) $bunState.Calls++; $bunState.Bun=$true; 0 }
         function Test-ToolCommandAvailable { param($Name) $true }
         function Get-ToolInstallRoot { throw 'No installer filesystem writes' }
-        function Save-ToolDownload { throw 'No downloads in Unix helper test' }
         Invoke-ToolInstall -Tool bun -Platform linux | Out-Null
         Assert-Equal 0 $bunState.Calls 'Preview and decline execute nothing'
         Invoke-ToolInstall -Tool bun -Platform linux -Yes | Out-Null

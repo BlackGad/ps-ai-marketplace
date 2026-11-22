@@ -43,6 +43,25 @@ try {
         Assert-True ($direct.ExitCode -ne 0) 'Assert rejects a missing guard or HOME outside it (including a shared prefix)'
         Assert-True ($direct.Error.Contains($guardMessage)) 'Direct run explains the safe runner command'
     }
+    # A direct run of a real test file stops at the guard, before any fixture setup.
+    $directHome = Join-Path $tempRoot 'direct-home'
+    New-Item -ItemType Directory -Path $directHome | Out-Null
+    $childEnvironment.HOME = $directHome
+    $childEnvironment.USERPROFILE = $directHome
+    foreach ($name in @('InstallFlow', 'TestFixtures')) {
+        $realTest = Join-Path $repo "tests/$name.Tests.ps1"
+        $runTest = "try { & '" + $realTest.Replace("'", "''") + "' } catch { [Console]::Error.WriteLine(`$_.Exception.Message); exit 1 }"
+        $directRun = Invoke-RunnerChild -Arguments @('-Command', $runTest)
+        Assert-True ($directRun.ExitCode -ne 0) "A direct run of $name fails"
+        Assert-True ($directRun.Error.Contains($guardMessage)) "A direct run of $name explains the safe runner command"
+    }
+    Assert-Equal 0 @(Get-ChildItem -LiteralPath $directHome -Force | Where-Object Name -Like '*account').Count 'A direct run creates no fixture folders under HOME'
+    $childEnvironment.HOME = Join-Path $tempRoot 'home'
+    $childEnvironment.USERPROFILE = Join-Path $tempRoot 'home'
+
+    $nothing = Invoke-RunnerChild -Arguments @('-File', (Join-Path $testRoot 'run.ps1'), '-Name', 'NoSuchFile*')
+    Assert-True ($nothing.ExitCode -ne 0) 'A -Name that matches nothing fails'
+    Assert-True ($nothing.Error.Contains('NoSuchFile*')) 'The failure names the pattern'
     '$fixtureLeak = 1; function fixture-leak { }; $passed = 100' | Set-Content (Join-Path $testRoot 'A.Tests.ps1')
     @'
 Assert-True ($null -eq (Get-Variable fixtureLeak -ErrorAction SilentlyContinue)) 'Test variables are isolated'
@@ -71,6 +90,7 @@ Assert-True ($null -eq (Get-Command fixture-leak -ErrorAction SilentlyContinue))
 . (Join-Path $PSScriptRoot '../plugins/legion/bin/lib/paths.ps1')
 $catalog = Get-Content (Join-Path $PSScriptRoot '../plugins/legion/tools.json') -Raw | ConvertFrom-Json
 Assert-Equal $env:HOME $env:USERPROFILE 'Both profile variables use the same home'
+Assert-Equal $env:HOME $HOME 'The PowerShell HOME variable follows the fenced home'
 Assert-True ((Get-Item -LiteralPath (Split-Path $env:HOME) -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) 'The fenced home is reached through a link'
 foreach ($name in @('HOME', 'USERPROFILE') + @($catalog.tools.configEnv)) {
     $folder = [Environment]::GetEnvironmentVariable($name, 'Process')

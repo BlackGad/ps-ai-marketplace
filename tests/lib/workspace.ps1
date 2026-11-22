@@ -1,3 +1,4 @@
+. (Join-Path $PSScriptRoot 'guard.ps1')
 . (Join-Path $PSScriptRoot 'paths.ps1')
 
 # Executable boundary for a fake CLI implemented in PowerShell.
@@ -22,4 +23,11 @@ function Write-TestPersonalisation {
     $path = Join-Path $folder 'personalisation.json'
     @{ schemaVersion = 1; agents = @($Agents); channels = @($Channels) } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $path
     return $path
+}
+
+function Set-TestExecutable {
+    # Fake commands need the execute bit on macOS and Linux; Windows has no such bit.
+    param([string]$Path)
+    if ($IsWindows) { return }
+    [IO.File]::SetUnixFileMode($Path, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
 }

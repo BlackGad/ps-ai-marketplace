@@ -1,6 +1,7 @@
 param([string]$Finding)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'lib/workspace.ps1')
 $setupScript = Join-Path $root 'plugins/legion/bin/legion-setup.ps1'
 $tempRoot = Join-Path $root ('.agents/temp/setup-' + [guid]::NewGuid().ToString('N'))
 $savedPath = $env:PATH
@@ -31,7 +32,7 @@ try {
         $path = Join-Path $fakeBin $(if ($IsWindows) { "$tool.cmd" } else { $tool })
         $text = if ($IsWindows) { '@exit /b 99' } else { "#!/bin/sh`nexit 99`n" }
         [IO.File]::WriteAllText($path, $text)
-        if (-not $IsWindows) { & chmod +x $path }
+        Set-TestExecutable $path
     }
     $systemBin = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' }
     $fixturePath = @($fakeBin, (Split-Path (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source), $systemBin) -join [IO.Path]::PathSeparator

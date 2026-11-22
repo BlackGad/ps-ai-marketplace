@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'lib/workspace.ps1')
 $runner = Join-Path $root 'tests/integration/run.ps1'
 $tempRoot = Join-Path $root ('.agents/temp/integration-runner-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
@@ -258,7 +259,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         New-Item -ItemType Directory -Path $savedFolder -Force | Out-Null
         $fakeCli = if ($IsWindows) { 'legion-fake-cli.cmd' } else { 'legion-fake-cli' }
         Set-Content -LiteralPath (Join-Path $savedFolder $fakeCli) -Value $(if ($IsWindows) { '@echo off' } else { '#!/bin/sh' })
-        if (-not $IsWindows) { chmod +x (Join-Path $savedFolder $fakeCli) }
+        Set-TestExecutable (Join-Path $savedFolder $fakeCli)
         function Get-IntegrationPersistentFolders { return @($savedFolder) }
         $resolved = Resolve-IntegrationCommand 'legion-fake-cli'
         Assert-True (Test-Path -LiteralPath $resolved -PathType Leaf) 'the executable is resolved from the saved PATH'
@@ -383,6 +384,14 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         Assert-Equal $case.Result $result.Result $case.Name
         if ($case.Check) { & $case.Check }
     }
+    # When every tool refused the checkout nothing real was tested; the gate must say so instead of passing.
+    . Reset-Runner
+    Assert-Equal '' (Get-IntegrationCoverageProblem) 'Nothing refused is no coverage problem'
+    $script:Ctx.NotTested.codex = 'codex refuses a local folder'
+    Assert-Equal '' (Get-IntegrationCoverageProblem) 'One refusing tool still leaves tested tools'
+    $script:Ctx.NotTested.claude = 'claude refuses a local folder'
+    $script:Ctx.NotTested.copilot = 'copilot refuses a local folder'
+    Assert-True ((Get-IntegrationCoverageProblem).Contains('codex refuses a local folder')) 'Every tool refusing fails the gate with the reasons'
     # Another tool's refusal text does not excuse this tool.
     . Reset-Runner
     Assert-True (-not (Test-IntegrationLocalRefusal 'claude' $refusal)) 'a refusal by codex is not a claude refusal'

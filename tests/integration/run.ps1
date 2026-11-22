@@ -831,6 +831,12 @@ function Invoke-PurgeRepeat {
     return $lines
 }
 
+# When every CLI refused the checkout, nothing real was tested; an empty result means coverage is fine.
+function Get-IntegrationCoverageProblem {
+    if ($script:Ctx.NotTested.Count -lt $script:IntegrationTools.Count) { return '' }
+    return 'every CLI refused the checkout, so no real install was tested: ' + (@($script:Ctx.NotTested.Values) -join '; ')
+}
+
 # Building the ordered steps touches nothing; only running a block does.
 function Get-IntegrationSteps {
     param([string]$HomeRoot, [string]$Checkout, [string]$Work, [string]$Os, [switch]$AllowFallback)
@@ -882,5 +888,7 @@ $cases = @(Invoke-IntegrationSteps -Steps $steps -LogFolder (Join-Path $Out 'log
 $extra = ($script:Ctx.Versions.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value)" }) -join ', '
 if ($script:Ctx.NotTested.Count) { $extra += "; not tested from the checkout: $(@($script:Ctx.NotTested.Keys) -join ', ')" }
 Write-IntegrationReport -Out $Out -Os $os -Cases $cases -Probe $probe -Extra $extra
+$coverageProblem = Get-IntegrationCoverageProblem
+if ($coverageProblem) { Write-Error $coverageProblem; exit 1 }
 if (@($cases | Where-Object Result -eq 'failed').Count) { exit 1 }
 exit 0

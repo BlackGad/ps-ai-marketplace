@@ -1,4 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'lib/workspace.ps1')
 $accountScript = Join-Path $root 'plugins/legion/bin/legion-account.ps1'
 $homeRoot = Join-Path $root ('.agents/temp/lean-accounts-' + [guid]::NewGuid().ToString('N'))
 $file = Join-Path $homeRoot '.legion/configuration/personalisation.json'
@@ -105,7 +106,7 @@ try {
     $repairCommand = Join-Path $repairBin $(if ($IsWindows) { 'codex.cmd' } else { 'codex' })
     $inertText = if ($IsWindows) { '@exit /b 99' } else { "#!/bin/sh`nexit 99`n" }
     [IO.File]::WriteAllText($repairCommand, $inertText)
-    if (-not $IsWindows) { & chmod +x $repairCommand }
+    Set-TestExecutable $repairCommand
     $env:PATH = $repairBin + [IO.Path]::PathSeparator + $(if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' })
     & $accountScript -Action add -Id codex-repair -Tool codex -HomeRoot $homeRoot | Out-Null
     $before = [IO.File]::ReadAllText($file)

@@ -1,4 +1,4 @@
-. (Join-Path $PSScriptRoot 'paths.ps1')
+. (Join-Path $PSScriptRoot 'workspace.ps1')
 
 function Set-TestGitEnvironment {
     param([string]$Sandbox)

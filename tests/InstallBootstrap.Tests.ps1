@@ -25,7 +25,7 @@ Invoke-InstallTestCase 'Bootstrap' {
             '@echo []' | Set-Content (Join-Path $fakeBin 'claude.cmd')
         } else {
             "#!/bin/sh`nprintf '[]\n'" | Set-Content (Join-Path $fakeBin 'claude')
-            & chmod +x (Join-Path $fakeBin 'claude')
+            Set-TestExecutable (Join-Path $fakeBin 'claude')
         }
         # A source folder supplies data only; its executable must never run.
         Copy-Item (Join-Path $repo 'plugins/legion/tools.json') (Join-Path $scratch 'plugins/legion/tools.json')
@@ -584,8 +584,7 @@ exit ([int]$env:FAKE_EXIT)
 '@
             foreach ($file in @{ pwsh=$pwshFake; curl=$curlFake; uname=$unameFake }.GetEnumerator()) {
                 [IO.File]::WriteAllText((Join-Path $bin $file.Key), $file.Value.Replace("`r", '') + "`n")
-                & chmod +x (Join-Path $bin $file.Key)
-                Assert-Equal 0 $LASTEXITCODE 'Fake executable is ready'
+                Set-TestExecutable (Join-Path $bin $file.Key)
             }
             [IO.File]::WriteAllText((Join-Path $scratch 'stub.ps1'), $stub)
             & tar -czf (Join-Path $scratch 'pwsh.tar.gz') -C $bin pwsh
@@ -686,7 +685,7 @@ printf 'shasum\n' >> "$FAKE_ROOT/hash-command"
 exec "$FAKE_SHA256SUM" "$3"
 '@
                 [IO.File]::WriteAllText($shasum, $shasumFake.Replace("`r", '') + "`n")
-                & chmod +x $shasum
+                Set-TestExecutable $shasum
                 $fullPath = $env:PATH
                 try {
                     $env:PATH = $bin

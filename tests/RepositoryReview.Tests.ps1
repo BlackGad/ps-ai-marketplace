@@ -12,7 +12,7 @@ try {
     New-Item -ItemType Directory -Path (Split-Path $hook -Parent) -Force | Out-Null
     [IO.File]::WriteAllText($hook, "#!/bin/sh`nexit 1`n")
     # Git runs a hook on Unix only when it is executable.
-    if (-not $IsWindows) { chmod +x $hook }
+    Set-TestExecutable $hook
     $message = Get-ThrownMessage { & $setup -Repo $repo -Mode Shared }
     Assert-True ($message -like '*Cannot commit setup files*') 'The commit failure is reported'
     Remove-Item -LiteralPath $hook

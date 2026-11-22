@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'lib/workspace.ps1')
 $tempBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
 $scratch = Join-Path $tempBase ('launcher-exit-' + [guid]::NewGuid().ToString('N'))
 $plugin = Join-Path $scratch 'plugin'
@@ -23,7 +24,7 @@ try {
     . (Join-Path $root 'plugins/legion/bin/lib/commands.ps1')
     $public = Join-Path $scratch $(if ($IsWindows) { 'legion.cmd' } else { 'legion' })
     Get-LegionShimText -Script (Join-Path $plugin 'bin/legion.ps1') -Windows:$IsWindows | Set-Content $public
-    if (-not $IsWindows) { & chmod +x $public }
+    Set-TestExecutable $public
     $pwsh = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
     $git = (Get-Command git -CommandType Application | Select-Object -First 1).Source
     $env:PATH = (Split-Path $pwsh) + [IO.Path]::PathSeparator + (Split-Path $git) + [IO.Path]::PathSeparator + $(if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/usr/bin' })

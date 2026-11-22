@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib/workspace.ps1')
+. (Join-Path $PSScriptRoot 'lib/installer.ps1')
 $scratch = Join-Path (Get-TestTempPath) 'fixtures'
 $allowed = Join-Path $scratch 'allowed'
 $outside = Join-Path $scratch 'allowed-sibling'
@@ -28,6 +29,10 @@ try {
     Assert-Equal 1 $data.schemaVersion 'Shared settings include the schema version'
     Assert-Equal 'fixture' $data.agents[0].id 'Shared settings preserve agents'
     Assert-Equal 0 $data.channels.Count 'Shared settings default to no channels'
+    $installFolder = New-InstallTestFolder 'fixture-home'
+    try { Assert-True (Test-LegionPathUnder -Path $installFolder -Root (Get-TestTempPath)) 'Installer fixture homes live under the runner temp' }
+    finally { Remove-InstallTestFolder $installFolder }
+    Assert-True (-not (Test-Path $installFolder)) 'The installer fixture home is removed'
 } finally {
     Remove-TestFolder -Path $scratch -AllowedParent (Get-TestTempPath)
 }

@@ -1,20 +1,20 @@
 # Shared helpers for tests/Install*.Tests.ps1. A test file dot-sources this once.
 # It defines $repo, so a test file needs no setup line of its own.
-. (Join-Path $PSScriptRoot 'paths.ps1')
+. (Join-Path $PSScriptRoot 'workspace.ps1')
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $installerPath = Join-Path $repo 'plugins/legion/install.ps1'
 
 function New-InstallTestFolder {
-    # A new empty folder under .agents/temp (ignored by git).
+    # A new empty folder under the runner's linked temp.
     param([string]$Name)
-    $path = Join-Path $repo ('.agents/temp/' + $Name + '-' + [guid]::NewGuid().ToString('N'))
+    $path = Join-Path (Get-TestTempPath) ($Name + '-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $path -Force | Out-Null
     return $path
 }
 
 function Remove-InstallTestFolder {
     param([string]$Path)
-    Remove-TestFolder -Path $Path -AllowedParent (Join-Path $repo '.agents/temp')
+    Remove-TestFolder -Path $Path -AllowedParent (Get-TestTempPath)
 }
 
 function Get-InstallTestPwsh {

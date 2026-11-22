@@ -16,7 +16,10 @@ function Get-TestOutsideSnapshot {
     param([string]$Path)
     return @(Get-ChildItem -LiteralPath $Path -File -Recurse -Force | Sort-Object FullName | ForEach-Object { $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash }) -join '|'
 }
-foreach ($test in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Where-Object Name -Like $Name | Sort-Object Name) {
+$testFiles = @(Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Where-Object Name -Like $Name | Sort-Object Name)
+if (-not $testFiles.Count) { throw "No test file matches -Name '$Name'" }
+$realHome = $HOME
+foreach ($test in $testFiles) {
     # Tests select fixture homes and modes; inherited overrides must not affect them.
     $savedConfig = @{}
     foreach ($configEnv in $configEnvs) {
@@ -37,6 +40,8 @@ foreach ($test in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Where-Obje
     'owner sentinel' | Set-Content (Join-Path $outside 'keep.txt')
     $outsideSnapshot = Get-TestOutsideSnapshot $outside
     $env:HOME = $guardHome
+    # Scripts use $HOME as a default home too; it is a PowerShell variable apart from the environment one.
+    Set-Variable -Name HOME -Value $guardHome -Force -Scope Global
     $env:USERPROFILE = $guardHome
     $env:LEGION_TEST_GUARD = $guardHome
     foreach ($tempEnv in @('TMPDIR', 'TEMP', 'TMP')) { [Environment]::SetEnvironmentVariable($tempEnv, $temp, 'Process') }
@@ -65,6 +70,7 @@ foreach ($test in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Where-Obje
             Write-Output "FAIL $($test.Name): $message"
         }
         $cases += @{ Name = $test.Name; ClassName = 'unit'; Seconds = $watch.Elapsed.TotalSeconds; Result = $result; Message = $message }
+        Set-Variable -Name HOME -Value $realHome -Force -Scope Global
         foreach ($configEnv in $configEnvs) {
             if ($null -eq $savedConfig[$configEnv]) { Remove-Item -LiteralPath "Env:$configEnv" -ErrorAction SilentlyContinue }
             else { [Environment]::SetEnvironmentVariable($configEnv, $savedConfig[$configEnv], 'Process') }
