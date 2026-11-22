@@ -357,3 +357,44 @@ Test-PurgeScenario {
     $invalid = $descriptor | ConvertTo-Json -Depth 100
     Assert-True (-not (Test-Json -Json $invalid -SchemaFile (Join-Path $repo 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) 'Tool schema rejects settings paths outside the config folder'
 }
+
+Test-PurgeScenario {
+    # Purge rechecks the index under the footprint lock and holds the lock until the legion folder is gone.
+    $script:installCatalog = $catalog
+    $null = New-PurgeFile '.legion/configuration/notes.md' 'notes'
+    $plan = Get-InstallPurgePlan
+    Add-LegionFootprint -HomeRoot $fixtureHome -Kind file -Path (Join-Path $fixtureHome '.legion/bin/legion') -Owner 'claude:installed-after-preview'
+    Assert-Throws { Invoke-InstallPurgePlan -Plan $plan } 'Purge refuses records added after its preview'
+    Assert-Equal 1 @(Get-LegionFootprints -HomeRoot $fixtureHome).Count 'A record added after the preview stays'
+    $plan = Get-InstallPurgePlan
+    $lockPath = (Get-LegionOwnerPath -Name Index -HomeRoot $fixtureHome) + '.lock'
+    $observed = [Collections.Generic.List[string]]::new()
+    $sharedSafePath = ${function:Get-InstallSafePath}
+    function Get-InstallSafePath {
+        param([string]$Root, $Relative, [switch]$AllowFile, [string[]]$Except = @())
+        if ($Relative -ceq '.legion') {
+            try { ([IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None')).Dispose(); $observed.Add('free') }
+            catch [IO.IOException] { $observed.Add('held') }
+        }
+        & $sharedSafePath -Root $Root -Relative $Relative -AllowFile:$AllowFile -Except $Except
+    }
+    Invoke-InstallPurgePlan -Plan $plan
+    Assert-Equal 'held' ($observed -join '|') 'A writer waits while purge removes the legion folder'
+    Assert-True (-not (Test-Path (Join-Path $fixtureHome '.legion'))) 'The lock file goes last, with the legion folder'
+}
+
+Test-PurgeScenario {
+    # The link lookup compares paths with the OS rules, so a differently cased spelling on Windows finds its record.
+    $script:installCatalog = $catalog
+    $target = Join-Path $fixtureHome 'portable'
+    New-Item -ItemType Directory -Path $target, (Join-Path $fixtureHome '.legion/bin') -Force | Out-Null
+    $link = Join-Path $fixtureHome '.legion/bin/pwsh'
+    $type = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+    New-Item -ItemType $type -Path $link -Target $target | Out-Null
+    Add-LegionFootprint -HomeRoot $fixtureHome -Kind link -Path $link -Value (Get-Item -LiteralPath $link -Force).LinkTarget -Owner legion
+    $plan = Get-InstallPurgePlan
+    if ($IsWindows) { $plan.Links = @($plan.Links | ForEach-Object { $_.ToUpperInvariant() }) }
+    Invoke-InstallPurgePlan -Plan $plan
+    Assert-True (-not (Test-Path (Join-Path $fixtureHome '.legion'))) 'Purge removes the recorded link, then the legion folder'
+    Assert-True (Test-Path $target) 'The link target stays'
+}

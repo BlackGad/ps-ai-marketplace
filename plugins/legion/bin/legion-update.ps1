@@ -7,7 +7,7 @@ param(
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
 
 function Get-LegionUpdateHome {
-    return [Environment]::GetFolderPath('UserProfile')
+    return $HOME
 }
 
 function Get-LegionUpdateText {

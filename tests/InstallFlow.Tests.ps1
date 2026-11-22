@@ -379,7 +379,7 @@ Invoke-InstallTestCase 'Consent' {
     }
 }
 
-foreach ($case in @('InstallRunsRefresh', 'InstallQuestionNamesPath', 'InstallUnixPathHint', 'InstallLinksPortablePwsh', 'InstallNextStep', 'NonInteractiveInstall')) {
+foreach ($case in @('InstallRunsRefresh', 'InstallQuestionNamesPath', 'InstallUnixPathHint', 'InstallLinksPortablePwsh', 'InstallRefusesLinkedBin', 'InstallRecordsPortablePath', 'InstallNextStep', 'NonInteractiveInstall')) {
     Invoke-InstallTestCase $case {
         . $installerPath -NoRun
         . (Join-Path $PSScriptRoot 'fixtures/install/MarketplaceListing.ps1')
@@ -482,6 +482,41 @@ foreach ($case in @('InstallRunsRefresh', 'InstallQuestionNamesPath', 'InstallUn
                     $null = Invoke-LegionPurge -Yes
                     Assert-Equal $false (Test-Path (Join-Path $scratch '.legion')) 'InstallLinksPortablePwsh: purge removes the link, then the legion folder'
                 }
+                # A linked ~/.legion/bin would put the pwsh link in the link's target, outside legion's home.
+                'InstallRefusesLinkedBin' {
+                    $env:OS = 'fixture-unix'
+                    if ($IsWindows) { break }
+                    $portable = Join-Path $scratch '.legion/tools/pwsh/pwsh'
+                    New-Item -ItemType Directory -Path (Split-Path $portable) -Force | Out-Null
+                    [IO.File]::WriteAllText($portable, '')
+                    function Get-InstallPowerShell { $portable }
+                    $elsewhere = Join-Path $scratch 'elsewhere'
+                    New-Item -ItemType Directory -Path $elsewhere -Force | Out-Null
+                    New-Item -ItemType SymbolicLink -Path (Join-Path $scratch '.legion/bin') -Target $elsewhere | Out-Null
+                    Assert-Throws { Invoke-LegionInstaller @options -Yes } 'InstallRefusesLinkedBin: a linked bin folder stops the install'
+                    Assert-True (-not (Test-Path (Join-Path $elsewhere 'pwsh'))) 'InstallRefusesLinkedBin: no link in the outside folder'
+                    Assert-Equal 0 @(Get-LegionFootprints -HomeRoot $scratch -Kind link).Count 'InstallRefusesLinkedBin: no link record'
+                    Remove-Item -LiteralPath (Join-Path $scratch '.legion/bin') -Force
+                }
+                # Windows: the stub reports the portable PowerShell folder it added to the user PATH; it is recorded only after a yes.
+                'InstallRecordsPortablePath' {
+                    $folder = Join-Path $scratch '.legion/tools/pwsh'
+                    New-Item -ItemType Directory -Path $folder -Force | Out-Null
+                    function Get-InstallPowerShell { Join-Path $folder 'pwsh.exe' }
+                    $portableRecords = { @(Get-LegionFootprints -HomeRoot $scratch -Kind path-entry | Where-Object value -EQ $folder).Count }
+                    try {
+                        $env:LEGION_PORTABLE_PATH_ADDED = $folder
+                        $state.Answer = 'n'
+                        $null = Invoke-LegionInstaller @options
+                        Assert-True (-not (Test-Path (Join-Path $scratch '.legion/footprints.json'))) 'InstallRecordsPortablePath: a declined install records nothing'
+                        $env:LEGION_PORTABLE_PATH_ADDED = $null
+                        $null = Invoke-LegionInstaller @options -Yes
+                        Assert-Equal 0 (& $portableRecords) 'InstallRecordsPortablePath: a folder the stub did not add is not recorded'
+                        $env:LEGION_PORTABLE_PATH_ADDED = $folder
+                        $null = Invoke-LegionInstaller @options -Yes
+                        Assert-Equal 1 (& $portableRecords) 'InstallRecordsPortablePath: a folder the stub added is recorded for purge'
+                    } finally { $env:LEGION_PORTABLE_PATH_ADDED = $null }
+                }
                 'InstallNextStep' {
                     foreach ($track in @('release','main')) {
                         $output = @(Invoke-LegionInstaller @options -Ref $track -Yes)
@@ -581,4 +616,29 @@ Invoke-InstallTestCase 'WorkingFolder' {
     $expected = Resolve-LegionDirectoryPath (Get-TestTempPath)
     $actual = Resolve-LegionDirectoryPath $result.Output[0]
     Assert-True ((Get-LegionPathComparer).Equals($expected, $actual)) 'CLI processes run from the system temp folder, not the caller folder'
+}
+
+Invoke-InstallTestCase 'DefaultHomeFollowsHome' {
+    # Without -HomeRoot every entry point uses $HOME, so a redirected home also holds on Windows.
+    $savedHome = $HOME
+    $fixtureHome = New-InstallTestFolder 'default-home'
+    try {
+        Set-Variable -Name HOME -Value $fixtureHome -Force
+        & {
+            . (Join-Path $repo 'install.ps1') -NoRun
+            $script:installHomeRoot = $null
+            Assert-Equal $fixtureHome (Get-InstallHome) 'The stub defaults to $HOME'
+        }
+        & {
+            . $installerPath -NoRun
+            Assert-Equal $fixtureHome (Get-InstallHome) 'The installer defaults to $HOME'
+        }
+        & {
+            . (Join-Path $repo 'plugins/legion/bin/legion-update.ps1') -NoRun
+            Assert-Equal $fixtureHome (Get-LegionUpdateHome) 'The update check defaults to $HOME'
+        }
+    } finally {
+        Set-Variable -Name HOME -Value $savedHome -Force
+        Remove-InstallTestFolder $fixtureHome
+    }
 }

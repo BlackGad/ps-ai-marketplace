@@ -185,6 +185,11 @@ Invoke-InstallTestCase 'BootstrapPowerShell' {
         Assert-Equal $downloadCount $state.Downloads 'Repeat ZIP installation never downloads'
         Assert-Equal 1 $state.Writes 'Repeat ZIP installation never duplicates user PATH'
         Assert-Equal 1 @($env:PATH -split [regex]::Escape([IO.Path]::PathSeparator) | Where-Object { $_ -eq $portableFolder }).Count 'Process PATH contains folder once'
+        # The installer records the portable folder for purge only when the stub added it to the user PATH.
+        Assert-Equal $portableFolder $env:LEGION_PORTABLE_PATH_ADDED 'The stub tells the installer it added the user PATH entry'
+        $env:LEGION_PORTABLE_PATH_ADDED = $null
+        Add-InstallPowerShellPath -Path $portableFolder
+        Assert-Equal $null $env:LEGION_PORTABLE_PATH_ADDED 'An entry already on the user PATH is not reported as added'
 
         # Portable PATH repair retains explicit consent, including repeats and dry runs.
         $state.Answer='n'
@@ -214,6 +219,7 @@ Invoke-InstallTestCase 'BootstrapPowerShell' {
         Write-Output 'PASS stub verified ZIP, fallback, repeats and portable PATH consent'
     } finally {
         $env:PATH=$savedPath
+        $env:LEGION_PORTABLE_PATH_ADDED = $null
         Remove-InstallTestFolder $sandbox
     }
     }

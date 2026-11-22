@@ -62,11 +62,21 @@ try {
                 $preview = @(Invoke-LegionPurge -DryRun) -join "`n"
                 Assert-True ($preview.Contains($profilePath)) 'Purge previews the recorded profile entry'
                 $null = Invoke-LegionPurge -Yes
-                $expected = $encoding.GetBytes($original + $tail)
+                # The newline legion put before its block stays when owner text follows, so two commands never join.
+                $separator = if ($ending) { '' } else { "`n" }
+                $expected = $encoding.GetBytes($original + $separator + $tail)
                 if ($encoding.GetPreamble().Length) { $expected = [byte[]]($encoding.GetPreamble() + $expected) }
                 Assert-Equal ([Convert]::ToBase64String($expected)) ([Convert]::ToBase64String([IO.File]::ReadAllBytes($profilePath))) 'Purge preserves every other byte, BOM and newline'
             }
         }
+        # A block that still ends the file goes with the newline legion put before it.
+        $fixtureHome = Join-Path $scratch 'last-block'
+        New-Item -ItemType Directory -Path $fixtureHome -Force | Out-Null
+        $profilePath = Join-Path $fixtureHome '.zshrc'
+        [IO.File]::WriteAllText($profilePath, 'export KEEP=yes')
+        $null = Add-LegionUserPath -Folder (Join-Path $fixtureHome '.legion/bin') -HomeRoot $fixtureHome
+        $null = Invoke-LegionPurge -Yes
+        Assert-Equal 'export KEEP=yes' ([IO.File]::ReadAllText($profilePath)) 'Purge restores a profile without a final newline exactly'
         $fixtureHome = Join-Path $scratch 'unrecorded'
         New-Item -ItemType Directory -Path $fixtureHome -Force | Out-Null
         $profilePath = Join-Path $fixtureHome '.zshrc'

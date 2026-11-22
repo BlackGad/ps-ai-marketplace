@@ -262,7 +262,7 @@ function Invoke-LegionInstallSteps {
 $script:installHomeRoot = $HomeRoot
 function Get-InstallHome {
     if ($script:installHomeRoot) { return $script:installHomeRoot }
-    return [Environment]::GetFolderPath('UserProfile')
+    return $HOME
 }
 
 # Persistent changes need consent: -Yes, or a yes at the prompt.
@@ -518,8 +518,12 @@ function Get-InstallPurgeEdit {
         $entries = @()
         foreach ($footprint in $Footprints) {
             if ($footprint.kind -ceq 'path-entry') {
-                # Only a line under legion's marker is legion's; the recorded separator goes with it.
-                $pattern = '(?m)(?:' + [regex]::Escape($footprint.key) + ')?^# Added by legion\r?\n' + [regex]::Escape($footprint.value) + '(?:\r?\n|$)'
+                # Only a line under legion's marker is legion's. The recorded separator goes with it only
+                # while the block still ends the file; otherwise it keeps the owner's later lines apart.
+                $block = '^' + [regex]::Escape((Get-LegionProfileMarker)) + '\r?\n' + [regex]::Escape($footprint.value)
+                $last = '(?m)' + [regex]::Escape($footprint.key) + $block + '(?:\r?\n)?\z'
+                $pattern = '(?m)' + $block + '(?:\r?\n|$)'
+                if ($footprint.key -and [regex]::IsMatch($text, $last)) { $pattern = $last }
                 if ([regex]::IsMatch($text, $pattern)) {
                     $text = [regex]::Replace($text, $pattern, '')
                     $entries += $footprint.value
@@ -654,7 +658,7 @@ function Get-InstallPurgePlan {
     $legion = Get-InstallSafePath -Root (Get-InstallHome) -Relative '.legion' -Except $links 6>$null
     if (-not $legion -and (Test-Path -LiteralPath (Get-InstallLegionPath ''))) { $manualSteps += 'Manual step: legion home contains linked paths; left in place.' }
     return [pscustomobject]@{
-        Paths=$paths; Edits=$edits; Links=$links; Legion=$legion; HomeRoot=(Get-InstallHome); ManualSteps=$manualSteps
+        Paths=$paths; Edits=$edits; Links=$links; Legion=$legion; HomeRoot=(Get-InstallHome); ManualSteps=$manualSteps; Index=(Get-InstallIndexText)
         UserPath=[pscustomobject]@{ Before=$userPath; After=($user.Kept -join ';'); Entries=$user.Removed }
         ProcessPath=[pscustomobject]@{ Before=$processPath; After=($process.Kept -join $processSeparator); Entries=$process.Removed }
         HasWork=[bool]($paths.Count -or $edits.Count -or $links.Count -or $legion -or $user.Removed.Count -or $process.Removed.Count)
@@ -681,8 +685,30 @@ function Show-InstallPurgePlan {
     foreach ($step in $Plan.ManualSteps) { $step }
 }
 
+function Get-InstallIndexText {
+    $index = Get-LegionOwnerPath -Name Index -HomeRoot (Get-InstallHome)
+    if (Test-Path -LiteralPath $index) { return [IO.File]::ReadAllText($index) }
+    return ''
+}
+
+# Writers wait on the footprint lock while purge applies. The lock file lives in .legion, so it goes last.
 function Invoke-InstallPurgePlan {
     param($Plan)
+    $lockPath = [IO.Path]::GetFullPath((Get-LegionOwnerPath -Name Index -HomeRoot $Plan.HomeRoot) + '.lock')
+    $lock = if ($Plan.Legion) { Lock-LegionFootprints -HomeRoot $Plan.HomeRoot }
+    try {
+        if ($lock -and (Get-InstallIndexText) -cne $Plan.Index) { throw 'Legion records changed after preview; run purge again.' }
+        Invoke-InstallPurgeSteps -Plan $Plan -Keep $lockPath
+    } finally { if ($lock) { $lock.Dispose() } }
+    if ($Plan.Legion) {
+        # A writer that was waiting may hold the lock now; then its lock and new record stay.
+        Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
+        if ((Test-Path -LiteralPath $Plan.Legion) -and -not @(Get-ChildItem -LiteralPath $Plan.Legion -Force).Count) { Remove-Item -LiteralPath $Plan.Legion -Force }
+    }
+}
+
+function Invoke-InstallPurgeSteps {
+    param($Plan, [string]$Keep)
     if ($Plan.UserPath.Entries.Count) {
         if ((Get-LegionUserPath) -cne $Plan.UserPath.Before) { throw 'User PATH changed after preview; run purge again.' }
         Set-LegionUserPath -Path $Plan.UserPath.After
@@ -702,14 +728,16 @@ function Invoke-InstallPurgePlan {
         Remove-Item -LiteralPath $safe -Recurse -Force -ErrorAction Stop
     }
     foreach ($link in $Plan.Links) {
-        $entry = Get-LegionFootprints -HomeRoot $Plan.HomeRoot -Kind link | Where-Object { [IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $_.path -HomeRoot $Plan.HomeRoot)) -ceq $link }
+        $entry = Get-LegionFootprints -HomeRoot $Plan.HomeRoot -Kind link | Where-Object { (Get-LegionPathComparer).Equals([IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $_.path -HomeRoot $Plan.HomeRoot)), $link) }
         if ($entry -and (Test-LegionFootprintSafe -Entry $entry -HomeRoot $Plan.HomeRoot)) { (Get-Item -LiteralPath $link -Force).Delete() }
     }
     # The running installer may be a private copy under this tree; functions are
     # already loaded. Legion's caller tolerates its copy having been removed.
     if ($Plan.Legion) {
         $safe = Get-InstallSafePath -Root $Plan.HomeRoot -Relative '.legion'
-        if ($safe -and $safe -ceq $Plan.Legion) { Remove-Item -LiteralPath $safe -Recurse -Force -ErrorAction Stop }
+        if ($safe -and $safe -ceq $Plan.Legion) {
+            Get-ChildItem -LiteralPath $safe -Force | Where-Object { -not (Get-LegionPathComparer).Equals($_.FullName, $Keep) } | Remove-Item -Recurse -Force -ErrorAction Stop
+        }
     }
 }
 
@@ -964,6 +992,7 @@ function Get-InstallPowerShell {
 function Add-InstallPowerShellLink {
     param([string]$Target, [switch]$DryRun)
     $link = Get-InstallLegionPath 'bin/pwsh'
+    if (-not (Test-LegionOwnerPathSafe -Path (Split-Path $link) -StopRoot (Get-InstallHome))) { throw 'Legion bin folder contains a link; resolve it before writing' }
     $item = Get-Item -LiteralPath $link -Force -ErrorAction SilentlyContinue
     if ($item -and $item.LinkTarget -ceq $Target) { 'skip: pwsh link (already done)'; return }
     if ($item) { "skip: $link (not legion's)"; return }
@@ -972,6 +1001,13 @@ function Add-InstallPowerShellLink {
     Add-LegionFootprint -HomeRoot (Get-InstallHome) -Kind link -Path $link -Value $Target -Owner legion
     New-Item -ItemType Directory -Path (Split-Path $link) -Force | Out-Null
     $null = New-Item -ItemType SymbolicLink -Path $link -Target $Target
+}
+
+# Windows: the stub names the portable PowerShell folder it added to the user PATH; record it for purge.
+function Add-InstallPortablePathRecord {
+    $folder = $env:LEGION_PORTABLE_PATH_ADDED
+    if ($env:OS -ne 'Windows_NT' -or -not $folder -or -not (Test-LegionPathUnder -Path $folder -Root (Get-InstallLegionPath 'tools/pwsh') -AllowEqual)) { return }
+    Add-LegionFootprint -HomeRoot (Get-InstallHome) -Kind path-entry -Path 'user PATH' -Value $folder.TrimEnd('\', '/') -Owner legion
 }
 
 function Invoke-LegionInstaller {
@@ -983,10 +1019,6 @@ function Invoke-LegionInstaller {
     $onWindows = $env:OS -eq 'Windows_NT'
     $powerShell = Get-InstallPowerShell
     $portable = Test-LegionPathUnder -Path $powerShell -Root (Get-InstallLegionPath 'tools/pwsh')
-    # Windows: the stub already added the portable folder to the user PATH; record it for purge.
-    if ($onWindows -and $portable -and -not $DryRun -and -not $Uninstall) {
-        Add-LegionFootprint -HomeRoot (Get-InstallHome) -Kind path-entry -Path 'user PATH' -Value (Split-Path $powerShell -Parent) -Owner legion
-    }
     if ($Uninstall) {
         Invoke-LegionUninstall -Tools $Tools -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes
         if ($Purge -and -not $script:installUninstallDeclined) { Invoke-LegionPurge -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes }
@@ -1021,6 +1053,7 @@ function Invoke-LegionInstaller {
             'Nothing changed. Run again with -Yes to apply.'
             return
         }
+        if (-not $DryRun) { Add-InstallPortablePathRecord }
         $Source = Resolve-InstallSource -Source $Source
         foreach ($target in $targets) {
             Invoke-LegionUpdateSteps -Entry $target.Entry -ConfigDir $target.Folder -PluginRoot $target.Root -Source $Source -Ref $Ref -DryRun:$DryRun
@@ -1042,6 +1075,7 @@ function Invoke-LegionInstaller {
             'Nothing changed. Run again with -Yes to apply.'
             return
         }
+        Add-InstallPortablePathRecord
         Add-LegionUserPath -Folder $bin -HomeRoot (Get-InstallHome)
         if ($portable -and -not $onWindows) { Add-InstallPowerShellLink -Target $powerShell }
         if ($onWindows) {

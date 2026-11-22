@@ -9,15 +9,8 @@ function Get-CodexWindowName {
     return "${Minutes}m"
 }
 
-# Codex needs a git folder to run; a fresh empty one keeps the ping away from every project.
-$work = Join-Path ([IO.Path]::GetTempPath()) ('legion-limits-' + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $work | Out-Null
-try {
-    $workPath = Resolve-LegionDirectoryPath $work
-    & git -C $work init -q
-    $ping = Invoke-LegionProcess -Command $Command -Arguments @('exec', 'ping') `
-        -WorkingDirectory $work -TimeoutSeconds $TimeoutSeconds
-} finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
+# Codex needs a git folder to run.
+$ping = Invoke-LegionLimitPing -Command $Command -Arguments @('exec', 'ping') -TimeoutSeconds $TimeoutSeconds -Git
 
 if ($ping.TimedOut) { New-LegionLimitRow -Status 'ping timed out'; return }
 
@@ -41,7 +34,7 @@ if (Test-Path -LiteralPath $sessions) {
             if (-not $lines.MoveNext()) { continue }
             try { $metadata = $lines.Current | ConvertFrom-Json -ErrorAction Stop } catch { continue }
             if ($metadata.type -cne 'session_meta' -or -not $metadata.payload.cwd) { continue }
-            if (-not (Get-LegionPathComparer).Equals((Resolve-LegionDirectoryPath $metadata.payload.cwd), $workPath)) { continue }
+            if (-not (Get-LegionPathComparer).Equals((Resolve-LegionDirectoryPath $metadata.payload.cwd), $ping.Folder)) { continue }
             while ($lines.MoveNext()) {
                 if ($lines.Current -notlike '*"rate_limits"*') { continue }
                 try { $record = $lines.Current | ConvertFrom-Json -ErrorAction Stop } catch { continue }

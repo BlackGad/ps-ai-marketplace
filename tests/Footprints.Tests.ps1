@@ -204,6 +204,17 @@ $cases = [ordered]@{
         Assert-True (($output -join "`n").Contains('skip: permission rule')) 'An existing rule is a skip'
         Assert-Equal 0 @(Get-LegionFootprints -HomeRoot $sandbox -Kind edit).Count 'B-b: an allow rule the owner already had is not recorded'
     }
+    LinkedTargetOwner = {
+        # A linked config-folder spelling and its physical spelling are one install target.
+        $physical = Join-Path $sandbox 'physical-claude'
+        $linked = Join-Path $sandbox 'linked-claude'
+        New-Item -ItemType Directory -Path $physical -Force | Out-Null
+        $type = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+        New-Item -ItemType $type -Path $linked -Target (Resolve-LegionDirectoryPath $physical) | Out-Null
+        try {
+            Assert-Equal (Get-LegionTargetOwner -Tool $catalog.tools[0] -Folder $physical -HomeRoot $sandbox) (Get-LegionTargetOwner -Tool $catalog.tools[0] -Folder $linked -HomeRoot $sandbox) 'Linked and physical spellings give one owner id'
+        } finally { [IO.Directory]::Delete($linked) }
+    }
     RecordIsIdempotent = {
         $path = Join-Path $sandbox '.legion/bin/legion'
         Add-LegionFootprint -HomeRoot $sandbox -Kind file -Path $path -Owner target

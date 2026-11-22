@@ -19,7 +19,7 @@ function Test-InstallCommandAvailable {
 
 function Get-InstallHome {
     if ($script:installHomeRoot) { return $script:installHomeRoot }
-    return [Environment]::GetFolderPath('UserProfile')
+    return $HOME
 }
 
 # Persistent changes need consent: -Yes, or a yes at the prompt.
@@ -99,6 +99,8 @@ function Add-InstallPowerShellPath {
     if (-not (Test-InstallPathEntry -Path $userPath -Entry $Path -Separator ';')) {
         $updated = if ($userPath) { $userPath.TrimEnd(';') + ';' + $Path } else { $Path }
         Set-InstallUserPath -Path $updated
+        # The installer records this entry for purge only after the owner's yes to install legion.
+        $env:LEGION_PORTABLE_PATH_ADDED = $Path
     }
     if (-not (Test-InstallPathEntry -Path $env:PATH -Entry $Path -Separator ([string][IO.Path]::PathSeparator))) {
         $env:PATH = $Path + [IO.Path]::PathSeparator + $env:PATH
@@ -240,6 +242,7 @@ function Invoke-InstallBootstrap {
         & $pwsh -NoProfile -Command { param($p,$a) $ErrorActionPreference = 'Stop'; & $p @a; exit $LASTEXITCODE } -args $installer,$arguments
         $script:bootstrapExitCode = $LASTEXITCODE
     } finally {
+        $env:LEGION_PORTABLE_PATH_ADDED = $null
         if ($temporary) { Remove-InstallTemporary -Path $temporary }
     }
 }

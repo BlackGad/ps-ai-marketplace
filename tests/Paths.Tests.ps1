@@ -35,6 +35,7 @@ try {
     New-Item -ItemType $type -Path $link -Target (Resolve-LegionDirectoryPath $guard) | Out-Null
     Assert-True (-not (Test-LegionPathUnder -Path $link -Root $scratch)) 'Links escaping a root fail resolved containment'
     Assert-True (-not (Test-LegionOwnerPathSafe -Path $link -StopRoot $scratch)) 'Link refusal still returns false for an escaping link'
+    Assert-True (Test-LegionOwnerPathSafe -Path (Join-Path $link 'future') -StopRoot $link) 'A stop root that is itself a link is allowed'
 } finally {
     if (-not (Test-LegionPathUnder -Path $scratch -Root (Get-TestTempPath))) { throw 'Unsafe path fixture cleanup' }
     if (Test-Path -LiteralPath $link) { Remove-Item -LiteralPath $link -Force }

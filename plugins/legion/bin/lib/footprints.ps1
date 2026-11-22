@@ -3,7 +3,8 @@
 function Get-LegionTargetOwner {
     param($Tool, [string]$Folder, [string]$HomeRoot = $HOME)
     if (-not $Folder) { $Folder = $Tool.plugin.defaultConfigDir }
-    $folderPath = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $Folder -HomeRoot $HomeRoot)))
+    # A linked and a physical spelling of one folder are one target.
+    $folderPath = [IO.Path]::TrimEndingDirectorySeparator((Resolve-LegionDirectoryPath (Resolve-LegionHomePath -Path $Folder -HomeRoot $HomeRoot)))
     $owner = "$($Tool.id):$folderPath"
     if ($IsWindows) { $owner = $owner.ToLowerInvariant() }
     return $owner

@@ -1,7 +1,7 @@
 param([string]$Command, [string]$Folder, [int]$TimeoutSeconds)
 
 # Claude Code prints a rate_limit_event in its stream; each unified window has a utilization (0 to 1) and a reset time.
-$ping = Invoke-LegionProcess -Command $Command -Arguments @('-p', '--output-format', 'stream-json', '--verbose', 'ping') `
+$ping = Invoke-LegionLimitPing -Command $Command -Arguments @('-p', '--output-format', 'stream-json', '--verbose', 'ping') `
     -TimeoutSeconds $TimeoutSeconds
 $info = $null
 foreach ($line in ($ping.Output -split '\r?\n')) {

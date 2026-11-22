@@ -24,6 +24,20 @@ function Get-LegionFirstLine {
     return (@($Text -split '\r?\n' | Where-Object { $_.Trim() }) + '')[0].Trim()
 }
 
+# A fresh empty folder keeps a ping away from every project's settings, rules and hooks.
+# Folder: the folder's resolved path, which a Codex session names as its working folder.
+function Invoke-LegionLimitPing {
+    param([string]$Command, [string[]]$Arguments, [int]$TimeoutSeconds, [switch]$Git)
+    $work = Join-Path ([IO.Path]::GetTempPath()) ('legion-limits-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $work | Out-Null
+    try {
+        if ($Git) { & git -C $work init -q }
+        $ping = Invoke-LegionProcess -Command $Command -Arguments $Arguments -WorkingDirectory $work -TimeoutSeconds $TimeoutSeconds
+        $ping.Folder = Resolve-LegionDirectoryPath $work
+        return $ping
+    } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
 # The status of a ping that gave no readout. Only the tool's own quota wording counts as 'limit reached'.
 function Get-LegionPingFailure {
     param($Ping, [string]$QuotaPattern)

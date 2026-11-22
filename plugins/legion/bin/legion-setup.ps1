@@ -329,7 +329,6 @@ function Set-SetupPath {
     param($Plan)
     Add-LegionUserPath -Folder $Plan.Bin -HomeRoot $Plan.HomeRoot
     if (-not $IsWindows) { return }
-    if (-not $Plan.NeedsPath) { 'skip: path (already done)' }
     if (-not (Test-LegionPathEntry -Path $env:PATH -Folder $Plan.Bin)) { $env:PATH += ";$($Plan.Bin)" }
 }
 

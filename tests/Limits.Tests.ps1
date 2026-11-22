@@ -52,6 +52,8 @@ try {
     Assert-Equal '-p --output-format stream-json --verbose ping' ($call.arguments -join ' ') 'Claude ping arguments'
     Assert-Equal '' $call.stdin 'Claude ping closes stdin'
     Assert-Equal (Join-Path $home1 '.legion/agents/claude-a') $call.claude 'Claude ping uses the account folder'
+    Assert-True ((Split-Path $call.folder -Leaf) -like 'legion-limits-*') 'Claude pings from a disposable folder, away from any project'
+    Assert-True (-not (Test-Path -LiteralPath $call.folder)) 'Claude disposable folder is removed'
 
     $lines = Invoke-Limits -Account 'claude-a' -Fake @{ STDOUT = (Get-Fixture 'claude-no-event.jsonl') }
     Assert-True (($lines -join "`n") -match 'claude-a\s+claude\s+-\s+unknown\s+unknown\s+no limit readout') 'Claude without an event is unknown'
@@ -78,6 +80,8 @@ try {
     Assert-True (($lines -join "`n") -match 'copilot-a\s+copilot\s+-\s+unknown\s+unknown\s+answers; no limit readout') 'Copilot answer shows no percentages'
     $call = Get-Content -LiteralPath $log -Raw | ConvertFrom-Json
     Assert-Equal '-p ping -s' ($call.arguments -join ' ') 'Copilot ping arguments'
+    Assert-True ((Split-Path $call.folder -Leaf) -like 'legion-limits-*') 'Copilot pings from a disposable folder, away from any project'
+    Assert-True (-not (Test-Path -LiteralPath $call.folder)) 'Copilot disposable folder is removed'
     $lines = Invoke-Limits -Account 'copilot-a' -Fake @{ STDERR = (Get-Fixture 'copilot-quota.txt'); EXIT = '1' }
     Assert-True (($lines -join "`n") -match 'copilot-a\s+copilot\s+-\s+unknown\s+unknown\s+limit reached') 'Copilot quota error is limit reached'
     $lines = Invoke-Limits -Account 'copilot-a' -Fake @{ STDERR = (Get-Fixture 'codex-session-null.jsonl'); EXIT = '1' }
@@ -101,6 +105,8 @@ try {
     $lines = @(& $script -HomeRoot $home1 -TimeoutSeconds 60)
     foreach ($id in @('claude-a', 'codex-a', 'copilot-a', 'foundry-a')) { Assert-True (($lines -join "`n") -match $id) "All accounts list $id" }
     Assert-Throws { & $script -Account 'nobody' -HomeRoot $home1 } 'Unknown account is an error'
+    try { & $script 'claude-a' 'codex-a' -HomeRoot $home1; throw 'Expected a second account name to fail' }
+    catch { Assert-True ($_.Exception.Message -match 'positional parameter') 'A second account name is a clear argument error' }
 
     # The owner command passes the account along.
     . (Join-Path $root 'plugins/legion/bin/legion.ps1') -HomeRoot $home1

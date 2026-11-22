@@ -1,5 +1,6 @@
+[CmdletBinding(PositionalBinding = $false)]
 param(
-    [string]$Account,
+    [Parameter(Position = 0)][string]$Account,
     [int]$TimeoutSeconds = 120,
     [string]$HomeRoot = $HOME
 )
