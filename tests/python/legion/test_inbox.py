@@ -187,3 +187,13 @@ def test_missing_wrapper_warns_without_losing_message(inbox_home: Path, repo: Pa
     output = capsys.readouterr()
     assert output.err == "warning: inbox message saved; Codex nudge failed.\n"
     assert (inbox_path(inbox_home, repo) / "new" / output.out.strip()).is_file()
+
+
+@pytest.mark.parametrize("error", [OSError("fixture spawn failure"), subprocess.TimeoutExpired("pwsh", 30)])
+def test_nudge_process_error_preserves_message_and_success(inbox_home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], error: Exception) -> None:
+    take_lease(repo, "codex", monkeypatch, "fixture-thread")
+    monkeypatch.setattr(_inbox.subprocess, "run", MagicMock(side_effect=error))
+    assert _cli.main(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
+    output = capsys.readouterr()
+    assert output.err == "warning: inbox message saved; Codex nudge failed.\n"
+    assert (inbox_path(inbox_home, repo) / "new" / output.out.strip()).is_file()
