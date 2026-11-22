@@ -34,6 +34,7 @@ Assert-Equal $signatures[1] $signatures[0] 'BootstrapParamsMatchInstaller: names
         Copy-Item $plugin (Join-Path $archivePlugin 'install.ps1')
         Copy-Item (Join-Path $repo 'plugins/legion/tools.json') (Join-Path $archivePlugin 'tools.json')
         Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/paths.ps1') (Join-Path $archivePlugin 'bin/lib/paths.ps1')
+        Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/footprints.ps1') (Join-Path $archivePlugin 'bin/lib/footprints.ps1')
         $archive=Join-Path $scratch 'plugin.zip'
         Compress-Archive -Path (Join-Path $scratch 'archive/single-top') -DestinationPath $archive
         $runner = Join-Path $scratch 'invoke-text.ps1'
@@ -70,6 +71,7 @@ Assert-Equal $signatures[1] $signatures[0] 'BootstrapParamsMatchInstaller: names
             Copy-Item $plugin (Join-Path $copy 'install.ps1')
             New-Item -ItemType Directory -Path (Join-Path $copy 'bin/lib') -Force | Out-Null
             Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/paths.ps1') (Join-Path $copy 'bin/lib/paths.ps1')
+            Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/footprints.ps1') (Join-Path $copy 'bin/lib/footprints.ps1')
             $catalog = Get-Content (Join-Path $repo 'plugins/legion/tools.json') -Raw | ConvertFrom-Json
             $catalog.tools[0].installHint = 'sibling catalog selected'
             $catalog | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $copy 'tools.json')

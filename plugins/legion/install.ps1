@@ -17,6 +17,7 @@ if (-not $PSScriptRoot) { throw 'Run the legion installer from the expanded arch
 $pathsLibrary = Join-Path $PSScriptRoot 'bin/lib/paths.ps1'
 if (-not (Test-Path -LiteralPath $pathsLibrary -PathType Leaf)) { throw 'The legion installer requires bin/lib/paths.ps1 from the expanded archive.' }
 . $pathsLibrary
+. (Join-Path $PSScriptRoot 'bin/lib/footprints.ps1')
 $script:installPathComparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
 
 function Get-InstallSourceText {
@@ -330,202 +331,9 @@ function Get-UpdateConfigDirs {
     return ,$folders
 }
 
-# The owner commands legion creates, and the bin script each one calls.
+# Used by the install plan and the integration runner.
 function Get-InstallOwnerCommands {
     return [ordered]@{ 'legion' = 'legion.ps1' }
-}
-
-# Same rule as lib/commands.ps1: the whole file is the generated launcher,
-# one line whose -File argument is the script, and a .cmd file writes % as %%.
-# Returns the script path and its span, or nothing when the file is not a legion command.
-function Get-InstallOwnerCommandTarget {
-    param([string]$Path, [string]$Script)
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
-    $text = [IO.File]::ReadAllText($Path)
-    $launcher = '\A(?:#![^\r\n]*\r?\n)?(?:[ \t]*\r?\n)*[ \t]*(?:exec[ \t]+|@)?pwsh[ \t]+(?:-\S+[ \t]+)*?-File[ \t]+'
-    $scriptWord = '(?<target>(?:''[^''\r\n]*''|"[^"\r\n]*"|[^\s''"]+)+)'
-    $match = [regex]::Match($text, $launcher + $scriptWord)
-    if (-not $match.Success) { return }
-    # Batch double quotes keep dollar signs literal; shell double quotes expand them.
-    $argument = '(?<argument>(?:''[^''\r\n]*''|"[^"$`\r\n]*")+|"\$@"|\$@|%\*|[\w.=:/\\-]+)'
-    $batchExit = ''
-    if ([IO.Path]::GetExtension($Path) -ieq '.cmd') { $argument = '(?<argument>"[^"\r\n]*"|%\*|[\w.=:/\\-]+)'; $batchExit = '(?:[ \t]+&[ \t]+\(goto\)[ \t]+2>nul[ \t]+&[ \t]+exit[ \t]+/b)?' }
-    $tail = $text.Substring($match.Length)
-    if ($tail -notmatch ('\A(?:[ \t]+' + $argument + ')*' + $batchExit + '\s*\z')) { return }
-    $word = $match.Groups['target']
-    $target = $word.Value -replace '''([^'']*)''|"([^"]*)"', '$1$2'
-    if ([IO.Path]::GetExtension($Path) -ieq '.cmd') { $target = $target.Replace('%%', '%') }
-    $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
-    if ($target.Replace('\', '/').EndsWith("/bin/$Script", $comparison)) {
-        return [pscustomobject]@{ Path=$target; Start=$word.Index; Length=$word.Length }
-    }
-}
-
-# Retarget only the generated script argument, keeping the owner's flags verbatim.
-function Set-InstallOwnerCommandTarget {
-    param([string]$Path, [string]$Script, [string]$Runner)
-    $target = Get-InstallOwnerCommandTarget -Path $Path -Script $Script
-    if (-not $target) { return }
-    $literal = if ([IO.Path]::GetExtension($Path) -ieq '.cmd') { '"' + $Runner.Replace('%', '%%') + '"' }
-        else { "'" + $Runner.Replace("'", "'`"'`"'") + "'" }
-    $text = [IO.File]::ReadAllText($Path)
-    $bin = [IO.Path]::GetFullPath((Get-InstallLegionPath 'bin'))
-    if (-not (Test-InstallGeneratedPathSafe -Path $Path -Bin $bin)) { return }
-    [IO.File]::WriteAllText($Path, $text.Substring(0, $target.Start) + $literal + $text.Substring($target.Start + $target.Length))
-}
-
-function Test-InstallOwnerCommandFile {
-    param([string]$Path, [string]$Script)
-    return [bool](Get-InstallOwnerCommandTarget -Path $Path -Script $Script)
-}
-
-function Get-InstallOwnerCommandPaths {
-    param([string]$Bin)
-    $owner = Get-InstallOwnerCommands
-    foreach ($command in $owner.Keys) {
-        foreach ($name in @($command, "$command.cmd")) {
-            $path = Join-Path $Bin $name
-            if (Test-InstallOwnerCommandFile -Path $path -Script $owner[$command]) { $path }
-        }
-    }
-}
-
-# Owner commands whose script is gone, or lives in a folder this uninstall is about to remove.
-function Get-InstallDeadCommandPaths {
-    param([string[]]$RemovedFolders = @())
-    $bin = [IO.Path]::GetFullPath((Get-InstallLegionPath 'bin'))
-    $owner = Get-InstallOwnerCommands
-    foreach ($command in $owner.Keys) {
-        foreach ($name in @($command, "$command.cmd")) {
-            $path = Join-Path $bin $name
-            $target = Get-InstallOwnerCommandTarget -Path $path -Script $owner[$command]
-            if (-not $target) { continue }
-            $scriptGone = -not (Test-Path -LiteralPath $target.Path -PathType Leaf)
-            $insideRemoved = $false
-            $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
-            foreach ($folder in $RemovedFolders) {
-                $prefix = [IO.Path]::GetFullPath($folder).TrimEnd('\', '/') +[IO.Path]::DirectorySeparatorChar
-                if ([IO.Path]::GetFullPath($target.Path).StartsWith($prefix, $comparison)) { $insideRemoved = $true }
-            }
-            if (($scriptGone -or $insideRemoved) -and (Test-InstallGeneratedPathSafe -Path $path -Bin $bin)) { $path }
-        }
-    }
-}
-
-# Installs that stay after this uninstall: the plugin is installed there and no target removes it.
-function Get-UninstallSurvivors {
-    param($Targets)
-    $removed = @()
-    foreach ($target in $Targets) {
-        if (@($target.Steps | Where-Object Kind -CEQ 'plugin').Count) { $removed += Get-InstallFolderKey -Entry $target.Entry -Folder $target.Folder }
-    }
-    foreach ($entry in $script:installCatalog.tools) {
-        if (-not (Test-InstallCommandAvailable -Name $entry.command)) { continue }
-        $folders = Get-UpdateConfigDirs -Tool $entry.id
-        # An environment override does not hide an install in the physical default folder.
-        if ($entry.plugin.defaultConfigDir) { $folders += Resolve-InstallConfigDir $entry.plugin.defaultConfigDir }
-        $seen = @()
-        foreach ($folder in $folders) {
-            $key = Get-InstallFolderKey -Entry $entry -Folder $folder
-            if ($removed -ccontains $key -or $seen -ccontains $key) { continue }
-            $seen += $key
-            try {
-                $root = Get-InstallPluginRoot -Entry $entry -ConfigDir $folder
-                if ($root) { [pscustomobject]@{ Entry=$entry; Folder=$folder; Root=$root } }
-            } catch {
-                Write-Host "kept: shared commands (could not read $($entry.id) plugins; check them after uninstall)"
-                # A null root records uncertainty, so neither removal nor repair can touch shared commands.
-                [pscustomobject]@{ Entry=$entry; Folder=$folder; Root=$null }
-            }
-        }
-    }
-}
-
-# The same install seen from a target and from the folder list: '' is the CLI's default folder.
-function Get-InstallFolderKey {
-    param($Entry, [string]$Folder)
-    if (-not $Folder) { $Folder = $Entry.plugin.defaultConfigDir }
-    $key = $Entry.id + '|' + $(if ($Folder) { Resolve-InstallConfigDir $Folder } else { '' })
-    if ($env:OS -eq 'Windows_NT') { return $key.ToLowerInvariant() }
-    return $key
-}
-
-# After an uninstall, a command whose script is gone moves to a surviving install, or is removed when none is left.
-# Only the commands the plan listed are removed; anything else that went dead is reported and kept.
-function Repair-InstallOwnerCommands {
-    param($Survivors = @(), [string[]]$Planned = @())
-    if (@($Survivors | Where-Object { -not $_.Root }).Count) { return }
-    $owner = Get-InstallOwnerCommands
-    foreach ($path in (Get-InstallDeadCommandPaths)) {
-        $scriptName = $owner[([IO.Path]::GetFileName($path) -replace '\.cmd$', '')]
-        $runner = $Survivors | ForEach-Object { Join-Path $_.Root "bin/$scriptName" } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-        if ($runner) { Set-InstallOwnerCommandTarget -Path $path -Script $scriptName -Runner $runner }
-        elseif ($Planned -ccontains $path) {
-            # Re-read ownership and links immediately before deleting a planned command.
-            if (@(Get-InstallDeadCommandPaths) -ccontains $path) {
-                Remove-Item -LiteralPath $path -Force -ErrorAction Stop
-                "Removed command: $path"
-            }
-        }
-        else { "Kept command: $path (its script is gone; it was not in the plan)" }
-    }
-}
-
-function Get-UninstallFiles {
-    param([string[]]$Tools, [string]$ConfigDir, $Owner, [switch]$KeepOwnerCommands)
-    $homeRoot = Get-InstallHome
-    $bin = [IO.Path]::GetFullPath((Get-InstallLegionPath 'bin'))
-    $paths = @()
-    $unselectedLauncher = $false
-    foreach ($agent in $Owner.agents) {
-        if ($agent.id -cnotmatch '^[a-z][a-z0-9-]*$') { continue }
-        $selected = -not $Tools -or $agent.tool -cin $Tools
-        if ($ConfigDir) {
-            $folder = $agent.configDir
-            if ($folder -match '^~[/\\]') { $folder = Join-Path $homeRoot $folder.Substring(2) }
-            $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
-            $selected = $selected -and $folder -and [string]::Equals([IO.Path]::GetFullPath($folder).TrimEnd('\', '/'), [IO.Path]::GetFullPath($ConfigDir).TrimEnd('\', '/'), $comparison)
-        }
-        foreach ($suffix in @('', '.cmd')) {
-            $path = Join-Path $bin "$($agent.id)$suffix"
-            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
-            $header = if ($suffix) { "@rem Generated by legion: account $($agent.id)" } else { "# Generated by legion: account $($agent.id)" }
-            if (-not @([IO.File]::ReadAllLines($path) | Where-Object { $_ -ceq $header }).Count) { continue }
-            # Launchers survive uninstall; an unselected account still needs the shared runtime.
-            if (-not $selected) { $unselectedLauncher = $true }
-        }
-    }
-    if (-not $unselectedLauncher) {
-        if (-not $KeepOwnerCommands) { $paths += Get-InstallOwnerCommandPaths -Bin $bin }
-        # Exact files published by Sync-LegionFoundryRuntime; never remove the directory tree.
-        $runtime = Get-InstallOwnerPath -Name Runtime
-        foreach ($name in (Get-LegionRuntimeFiles)) {
-            $paths += Join-Path $runtime $name
-        }
-        foreach ($entry in $script:installCatalog.tools) {
-            foreach ($name in @('SKILL.md', 'tool.json', 'scripts/foundry-config.ps1', 'scripts/foundry-launch.ps1')) {
-                $paths += Join-Path $runtime "skills/legion-$($entry.id)/$name"
-            }
-        }
-    }
-    foreach ($path in ($paths | Select-Object -Unique)) {
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
-        if (Test-InstallGeneratedPathSafe -Path $path -Bin $bin) { $path }
-    }
-}
-
-# A linked file or ancestor belongs to its owner; check through the selected home.
-function Test-InstallGeneratedPathSafe {
-    param([string]$Path, [string]$Bin)
-    $currentPath = [IO.Path]::GetFullPath($Path)
-    if (-not $currentPath.StartsWith($Bin + [IO.Path]::DirectorySeparatorChar, $script:installPathComparison)) { throw 'Unsafe generated file path' }
-    $homeRoot = [IO.Path]::GetFullPath((Get-InstallHome)).TrimEnd('\', '/')
-    if (-not $currentPath.StartsWith($homeRoot + [IO.Path]::DirectorySeparatorChar, $script:installPathComparison)) { throw 'Unsafe generated file path' }
-    if (-not (Test-LegionOwnerPathSafe -Path $currentPath -StopRoot (Get-InstallHome))) {
-        Write-Host "skip: $Path (linked folder)"
-        return $false
-    }
-    return $true
 }
 
 function Get-UninstallCachePath {
@@ -576,7 +384,7 @@ function Get-InstallSafePath {
 # Read JSON/JSONC token spans rather than serializing settings. Only the selected
 # member (or inventory array item) and one separating comma are removed.
 function Get-InstallPurgeJsonText {
-    param([string]$Text, [string]$Kind)
+    param([string]$Text, [string]$Kind, [string]$Key, [string]$Value)
     function Read-PurgeJsonNode {
         param([ref]$Cursor, [int]$Depth = 0)
         if ($Depth -gt 64 -or $Cursor.Value -ge $tokens.Count) { throw 'Unsupported JSON' }
@@ -634,7 +442,11 @@ function Get-InstallPurgeJsonText {
         $root = Read-PurgeJsonNode -Cursor ([ref]$cursor)
         if ($cursor -ne $tokens.Count -or $tokens[0].Value -ne '{') { throw 'Unsupported JSON root' }
         $candidates = @()
-        if ($Kind -eq 'marketplaces') {
+        if ($Kind -eq 'allow') {
+            $node = $root
+            foreach ($part in $Key.Split('.')) { $node = ($node.Children | Where-Object Key -CEQ $part).Node }
+            $candidates = @($node.Children | Where-Object { $_.Node.Value -is [string] -and $_.Node.Value -ceq $Value })
+        } elseif ($Kind -eq 'marketplaces') {
             $candidates = @($root.Children | Where-Object Key -CEQ 'ps-legion-marketplace')
         } else {
             foreach ($parent in $root.Children) {
@@ -653,7 +465,7 @@ function Get-InstallPurgeJsonText {
         }
         if (-not $candidates.Count) { break }
         $member = $candidates[0]
-        $entries += if ($member.Key -eq '*') { 'installedPlugins: legion@ps-legion-marketplace' } else { $member.Key }
+        $entries += if ($Kind -eq 'allow') { "$Key`: $Value" } elseif ($member.Key -eq '*') { 'installedPlugins: legion@ps-legion-marketplace' } else { $member.Key }
         $comma = if ($member.AfterComma -ge 0) { $member.AfterComma } else { $member.BeforeComma }
         # Remove the comma independently so intervening comments and whitespace stay.
         if ($comma -ge $member.End) { $Text = $Text.Remove($comma, 1) }
@@ -713,7 +525,7 @@ function Get-InstallPurgeTomlText {
 }
 
 function Get-InstallPurgeEdit {
-    param([string]$Path, [string]$Kind)
+    param([string]$Path, [string]$Kind, [array]$Footprints = @())
     $before = [IO.File]::ReadAllBytes($Path)
     $encoding = New-Object Text.UTF8Encoding ($false, $true)
     $bom = 0
@@ -722,15 +534,44 @@ function Get-InstallPurgeEdit {
     elseif ($before.Length -ge 2 -and $before[0] -eq 254 -and $before[1] -eq 255) { $encoding = New-Object Text.UnicodeEncoding ($true, $false, $true); $bom=2 }
     try {
         $text = $encoding.GetString($before, $bom, $before.Length - $bom)
-        $result = if ($Kind -eq 'toml') { Get-InstallPurgeTomlText -Text $text } else { Get-InstallPurgeJsonText -Text $text -Kind $Kind }
-        if (-not $result.Entries.Count) { return }
-        $after = $encoding.GetBytes($result.Text)
+        $entries = @()
+        foreach ($footprint in $Footprints) {
+            $result = Get-InstallPurgeJsonText -Text $text -Kind allow -Key $footprint.key -Value $footprint.value
+            $text = $result.Text; $entries += $result.Entries
+        }
+        if ($Kind) {
+            $result = if ($Kind -eq 'toml') { Get-InstallPurgeTomlText -Text $text } else { Get-InstallPurgeJsonText -Text $text -Kind $Kind }
+            $text = $result.Text; $entries += $result.Entries
+        }
+        if (-not $entries.Count) { return }
+        $after = $encoding.GetBytes($text)
         if ($bom) { $after = [byte[]]($before[0..($bom - 1)] + $after) }
-        return [pscustomobject]@{ Path=$Path; Before=$before; After=$after; Entries=$result.Entries }
+        return [pscustomobject]@{ Path=$Path; Before=$before; After=$after; Entries=$entries }
     } catch {
         # Do not print settings contents or parser errors that could contain secrets.
         return [pscustomobject]@{ Manual=$true; Path=$Path }
     }
+}
+
+function Set-InstallPurgeEdit {
+    param($Edit)
+    $safe = Get-InstallSafePath -Root (Split-Path $Edit.Path) -Relative ([IO.Path]::GetFileName($Edit.Path)) -AllowFile
+    if (-not $safe -or [Convert]::ToBase64String([IO.File]::ReadAllBytes($Edit.Path)) -cne [Convert]::ToBase64String($Edit.Before)) { throw 'Settings changed after preview; run again.' }
+    [IO.File]::WriteAllBytes($Edit.Path, $Edit.After)
+}
+
+function Remove-InstallFootprintEdit {
+    param($Entry, [string]$HomeRoot, [switch]$WhatIf)
+    $path = Resolve-LegionHomePath -Path $Entry.path -HomeRoot $HomeRoot
+    if (-not (Test-Path -LiteralPath $path)) { return $true }
+    $safe = Get-InstallSafePath -Root (Split-Path $path) -Relative ([IO.Path]::GetFileName($path)) -AllowFile
+    $edit = if ($safe) { Get-InstallPurgeEdit -Path $path -Footprints @($Entry) }
+    if (-not $safe -or $edit.Manual) { Write-Host "skip: $path (linked or could not match safely)"; return $false }
+    if ($edit) {
+        foreach ($name in $edit.Entries) { Write-Host "Remove entry: $path`: $name" }
+        if (-not $WhatIf) { Set-InstallPurgeEdit -Edit $edit }
+    }
+    return $true
 }
 
 function Get-InstallPurgePlan {
@@ -740,7 +581,8 @@ function Get-InstallPurgePlan {
     $edits = @()
     $editedPaths = [Collections.Generic.HashSet[string]]::new((Get-LegionPathComparer))
     $manualSteps = @()
-    $pathEntries = @((Get-InstallLegionPath 'bin'), (Get-InstallLegionPath 'tools/pwsh'))
+    $footprints = @(Get-LegionFootprints -HomeRoot (Get-InstallHome) -Kind edit)
+    $pathEntries = @(Get-LegionFootprints -HomeRoot (Get-InstallHome) -Kind path-entry | Where-Object path -CEQ 'user PATH' | ForEach-Object value)
     $userPath = if ($env:OS -eq 'Windows_NT') { Get-InstallUserPath } else { '' }
     $keptPath = @()
     $removedPath = @()
@@ -772,7 +614,7 @@ function Get-InstallPurgePlan {
         foreach ($folder in $folders) {
             if (-not $folder -and $entry.plugin.defaultConfigDir) { $folder = Resolve-InstallConfigDir $entry.plugin.defaultConfigDir }
             if (-not $folder) { continue }
-            $key = Get-InstallFolderKey -Entry $entry -Folder $folder
+            $key = Get-LegionTargetOwner -Tool $entry -Folder $folder -HomeRoot (Get-InstallHome)
             if ($seen -ccontains $key) { continue }
             $seen += $key
             $purge = $entry.plugin.purge
@@ -796,12 +638,23 @@ function Get-InstallPurgePlan {
                 if (-not $path -and (Test-Path -LiteralPath (Join-Path $folder $relative))) { $manualSteps += "Manual step: $(Join-Path $folder $relative) (linked path; left in place)" }
                 if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) {
                     if ($editedPaths.Contains($path)) { continue }
-                    $edit = Get-InstallPurgeEdit -Path $path -Kind $setting.kind
+                    $recorded = @($footprints | Where-Object { (Get-LegionPathComparer).Equals((Resolve-LegionHomePath -Path $_.path -HomeRoot (Get-InstallHome)), $path) })
+                    $edit = Get-InstallPurgeEdit -Path $path -Kind $setting.kind -Footprints $recorded
                     if ($edit.Manual) { $manualSteps += "Manual step: $path (remove its legion entries; could not match them safely)" }
                     elseif ($edit) { $edits += $edit; [void]$editedPaths.Add($path) }
                 }
             }
         }
+    }
+    foreach ($footprint in $footprints) {
+        $path = Resolve-LegionHomePath -Path $footprint.path -HomeRoot (Get-InstallHome)
+        if ($editedPaths.Contains($path) -or -not (Test-Path -LiteralPath $path)) { continue }
+        [void]$editedPaths.Add($path)
+        $recorded = @($footprints | Where-Object { (Get-LegionPathComparer).Equals((Resolve-LegionHomePath -Path $_.path -HomeRoot (Get-InstallHome)), $path) })
+        $safe = Get-InstallSafePath -Root (Split-Path $path) -Relative ([IO.Path]::GetFileName($path)) -AllowFile 6>$null
+        $edit = if ($safe) { Get-InstallPurgeEdit -Path $path -Footprints $recorded }
+        if (-not $safe -or $edit.Manual) { $manualSteps += "Manual step: $path (linked or could not match safely)" }
+        elseif ($edit) { $edits += $edit }
     }
     $legion = Get-InstallSafePath -Root (Get-InstallHome) -Relative '.legion' 6>$null
     if (-not $legion -and (Test-Path -LiteralPath (Get-InstallLegionPath ''))) { $manualSteps += 'Manual step: legion home contains linked paths; left in place.' }
@@ -844,9 +697,7 @@ function Invoke-InstallPurgePlan {
     }
     foreach ($edit in $Plan.Edits) {
         # Refuse a concurrent settings write rather than overwriting the owner's changes.
-        $safe = Get-InstallSafePath -Root (Split-Path $edit.Path) -Relative ([IO.Path]::GetFileName($edit.Path)) -AllowFile
-        if (-not $safe -or [Convert]::ToBase64String([IO.File]::ReadAllBytes($edit.Path)) -cne [Convert]::ToBase64String($edit.Before)) { throw 'Settings changed after preview; run purge again.' }
-        [IO.File]::WriteAllBytes($edit.Path, $edit.After)
+        Set-InstallPurgeEdit -Edit $edit
     }
     foreach ($item in $Plan.Paths) {
         $safe = Get-InstallSafePath -Root $item.Root -Relative $item.Relative -AllowFile
@@ -880,11 +731,7 @@ function Invoke-LegionUninstall {
     param([string[]]$Tools, [string]$ConfigDir, [switch]$DryRun, [switch]$Yes)
     $homeRoot = Get-InstallHome
     $script:installUninstallDeclined = $false
-    $file = Get-InstallOwnerPath -Name Settings
-    $owner = $null
-    if (Test-Path -LiteralPath $file -PathType Leaf) {
-        $owner = Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-    }
+    $owners = @()
     $targets = @()
     $selectedTools = if ($Tools) { $Tools } else { @($script:installCatalog.tools | ForEach-Object { $_.id }) }
     foreach ($tool in ($selectedTools | Select-Object -Unique)) {
@@ -893,8 +740,9 @@ function Invoke-LegionUninstall {
         foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
             $label = if ($folder) { $folder } else { 'default config' }
             # In a chosen home the tool's default folder may not exist; then nothing is installed there.
-            $isHomeDefault = $folder -and (Get-InstallFolderKey -Entry $entry -Folder $folder) -ceq (Get-InstallFolderKey -Entry $entry)
+            $isHomeDefault = $folder -and $entry.plugin.defaultConfigDir -and (Get-LegionTargetOwner -Tool $entry -Folder $folder -HomeRoot $homeRoot) -ceq (Get-LegionTargetOwner -Tool $entry -HomeRoot $homeRoot)
             if ($isHomeDefault -and -not (Test-InstallRealProfile) -and -not (Test-Path -LiteralPath $folder)) { "skip: $tool plugin in $label (not installed)"; continue }
+            $owners += Get-LegionTargetOwner -Tool $entry -Folder $folder -HomeRoot $homeRoot
             $steps = @()
             foreach ($kind in @('plugin', 'marketplace')) {
                 $check = if ($kind -eq 'plugin') { @($entry.command) + $entry.plugin.install }
@@ -916,27 +764,11 @@ function Invoke-LegionUninstall {
             if ($cache) { "Remove cache folder: $cache" }
         }
     }
-    # Find the installs that stay before removing anything; their commands must keep working.
     $bin = [IO.Path]::GetFullPath((Get-InstallLegionPath 'bin'))
-    $survivors = @()
-    if (@(Get-InstallOwnerCommandPaths -Bin $bin).Count) { $survivors = @(Get-UninstallSurvivors -Targets $targets) }
-    $uncertain = @($survivors | Where-Object { -not $_.Root }).Count -gt 0
-    $files = @(Get-UninstallFiles -Tools $Tools -ConfigDir $ConfigDir -Owner $owner -KeepOwnerCommands:($survivors.Count -gt 0))
-    foreach ($path in $files) { "Remove file: $path" }
-    if (-not $files.Count) { 'skip: legion generated files (not installed)' }
-    $hasWork = $targets.Count -or $files.Count
-    # A survivor can keep only commands whose script it actually provides.
-    $plannedDead = @()
-    if ($hasWork -and -not $uncertain) {
-        $removedFolders = @($targets | Where-Object Cache | ForEach-Object { $_.Cache })
-        $ownerCommands = Get-InstallOwnerCommands
-        $plannedDead = @(Get-InstallDeadCommandPaths -RemovedFolders $removedFolders | Where-Object {
-            $scriptName = $ownerCommands[([IO.Path]::GetFileName($_) -replace '\.cmd$', '')]
-            $provided = @($survivors | Where-Object { Test-Path -LiteralPath (Join-Path $_.Root "bin/$scriptName") -PathType Leaf }).Count
-            $files -cnotcontains $_ -and -not $provided
-        })
-    }
-    foreach ($path in $plannedDead) { "Remove dead command: $path" }
+    $recorded = @(Get-LegionFootprints -HomeRoot $homeRoot | Where-Object { @($_.owners | Where-Object { $owners -ccontains $_ }).Count -or -not $_.owners.Count })
+    Remove-LegionFootprintOwner -HomeRoot $homeRoot -Owner $owners -WhatIf
+    if (-not $recorded.Count) { 'skip: legion generated files (not installed)' }
+    $hasWork = $targets.Count -or $recorded.Count
     'Channel plugins and their state remain in place.'
     if (-not $hasWork) { 'Nothing to uninstall.' }
     if ($hasWork -and -not $DryRun -and ($Yes -or (Read-Host 'Uninstall legion from these targets? [y/N]') -match '^(?i:y|yes)$')) {
@@ -961,18 +793,13 @@ function Invoke-LegionUninstall {
                 }
             }
         }
-        foreach ($path in $files) {
-            # The preview is not ownership: a file or any ancestor may have changed since then.
-            if (@(Get-UninstallFiles -Tools $Tools -ConfigDir $ConfigDir -Owner $owner -KeepOwnerCommands:($survivors.Count -gt 0)) -cnotcontains $path) { continue }
-            Remove-Item -LiteralPath $path -Force -ErrorAction Stop
-            $parent = Split-Path $path -Parent
-            while ($parent.Length -gt $bin.Length -and -not @(Get-ChildItem -LiteralPath $parent -Force -ErrorAction Stop).Count) {
-                if (-not (Test-InstallGeneratedPathSafe -Path $parent -Bin $bin)) { break }
-                Remove-Item -LiteralPath $parent -ErrorAction Stop
-                $parent = Split-Path $parent -Parent
-            }
+        Remove-LegionFootprintOwner -HomeRoot $homeRoot -Owner $owners
+        $command = @(Get-LegionFootprints -HomeRoot $homeRoot -Kind file | Where-Object { $_.path -ceq '~/.legion/bin/legion' -and $_.owners.Count }) | Select-Object -First 1
+        if ($recorded.Count -and $command) {
+            $tool, $folder = $command.owners[0] -split ':', 2
+            try { Invoke-InstallRefresh -Entry (Get-InstallTool -Tool $tool) -ConfigDir $folder }
+            catch { "Kept command: $($command.path) (run legion setup)" }
         }
-        Repair-InstallOwnerCommands -Survivors $survivors -Planned $plannedDead
     } elseif ($hasWork -and -not $DryRun) {
         $script:installUninstallDeclined = $true
     }
@@ -1027,6 +854,10 @@ function Invoke-InstallRefresh {
     if (-not $PluginRoot) { throw "$($Entry.id) legion is absent from the post-update listing; generated artifacts were not refreshed." }
     $refresh = Join-Path $PluginRoot 'bin/legion-refresh.ps1'
     if (-not (Test-Path -LiteralPath $refresh -PathType Leaf)) { throw "$($Entry.id) installed legion refresh script is missing." }
+    $owner = Get-LegionTargetOwner -Tool $Entry -Folder $ConfigDir -HomeRoot (Get-InstallHome)
+    foreach ($name in $(if ($IsWindows) { @('legion', 'legion.cmd') } else { @('legion') })) {
+        Add-LegionFootprint -HomeRoot (Get-InstallHome) -Kind file -Path (Get-InstallLegionPath "bin/$name") -Owner $owner
+    }
     $powerShell = (Get-Process -Id $PID).Path
     $environment = Get-InstallEnvironment -ConfigEnv $Entry.configEnv -ConfigDir $ConfigDir
     $result = Invoke-ClosedInput -Command @($powerShell, '-NoProfile', '-File', $refresh, '-HomeRoot', (Get-InstallHome)) -Environment $environment
@@ -1125,6 +956,11 @@ function Invoke-LegionInstaller {
     if ($Update -and $Uninstall) { throw 'Choose either -Update or -Uninstall.' }
     if ($Purge -and -not $Uninstall) { throw '-Purge requires -Uninstall.' }
     $script:installCatalog = Get-InstallCatalog -Source $Source -Ref $Ref -Catalog $Catalog
+    $powerShellFolder = Split-Path (Get-Process -Id $PID).Path -Parent
+    $portablePowerShell = Get-InstallLegionPath 'tools/pwsh'
+    if (-not $DryRun -and -not $Uninstall -and ((Get-LegionPathComparer).Equals($powerShellFolder, $portablePowerShell) -or $powerShellFolder.StartsWith($portablePowerShell + [IO.Path]::DirectorySeparatorChar, $script:installPathComparison))) {
+        Add-LegionFootprint -HomeRoot (Get-InstallHome) -Kind path-entry -Path 'user PATH' -Value $powerShellFolder -Owner legion
+    }
     if ($Uninstall) {
         Invoke-LegionUninstall -Tools $Tools -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes
         if ($Purge -and -not $script:installUninstallDeclined) { Invoke-LegionPurge -ConfigDir $ConfigDir -DryRun:$DryRun -Yes:$Yes }
@@ -1180,7 +1016,8 @@ function Invoke-LegionInstaller {
         }
         if ($onWindows) {
             New-Item -ItemType Directory -Path $bin -Force | Out-Null
-            Add-InstallPowerShellPath -Path $bin
+            Add-LegionUserPath -Folder $bin -HomeRoot (Get-InstallHome)
+            if (-not (Test-LegionPathEntry -Path $env:PATH -Folder $bin)) { $env:PATH = $bin + [IO.Path]::PathSeparator + $env:PATH }
         }
     }
     $results = @()

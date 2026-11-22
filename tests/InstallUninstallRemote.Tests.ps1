@@ -11,6 +11,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         Copy-Item -LiteralPath (Join-Path $repo 'plugins/legion/tools.json') -Destination $catalog
         New-Item -ItemType Directory -Path (Join-Path $sandbox 'bin/lib') -Force | Out-Null
         Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/paths.ps1') (Join-Path $sandbox 'bin/lib/paths.ps1')
+        Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/footprints.ps1') (Join-Path $sandbox 'bin/lib/footprints.ps1')
         foreach ($runtime in $runtimes) {
             $result = Invoke-ClosedInput -Command @($runtime, '-NoProfile', '-File', (Join-Path $PSScriptRoot 'fixtures/install/Test-Uninstall.ps1'), '-Installer', $installer, '-Catalog', $catalog)
             Assert-Equal 0 $result.ExitCode "Standalone uninstall succeeds in $runtime ($($result.ErrorOutput -join ' '))"

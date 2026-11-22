@@ -5,7 +5,7 @@ function Get-LegionHomePath {
 
 # Owner-file names shared by the installer and bin scripts.
 function Get-LegionOwnerPath {
-    param([ValidateSet('Settings', 'Notes', 'Update', 'Runtime', 'Install')][string]$Name,
+    param([ValidateSet('Settings', 'Notes', 'Update', 'Runtime', 'Install', 'Index')][string]$Name,
         [string]$HomeRoot = $HOME)
     $names = @{
         Settings = 'configuration/personalisation.json'
@@ -13,6 +13,7 @@ function Get-LegionOwnerPath {
         Update = 'temp/update.json'
         Runtime = 'bin/.runtime'
         Install = 'temp/install-'
+        Index = 'footprints.json'
     }
     return Join-Path (Join-Path $HomeRoot '.legion') $names[$Name]
 }
@@ -144,19 +145,12 @@ function Test-InstallPathEntry {
 
 # The one place that adds a folder to the saved user PATH (Windows registry); a repeat changes nothing.
 function Add-LegionUserPath {
-    param([string]$Folder)
+    param([string]$Folder, [string]$HomeRoot = $HOME)
+    Add-LegionFootprint -HomeRoot $HomeRoot -Kind path-entry -Path 'user PATH' -Value $Folder.TrimEnd('\', '/') -Owner legion
     $userPath = Get-InstallUserPath
     if (Test-InstallPathEntry -Path $userPath -Entry $Folder -Separator ';') { return }
     $updated = if ($userPath) { $userPath.TrimEnd(';') + ';' + $Folder } else { $Folder }
     Set-InstallUserPath -Path $updated
-}
-
-function Add-InstallPowerShellPath {
-    param([string]$Path)
-    Add-LegionUserPath -Folder $Path
-    if (-not (Test-InstallPathEntry -Path $env:PATH -Entry $Path -Separator ([string][IO.Path]::PathSeparator))) {
-        $env:PATH = $Path + [IO.Path]::PathSeparator + $env:PATH
-    }
 }
 
 function Get-InstallMachinePath {

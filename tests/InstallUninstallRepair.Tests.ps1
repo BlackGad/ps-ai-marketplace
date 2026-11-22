@@ -1,267 +1,70 @@
 $repo = Split-Path $PSScriptRoot -Parent
-# K4 and K11: after an uninstall, working commands survive through a remaining install, and only planned dead ones are removed.
-& {
-    . (Join-Path $PSScriptRoot 'fixtures/install/UninstallSandbox.ps1')
-    . (Join-Path $repo 'plugins/legion/bin/lib/commands.ps1')
-    . (Join-Path $repo 'plugins/legion/bin/lib/accounts.ps1')
-    $bin = Join-Path $sandbox '.legion/bin'
-    $installed = [Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::Ordinal)
-    $pluginPaths = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
-    $refreshed = [Collections.Generic.List[string]]::new()
-    $listed = [Collections.Generic.List[string]]::new()
-    function Get-FakeKey {
-        param($Entry, $Environment)
-        $folder = $Environment[$Entry.configEnv]
-        $physical = Resolve-InstallConfigDir $Entry.plugin.defaultConfigDir
-        $name = if ($folder -and $folder -cne $physical) { [IO.Path]::GetFullPath($folder) } else { 'default' }
-        return "$($Entry.id)|$name"
+$cases = [ordered]@{
+    RefreshFailureKeepsCommand = {
+        $other = Get-LegionTargetOwner -Tool ($catalog.tools | Where-Object id -EQ codex) -HomeRoot $sandbox
+        Add-LegionFootprint -HomeRoot $sandbox -Kind file -Path $commandPath -Owner $other
+        function Invoke-InstallRefresh { throw 'unreadable remaining install' }
+        $output = @(Invoke-LegionInstaller -Catalog $catalog -Tools claude -Uninstall -Yes) -join "`n"
+        Assert-True (Test-Path $commandPath) 'A failed survivor refresh keeps the shared command'
+        Assert-True ($output.Contains('run legion setup')) 'Failed refresh gives a repair instruction'
+        Assert-Equal $other ((Get-LegionFootprints -HomeRoot $sandbox -Kind file).owners -join '|') 'The remaining owner stays recorded'
     }
-    $refreshRuntime = (Get-Process -Id $PID).Path
-    function Invoke-ClosedInput {
-        param([string[]]$Command, $Environment)
-        if ($Command[0] -ceq $refreshRuntime) { $refreshed.Add($Command[3]); return @{ ExitCode = 0; Output = @(); ErrorOutput = @() } }
-        $entry = $catalog.tools | Where-Object command -CEQ $Command[0]
-        $key = Get-FakeKey -Entry $entry -Environment $Environment
-        $line = $Command -join '|'
-        if ($line -ceq ((@($entry.command) + $entry.plugin.list) -join '|')) {
-            $listed.Add($key)
-            $output = ''
-            if ($state.FailTool -ceq $entry.id) { return @{ ExitCode=1; Output=@(); ErrorOutput=@('listing unavailable') } }
-            if ($installed.ContainsKey($key) -and $installed[$key]) {
-                $output = if ($entry.id -eq 'claude') {
-                    ConvertTo-Json -InputObject @(@{ id = 'legion@ps-legion-marketplace'; enabled = $true; version = '0.5.5'; installPath = $pluginPaths[$key] }) -Compress
-                } else { 'legion@ps-legion-marketplace installed' }
-            } elseif ($entry.id -eq 'claude') { $output = '[]' }
-            return @{ ExitCode = 0; Output = @($output); ErrorOutput = @() }
-        }
-        if ($line -ceq ((@($entry.command) + $entry.plugin.marketplaceList) -join '|')) {
-            $source = if ($installed.ContainsKey($key) -and $installed[$key]) { 'example/marketplace' } else { '' }
-            return @{ ExitCode = 0; Output = @(Get-FixtureMarketplaceListing -Tool $entry.id -Source $source); ErrorOutput = @() }
-        }
-        if ($line -ceq ((@($entry.command) + $entry.plugin.uninstall) -join '|')) { $installed[$key] = $false }
-        elseif ($line -cne ((@($entry.command) + $entry.plugin.marketplaceRemove) -join '|')) { throw "Unexpected fake command: $line" }
-        return @{ ExitCode = 0; Output = @(); ErrorOutput = @() }
-    }
-    function New-FakePlugin {
-        param([string]$Tool, [string]$Key, [string]$ConfigFolder)
-        $path = Join-Path $ConfigFolder 'plugins/cache/ps-legion-marketplace/legion/0.5.5'
-        New-Item -ItemType Directory -Path (Join-Path $path 'bin') -Force | Out-Null
-        '{"name":"legion","version":"0.5.5"}' | Set-Content -LiteralPath (Join-Path $path 'plugin.json')
-        '' | Set-Content -LiteralPath (Join-Path $path 'bin/legion-refresh.ps1')
-        foreach ($name in @('legion')) {
-            '' | Set-Content -LiteralPath (Join-Path $path "bin/$name.ps1")
-        }
-        $installed["$Tool|$Key"] = $true
-        $pluginPaths["$Tool|$Key"] = $path
-        return $path
-    }
-    function Reset-Scenario {
-        param([string]$Name)
-        Get-ChildItem -LiteralPath $sandbox -Force | Remove-Item -Recurse -Force
-        $installed.Clear(); $pluginPaths.Clear(); $refreshed.Clear(); $listed.Clear()
-        $state.FailTool = ''; $state.Answer = 'n'; $state.BeforeAnswer = $null
-        New-Item -ItemType Directory -Path $bin -Force | Out-Null
-        # Codex in its default folder is the install being uninstalled; the commands point into its cache.
-        $codexRoot = New-FakePlugin -Tool codex -Key default -ConfigFolder (Join-Path $sandbox '.codex')
-        foreach ($command in @('legion')) {
-            Get-LegionShimText -Script (Join-Path $codexRoot "bin/$command.ps1") | Set-Content -LiteralPath (Join-Path $bin $command)
-        }
-    }
-    function Add-AccountWrapper {
-        param([string]$Id, [string]$Folder)
-        $personalisation = Join-Path $sandbox '.legion/configuration/personalisation.json'
-        New-Item -ItemType Directory -Path (Split-Path $personalisation) -Force | Out-Null
-        @{ agents = @(@{ id = $Id; tool = 'claude'; configDir = $Folder }) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $personalisation
-        "#!/bin/sh`n# Generated by legion: account $Id`nexit 0" | Set-Content -LiteralPath (Join-Path $bin $Id)
-    }
-    function Read-Host { $state.Prompts++; if ($state.BeforeAnswer) { & $state.BeforeAnswer }; $state.Answer }
-    function New-FixtureLink {
-        param([string]$Path, [string]$Target, [switch]$Directory)
-        try {
-            $type = if ($Directory -and $IsWindows) { 'Junction' } else { 'SymbolicLink' }
-            New-Item -ItemType $type -Path $Path -Target $Target -ErrorAction Stop | Out-Null
-            return $true
-        } catch { Write-Host "skip: link scenario (links unavailable: $($_.Exception.Message))"; return $false }
-    }
-    $cases = [ordered]@{
-      NamedSurvivor = {
-        # K4: a named survivor supplies its own installed scripts.
-        Reset-Scenario
-        $named = Join-Path $sandbox '.legion/agents/claude-b'
-        $namedPlugin = New-FakePlugin -Tool claude -Key ([IO.Path]::GetFullPath($named)) -ConfigFolder $named
-        Add-AccountWrapper -Id claude-b -Folder '~/.legion/agents/claude-b'
-        $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -Yes
-        Assert-Equal $false $installed['codex|default'] 'The selected install is removed'
-        Assert-Equal (Join-Path $namedPlugin 'bin/legion.ps1') (Read-LegionOwnerCommandTarget -Path (Join-Path $bin 'legion') -Script legion.ps1).Path 'A named survivor supplies the working command target'
-        Assert-Equal 0 $refreshed.Count 'Repair never runs a survivor refresh script'
-        Assert-Equal 0 @(Get-InstallDeadCommandPaths).Count 'Retargeted commands work'
-        Assert-True ($listed -contains ('claude|' + [IO.Path]::GetFullPath($named))) 'Discovery listed plugins in the survivor config folder'
-        Assert-True (Test-Path -LiteralPath (Join-Path $bin 'legion')) 'Commands are kept while a survivor can retarget them'
-
-      }
-      DefaultSurvivor = {
-        # K4: a surviving default install keeps the commands even when no other account wrapper exists.
-        Reset-Scenario
-        $defaultPlugin = New-FakePlugin -Tool claude -Key default -ConfigFolder (Join-Path $sandbox '.claude')
-        $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -DryRun) -join "`n"
-        Assert-True (-not $preview.Contains((Join-Path $bin 'legion'))) 'The plan does not remove commands a survivor needs'
-        $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -Yes
-        Assert-True (Test-Path -LiteralPath (Join-Path $bin 'legion')) 'Commands stay while the default CLI folder still has legion'
-        Assert-Equal (Join-Path $defaultPlugin 'bin/legion.ps1') (Read-LegionOwnerCommandTarget -Path (Join-Path $bin 'legion') -Script legion.ps1).Path 'A default survivor supplies the working command target'
-        Assert-Equal 0 $refreshed.Count 'Repair does not rewrite sibling commands through refresh'
-
-      }
-      PlannedDeadCommands = {
-        # K11: dead commands are previewed, and they pass the same linked-path checks as every other removal.
-        Reset-Scenario
-        Add-AccountWrapper -Id claude-b -Folder '~/.legion/agents/claude-b'
-        $dead = Join-Path $bin 'legion'
-        $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -DryRun) -join "`n"
-        Assert-True ($preview -match [regex]::Escape("Remove dead command: $dead")) 'The plan lists the command that loses its script'
-        Assert-True (Test-Path -LiteralPath $dead) 'A dry run removes nothing'
-        $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -Yes
-        Assert-Equal $false (Test-Path -LiteralPath $dead) 'A planned dead command is removed'
-        Assert-True (Test-Path -LiteralPath (Join-Path $bin 'claude-b')) 'The unselected account wrapper stays'
-      }
-      LinkedBin = {
-        Reset-Scenario
-        Add-AccountWrapper -Id claude-b -Folder '~/.legion/agents/claude-b'
-        $outside = Join-Path $sandbox 'outside-bin'
-        Move-Item -LiteralPath $bin -Destination $outside
-        if (-not (New-FixtureLink -Path $bin -Target $outside -Directory)) { Move-Item -LiteralPath $outside -Destination $bin; return }
-        try {
-            $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -DryRun) -join "`n"
-            Assert-True (-not $preview.Contains('Remove dead command')) 'A linked bin folder gets no dead-command removal in the plan'
-            $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -Yes
-            Assert-True (Test-Path -LiteralPath (Join-Path $outside 'legion')) 'A command behind a linked bin folder is left alone'
-        } finally { (Get-Item -LiteralPath $bin -Force).Delete() }
-      }
-      OlderSurvivorKeepsOnlyWhatItProvides = {
-        Reset-Scenario
-        $named = Join-Path $sandbox '.legion/agents/claude-b'
-        $root = New-FakePlugin -Tool claude -Key ([IO.Path]::GetFullPath($named)) -ConfigFolder $named
-        Remove-Item -LiteralPath (Join-Path $root 'bin/legion.ps1')
-        Add-AccountWrapper -Id claude-b -Folder '~/.legion/agents/claude-b'
-        Get-LegionShimText -Script (Join-Path $sandbox '.codex/plugins/cache/ps-legion-marketplace/legion/0.5.5/bin/legion.ps1') -Windows | Set-Content -LiteralPath (Join-Path $bin 'legion.cmd')
-        $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -DryRun) -join "`n"
-        foreach ($name in @('legion', 'legion.cmd')) { Assert-True ($preview.Contains("Remove dead command: $(Join-Path $bin $name)")) 'An older survivor cannot provide legion' }
-        $listed.Clear()
-        $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -Yes
-        foreach ($name in @('legion', 'legion.cmd')) { Assert-Equal $false (Test-Path -LiteralPath (Join-Path $bin $name)) 'Unsupported commands are removed' }
-        Assert-Equal 0 @(Get-InstallDeadCommandPaths).Count 'Retargeted commands work'
-        Assert-Equal 1 @($listed | Where-Object { $_ -ceq "claude|$named" }).Count 'The survivor is resolved once per folder'
-        Assert-Equal 0 $refreshed.Count 'No survivor refresh runs'
-      }
-      PhysicalDefaultIsProbed = {
-        Reset-Scenario
-        $savedCodex = $env:CODEX_HOME
-        try {
-            $env:CODEX_HOME = Join-Path $sandbox 'another-codex'
-            $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -Yes
-            Assert-True (Test-Path -LiteralPath (Join-Path $bin 'legion')) 'The physical default keeps its live command despite an override'
-            Assert-Equal 0 @(Get-InstallDeadCommandPaths).Count 'The physical default remains a working target'
-        } finally { $env:CODEX_HOME = $savedCodex }
-      }
-      CaseDistinctUnixFolders = {
-        Reset-Scenario
-        $savedOS = $env:OS
-        try {
-            $env:OS = ''
-            $upper = Join-Path $sandbox 'Work'
-            $lower = Join-Path $sandbox 'work'
-            $root = New-FakePlugin -Tool claude -Key $upper -ConfigFolder $upper
-            foreach ($name in @('legion')) { Get-LegionShimText -Script (Join-Path $root "bin/$name.ps1") | Set-Content -LiteralPath (Join-Path $bin $name) }
-            Assert-Equal 0 @(Get-InstallDeadCommandPaths -RemovedFolders @($lower)).Count 'Unix containment keeps a case-distinct live target'
-            if (Test-Path -LiteralPath $lower) { Write-Output 'skip: CaseDistinctUnixFolders (case-insensitive filesystem)'; return }
-            $null = New-FakePlugin -Tool claude -Key $lower -ConfigFolder $lower
-            Add-AccountWrapper -Id claude-b -Folder $upper
-            $null = Invoke-LegionInstaller -Catalog $catalog -Tools claude -ConfigDir $lower -Uninstall -Yes
-            Assert-True (Test-Path -LiteralPath (Join-Path $bin 'legion')) 'Removing work preserves the command in Work'
-            Assert-Equal 0 @(Get-InstallDeadCommandPaths).Count 'The case-distinct survivor remains live'
-        } finally { $env:OS = $savedOS }
-      }
-      LinkedLegionAncestorBlocks = {
-        Reset-Scenario
-        $null = New-FakePlugin -Tool claude -Key default -ConfigFolder (Join-Path $sandbox '.claude')
-        $legion = Join-Path $sandbox '.legion'
-        $outside = Join-Path $sandbox 'linked-data'
-        Move-Item -LiteralPath $legion -Destination $outside
-        if (-not (New-FixtureLink -Path $legion -Target $outside -Directory)) { Move-Item -LiteralPath $outside -Destination $legion; return }
-        try {
-            $before = Get-Content -LiteralPath (Join-Path $bin 'legion') -Raw
-            $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -DryRun 6>&1) -join "`n"
-            Assert-True ($preview.Contains('(linked folder)')) 'The plan reports linked ancestors'
-            $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -Yes
-            Assert-Equal $before (Get-Content -LiteralPath (Join-Path $bin 'legion') -Raw) 'A command behind linked .legion is neither removed nor rewritten'
-        } finally { (Get-Item -LiteralPath $legion -Force).Delete() }
-      }
-      PathReplacedAfterPreview = {
-        Reset-Scenario
-        $state.Answer = 'y'
-        $state.Protected = Join-Path $sandbox 'protected'
-        'owner data' | Set-Content -LiteralPath $state.Protected
-        $state.BeforeAnswer = {
-            Remove-Item -LiteralPath (Join-Path $bin 'legion') -Force
-            $state.LinkMade = New-FixtureLink -Path (Join-Path $bin 'legion') -Target $state.Protected
-            if (-not $state.LinkMade) { $state.Answer = 'n' }
-        }
-        $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall
-        if ($state.LinkMade) {
-            Assert-True (Test-Path -LiteralPath (Join-Path $bin 'legion')) 'A command replaced by a link after preview is kept'
-            Assert-Equal 'owner data' (Get-Content -LiteralPath $state.Protected) 'The link target is untouched'
-        }
-      }
-      AncestorReplacedAfterPreview = {
-        foreach ($repair in @($false, $true)) {
-            Reset-Scenario
-            if ($repair) { $null = New-FakePlugin -Tool claude -Key default -ConfigFolder (Join-Path $sandbox '.claude') }
-            $state.Answer = 'y'
-            $state.BeforeAnswer = {
-                $state.Relocated = Join-Path $sandbox 'relocated-bin'
-                Move-Item -LiteralPath $bin -Destination $state.Relocated
-                $state.LinkMade = New-FixtureLink -Path $bin -Target $state.Relocated -Directory
-                if (-not $state.LinkMade) { Move-Item -LiteralPath $state.Relocated -Destination $bin; $state.Answer = 'n' }
-            }
-            $before = Get-Content -LiteralPath (Join-Path $bin 'legion') -Raw
-            try {
-                $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall
-                Assert-Equal $before (Get-Content -LiteralPath (Join-Path $bin 'legion') -Raw) 'An ancestor replaced after preview blocks both deletion and retargeting'
-            } finally { if ($state.LinkMade) { (Get-Item -LiteralPath $bin -Force).Delete() } }
-        }
-      }
-      OwnershipReplacedAfterPreview = {
-        Reset-Scenario
-        $state.Answer = 'y'
-        $state.BeforeAnswer = { 'owner command' | Set-Content -LiteralPath (Join-Path $bin 'legion') }
-        $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall
-        Assert-Equal 'owner command' (Get-Content -LiteralPath (Join-Path $bin 'legion')) 'A foreign replacement is not removed'
-      }
-      NoCommandsNoSurvivorScan = {
-        Reset-Scenario
-        Get-ChildItem -LiteralPath $bin | Remove-Item -Force
-        $null = Invoke-LegionInstaller -Catalog $catalog -Tools codex -Uninstall -Yes
-        Assert-Equal 0 @($listed | Where-Object { $_ -notlike 'codex|*' }).Count 'No commands means no unrelated CLI listing'
-      }
-      UnreadableUnrelatedCli = {
-        Reset-Scenario
-        $state.FailTool = 'codex'
-        $null = New-FakePlugin -Tool claude -Key default -ConfigFolder (Join-Path $sandbox '.claude')
-        $preview = @(Invoke-LegionInstaller -Catalog $catalog -Tools claude -Uninstall -DryRun 6>&1) -join "`n"
-        Assert-True ($preview.Contains('kept: shared commands (could not read codex plugins; check them after uninstall)')) 'An inconclusive scan explains why commands stay'
-        Assert-True (-not $preview.Contains("Remove file: $(Join-Path $bin 'legion')")) 'Uncertain commands are out of the file list'
-        Assert-True (-not $preview.Contains('Remove dead command:')) 'Uncertain commands are out of the dead list'
-        $before = Get-Content -LiteralPath (Join-Path $bin 'legion') -Raw
+    OwnershipReplacedAfterPreview = {
+        $state.BeforeAnswer = { 'owner file' | Set-Content $commandPath }
+        $null = Invoke-LegionInstaller -Catalog $catalog -Tools claude -Uninstall
+        Assert-Equal 'owner file' (Get-Content $commandPath) 'A headerless replacement is never deleted'
+        Assert-Equal 1 @(Get-LegionFootprints -HomeRoot $sandbox -Kind file).Count 'Rejected deletion stays recorded'
+        '# Generated by legion' | Set-Content $commandPath
         $null = Invoke-LegionInstaller -Catalog $catalog -Tools claude -Uninstall -Yes
-        Assert-Equal $false $installed['claude|default'] 'Unrelated failure does not block uninstall'
-        Assert-Equal $before (Get-Content -LiteralPath (Join-Path $bin 'legion') -Raw) 'Uncertain commands are kept'
-      }
+        Assert-Equal $false (Test-Path $commandPath) 'A later run retries an unowned entry after the check passes'
     }
-    $failures = @()
-    try {
-        foreach ($case in $cases.GetEnumerator()) {
-            try { & $case.Value; "PASS $($case.Key)" }
-            catch { $failures += "$($case.Key): $($_.Exception.Message)"; "FAIL $($failures[-1])" }
+    FileLinkedAfterPreview = {
+        $protected = Join-Path $sandbox 'protected'
+        'owner data' | Set-Content $protected
+        $probe = Join-Path $bin 'link-probe'
+        try { New-Item -ItemType SymbolicLink -Path $probe -Target $protected -ErrorAction Stop | Out-Null }
+        catch { 'skip: linked file (links unavailable)'; return }
+        (Get-Item $probe -Force).Delete()
+        $state.BeforeAnswer = {
+            Remove-Item -LiteralPath $commandPath
+            New-Item -ItemType SymbolicLink -Path $commandPath -Target $protected -ErrorAction Stop | Out-Null
         }
-        if ($failures.Count) { throw ($failures -join "`n") }
-    } finally { Remove-UninstallSandbox }
+        try {
+            $null = Invoke-LegionInstaller -Catalog $catalog -Tools claude -Uninstall
+            Assert-True (Test-Path $commandPath) 'A file replaced by a link after preview stays'
+            Assert-Equal 'owner data' (Get-Content $protected) 'The link target stays untouched'
+        } finally { if ((Get-Item $commandPath -Force).LinkType) { (Get-Item $commandPath -Force).Delete() } }
+    }
+    AncestorLinkedAfterPreview = {
+        $relocated = Join-Path $sandbox 'relocated-bin'
+        $state.BeforeAnswer = {
+            Move-Item -LiteralPath $bin -Destination $relocated
+            $type = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+            New-Item -ItemType $type -Path $bin -Target $relocated -ErrorAction Stop | Out-Null
+        }
+        try {
+            $null = Invoke-LegionInstaller -Catalog $catalog -Tools claude -Uninstall
+            Assert-Equal '# Generated by legion: command' (Get-Content (Join-Path $relocated 'legion')) 'An ancestor changed after preview blocks removal'
+        } finally { if ((Get-Item $bin -Force).LinkType) { (Get-Item $bin -Force).Delete() } }
+    }
+    NoUnrelatedListings = {
+        $null = Invoke-LegionInstaller -Catalog $catalog -Tools claude -Uninstall -Yes
+        Assert-Equal 0 @($calls | Where-Object { $_ -match '^(codex|copilot)\|' }).Count 'Uninstall does not scan unrelated tools for survivors'
+    }
+}
+foreach ($case in $cases.GetEnumerator()) {
+    & {
+        . (Join-Path $PSScriptRoot 'fixtures/install/UninstallSandbox.ps1')
+        try {
+            $state.Only = 'claude'; $state.Answer = 'y'
+            $bin = Join-Path $sandbox '.legion/bin'
+            $commandPath = Join-Path $bin 'legion'
+            New-Item -ItemType Directory -Path $bin -Force | Out-Null
+            '# Generated by legion: command' | Set-Content $commandPath
+            Add-LegionFootprint -HomeRoot $sandbox -Kind file -Path $commandPath -Owner (Get-LegionTargetOwner -Tool $catalog.tools[0] -HomeRoot $sandbox)
+            function Read-Host { $state.Prompts++; if ($state.BeforeAnswer) { & $state.BeforeAnswer }; $state.Answer }
+            & $case.Value
+            "PASS $($case.Key)"
+        } finally { Remove-UninstallSandbox }
+    }
 }

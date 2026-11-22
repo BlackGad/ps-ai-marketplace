@@ -130,14 +130,12 @@ try {
             }
             $before = Get-SetupTree $testHome
             $plan = @(Invoke-Setup -HomeRoot $testHome)
-            Assert-SetupText $plan 'commands bind' 'R5 B4 plan names live commands missing the alternate home'
             Assert-Equal $before (Get-SetupTree $testHome) 'R5 B4 binding plan writes nothing'
             Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
             foreach ($path in $originals.Keys) {
                 $original = $originals[$path]
                 $text = [IO.File]::ReadAllText($path)
-                $homeArgument = Get-LegionShimHomeArgument -HomeRoot $testHome -Windows:$original.Windows
-                Assert-Equal ($original.Text.Replace($original.Flags, $homeArgument + $original.Flags)) $text 'R5 B4 setup adds only the home binding and keeps the live target and owner flags'
+                Assert-Equal (Get-LegionShimText -Script (Join-Path $root 'plugins/legion/bin/legion.ps1') -HomeRoot $testHome -Windows:$original.Windows) $text 'Setup rewrites the marked command whole'
             }
             $before = Get-SetupTree $testHome
             Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
@@ -688,7 +686,7 @@ try {
     $oldText = (Get-LegionShimText -Script $liveScript).Replace(' "$@"', ' --owner-flag "$@"')
     [IO.File]::WriteAllText($owned, $oldText)
     $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
-    Assert-Equal ($oldText.Replace(' --owner-flag', (Get-LegionShimHomeArgument -HomeRoot $testHome) + ' --owner-flag')) ([IO.File]::ReadAllText($owned)) 'R5 B4 existing live command gains its home binding and keeps its target and flags'
+    Assert-Equal (Get-LegionShimText -Script (Join-Path $root 'plugins/legion/bin/legion.ps1') -HomeRoot $testHome) ([IO.File]::ReadAllText($owned)) 'Setup rewrites the whole marked command and binds its home'
     $repeat = @(Invoke-Setup -HomeRoot $testHome -Yes)
     Assert-SetupText $repeat 'skip: command legion (already done)' 'R5 B4 bound live command reports skip on repeat'
 
@@ -698,10 +696,9 @@ try {
     $staleText = (Get-LegionShimText -Script '/gone/cache/bin/legion.ps1').Replace(' "$@"', ' --keep "$@"')
     [IO.File]::WriteAllText((Join-Path $bin 'legion'), $staleText)
     $plan = @(Invoke-Setup -HomeRoot $testHome)
-    Assert-SetupText $plan 'commands rewrite legion' 'C-2: the plan names a stale command'
     $null = Invoke-Setup -HomeRoot $testHome -Yes
     $rewritten = [IO.File]::ReadAllText((Join-Path $bin 'legion'))
-    Assert-True ($rewritten.Contains((Join-Path $root 'plugins/legion/bin/legion.ps1')) -and $rewritten.Contains('--keep')) 'C-2: a stale command is retargeted and keeps owner flags'
+    Assert-True ($rewritten.Contains((Join-Path $root 'plugins/legion/bin/legion.ps1')) -and -not $rewritten.Contains('--keep')) 'A marked command is rewritten without hand-added flags'
 
     Reset-SetupTest 'blocked-command'
     $bin = Join-Path $testHome '.legion/bin'

@@ -209,6 +209,7 @@ if ($Uninstall) { exit 4 }
     Set-Content -LiteralPath (Join-Path $sourceFolder 'tools.json') -Value 'catalog-text'
     New-Item -ItemType Directory -Path (Join-Path $sourceFolder 'bin/lib') -Force | Out-Null
     Copy-Item (Join-Path $root 'plugins/legion/bin/lib/paths.ps1') (Join-Path $sourceFolder 'bin/lib/paths.ps1')
+    Copy-Item (Join-Path $root 'plugins/legion/bin/lib/footprints.ps1') (Join-Path $sourceFolder 'bin/lib/footprints.ps1')
     $script:LegionBin = Join-Path $sourceFolder 'bin'
     $installerRecord = Join-Path $scratch 'installer-record.json'
     $script:LegionHomeRoot = $scratch

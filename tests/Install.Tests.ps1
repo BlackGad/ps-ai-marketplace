@@ -32,7 +32,7 @@ Assert-True ($previewLines -contains 'CLAUDE_CONFIG_DIR=X claude plugin install 
     function Ensure-InstallPowerShell { return $true }
     function Get-InstallHome { Join-Path $root '.agents/temp/install-selected-account' }
     function Get-InstallUserPath { Get-InstallLegionPath 'bin' }
-    function Add-InstallPowerShellPath { }
+    function Add-LegionUserPath { }
     function Invoke-InstallRefresh { }
     function Get-InstallPluginRoot { Join-Path $root 'plugins/legion' }
     function codex { param($Version) Assert-Equal '--version' $Version 'Fake CLI only handles version'; 'fixture-version' }

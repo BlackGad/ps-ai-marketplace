@@ -133,6 +133,8 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
         Join-Path $temp ("install-$([guid]::NewGuid().ToString('N')).$Extension")
     }
     function Get-InstallUserPath { $userPathState.Value }
+    function Add-LegionFootprint { param($Kind, $Path, $Value, $Owner) $pathRecords.Add($Value) }
+    $pathRecords = [Collections.Generic.List[string]]::new()
     function Set-InstallUserPath { param($Path) $pathWrites.Add($Path); $userPathState.Value = $Path }
     function Test-ToolCommandAvailable { param($Name) [bool]$available[$Name] }
     function Test-ToolInstalled { param($Tool) @{ Installed=[bool]$installed[$Tool]; Version='test-version' } }
@@ -207,6 +209,7 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
         Install-ToolZip -Tool az -Archive $archive -PathFolder bin | Out-Null
         Assert-Equal 1 $pathWrites.Count 'Portable folder is added to user PATH only once'
         Assert-True ($userPathState.Value.Contains((Split-Path $exe -Parent))) 'PATH points at executable folder'
+        Assert-True ($pathRecords -contains (Split-Path $exe -Parent)) 'Portable PATH additions are recorded, including repair runs'
         Assert-True ($userPathState.Value.StartsWith('%SYSTEMROOT%\existing')) 'Existing user PATH placeholders preserved'
         Assert-Equal $originalProcessPath $env:PATH 'Installer does not mutate process PATH'
         $userPathState.Value = 'C:\existing'
@@ -359,6 +362,8 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
         $pathState = @{Value='existing'}
         $writes = [Collections.Generic.List[string]]::new()
         function Get-InstallUserPath { $pathState.Value }
+        function Add-LegionFootprint { param($Kind, $Path, $Value, $Owner) $pathRecords.Add($Value) }
+        $pathRecords = [Collections.Generic.List[string]]::new()
         function Set-InstallUserPath { param($Path) $writes.Add($Path); $pathState.Value = $Path }
         $preview = @(Invoke-ToolInstall -Tool fourth -Platform windows)
         Assert-Equal 0 $writes.Count 'Portable preview does not repair PATH'
@@ -366,6 +371,7 @@ Assert-True $windowsExample.Success 'README includes a Windows PowerShell instal
         Invoke-ToolInstall -Tool fourth -Platform windows -Yes | Out-Null
         Assert-Equal 1 $writes.Count 'Approved portable repair is idempotent'
         Assert-True ($pathState.Value.Contains((Split-Path $expectedCommand -Parent))) 'PATH points to discovered version folder'
+        Assert-True ($pathRecords -contains (Split-Path $expectedCommand -Parent)) 'A descriptor-driven portable tool records its PATH entry'
         $extractions = [Collections.Generic.List[string]]::new()
         function Expand-Archive { param($LiteralPath,$DestinationPath,[switch]$Force,$ErrorAction) $extractions.Add($DestinationPath) }
         foreach ($badPath in @('../fourth-sibling/file.exe',(Join-Path $sandbox 'outside.exe'),'sub/../../fourth-sibling/file.exe')) {

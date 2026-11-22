@@ -32,7 +32,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         $script:pathWrites = 0
         $script:installs = 0
         function Read-Host { param($Prompt) $script:prompts++; return $script:answer }
-        function Add-InstallPowerShellPath { param($Path) $script:pathWrites++ }
+        function Add-LegionUserPath { param($Path) $script:pathWrites++ }
         function Get-InstallUserPath { Get-InstallLegionPath 'bin' }
         function Invoke-InstallRefresh { }
         function Get-InstallPluginRoot { Join-Path $repo 'plugins/legion' }

@@ -27,15 +27,11 @@ foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
     $runner = Join-Path $PSScriptRoot $entry.Value
     foreach ($suffix in @('', '.cmd')) {
         $path = Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$($entry.Key)$suffix"
-        $state = Get-LegionOwnerCommandState -Path $path -Script $entry.Value
+        if (-not (Test-LegionOwnerPathSafe -Path $path -StopRoot $HomeRoot)) { continue }
+        $state = Get-LegionOwnerCommandState -Path $path
         if ($state -eq 'blocked') { continue }
-        if ($state -eq 'missing') {
-            if ($suffix -and -not $IsWindows) { continue }
-            $updated = Get-LegionShimText -Script $runner -Windows:([bool]$suffix) -HomeRoot $HomeRoot
-        } else {
-            $text = [IO.File]::ReadAllText($path)
-            $updated = Update-LegionOwnerCommandText -Text $text -Script $entry.Value -Runner $runner -Windows:([bool]$suffix) -HomeRoot $HomeRoot
-        }
+        if ($state -eq 'missing' -and $suffix -and -not $IsWindows) { continue }
+        $updated = Get-LegionShimText -Script $runner -Windows:([bool]$suffix) -HomeRoot $HomeRoot
         Write-LegionGeneratedFile -Path $path -Content $updated -Changes $changes -Executable:($suffix -eq '')
     }
 }

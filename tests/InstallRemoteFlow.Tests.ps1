@@ -11,6 +11,7 @@ $repo = Split-Path $PSScriptRoot -Parent
         Copy-Item -LiteralPath (Join-Path $repo 'plugins/legion/tools.json') -Destination $catalog
         New-Item -ItemType Directory -Path (Join-Path $sandbox 'bin/lib') -Force | Out-Null
         Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/paths.ps1') (Join-Path $sandbox 'bin/lib/paths.ps1')
+        Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/footprints.ps1') (Join-Path $sandbox 'bin/lib/footprints.ps1')
         $fixture = Join-Path $PSScriptRoot 'fixtures/install/Test-GenericFlow.ps1'
         foreach ($runtime in $runtimes) {
             foreach ($mode in @('fresh','cached','update','registered')) {

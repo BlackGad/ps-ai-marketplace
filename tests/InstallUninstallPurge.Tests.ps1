@@ -99,7 +99,7 @@ Test-PurgeScenario {
         & $sharedWalk -Path $Path -StopRoot $StopRoot
     }
     $file = New-PurgeFile '.legion/bin/codex-a'
-    Assert-True (Test-InstallGeneratedPathSafe -Path $file -Bin (Split-Path $file)) 'Generated files use the shared link walk'
+    Assert-True (Test-LegionOwnerPathSafe -Path $file -StopRoot $fixtureHome) 'Generated files use the shared link walk'
     Assert-Equal $file (Get-InstallSafePath -Root $fixtureHome -Relative '.legion/bin/codex-a' -AllowFile) 'Purge paths use the shared link walk'
     Assert-Equal 2 $walks.Count 'Both path guards delegate the ancestor walk'
     foreach ($root in $walks) { Assert-Equal $fixtureHome $root 'Installer link walks stop at the selected home' }
@@ -190,6 +190,7 @@ Test-PurgeScenario {
     $env:OS='Windows_NT'
     $bin = Join-Path $fixtureHome '.legion/bin'
     $portable = Join-Path $fixtureHome '.legion/tools/pwsh'
+    foreach ($entry in @($bin, $portable)) { Add-LegionFootprint -HomeRoot $fixtureHome -Kind path-entry -Path 'user PATH' -Value $entry -Owner legion }
     $state.UserPath="keep-first;$bin;keep-middle;$portable;keep-last;"
     $separator = [string][IO.Path]::PathSeparator
     $env:PATH = @('keep-first', $bin, 'keep-middle', $portable, 'keep-last') -join $separator

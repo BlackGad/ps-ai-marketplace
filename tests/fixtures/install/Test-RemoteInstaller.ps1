@@ -76,6 +76,7 @@ else { 'legion@ps-legion-marketplace installed, enabled ' + (Join-Path (Split-Pa
     Copy-Item -LiteralPath $fixtureInstaller -Destination $standalone
     New-Item -ItemType Directory -Path (Join-Path $sandbox 'bin/lib') -Force | Out-Null
     Copy-Item (Join-Path $Repo 'plugins/legion/bin/lib/paths.ps1') (Join-Path $sandbox 'bin/lib/paths.ps1')
+    Copy-Item (Join-Path $Repo 'plugins/legion/bin/lib/footprints.ps1') (Join-Path $sandbox 'bin/lib/footprints.ps1')
     Copy-Item -LiteralPath (Join-Path $Repo 'tests/fixtures/install/catalog.json') -Destination (Join-Path $sandbox 'tools.json')
     New-Item -ItemType Directory -Path (Join-Path $sandbox 'plugins/legion') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $sandbox 'tools.json') -Destination (Join-Path $sandbox 'plugins/legion/tools.json')

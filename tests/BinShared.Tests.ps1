@@ -11,12 +11,12 @@ foreach ($file in Get-ChildItem $bin -Recurse -Filter '*.ps1' | Where-Object { $
 $state = @{ Path = 'first'; Writes = 0 }
 function Get-InstallUserPath { $state.Path }
 function Set-InstallUserPath { param($Path) $state.Path = $Path; $state.Writes++ }
-Add-LegionUserPath -Folder 'C:\legion\bin'
+Add-LegionUserPath -Folder 'C:\legion\bin' -HomeRoot $env:HOME
 Assert-Equal 'first;C:\legion\bin' $state.Path 'Add-LegionUserPath appends the folder'
-Add-LegionUserPath -Folder 'C:\legion\bin\'
+Add-LegionUserPath -Folder 'C:\legion\bin\' -HomeRoot $env:HOME
 Assert-Equal 1 $state.Writes 'A repeat (even with a trailing slash) writes nothing'
 $state.Path = ''
-Add-LegionUserPath -Folder 'C:\legion\bin'
+Add-LegionUserPath -Folder 'C:\legion\bin' -HomeRoot $env:HOME
 Assert-Equal 'C:\legion\bin' $state.Path 'An empty user PATH becomes the folder'
 
 # PersistentFolders: saved user and machine PATH entries, expanded, quotes and blanks dropped.

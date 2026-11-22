@@ -257,10 +257,6 @@ function Write-SetupPlan {
     }
     $commands = @($Plan.Commands | Where-Object State -EQ missing | Select-Object -ExpandProperty Name -Unique)
     if ($commands.Count) { $lines.Add("  commands write $($commands -join ', ') in $($Plan.Bin)") }
-    $stale = @($Plan.Commands | Where-Object State -EQ stale | Select-Object -ExpandProperty Name -Unique)
-    if ($stale.Count) { $lines.Add("  commands rewrite $($stale -join ', ') (their script is gone)") }
-    $unbound = @($Plan.Commands | Where-Object State -EQ unbound | Select-Object -ExpandProperty Name -Unique)
-    if ($unbound.Count) { $lines.Add("  commands bind $($unbound -join ', ') to home $($Plan.HomeRoot)") }
     $permissions = @($Plan.Commands | Where-Object State -EQ permission | Select-Object -ExpandProperty Name -Unique)
     if ($permissions.Count) { $lines.Add("  commands restore execute permission for $($permissions -join ', ')") }
     if ($Plan.NeedsPath) {
@@ -331,6 +327,9 @@ function Add-SetupAllowRules {
     param($Plan)
     foreach ($row in $Plan.Accounts) {
         if (-not $row.Usable) { continue }
+        foreach ($rule in @($row.Tool.allowRules | Where-Object { $_ })) {
+            Add-LegionFootprint -HomeRoot $Plan.HomeRoot -Kind edit -Path (Join-Path $row.Folder 'settings.json') -Key permissions.allow -Value $rule -Owner (Get-LegionTargetOwner -Tool $row.Tool -Folder $row.Folder -HomeRoot $Plan.HomeRoot)
+        }
         # Read again: an earlier account may share this folder, and the file may have changed since the plan.
         $missing = @(Get-SetupMissingAllowRules -Tool $row.Tool -Folder $row.Folder)
         if (-not $missing.Count) { "skip: permission rule in $($row.Folder) (already done)"; continue }
@@ -347,19 +346,18 @@ function Add-SetupAllowRules {
 
 function Write-SetupCommands {
     param($Plan)
+    foreach ($row in @($Plan.Accounts | Where-Object Version)) {
+        foreach ($file in $Plan.Commands) {
+            Add-LegionFootprint -HomeRoot $Plan.HomeRoot -Kind file -Path $file.Path -Owner (Get-LegionTargetOwner -Tool $row.Tool -Folder $row.Folder -HomeRoot $Plan.HomeRoot)
+        }
+    }
     foreach ($name in (Get-LegionOwnerCommands).Keys) {
         $files = @($Plan.Commands | Where-Object Name -CEQ $name)
         foreach ($file in $files) {
-            if ($file.State -eq 'permission') {
-                Write-LegionGeneratedFile -Path $file.Path -Content ([IO.File]::ReadAllText($file.Path)) -Executable
-                continue
-            }
-            if ($file.State -notin @('missing', 'stale', 'unbound')) { continue }
+            if ($file.State -eq 'blocked' -or -not (Test-LegionOwnerPathSafe -Path $file.Path -StopRoot $Plan.HomeRoot)) { continue }
+            if ((Test-Path -LiteralPath $file.Path) -and -not (Test-LegionOwnerCommandFile -Path $file.Path)) { continue }
             $runner = Join-Path $script:SetupBin $file.Script
-            if ($file.State -eq 'unbound') { $runner = (Read-LegionOwnerCommandTarget -Path $file.Path -Script $file.Script).Path }
-            # Existing commands keep owner flags, and live commands keep their target.
-            $text = if ($file.State -in @('stale', 'unbound')) { Update-LegionOwnerCommandText -Text ([IO.File]::ReadAllText($file.Path)) -Script $file.Script -Runner $runner -Windows:$file.Windows -HomeRoot $Plan.HomeRoot }
-                else { Get-LegionShimText -Script $runner -Windows:$file.Windows -HomeRoot $Plan.HomeRoot }
+            $text = Get-LegionShimText -Script $runner -Windows:$file.Windows -HomeRoot $Plan.HomeRoot
             Write-LegionGeneratedFile -Path $file.Path -Content $text -Executable
         }
         # Blocked commands are reported once, in the final table.
@@ -373,7 +371,8 @@ function Set-SetupPath {
         if (-not $Plan.NeedsPath) { 'skip: path (already done)' }
         return
     }
-    if ($Plan.NeedsPath) { Add-LegionUserPath -Folder $Plan.Bin } else { 'skip: path (already done)' }
+    Add-LegionUserPath -Folder $Plan.Bin -HomeRoot $Plan.HomeRoot
+    if (-not $Plan.NeedsPath) { 'skip: path (already done)' }
     if (-not (Test-LegionPathEntry -Path $env:PATH -Folder $Plan.Bin)) { $env:PATH += ";$($Plan.Bin)" }
 }
 
@@ -422,9 +421,9 @@ function Invoke-Setup {
     Install-SetupTools -Plan $plan
     Add-SetupAccounts -Plan $plan
     Add-SetupAllowRules -Plan $plan
-    Write-SetupCommands -Plan $plan
     Set-SetupPath -Plan $plan
     Install-SetupPlugins -Plan $plan
+    Write-SetupCommands -Plan $plan
     Write-SetupTable -Plan $plan
     # Recoverable installer failures are next-step rows, not a failure of the whole setup run.
     $global:LASTEXITCODE = 0

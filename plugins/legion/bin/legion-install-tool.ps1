@@ -6,7 +6,7 @@ param(
     [switch]$NoRun
 )
 
-. (Join-Path $PSScriptRoot 'lib/paths.ps1')
+. (Join-Path $PSScriptRoot 'lib/footprints.ps1')
 
 . (Join-Path $PSScriptRoot 'lib/tools.ps1')
 

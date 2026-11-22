@@ -2,6 +2,7 @@
 . (Join-Path $PSScriptRoot 'foundry.ps1')
 . (Join-Path $PSScriptRoot 'commands.ps1')
 . (Join-Path $PSScriptRoot 'settings.ps1')
+. (Join-Path $PSScriptRoot 'footprints.ps1')
 
 function Assert-LegionId {
     param([string]$Id)
@@ -230,6 +231,7 @@ function New-FoundryWrappers {
     param([string]$Id, [string]$HomeRoot, [string]$Tool, [Collections.Generic.List[string]]$Changes)
     Assert-LegionId $Id
     foreach ($suffix in @('', '.cmd')) { Assert-LegionWrapperPath (Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$Id$suffix") $Id }
+    Add-LegionFootprint -HomeRoot $HomeRoot -Kind folder -Path (Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Runtime) -Owner "account:$Id"
     $runner = Sync-LegionFoundryRuntime -Tool $Tool -HomeRoot $HomeRoot -Changes $Changes
     $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
     $shPath = ConvertTo-LegionShellLiteral $runner
@@ -364,6 +366,9 @@ function New-LegionFoundryProvider {
 
 function Move-LegionWrappers {
     param([string]$OldId, [string]$NewId, [string]$HomeRoot)
+    foreach ($entry in @(Get-LegionFootprints -HomeRoot $HomeRoot -Kind folder | Where-Object { $_.owners -ccontains "account:$OldId" })) {
+        Add-LegionFootprint -HomeRoot $HomeRoot -Kind folder -Path $entry.path -Owner "account:$NewId"
+    }
     $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
     foreach ($suffix in @('', '.cmd')) {
         $old = Join-Path $bin "$OldId$suffix"
@@ -375,6 +380,7 @@ function Move-LegionWrappers {
             Remove-Item -LiteralPath $old -Force
         }
     }
+    Remove-LegionFootprintOwner -HomeRoot $HomeRoot -Owner "account:$OldId"
 }
 
 function Remove-LegionWrappers {
@@ -384,6 +390,7 @@ function Remove-LegionWrappers {
         $path = Join-Path $bin "$Id$suffix"
         if (Test-LegionOwnedWrapper $path $Id) { Remove-Item -LiteralPath $path -Force }
     }
+    Remove-LegionFootprintOwner -HomeRoot $HomeRoot -Owner "account:$Id"
 }
 
 function Add-LegionSubscriptionAccount {
