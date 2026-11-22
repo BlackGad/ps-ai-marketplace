@@ -7,7 +7,7 @@ import urllib.request
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 MESSAGE_LIMIT = 4096
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
@@ -99,7 +99,7 @@ def _run(action: Callable[[], None]) -> int:
     return 0
 
 
-def send(channel: str, chat: str, text: str, text_format: str, reply_to: int | None, files: list[Path], *, post: Post | None = None) -> int:
+def send(channel: str, chat: str, text: str, text_format: str, reply_to: Optional[int], files: list[Path], *, post: Optional[Post] = None) -> int:
     def action() -> None:
         call = post or _post
         token = read_token(channel)
@@ -121,7 +121,7 @@ def send(channel: str, chat: str, text: str, text_format: str, reply_to: int | N
     return _run(action)
 
 
-def react(channel: str, chat: str, message: str, emoji: str, *, post: Post | None = None) -> int:
+def react(channel: str, chat: str, message: str, emoji: str, *, post: Optional[Post] = None) -> int:
     def action() -> None:
         fields = {"chat_id": chat, "message_id": message, "reaction": json.dumps([{"type": "emoji", "emoji": emoji}])}
         (post or _post)(read_token(channel), "setMessageReaction", fields, [])

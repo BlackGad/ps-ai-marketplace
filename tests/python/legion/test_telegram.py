@@ -2,7 +2,7 @@ import io
 import json
 import urllib.error
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import pytest
 
@@ -22,7 +22,7 @@ def bot_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 class FakePost:
-    def __init__(self, error: TelegramError | None = None) -> None:
+    def __init__(self, error: Optional[TelegramError] = None) -> None:
         self.calls: list[tuple[str, str, dict[str, str], list[tuple[str, Path]]]] = []
         self.error = error
 

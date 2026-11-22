@@ -5,7 +5,7 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from . import _inbox
 from ._telegram import Post, TelegramError, _post, bot_folder, read_token
@@ -48,7 +48,7 @@ def _allow_from(folder: Path) -> list[str]:
     return [str(user) for user in access.get("allowFrom", [])]
 
 
-def _inbox_text(message: dict[str, Any]) -> str | None:
+def _inbox_text(message: dict[str, Any]) -> Optional[str]:
     text = message.get("text") or message.get("caption")
     if not text:
         return None
@@ -88,7 +88,7 @@ def run(
             return 1
     pid_file = folder / "bridge.pid"
     pid_file.write_text(str(os.getpid()), encoding="utf-8")
-    offset: int | None = None
+    offset: Optional[int] = None
     backoff = 1
     try:
         while True:

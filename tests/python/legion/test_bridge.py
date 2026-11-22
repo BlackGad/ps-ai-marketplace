@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import pytest
 
@@ -21,7 +21,7 @@ def bot_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return folder
 
 
-def update(update_id: int, sender: int = 42, chat_type: str = "private", text: str | None = "hello") -> dict[str, Any]:
+def update(update_id: int, sender: int = 42, chat_type: str = "private", text: Optional[str] = "hello") -> dict[str, Any]:
     message: dict[str, Any] = {
         "message_id": update_id * 10,
         "chat": {"id": sender, "type": chat_type},
@@ -48,7 +48,7 @@ class Script:
         return reply
 
 
-def run(repo: Path, script: Script, delivered: list[tuple[str, str]], alive: Any = lambda _pid: False, sleeps: list[float] | None = None) -> int:
+def run(repo: Path, script: Script, delivered: list[tuple[str, str]], alive: Any = lambda _pid: False, sleeps: Optional[list[float]] = None) -> int:
     def deliver(_repo: Path, sender: str, text: str) -> None:
         delivered.append((sender, text))
 
