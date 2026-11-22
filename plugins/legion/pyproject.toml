@@ -1,0 +1,28 @@
+[project]
+name = "legion"
+# Packaging placeholder only; the CLI reads plugin.json for the released version.
+version = "0.0.0"
+description = "Python helpers for the legion plugin"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+legion-py = "legion:main"
+
+[dependency-groups]
+dev = ["ruff>=0.14.9", "pyright>=1.1.408", "pytest>=9.0.2", "pytest-cov>=7.0.0"]
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+default-groups = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+addopts = "--basetemp=.legion/temp/python/pytest-tmp --cov=legion --cov-config=plugins/legion/pyproject.toml --cov-report=term-missing --cov-report=xml:.legion/temp/python/coverage.xml --junitxml=.legion/temp/python/junit.xml"
+cache_dir = ".legion/temp/python/pytest-cache"
+
+[tool.coverage.run]
+data_file = ".legion/temp/python/.coverage"

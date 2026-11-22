@@ -149,6 +149,35 @@
       "docs": "https://nodejs.org/en/download"
     }
   },
+  "uv": {
+    "check": ["uv", "--version"],
+    "windows": {
+      "wingetId": "astral-sh.uv",
+      "portableCommand": "uv.exe",
+      "download": {
+        "msi": {
+          "kind": "script",
+          "url": "https://astral.sh/uv/install.ps1",
+          "verification": "vendor"
+        },
+        "zip": {
+          "kind": "script",
+          "url": "https://astral.sh/uv/install.ps1",
+          "verification": "vendor"
+        }
+      }
+    },
+    "macos": {
+      "needs": [],
+      "commands": [["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"]],
+      "docs": ""
+    },
+    "linux": {
+      "needs": [],
+      "commands": [["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"]],
+      "docs": ""
+    }
+  },
   "bun": {
     "check": [
       "bun",

@@ -3,3 +3,5 @@ docs/specs/
 docs/plans/
 docs/superpowers/
 docs/verification/
+__pycache__/
+.ruff_cache/

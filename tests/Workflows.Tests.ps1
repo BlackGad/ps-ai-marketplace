@@ -148,7 +148,7 @@ jobs:
     Require-Workflow ($testText -notmatch 'inputs\.ref') 'reusable tests must not resolve a moving ref input'
     $checkouts = @($testText -split "`n" | Where-Object { $_ -match 'uses: actions/checkout@' })
     $pinnedRefs = @($testText -split "`n" | Where-Object { $_.Trim() -eq 'ref: ${{ inputs.sha || github.sha }}' })
-    Require-Workflow ($checkouts.Count -eq 2 -and $pinnedRefs.Count -eq $checkouts.Count) 'every test checkout uses the supplied sha or the triggering commit'
+    Require-Workflow ($checkouts.Count -eq 3 -and $pinnedRefs.Count -eq $checkouts.Count) 'every test checkout uses the supplied sha or the triggering commit'
     $resolve = $releaseJobs | Where-Object Id -eq 'resolve-release-pr'
     $resolveText = $resolve.Lines -join "`n"
     Require-Workflow ($null -ne $resolve) 'release PR head is resolved in a trusted job before testing'
