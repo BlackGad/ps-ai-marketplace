@@ -100,8 +100,7 @@ function Write-LegionGeneratedFile {
         [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
     }
     if ($Executable -and -not $IsWindows -and -not (Test-LegionLauncherExecutable -Path $Path)) {
-        & chmod +x $Path
-        if ($LASTEXITCODE -ne 0) { throw 'could not make the generated wrapper executable' }
+        [IO.File]::SetUnixFileMode($Path, [IO.File]::GetUnixFileMode($Path) -bor [IO.UnixFileMode]::UserExecute)
         $changed = $true
     }
     if ($changed -and $null -ne $Changes) { $Changes.Add($Path) }

@@ -13,15 +13,16 @@ if ($CliPath) { $env:PATH=$CliPath + [IO.Path]::PathSeparator + $pwshFolder }
 foreach ($name in @('CLAUDE_CONFIG_DIR','CODEX_HOME','COPILOT_HOME')) { Remove-Item "Env:$name" -ErrorAction Ignore }
 $script:downloads = 0
 $script:fixtureArchive = $Archive
-function Invoke-InstallArchiveDownload {
-    param($Url,$OutFile)
+# The stub's download function runs for real; only the request is faked.
+function Invoke-WebRequest {
+    param($Uri,$OutFile)
+    $Url = $Uri
     if ($Url -notmatch '^https://github.com/BlackGad/ps-legion-marketplace/archive/refs/heads/(stable|main)\.zip$') { throw "Unexpected URL: $Url" }
     $script:downloads++
     Write-Host "download=$Url"
     if ($NoRelease) { throw 'Fixture release unavailable' }
     Copy-Item -LiteralPath $script:fixtureArchive -Destination $OutFile
 }
-function Invoke-WebRequest { throw 'Unexpected network access' }
 $arguments = @{ DryRun=$true; HomeRoot=$Fixture }
 if ($Ref) { $arguments.Ref=$Ref }
 if ($Mode -ne 'catalog') { $arguments.Tools=@($Tool); $arguments.Source=$Fixture }

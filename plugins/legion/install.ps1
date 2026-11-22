@@ -12,7 +12,7 @@ param(
     [string]$HomeRoot
 )
 
-if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'The legion installer requires PowerShell 7. Run the root install.ps1 bootstrap with Windows PowerShell 5.1.' }
+if ($PSVersionTable.PSVersion -lt [version]'7.4') { throw 'The legion installer requires PowerShell 7.4 or newer. Run the root install.ps1 (or install.sh) so it can set up a current PowerShell.' }
 if (-not $PSScriptRoot) { throw 'Run the legion installer from the expanded archive; script text has no PSScriptRoot.' }
 $pathsLibrary = Join-Path $PSScriptRoot 'bin/lib/paths.ps1'
 if (-not (Test-Path -LiteralPath $pathsLibrary -PathType Leaf)) { throw 'The legion installer requires bin/lib/paths.ps1 from the expanded archive.' }
@@ -167,11 +167,9 @@ function Get-InstallListingLines {
 }
 
 function Test-InstallStepDone {
-    param([string[]]$Command, [ValidateSet('marketplace','plugin')][string]$Kind = 'plugin', [string]$ConfigEnv, [string]$ConfigDir, [switch]$IncludeDisabled, [switch]$RequireRoot)
-    $entry = $script:installCatalog.tools | Where-Object command -CEQ $Command[0] | Select-Object -First 1
-    if (-not $entry) { throw "unknown tool command '$($Command[0])'" }
-    $lines = @(Get-InstallListingLines -Entry $entry -Kind $Kind -ConfigDir $ConfigDir)
-    return Test-InstallListing -Kind $Kind -Tool $entry.id -Lines $lines -IncludeDisabled:$IncludeDisabled -RequireRoot:$RequireRoot
+    param($Entry, [ValidateSet('marketplace','plugin')][string]$Kind = 'plugin', [string]$ConfigDir, [switch]$IncludeDisabled, [switch]$RequireRoot)
+    $lines = @(Get-InstallListingLines -Entry $Entry -Kind $Kind -ConfigDir $ConfigDir)
+    return Test-InstallListing -Kind $Kind -Tool $Entry.id -Lines $lines -IncludeDisabled:$IncludeDisabled -RequireRoot:$RequireRoot
 }
 
 function Get-InstallListingField {
@@ -229,46 +227,35 @@ function Invoke-InstallCommand {
     if ($result.ExitCode -ne 0) { throw "$($Command[0]) exited $($result.ExitCode)" }
 }
 
+function Invoke-InstallStep {
+    param([string[]]$Command, [string]$ConfigEnv, [string]$ConfigDir, [switch]$DryRun)
+    if ($DryRun) { Format-InstallCommand -Command $Command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
+    else { Invoke-InstallCommand -Command $Command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
+}
+
 function Invoke-LegionInstallSteps {
     param([string]$Tool, [string]$Source, [string]$ConfigEnv, [string]$ConfigDir, [switch]$DryRun, [ValidateSet('release','main')][string]$Ref = 'release')
     $commands = Get-InstallCommands -Tool $Tool -Source $Source -Ref $Ref
+    $marketplace, $plugin = $commands
     $entry = Get-InstallTool -Tool $Tool
     if (-not $DryRun -and $ConfigDir -and -not (Test-Path -LiteralPath $ConfigDir -PathType Container)) {
         New-Item -ItemType Directory -Path $ConfigDir -Force -ErrorAction Stop | Out-Null
     }
-    $marketplaceAdded = $false
-    for ($index = 0; $index -lt $commands.Count; $index++) {
-        $command = $commands[$index]
-        $kind = if ($index -eq 0) { 'marketplace' } else { 'plugin' }
-        if (-not $marketplaceAdded -and (Test-InstallStepDone -Command $command -Kind $kind -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir)) {
-            if ($index -ne 0) {
-                "skip: $($command -join ' ') (already done)"
-                continue
-            }
-            $rootReady = $true
-            if ($entry.plugin.marketplaceListing.rootField) {
-                $rootReady = Test-InstallStepDone -Command $command -Kind marketplace -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir -RequireRoot
-            }
-            $pluginReady = Test-InstallStepDone -Command $commands[1] -Kind plugin -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir
-            if ($rootReady -and $pluginReady) {
-                "skip: $($command -join ' ') (already done)"
-                "skip: $($commands[1] -join ' ') (already done)"
-                return
-            }
-            if (-not $entry.plugin.marketplaceUpdate.Count) { throw "$Tool has no marketplace refresh command" }
-        } else {
-            if ($DryRun) { Format-InstallCommand -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
-            else { Invoke-InstallCommand -Command $command -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
+    if (Test-InstallStepDone -Entry $entry -Kind marketplace -ConfigDir $ConfigDir) {
+        $rootReady = -not $entry.plugin.marketplaceListing.rootField -or (Test-InstallStepDone -Entry $entry -Kind marketplace -ConfigDir $ConfigDir -RequireRoot)
+        if ($rootReady -and (Test-InstallStepDone -Entry $entry -Kind plugin -ConfigDir $ConfigDir)) {
+            "skip: $($marketplace -join ' ') (already done)"
+            "skip: $($plugin -join ' ') (already done)"
+            return
         }
-        if ($index -eq 0) {
-            $marketplaceAdded = $true
-            if ($entry.plugin.marketplaceUpdate.Count) {
-                $refresh = @($entry.command) + $entry.plugin.marketplaceUpdate
-                if ($DryRun) { Format-InstallCommand -Command $refresh -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
-                else { Invoke-InstallCommand -Command $refresh -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir }
-            }
-        }
+        if (-not $entry.plugin.marketplaceUpdate.Count) { throw "$Tool has no marketplace refresh command" }
+    } else {
+        Invoke-InstallStep -Command $marketplace -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir -DryRun:$DryRun
     }
+    if ($entry.plugin.marketplaceUpdate.Count) {
+        Invoke-InstallStep -Command (@($entry.command) + $entry.plugin.marketplaceUpdate) -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir -DryRun:$DryRun
+    }
+    Invoke-InstallStep -Command $plugin -ConfigEnv $ConfigEnv -ConfigDir $ConfigDir -DryRun:$DryRun
 }
 
 # -HomeRoot lets a caller with an alternate home keep every write, refresh included, inside it.
@@ -287,12 +274,6 @@ function Confirm-InstallChange {
 function Get-InstallLegionPath {
     param([string]$Path)
     return Join-Path (Join-Path (Get-InstallHome) '.legion') $Path
-}
-
-function Get-InstallOwnerPath {
-    param([ValidateSet('Settings', 'Notes', 'Update', 'Runtime', 'Install')][string]$Name,
-        [string]$HomeRoot = (Get-InstallHome))
-    return Get-LegionOwnerPath -Name $Name -HomeRoot $HomeRoot
 }
 
 function Resolve-InstallConfigDir {
@@ -318,7 +299,7 @@ function Get-UpdateConfigDirs {
     if ($defaultFolder) { $defaultFolder = Resolve-InstallConfigDir $defaultFolder }
     $folders = @()
     $seen = [Collections.Generic.HashSet[string]]::new((Get-LegionPathComparer))
-    $file = Get-InstallOwnerPath -Name Settings
+    $file = Get-LegionOwnerPath -Name Settings -HomeRoot (Get-InstallHome)
     if (Test-Path -LiteralPath $file -PathType Leaf) {
         $data = Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         foreach ($agent in $data.agents) {
@@ -346,7 +327,7 @@ function Get-UninstallCachePath {
     if (-not $Entry.plugin.cacheDir) { return }
     if (-not $ConfigDir) {
         if (-not $Entry.plugin.defaultConfigDir) { throw 'Missing plugin.defaultConfigDir for cache cleanup' }
-        $ConfigDir = Join-Path (Get-InstallHome) $Entry.plugin.defaultConfigDir.Substring(2)
+        $ConfigDir = Resolve-LegionHomePath -Path $Entry.plugin.defaultConfigDir -HomeRoot (Get-InstallHome)
     }
     return Get-InstallSafePath -Root $ConfigDir -Relative $Entry.plugin.cacheDir
 }
@@ -574,18 +555,42 @@ function Set-InstallPurgeEdit {
     [IO.File]::WriteAllBytes($Edit.Path, $Edit.After)
 }
 
+# The edit for one existing file; Manual when the file is linked or cannot be matched safely.
+function Get-InstallSafeEdit {
+    param([string]$Path, [array]$Footprints)
+    if (-not (Get-InstallSafePath -Root (Split-Path $Path) -Relative ([IO.Path]::GetFileName($Path)) -AllowFile 6>$null)) {
+        return [pscustomobject]@{ Manual=$true; Path=$Path }
+    }
+    return Get-InstallPurgeEdit -Path $Path -Footprints $Footprints
+}
+
+function Select-InstallFootprintsAt {
+    param([array]$Footprints, [string]$Path)
+    return @($Footprints | Where-Object { (Get-LegionPathComparer).Equals((Resolve-LegionHomePath -Path $_.path -HomeRoot (Get-InstallHome)), $Path) })
+}
+
 function Remove-InstallFootprintEdit {
     param($Entry, [string]$HomeRoot, [switch]$WhatIf)
     $path = Resolve-LegionHomePath -Path $Entry.path -HomeRoot $HomeRoot
     if (-not (Test-Path -LiteralPath $path)) { return $true }
-    $safe = Get-InstallSafePath -Root (Split-Path $path) -Relative ([IO.Path]::GetFileName($path)) -AllowFile
-    $edit = if ($safe) { Get-InstallPurgeEdit -Path $path -Footprints @($Entry) }
-    if (-not $safe -or $edit.Manual) { Write-Host "skip: $path (linked or could not match safely)"; return $false }
+    $edit = Get-InstallSafeEdit -Path $path -Footprints @($Entry)
+    if ($edit.Manual) { Write-Host "skip: $path (linked or could not match safely)"; return $false }
     if ($edit) {
         foreach ($name in $edit.Entries) { Write-Host "Remove entry: $path`: $name" }
         if (-not $WhatIf) { Set-InstallPurgeEdit -Edit $edit }
     }
     return $true
+}
+
+# Split a PATH value into the parts legion recorded (Removed) and the rest (Kept).
+function Split-InstallPath {
+    param([string]$Path, [string]$Separator, [string[]]$Owned)
+    $kept = @()
+    $removed = @()
+    foreach ($part in ($Path -split [regex]::Escape($Separator))) {
+        if (@($Owned | Where-Object { Test-InstallPathEntry -Path $part -Entry $_ -Separator $Separator }).Count) { $removed += $part } else { $kept += $part }
+    }
+    return @{ Kept=$kept; Removed=$removed }
 }
 
 function Get-InstallPurgePlan {
@@ -598,28 +603,10 @@ function Get-InstallPurgePlan {
     $footprints = @(Get-LegionFootprints -HomeRoot (Get-InstallHome) | Where-Object { $_.kind -ceq 'edit' -or ($_.kind -ceq 'path-entry' -and $_.path -cne 'user PATH') })
     $pathEntries = @(Get-LegionFootprints -HomeRoot (Get-InstallHome) -Kind path-entry | Where-Object path -CEQ 'user PATH' | ForEach-Object value)
     $userPath = if ($env:OS -eq 'Windows_NT') { Get-InstallUserPath } else { '' }
-    $keptPath = @()
-    $removedPath = @()
-    foreach ($part in ($userPath -split ';')) {
-        $owned = $false
-        foreach ($entry in $pathEntries) {
-            if (Test-InstallPathEntry -Path $part -Entry $entry -Separator ';') { $owned=$true; break }
-        }
-        if ($owned) { $removedPath += $part } else { $keptPath += $part }
-    }
+    $user = Split-InstallPath -Path $userPath -Separator ';' -Owned $pathEntries
     $processPath = $env:PATH
     $processSeparator = [string][IO.Path]::PathSeparator
-    $keptProcessPath = @()
-    $removedProcessPath = @()
-    if ($env:OS -eq 'Windows_NT') {
-        foreach ($part in ($processPath -split [regex]::Escape($processSeparator))) {
-            $owned = $false
-            foreach ($entry in $pathEntries) {
-                if (Test-InstallPathEntry -Path $part -Entry $entry -Separator $processSeparator) { $owned=$true; break }
-            }
-            if ($owned) { $removedProcessPath += $part } else { $keptProcessPath += $part }
-        }
-    }
+    $process = if ($env:OS -eq 'Windows_NT') { Split-InstallPath -Path $processPath -Separator $processSeparator -Owned $pathEntries } else { @{ Kept=@(); Removed=@() } }
     $seen = @()
     foreach ($entry in $script:installCatalog.tools) {
         $folders = Get-UpdateConfigDirs -Tool $entry.id
@@ -652,8 +639,7 @@ function Get-InstallPurgePlan {
                 if (-not $path -and (Test-Path -LiteralPath (Join-Path $folder $relative))) { $manualSteps += "Manual step: $(Join-Path $folder $relative) (linked path; left in place)" }
                 if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) {
                     if ($editedPaths.Contains($path)) { continue }
-                    $recorded = @($footprints | Where-Object { (Get-LegionPathComparer).Equals((Resolve-LegionHomePath -Path $_.path -HomeRoot (Get-InstallHome)), $path) })
-                    $edit = Get-InstallPurgeEdit -Path $path -Kind $setting.kind -Footprints $recorded
+                    $edit = Get-InstallPurgeEdit -Path $path -Kind $setting.kind -Footprints (Select-InstallFootprintsAt -Footprints $footprints -Path $path)
                     if ($edit.Manual) { $manualSteps += "Manual step: $path (remove its legion entries; could not match them safely)" }
                     elseif ($edit) { $edits += $edit; [void]$editedPaths.Add($path) }
                 }
@@ -664,10 +650,8 @@ function Get-InstallPurgePlan {
         $path = Resolve-LegionHomePath -Path $footprint.path -HomeRoot (Get-InstallHome)
         if ($editedPaths.Contains($path) -or -not (Test-Path -LiteralPath $path)) { continue }
         [void]$editedPaths.Add($path)
-        $recorded = @($footprints | Where-Object { (Get-LegionPathComparer).Equals((Resolve-LegionHomePath -Path $_.path -HomeRoot (Get-InstallHome)), $path) })
-        $safe = Get-InstallSafePath -Root (Split-Path $path) -Relative ([IO.Path]::GetFileName($path)) -AllowFile 6>$null
-        $edit = if ($safe) { Get-InstallPurgeEdit -Path $path -Footprints $recorded }
-        if (-not $safe -or $edit.Manual) { $manualSteps += "Manual step: $path (linked or could not match safely)" }
+        $edit = Get-InstallSafeEdit -Path $path -Footprints (Select-InstallFootprintsAt -Footprints $footprints -Path $path)
+        if ($edit.Manual) { $manualSteps += "Manual step: $path (linked or could not match safely)" }
         elseif ($edit) { $edits += $edit }
     }
     $links = @(Get-LegionFootprints -HomeRoot (Get-InstallHome) -Kind link | Where-Object { Test-LegionFootprintSafe -Entry $_ -HomeRoot (Get-InstallHome) } |
@@ -676,9 +660,9 @@ function Get-InstallPurgePlan {
     if (-not $legion -and (Test-Path -LiteralPath (Get-InstallLegionPath ''))) { $manualSteps += 'Manual step: legion home contains linked paths; left in place.' }
     return [pscustomobject]@{
         Paths=$paths; Edits=$edits; Links=$links; Legion=$legion; HomeRoot=(Get-InstallHome); ManualSteps=$manualSteps
-        UserPath=[pscustomobject]@{ Before=$userPath; After=($keptPath -join ';'); Entries=$removedPath }
-        ProcessPath=[pscustomobject]@{ Before=$processPath; After=($keptProcessPath -join $processSeparator); Entries=$removedProcessPath }
-        HasWork=[bool]($paths.Count -or $edits.Count -or $links.Count -or $legion -or $removedPath.Count -or $removedProcessPath.Count)
+        UserPath=[pscustomobject]@{ Before=$userPath; After=($user.Kept -join ';'); Entries=$user.Removed }
+        ProcessPath=[pscustomobject]@{ Before=$processPath; After=($process.Kept -join $processSeparator); Entries=$process.Removed }
+        HasWork=[bool]($paths.Count -or $edits.Count -or $links.Count -or $legion -or $user.Removed.Count -or $process.Removed.Count)
     }
 }
 
@@ -771,14 +755,12 @@ function Invoke-LegionUninstall {
             $owners += $owner
             $steps = @()
             foreach ($kind in @('plugin', 'marketplace')) {
-                $check = if ($kind -eq 'plugin') { @($entry.command) + $entry.plugin.install }
-                    else { @($entry.command) + @($entry.plugin.marketplaceAdd | ForEach-Object { if ($_ -ceq '{source}') { '' } else { $_ } }) }
-                if (-not (Test-InstallStepDone -Command $check -Kind $kind -ConfigEnv $entry.configEnv -ConfigDir $folder -IncludeDisabled)) {
+                if (-not (Test-InstallStepDone -Entry $entry -Kind $kind -ConfigDir $folder -IncludeDisabled)) {
                     "skip: $tool $kind in $label (not installed)"
                     continue
                 }
                 $arguments = if ($kind -eq 'plugin') { $entry.plugin.uninstall } else { $entry.plugin.marketplaceRemove }
-                $steps += [pscustomobject]@{ Kind=$kind; Check=$check; Command=(@($entry.command) + $arguments) }
+                $steps += [pscustomobject]@{ Kind=$kind; Command=(@($entry.command) + $arguments) }
             }
             $cache = Get-UninstallCachePath -Entry $entry -ConfigDir $folder
             if (-not $steps.Count -and -not $cache) { continue }
@@ -801,15 +783,14 @@ function Invoke-LegionUninstall {
         foreach ($target in $targets) {
             $entry = $target.Entry
             foreach ($step in $target.Steps) {
-                if (-not (Test-InstallStepDone -Command $step.Check -Kind $step.Kind -ConfigEnv $entry.configEnv -ConfigDir $target.Folder -IncludeDisabled)) {
+                if (-not (Test-InstallStepDone -Entry $entry -Kind $step.Kind -ConfigDir $target.Folder -IncludeDisabled)) {
                     "skip: $($entry.id) $($step.Kind) in $(if ($target.Folder) { $target.Folder } else { 'default config' }) (not installed)"
                     continue
                 }
                 Invoke-InstallCommand -Command $step.Command -ConfigEnv $entry.configEnv -ConfigDir $target.Folder
             }
             if ($target.Cache) {
-                $check = @($entry.command) + $entry.plugin.install
-                if (Test-InstallStepDone -Command $check -Kind plugin -ConfigEnv $entry.configEnv -ConfigDir $target.Folder -IncludeDisabled) {
+                if (Test-InstallStepDone -Entry $entry -Kind plugin -ConfigDir $target.Folder -IncludeDisabled) {
                     throw "$($entry.id) plugin is still listed; cache kept."
                 }
                 # Recheck the exact descriptor path and links immediately before recursive deletion.
@@ -836,10 +817,7 @@ function Invoke-LegionUninstall {
     if (Test-Path -LiteralPath $bin) { "Kept account launchers: $bin" }
     foreach ($entry in $script:installCatalog.tools) {
         foreach ($folder in (Get-UpdateConfigDirs -Tool $entry.id)) {
-            if (-not $folder) {
-                $folder = $entry.plugin.defaultConfigDir
-                if ($folder -match '^~[/\\]') { $folder = Join-Path $homeRoot $folder.Substring(2) }
-            }
+            if (-not $folder) { $folder = Resolve-LegionHomePath -Path $entry.plugin.defaultConfigDir -HomeRoot $homeRoot }
             if ($folder -and (Test-Path -LiteralPath $folder)) { "Kept config folder and login: $folder" }
         }
     }
@@ -848,11 +826,16 @@ function Invoke-LegionUninstall {
     'You can delete kept data by hand if you no longer need it.'
 }
 
+function Get-InstallPluginVersion {
+    param([string]$Root)
+    return (Get-Content -LiteralPath (Join-Path $Root 'plugin.json') -Raw | ConvertFrom-Json).version
+}
+
 function Invoke-LegionUpdateSteps {
     param($Entry, [string]$ConfigDir, [switch]$DryRun, [string]$Source = 'BlackGad/ps-legion-marketplace', [ValidateSet('release','main')][string]$Ref = 'release', [string]$PluginRoot)
     $configEnv = $Entry.configEnv
     if (-not $PSBoundParameters.ContainsKey('PluginRoot')) { $PluginRoot = Get-InstallPluginRoot -Entry $Entry -ConfigDir $ConfigDir }
-    $before = if ($PluginRoot) { (Get-Content -LiteralPath (Join-Path $PluginRoot 'plugin.json') -Raw | ConvertFrom-Json).version } else { 'not installed' }
+    $before = if ($PluginRoot) { Get-InstallPluginVersion -Root $PluginRoot } else { 'not installed' }
     if (-not $PluginRoot) {
         Invoke-LegionInstallSteps -Tool $Entry.id -Source $Source -ConfigEnv $configEnv -ConfigDir $ConfigDir -DryRun:$DryRun -Ref $Ref
     } else {
@@ -867,7 +850,7 @@ function Invoke-LegionUpdateSteps {
         # The update may replace the cache path, so resolve the installed copy again.
         $root = Get-InstallPluginRoot -Entry $Entry -ConfigDir $ConfigDir
         if (-not $root) { throw "$($Entry.id) legion is absent from the post-update listing; generated artifacts were not refreshed." }
-        $after = (Get-Content -LiteralPath (Join-Path $root 'plugin.json') -Raw | ConvertFrom-Json).version
+        $after = Get-InstallPluginVersion -Root $root
         Invoke-InstallRefresh -Entry $Entry -ConfigDir $ConfigDir -PluginRoot $root
         if ($before -ceq $after) { "skip: legion $after (already up to date)" }
         else { "legion $before -> $after" }
@@ -1032,7 +1015,7 @@ function Invoke-LegionInstaller {
             foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
                 $root = Get-InstallPluginRoot -Entry $entry -ConfigDir $folder
                 $targets += @{ Entry=$entry; Folder=$folder; Root=$root }
-                $version = if ($root) { (Get-Content -LiteralPath (Join-Path $root 'plugin.json') -Raw | ConvertFrom-Json).version } else { 'not installed' }
+                $version = if ($root) { Get-InstallPluginVersion -Root $root } else { 'not installed' }
                 $label = if ($folder) { $folder } else { 'default config' }
                 "Update legion for $tool in $label ($version)"
             }
@@ -1080,7 +1063,7 @@ function Invoke-LegionInstaller {
             if (-not $DryRun) {
                 try {
                     $root = Get-InstallPluginRoot -Entry $entry -ConfigDir $folder
-                    $pluginVersion = (Get-Content -LiteralPath (Join-Path $root 'plugin.json') -Raw | ConvertFrom-Json).version
+                    $pluginVersion = Get-InstallPluginVersion -Root $root
                     Invoke-InstallRefresh -Entry $entry -ConfigDir $folder -PluginRoot $root
                 } catch {
                     $label = if ($folder) { $folder } else { 'default config' }

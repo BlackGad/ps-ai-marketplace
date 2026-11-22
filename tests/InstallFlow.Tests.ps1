@@ -23,7 +23,6 @@ Invoke-InstallTestCase 'Install' {
         Assert-Equal 'local source' $commands[0][4] "$tool source with space remains one argument"
     }
     $previewLines = @(& {
-        function Test-InstallStepDone { $false }
         Invoke-LegionInstaller -Tools claude -Source 'local source' -ConfigDir X -DryRun -Catalog (Get-Content (Join-Path $PSScriptRoot 'fixtures/install/catalog.json') -Raw | ConvertFrom-Json)
     })
     Assert-True $? 'Injected dry run succeeds'
@@ -84,18 +83,22 @@ Invoke-InstallTestCase 'Install' {
         $script:observedClaudeList = $Command -join '|'
         return @{ ExitCode = 0; Output = $disabledFixture }
     }
-    Assert-True (-not (Test-InstallStepDone -Command @('claude', 'plugin', 'install', 'legion@ps-legion-marketplace'))) 'Disabled Claude plugin requires install'
+    Assert-True (-not (Test-InstallStepDone -Entry (Get-InstallTool -Tool claude))) 'Disabled Claude plugin requires install'
     Assert-Equal 'claude|plugin|list|--json' $script:observedClaudeList 'Claude check requests JSON listing'
 
     $script:installedSteps = @{}
-    function Test-InstallStepDone {
-        param([string[]]$Command, [string]$ConfigEnv, [string]$ConfigDir)
-        return [bool]$script:installedSteps[$Command -join '|']
-    }
-    function Invoke-InstallCommand {
-        param([string[]]$Command, [string]$ConfigEnv, [string]$ConfigDir)
-        $script:installedSteps[$Command -join '|'] = $true
-        'installed'
+    function Invoke-ClosedInput {
+        param([string[]]$Command, $Environment)
+        $line = $Command -join '|'
+        if ($line -eq 'codex|plugin|marketplace|list|--json') {
+            return @{ ExitCode=0; Output=@(Get-FixtureMarketplaceListing -Tool codex -Source $(if ($script:installedSteps.market) { 'local source' })) }
+        }
+        if ($line -eq 'codex|plugin|list') {
+            return @{ ExitCode=0; Output=@(if ($script:installedSteps.plugin) { 'legion@ps-legion-marketplace installed, enabled' }) }
+        }
+        if ($line -like 'codex|plugin|marketplace|add|*') { $script:installedSteps.market = $true }
+        if ($line -like 'codex|plugin|add|*') { $script:installedSteps.plugin = $true }
+        return @{ ExitCode=0; Output=@('installed') }
     }
     $firstInstall = @(Invoke-LegionInstallSteps -Tool codex -Source 'local source' -ConfigEnv CODEX_HOME -ConfigDir $fixtureConfig1)
     Assert-Equal 3 @($firstInstall | Where-Object { $_ -eq 'installed' }).Count 'First install adds and refreshes marketplace, then installs plugin'
@@ -115,7 +118,7 @@ Invoke-InstallTestCase 'Install' {
             }
             return @{ ExitCode = 0; Output = @('legion@ps-legion-marketplace  not installed') }
         }
-        Assert-True (Test-InstallStepDone -Command @('codex', 'plugin', 'add', 'legion@ps-legion-marketplace') -ConfigEnv CODEX_HOME -ConfigDir $fixtureConfig0) 'Install check sees selected account listing'
+        Assert-True (Test-InstallStepDone -Entry (Get-InstallTool -Tool codex) -ConfigDir $fixtureConfig0) 'Install check sees selected account listing'
         Assert-Equal 'default-account' $env:CODEX_HOME 'Install check restores caller account'
     } finally {
         $env:CODEX_HOME = $savedCodexHome
@@ -551,7 +554,7 @@ Invoke-InstallTestCase 'Ref' {
         Assert-Equal 'codex|plugin|marketplace|list|--json' ($Command -join '|') 'KindIsPassed: marketplace listing is selected explicitly'
         @{ ExitCode=0; Output=@('{"marketplaces":[{"name":"ps-legion-marketplace","root":"fixture"}]}') }
     }
-    Assert-True (Test-InstallStepDone -Command @('codex','plugin','marketplace','add','example/market','--ref','stable') -Kind marketplace) 'KindIsPassed'
+    Assert-True (Test-InstallStepDone -Entry (Get-InstallTool -Tool codex) -Kind marketplace) 'KindIsPassed'
     foreach ($value in @($null, 'not an array', 42, @(1))) {
         $bad = Get-Content (Join-Path $repo 'plugins/legion/skills/legion-claude/tool.json') -Raw | ConvertFrom-Json
         $bad.plugin.marketplaceAddRef = $value

@@ -219,7 +219,7 @@ Test-PurgeScenario {
     Copy-Item (Join-Path $repo 'plugins/legion/tools.json') (Join-Path $pluginFolder 'tools.json')
     $archive=Join-Path $fixtureHome 'plugin.zip'
     Compress-Archive -Path (Join-Path $fixtureHome 'archive/top') -DestinationPath $archive
-    function Invoke-InstallArchiveDownload { param($Url,$OutFile) Copy-Item -LiteralPath (Join-Path $fixtureHome 'plugin.zip') -Destination $OutFile }
+    function Invoke-WebRequest { param($Uri,$OutFile) Copy-Item -LiteralPath (Join-Path $fixtureHome 'plugin.zip') -Destination $OutFile }
     $null = & ([scriptblock]::Create($entry)) -Uninstall -Purge -Yes -HomeRoot $fixtureHome
     Assert-Equal 'True' ((Get-Content (Join-Path $fixtureHome 'purge-forwarded.txt') -Raw).Trim()) 'Downloaded root one-liner forwards purge'
 }

@@ -20,10 +20,10 @@ Invoke-InstallTestCase 'Listing' {
     Assert-Equal 'fixture warning' ($result.ErrorOutput -join "`n") 'CLI stderr is retained separately'
     Assert-True (Test-InstallListing -Kind plugin -Tool claude -Lines $result.Output) 'Valid JSON remains installed with a stderr warning'
     function Invoke-ClosedInput { @{ExitCode=7; Output=@()} }
-    Assert-Throws { Test-InstallStepDone -Command @('claude','plugin','install','legion@ps-legion-marketplace') } 'Initial install listing failure is distinct from absence'
+    Assert-Throws { Test-InstallStepDone -Entry (Get-InstallTool -Tool claude) } 'Initial install listing failure is distinct from absence'
     function Invoke-ClosedInput { @{ExitCode=7; Output=@('  fixture stdout  '); ErrorOutput=@('  fixture stderr  ')} }
     $message = ''
-    try { Test-InstallStepDone -Command @('claude','plugin','install','legion@ps-legion-marketplace') }
+    try { Test-InstallStepDone -Entry (Get-InstallTool -Tool claude) }
     catch { $message = $_.Exception.Message }
     Assert-Equal "claude listing exited 7`nfixture stderr`nfixture stdout" $message 'Listing failure includes trimmed stderr and stdout'
     Assert-Throws { Test-InstallListing -Kind plugin -Tool claude -Lines @('invalid JSON') } 'Malformed successful listing is a failure, not absent plugin'
@@ -50,11 +50,9 @@ Invoke-InstallTestCase 'ListingEnvironment' {
     }
     try {
         $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '0'
-        $commands = Get-InstallCommands -Tool claude -Source 'BlackGad/ps-legion-marketplace'
         foreach ($target in @('', $folder)) {
-            for ($index = 0; $index -lt $commands.Count; $index++) {
-                $kind = if ($index -eq 0) { 'marketplace' } else { 'plugin' }
-                Assert-True (Test-InstallStepDone -Command $commands[$index] -Kind $kind -ConfigDir $target) 'Both listings merge config and descriptor environment in the child'
+            foreach ($kind in @('marketplace', 'plugin')) {
+                Assert-True (Test-InstallStepDone -Entry (Get-InstallTool -Tool claude) -Kind $kind -ConfigDir $target) 'Both listings merge config and descriptor environment in the child'
                 Assert-Equal '0' $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 'Listing environment only affects child process'
             }
         }
@@ -182,8 +180,7 @@ Invoke-InstallTestCase 'RealMarketplace' {
             Assert-Equal "$tool|plugin|marketplace|list|--json" ($Command -join '|') 'Marketplace detection requests JSON'
             @{ExitCode=0; Output=$lines; ErrorOutput=@('unrelated warning')}
         }
-        $command = (Get-InstallCommands -Tool $tool -Source 'example/requested-source')[0]
-        Assert-True (Test-InstallStepDone -Command $command -Kind marketplace) "$tool existing registration is reused regardless of source"
+        Assert-True (Test-InstallStepDone -Entry (Get-InstallTool -Tool $tool) -Kind marketplace) "$tool existing registration is reused regardless of source"
     }
     foreach ($invalid in @(@{'bad-name'='1'}, @{FIXTURE_FLAG=$true})) {
         $descriptor = Get-Content (Join-Path $repo 'plugins/legion/skills/legion-claude/tool.json') -Raw | ConvertFrom-Json
@@ -209,7 +206,7 @@ function Get-InstallSourceText {
     Get-Content (Join-Path $PSScriptRoot 'remote.json') -Raw
 }
 function Ensure-InstallPowerShell { $true }
-function Test-InstallStepDone { $false }
+function Invoke-ClosedInput { @{ ExitCode=0; Output=@('[]') } }
 '@
         $text = [IO.File]::ReadAllText($installerPath).Replace('if (-not $NoRun) {', $overrides + "`nif (-not `$NoRun) {")
         New-Item -ItemType Directory -Path (Join-Path $sandbox 'bin/lib') -Force | Out-Null

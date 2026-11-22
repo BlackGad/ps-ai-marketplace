@@ -136,8 +136,13 @@ Invoke-InstallTestCase 'StaleMarketplace' {
         $entry.plugin.marketplaceUpdate = @('refresh-fixture-market')
         $script:installCatalog.tools += $entry
         $calls = [Collections.Generic.List[string]]::new()
-        function Test-InstallStepDone { param($Command) $Command -contains 'marketplace' }
-        function Invoke-InstallCommand { param($Command) $calls.Add(($Command -join '|')) }
+        function Invoke-ClosedInput {
+            param($Command, $Environment)
+            if ($Command -contains 'list' -and $Command -contains 'marketplace') { return @{ ExitCode=0; Output=@('[{"name":"ps-legion-marketplace"}]') } }
+            if ($Command -contains 'list') { return @{ ExitCode=0; Output=@() } }
+            $calls.Add(($Command -join '|'))
+            return @{ ExitCode=0; Output=@() }
+        }
         $null = Invoke-LegionInstallSteps -Tool fourth -Source 'example/market' -ConfigEnv FOURTH_HOME
         Assert-Equal 'fourth-cli|refresh-fixture-market' $calls[0] 'Registered marketplace without plugin uses descriptor refresh command'
         Assert-Equal 2 $calls.Count 'Generic recovery refreshes and installs without adding the registration'
@@ -152,7 +157,7 @@ Invoke-InstallTestCase 'FreshCodexHome' {
     $realCommand = ${function:Invoke-InstallCommand}
     function Invoke-ClosedInput { throw 'Missing selected folder must not be listed' }
     foreach ($entry in $script:installCatalog.tools) {
-        Assert-True (-not (Test-InstallStepDone -Command @($entry.command) -ConfigEnv $entry.configEnv -ConfigDir $folder)) 'Missing selected folder has no installed plugin for every tool'
+        Assert-True (-not (Test-InstallStepDone -Entry $entry -ConfigDir $folder)) 'Missing selected folder has no installed plugin for every tool'
         Assert-True ($null -eq (Get-InstallPluginRoot -Entry $entry -ConfigDir $folder)) 'Missing selected folder has no plugin root'
     }
     function Invoke-ClosedInput { @{ExitCode=0; Output=@()} }

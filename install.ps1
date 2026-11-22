@@ -12,26 +12,6 @@ param(
     [string]$HomeRoot
 )
 
-function Assert-InstallString {
-    param($Value, [string]$Field, [switch]$AllowEmpty)
-    if ($Value -isnot [string] -or (-not $AllowEmpty -and [string]::IsNullOrWhiteSpace($Value))) {
-        throw "invalid catalog field '$Field': expected string"
-    }
-}
-
-function Assert-InstallObject {
-    param($Value, [string]$Field)
-    if ($Value -isnot [pscustomobject] -and $Value -isnot [Collections.IDictionary]) {
-        throw "invalid catalog field '$Field': expected object"
-    }
-}
-
-function Assert-InstallRelativePath {
-    param($Value, [string]$Field, [switch]$AllowEmpty)
-    Assert-InstallString $Value $Field -AllowEmpty:$AllowEmpty
-    if ($Value -match '(^[/\\]|:|(^|[/\\])\.\.([/\\]|$))') { throw "invalid catalog field '$Field': expected relative path" }
-}
-
 function Test-InstallCommandAvailable {
     param([string]$Name)
     return [bool](Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue)
@@ -53,14 +33,19 @@ function Get-InstallLegionPath {
     return Join-Path (Join-Path (Get-InstallHome) '.legion') $Path
 }
 
+# The minimum is PowerShell 7.4 LTS; an older pwsh counts as missing.
+function Test-InstallPowerShellVersion {
+    param([string]$Path)
+    $version = & $Path -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' 2>$null
+    return $LASTEXITCODE -eq 0 -and $version -match '^(\d+\.\d+)' -and [version]$Matches[1] -ge [version]'7.4'
+}
+
 function Get-InstallPowerShellCommand {
-    $command = Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($command) { return $command }
-    $portable = Get-InstallPortablePowerShell
-    if ($portable) { return @{ Source=$portable } }
-    if ($env:OS -eq 'Windows_NT' -and $env:ProgramFiles) {
-        $candidate = Join-Path $env:ProgramFiles 'PowerShell/7/pwsh.exe'
-        if (Test-Path -LiteralPath $candidate) { return @{ Source=$candidate } }
+    $candidates = @(Get-Command pwsh -CommandType Application -All -ErrorAction SilentlyContinue | ForEach-Object Source)
+    $candidates += Get-InstallPortablePowerShell
+    if ($env:OS -eq 'Windows_NT' -and $env:ProgramFiles) { $candidates += Join-Path $env:ProgramFiles 'PowerShell/7/pwsh.exe' }
+    foreach ($path in $candidates) {
+        if ($path -and (Test-Path -LiteralPath $path) -and (Test-InstallPowerShellVersion $path)) { return @{ Source=$path } }
     }
 }
 
@@ -149,12 +134,9 @@ function Install-PowerShellZip {
         Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force -ErrorAction Stop
         if (-not (Get-InstallPortablePowerShell)) { throw 'PowerShell ZIP does not contain the configured executable.' }
         $folder = $recipe.pathFolder.Replace('{version}', [string]$release.tag_name)
-        Assert-InstallRelativePath $folder 'bootstrap ZIP pathFolder' -AllowEmpty
+        if ($folder -match '(^[/\\]|:|(^|[/\\])\.\.([/\\]|$))') { throw 'invalid catalog field bootstrap ZIP pathFolder: expected relative path' }
         Add-InstallPowerShellPath -Path (Join-Path $destination $folder)
     } finally {
-        foreach ($file in @($archive, $metadata)) {
-            if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force -ErrorAction Stop }
-        }
         Remove-InstallTemporary -Path $temporary
     }
 }
@@ -209,27 +191,6 @@ function Invoke-InstallWinget {
     return $LASTEXITCODE
 }
 
-function Assert-InstallBootstrapCatalog {
-    param($Catalog)
-    Assert-InstallObject $Catalog 'catalog'
-    Assert-InstallObject $Catalog.bootstrap 'bootstrap'
-    $windows = $Catalog.bootstrap.windows
-    Assert-InstallObject $windows 'bootstrap.windows'
-    Assert-InstallString $windows.wingetId 'bootstrap.windows.wingetId'
-    Assert-InstallRelativePath $windows.portableCommand 'bootstrap.windows.portableCommand'
-    Assert-InstallObject $windows.download 'bootstrap.windows.download'
-    $zip = $windows.download.zip
-    Assert-InstallObject $zip 'bootstrap.zip'
-    foreach ($field in @('kind','resolver','verification')) { Assert-InstallString $zip.$field "bootstrap.zip.$field" }
-    if ($zip.kind -cne 'zip' -or $zip.resolver -cne 'release-assets' -or $zip.verification -cne 'asset-digest') {
-        throw 'invalid catalog bootstrap ZIP recipe'
-    }
-    Assert-InstallString $zip.metadataUrl 'bootstrap.zip.metadataUrl'
-    Assert-InstallString $zip.assetPattern 'bootstrap.zip.assetPattern'
-    $null = [regex]::new($zip.assetPattern)
-    Assert-InstallRelativePath $zip.pathFolder 'bootstrap.zip.pathFolder' -AllowEmpty
-}
-
 function Remove-InstallTemporary {
     param([string]$Path)
     $homePrefix = [IO.Path]::GetFullPath((Get-InstallHome)).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
@@ -237,16 +198,6 @@ function Remove-InstallTemporary {
     $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     if (-not $target.StartsWith($homePrefix, $comparison)) { throw 'Unsafe installer temporary path' }
     if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop }
-}
-
-# Separate seam from the PowerShell ZIP download so tests can serve a local repository archive.
-if (-not (Get-Command Invoke-InstallArchiveDownload -ErrorAction SilentlyContinue)) {
-    function Invoke-InstallArchiveDownload {
-        param([string]$Url, [string]$OutFile)
-        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-        $ProgressPreference = 'SilentlyContinue'
-        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
-    }
 }
 
 function Invoke-InstallBootstrap {
@@ -262,7 +213,7 @@ function Invoke-InstallBootstrap {
             $archive = Join-Path $temporary 'legion.zip'
             $expanded = Join-Path $temporary 'expanded'
             $branch = if ($Parameters.Ref -eq 'main') { 'main' } else { 'stable' }
-            try { Invoke-InstallArchiveDownload -Url "https://github.com/BlackGad/ps-legion-marketplace/archive/refs/heads/$branch.zip" -OutFile $archive }
+            try { Invoke-InstallDownload -Url "https://github.com/BlackGad/ps-legion-marketplace/archive/refs/heads/$branch.zip" -OutFile $archive }
             catch {
                 if ($branch -eq 'stable') { throw 'could not find the latest release; try again or run with main' }
                 throw
@@ -275,7 +226,6 @@ function Invoke-InstallBootstrap {
         if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw 'Plugin archive installer is missing.' }
         $catalog = Join-Path (Split-Path $installer -Parent) 'tools.json'
         $script:installCatalog = Get-Content -LiteralPath $catalog -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-        Assert-InstallBootstrapCatalog -Catalog $script:installCatalog
         if (-not (Ensure-InstallPowerShell -DryRun:$Parameters.DryRun -Yes:$Parameters.Yes)) {
             if (-not $Parameters.DryRun) { Write-Host 'Nothing changed. Run again with -Yes to apply.' }
             return

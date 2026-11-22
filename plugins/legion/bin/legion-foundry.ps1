@@ -69,16 +69,12 @@ function Write-FoundryProviderFile {
         $stream = [IO.FileSystemAclExtensions]::Create([IO.FileInfo]::new($Path), [IO.FileMode]::CreateNew,
             [Security.AccessControl.FileSystemRights]::FullControl, [IO.FileShare]::None, 4096, [IO.FileOptions]::None, $security)
     } else {
-        $stream = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        # Owner read and write only, from the moment the file exists.
+        $options = [IO.FileStreamOptions]@{ Mode = 'CreateNew'; Access = 'Write'; Share = 'None'; UnixCreateMode = 'UserRead, UserWrite' }
+        $stream = [IO.FileStream]::new($Path, $options)
     }
     $written = $false
     try {
-        if (-not $IsWindows) {
-            # Restrict the empty file before writing; chmod also overrides a restrictive umask.
-            # "--" comes before the mode: macOS chmod stops reading options at the mode and would treat a later "--" as a file.
-            & chmod -- 600 $Path
-            if ($LASTEXITCODE -ne 0) { throw 'could not restrict provider file permissions' }
-        }
         $bytes = [Text.UTF8Encoding]::new($false).GetBytes($Json)
         $stream.Write($bytes, 0, $bytes.Length)
         $written = $true

@@ -196,7 +196,7 @@ Invoke-InstallTestCase 'UpdateJson' {
         return @{ExitCode=0; Output=@()}
     }
     $script:installCatalog = $catalog
-    Assert-True (Test-InstallStepDone -Command @('claude','plugin','install','legion@ps-legion-marketplace')) 'Install detects exact multiline Claude JSON'
+    Assert-True (Test-InstallStepDone -Entry (Get-InstallTool -Tool claude)) 'Install detects exact multiline Claude JSON'
     $calls.Clear()
     try {
         $output = @(Invoke-LegionInstaller -Tools claude -ConfigDir $selected -Source $repo -Catalog $catalog -Update -Yes)

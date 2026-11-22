@@ -205,6 +205,12 @@ Invoke-InstallTestCase 'BootstrapPowerShell' {
         $null=Ensure-InstallPowerShell -OnWindows $true -Yes
         Assert-Equal ($beforeWrites + 2) $state.Writes 'Yes repairs portable user PATH'
         Assert-True ($env:PATH.Contains($portableFolder)) 'Yes repairs portable process PATH'
+        # The one check the stub keeps on the catalog: the PATH folder stays inside the portable folder.
+        Remove-Item -LiteralPath (Join-Path $sandbox '.legion/tools') -Recurse -Force
+        $writes = $state.Writes
+        $script:installCatalog.bootstrap.windows.download.zip.pathFolder = '../escape'
+        Assert-Throws { Install-PowerShellZip } 'A catalog pathFolder outside the portable folder stops before PATH'
+        Assert-Equal $writes $state.Writes 'A rejected pathFolder never writes PATH'
         Write-Output 'PASS stub verified ZIP, fallback, repeats and portable PATH consent'
     } finally {
         $env:PATH=$savedPath
@@ -213,11 +219,63 @@ Invoke-InstallTestCase 'BootstrapPowerShell' {
     }
 }
 
+Invoke-InstallTestCase 'BootstrapMinimumVersion' {
+    # A pwsh older than 7.4 counts as missing for the stub; 7.4 and later (also a preview) count as present.
+    . (Join-Path $repo 'install.ps1') -NoRun
+    $script:installCatalog = Get-Content (Join-Path $repo 'plugins/legion/tools.json') -Raw | ConvertFrom-Json
+    $scratch = New-InstallTestFolder 'min-version'
+    $script:installHomeRoot = $scratch
+    $savedProgramFiles = $env:ProgramFiles
+    try {
+        $fake = Join-Path $scratch 'fake-bin'
+        New-Item -ItemType Directory -Path $fake -Force | Out-Null
+        if ($env:OS -eq 'Windows_NT') {
+            '@echo %FAKE_PWSH_VERSION%' | Set-Content -LiteralPath (Join-Path $fake 'pwsh.cmd')
+            $env:PATH = $fake + [IO.Path]::PathSeparator + (Join-Path $env:SystemRoot 'System32')
+        } else {
+            "#!/bin/sh`necho `"`$FAKE_PWSH_VERSION`"" | Set-Content -LiteralPath (Join-Path $fake 'pwsh')
+            [IO.File]::SetUnixFileMode((Join-Path $fake 'pwsh'), [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+            $env:PATH = $fake
+        }
+        $env:ProgramFiles = Join-Path $scratch 'program-files'
+        foreach ($case in @(@('7.3.12', $false), @('6.2.0', $false), @('', $false), @('7.4.0', $true), @('7.5.0-preview.2', $true), @('8.0.1', $true))) {
+            $env:FAKE_PWSH_VERSION = $case[0]
+            Assert-Equal $case[1] ($null -ne (Get-InstallPowerShellCommand)) "pwsh '$($case[0])' present: $($case[1])"
+        }
+        $env:FAKE_PWSH_VERSION = '7.3.12'
+        $output = @(& { $script:ready = Ensure-InstallPowerShell -OnWindows $false } 6>&1) -join "`n"
+        Assert-True (-not $script:ready) 'An old pwsh stops a non-Windows run'
+        Assert-True ($output.Contains('PowerShell 7 is missing.')) 'An old pwsh is reported as missing'
+    } finally {
+        $env:ProgramFiles = $savedProgramFiles
+        Remove-Item Env:FAKE_PWSH_VERSION -ErrorAction SilentlyContinue
+        Remove-InstallTestFolder $scratch
+    }
+}
+
+Invoke-InstallTestCase 'InstallerMinimumVersion' {
+    # The plugin installer names 7.4 as its minimum and stops below it (the check is raised in a copy to prove it runs).
+    . $installerPath -NoRun
+    $scratch = New-InstallTestFolder 'min-installer'
+    try {
+        $text = [IO.File]::ReadAllText($installerPath)
+        $raised = $text.Replace("-lt [version]'7.4'", "-lt [version]'99.0'")
+        Assert-True ($raised -cne $text) 'The installer states its PowerShell 7.4 minimum'
+        [IO.File]::WriteAllText((Join-Path $scratch 'install.ps1'), $raised)
+        $result = Invoke-ClosedInput -Command @((Get-InstallTestPwsh), '-NoProfile', '-File', (Join-Path $scratch 'install.ps1'), '-NoRun')
+        Assert-True ($result.ExitCode -ne 0) 'An older PowerShell stops the installer'
+        Assert-True (($result.ErrorOutput -join ' ').Contains('PowerShell 7.4')) 'The refusal names PowerShell 7.4'
+    } finally { Remove-InstallTestFolder $scratch }
+}
+
 Invoke-InstallTestCase 'BootstrapShared' {
     & {
         . $installerPath -NoRun
-        function Get-LegionOwnerPath { param($Name,$HomeRoot) "shared:$Name" }
-        Assert-Equal 'shared:Settings' (Get-InstallOwnerPath -Name Settings) 'Installer calls shared owner paths'
+        $script:installCatalog = Get-InstallCatalog -Source $repo
+        $script:askedOwnerPath = ''
+        function Get-LegionOwnerPath { param($Name,$HomeRoot) $script:askedOwnerPath = $Name; 'shared' }
+        $null = Get-UpdateConfigDirs -Tool claude
+        Assert-Equal 'Settings' $script:askedOwnerPath 'Installer calls shared owner paths'
         $files = @(Get-LegionRuntimeFiles)
         foreach ($relative in @('bin/lib/tools.ps1','bin/lib/foundry.ps1','bin/lib/paths.ps1')) {
             Assert-True ($files -contains $relative) 'Runtime includes its libraries'
@@ -257,10 +315,12 @@ Invoke-InstallTestCase 'BootstrapShared' {
             Remove-InstallTestFolder $scratch
         }
     }
-    # Keep the 7.0 baseline visible while CI runs the latest PowerShell 7.
+    # Keep the 7.4 LTS baseline visible while CI runs the latest PowerShell 7.
+    # Later-than-7.4 commands and parameters, and the external chmod command (use [IO.File]::SetUnixFileMode), are not allowed.
     foreach ($file in Get-ChildItem (Join-Path $repo 'plugins/legion') -Recurse -File -Filter '*.ps1') {
         $text=Get-Content -LiteralPath $file.FullName -Raw
-        Assert-True ($text -notmatch '\$PSStyle\b|\[(System\.)?Environment\]::ProcessPath\b') "7.0 baseline: $($file.Name)"
+        Assert-True ($text -notmatch '\b(ConvertTo|ConvertFrom)-CliXml\b|\bTest-Path\b[^\r\n]*\s-(OlderThan|NewerThan)\b') "7.4 baseline: $($file.Name)"
+        Assert-True ($text -notmatch '(?m)^[^#\r\n]*(&\s*|^\s*)chmod\b') "No external chmod: $($file.Name)"
         if ($text -match '-DateKind\b') {
             $tokens=$null; $errors=$null
             $ast=[Management.Automation.Language.Parser]::ParseFile($file.FullName,[ref]$tokens,[ref]$errors)
@@ -300,13 +360,13 @@ if ($ConfigDir -eq 'exit 23') { exit 23 }
         Compress-Archive -Path (Join-Path $scratch 'archive/single-top') -DestinationPath $zip
         $state = @{ Downloads=0; Url=''; Missing=$false; Answer='n'; Prompts=0 }
         function Get-InstallPowerShellCommand { if (-not $state.Missing) { @{Source=$pwsh} } }
-        function Invoke-InstallArchiveDownload {
-            param($Url, $OutFile)
+        function Invoke-WebRequest {
+            param($Uri, $OutFile)
+            $Url = $Uri
             $state.Downloads++; $state.Url=$Url
             Assert-True ($OutFile.EndsWith('.zip')) 'Archive filename has zip extension'
             Copy-Item -LiteralPath $zip -Destination $OutFile
         }
-        function Invoke-WebRequest { throw 'Network forbidden' }
         function Invoke-InstallWinget { throw 'Installing tools forbidden' }
         function Install-PowerShellZip { throw 'Installing tools forbidden' }
         function Read-Host { param($Prompt) $state.Prompts++; $state.Answer }
@@ -337,8 +397,7 @@ if ($ConfigDir -eq 'exit 23') { exit 23 }
 param($Stub,$Archive,$Fixture)
 if ($PSVersionTable.PSVersion.Major -lt 7) { $env:PSModulePath=Join-Path $PSHOME 'Modules' }
 $script:fixtureZip=$Archive
-function Invoke-InstallArchiveDownload { param($Url,$OutFile) Copy-Item -LiteralPath $script:fixtureZip -Destination $OutFile }
-function Invoke-WebRequest { throw 'Network forbidden' }
+function Invoke-WebRequest { param($Uri,$OutFile) Copy-Item -LiteralPath $script:fixtureZip -Destination $OutFile }
 & ([scriptblock]::Create((Get-Content -LiteralPath $Stub -Raw))) -HomeRoot $Fixture -Tools @('claude','codex') -ConfigDir 'exit 23' -DryRun
 '@ | Set-Content -LiteralPath $runner
         $runtime=(Get-Process -Id $PID).Path
@@ -405,21 +464,7 @@ function Invoke-WebRequest { throw 'Network forbidden' }
             Remove-Item -LiteralPath (Join-Path $scratch 'record.json')
         }
         Write-Output 'PASS separate PowerShell and plugin consent, ZIP fallback and Yes'
-        $goodCatalog=Get-Content (Join-Path $archiveRoot 'tools.json') -Raw
-        foreach ($field in @('wingetId','portableCommand')) {
-            $bad = $goodCatalog | ConvertFrom-Json
-            $bad.bootstrap.windows.$field=$null
-            Assert-Throws { Assert-InstallBootstrapCatalog -Catalog $bad } "Bad bootstrap metadata $field stops before action"
-            $bad | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $archiveRoot 'tools.json')
-            Compress-Archive -Path (Join-Path $scratch 'archive/single-top') -DestinationPath $zip -Force
-            $state.Missing=$true; $state.Calls=0; $state.Prompts=0
-            Assert-Throws { Invoke-InstallBootstrap -Parameters @{HomeRoot=$scratch;Yes=$true} -CheckoutRoot '' } 'Bad archive metadata stops the bootstrap entry point'
-            Assert-Equal 0 $state.Calls 'Bad archive metadata never invokes winget'
-            Assert-Equal 0 $state.Prompts 'Bad archive metadata never prompts'
-            Assert-True (-not (Test-Path (Join-Path $scratch 'record.json'))) 'Bad archive metadata never starts plugin'
-        }
-        Write-Output 'PASS invalid archive bootstrap metadata stops before action'
-        function Invoke-InstallArchiveDownload { throw 'Fixture release unavailable' }
+        function Invoke-WebRequest { throw 'Fixture release unavailable' }
         $message=''
         try { Invoke-InstallBootstrap -Parameters @{HomeRoot=$scratch} -CheckoutRoot '' } catch { $message=$_.Exception.Message }
         Assert-True ($message.Contains('could not find the latest release')) 'Missing release keeps useful error'
