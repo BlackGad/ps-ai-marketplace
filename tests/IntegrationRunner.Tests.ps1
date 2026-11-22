@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'lib/workspace.ps1')
 $runner = Join-Path $root 'tests/integration/run.ps1'
 $tempRoot = Join-Path $root ('.agents/temp/integration-runner-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
@@ -16,60 +17,45 @@ try {
     $plainOutput = @(Invoke-IntegrationScript $plainScript)
     Assert-Equal '1|PlainText' ($plainOutput -join "`n") 'child PowerShell disables colour rendering'
 
-    # Each fake step gives a first and a repeat case with a time above zero.
-    $fake = @(
-        @{ Name = 'one'; DependsOn = @(); First = { Start-Sleep -Milliseconds 5 }; Repeat = { Start-Sleep -Milliseconds 5 } }
-        @{ Name = 'two'; DependsOn = @('one'); First = { Start-Sleep -Milliseconds 5 }; Repeat = { Start-Sleep -Milliseconds 5 } }
-    )
-    $cases = @(Invoke-IntegrationSteps -Steps $fake)
-    Assert-Equal 4 $cases.Count 'two cases per step'
-    Assert-Equal 'one' $cases[0].Name 'first-run case name'
-    Assert-Equal 'one (repeat)' $cases[1].Name 'repeat case name'
-    Assert-True ((-not $cases[0].Repeat) -and $cases[1].Repeat) 'Repeat flag marks the second run'
-    foreach ($case in $cases) {
-        Assert-Equal 'passed' $case.Result "$($case.Name) passed"
-        Assert-True ($case.Seconds -gt 0) "$($case.Name) has a time above zero"
+    # Ordered first/repeat cases stop after a failure anywhere in the list.
+    foreach ($failureIndex in -1, 0, 1) {
+        $ran = [Collections.Generic.List[int]]::new()
+        $fake = @(foreach ($index in 0..3) {
+            $current = $index
+            $fail = $failureIndex
+            @{ Name = $(if ($index -lt 2) { 'one' } else { 'two' }); Repeat = [bool]($index % 2)
+               Action = { $ran.Add($current); if ($current -eq $fail) { throw 'boom' }; 'output' }.GetNewClosure() }
+        })
+        $cases = @(Invoke-IntegrationSteps -Steps $fake)
+        Assert-Equal 4 $cases.Count 'one result per listed action'
+        Assert-Equal 'one,one (repeat),two,two (repeat)' ($cases.Name -join ',') 'first and repeat case names'
+        Assert-True ((-not $cases[0].Repeat) -and $cases[1].Repeat) 'repeat flag retained'
+        if ($failureIndex -lt 0) {
+            Assert-Equal '0,1,2,3' ($ran -join ',') 'successful actions run in order'
+            Assert-Equal 'passed,passed,passed,passed' ($cases.Result -join ',') 'all actions passed'
+        } else {
+            Assert-Equal $failureIndex $ran[-1] 'no action runs after the failure'
+            Assert-Equal 'failed' $cases[$failureIndex].Result 'throwing action fails'
+            Assert-Equal 'boom' $cases[$failureIndex].Message 'failure retains its message'
+            foreach ($case in $cases[($failureIndex + 1)..3]) {
+                Assert-Equal 'skipped' $case.Result 'all remaining cases are skipped'
+                Assert-Equal "previous step failed: $($cases[$failureIndex].Name)" $case.Message 'skip names the failed action'
+                Assert-Equal 0 $case.Seconds 'skipped action has zero duration'
+            }
+        }
+        foreach ($case in $cases | Where-Object Result -ne 'skipped') { Assert-True ($case.Seconds -gt 0) 'executed actions have timings' }
     }
-
-    # A throwing step fails; dependants skip without running; independent steps still run.
-    $script:counter = 0
-    $script:independent = 0
-    $failing = @(
-        @{ Name = 'bad'; DependsOn = @(); First = { throw 'boom' }; Repeat = { } }
-        @{ Name = 'child'; DependsOn = @('bad'); First = { $script:counter++ }; Repeat = { $script:counter++ } }
-        @{ Name = 'grandchild'; DependsOn = @('child'); First = { $script:counter++ }; Repeat = { $script:counter++ } }
-        @{ Name = 'free'; DependsOn = @(); First = { $script:independent++ }; Repeat = { $script:independent++ } }
-    )
-    $cases = @(Invoke-IntegrationSteps -Steps $failing)
-    $byName = @{}
-    foreach ($case in $cases) { $byName[$case.Name] = $case }
-    Assert-Equal 'failed' $byName['bad'].Result 'throwing step fails'
-    Assert-True ($byName['bad'].Message -like '*boom*') 'failure keeps the message'
-    Assert-Equal 'skipped' $byName['child'].Result 'dependant is skipped'
-    Assert-Equal 'needs bad' $byName['child'].Message 'dependant says what it needs'
-    Assert-Equal 'skipped' $byName['child (repeat)'].Result 'dependant repeat is skipped'
-    Assert-Equal 'skipped' $byName['grandchild'].Result 'second-level dependant is skipped'
-    Assert-Equal 'needs child' $byName['grandchild'].Message 'second-level dependant names its direct parent'
-    Assert-Equal 0 $script:counter 'dependant blocks never run'
-    Assert-Equal 2 $script:independent 'independent step still ran both times'
-    Assert-Equal 'passed' $byName['free'].Result 'independent step passed'
-
-    # A step that returns Skipped is skipped with that message; its dependants skip too.
-    $script:counter = 0
-    $skipping = @(
-        @{ Name = 'codex'; DependsOn = @(); First = { @{ Skipped = 'codex refuses a local folder' } }; Repeat = { $script:counter++ } }
-        @{ Name = 'after'; DependsOn = @('codex'); First = { $script:counter++ }; Repeat = { $script:counter++ } }
-    )
-    $cases = @(Invoke-IntegrationSteps -Steps $skipping)
-    Assert-Equal 'skipped' $cases[0].Result 'returned Skipped is skipped'
-    Assert-Equal 'codex refuses a local folder' $cases[0].Message 'skip keeps its reason'
-    Assert-Equal 'skipped' $cases[1].Result 'its repeat is skipped too'
-    Assert-Equal 'needs codex' $cases[2].Message 'dependant of a skipped step says needs'
-    Assert-Equal 0 $script:counter 'no block ran after a skip'
+    # An explicit skip also stops the ordered sequence and keeps its reason.
+    $cases = @(Invoke-IntegrationSteps -Steps @(
+        @{ Name = 'skip'; Action = { @{ Skipped = 'local folder refused' } } }
+        @{ Name = 'after'; Action = { throw 'must not run' } }
+    ))
+    Assert-Equal 'skipped,skipped' ($cases.Result -join ',') 'explicit skip stops later actions'
+    Assert-Equal 'local folder refused' $cases[0].Message 'skip reason retained'
 
     # Step output goes to a log file when a log folder is given.
     $logs = Join-Path $tempRoot 'logs'
-    $logged = @(@{ Name = 'talk'; DependsOn = @(); First = { 'hello log' }; Repeat = { 'again' } })
+    $logged = @(@{ Name = 'talk'; Action = { 'hello log' } })
     Invoke-IntegrationSteps -Steps $logged -LogFolder $logs | Out-Null
     Assert-True ((Get-Content -LiteralPath (Join-Path $logs 'talk.log') -Raw) -like '*hello log*') 'step output is logged'
 
@@ -80,8 +66,9 @@ try {
     $installer = Join-Path $tempRoot 'installer.ps1'
     Set-Content -LiteralPath $installer -Value @('Write-Output "installer stdout"', 'Write-Output "installer stdout"', 'Write-Host "installer host output"', '[Console]::Error.WriteLine("installer stderr")')
     $installerSteps = @(
-        @{ Name = 'installer-pass'; DependsOn = @(); First = { $null = Invoke-IntegrationScript $installer }; Repeat = { $null = Invoke-IntegrationScript $installer } }
-        @{ Name = 'installer-assert'; DependsOn = @(); First = { $buffer = Invoke-IntegrationScript $installer; throw 'version assertion' }; Repeat = { } }
+        @{ Name = 'installer-pass'; Action = { $null = Invoke-IntegrationScript $installer } }
+        @{ Name = 'installer-pass'; Repeat = $true; Action = { $null = Invoke-IntegrationScript $installer } }
+        @{ Name = 'installer-assert'; Action = { $buffer = Invoke-IntegrationScript $installer; throw 'version assertion' } }
     )
     $null = Invoke-IntegrationSteps -Steps $installerSteps -LogFolder $logs
     foreach ($name in 'installer-pass', 'installer-pass-repeat', 'installer-assert') {
@@ -168,14 +155,23 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     Assert-True (-not (Test-Path -LiteralPath $refusedOut)) 'a refused run writes nothing'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $tempRoot 'home'))) 'a refused run does not create the home'
 
-    # The real steps exist in the spec's order and depend on what they need (never run here).
+    # Dry listing: building the complete real-CLI sequence invokes no action.
     $steps = @(Get-IntegrationSteps -HomeRoot (Join-Path $tempRoot 'home') -Checkout $root -Work (Join-Path $tempRoot 'work') -Os 'linux')
-    Assert-Equal 'install-cli-claude,install-cli-codex,install-cli-copilot,install-legion,setup,add,remove,repo-private,repo-shared,uninstall,reinstall,restore-launchers,purge' (($steps.Name) -join ',') 'step order'
-    Assert-True ($steps.Where({ $_.Name -eq 'reinstall' }).DependsOn -contains 'uninstall') 'reinstall needs uninstall'
-    Assert-True ($steps.Where({ $_.Name -eq 'restore-launchers' }).DependsOn -contains 'reinstall') 'restore-launchers needs reinstall'
-    Assert-True ($steps.Where({ $_.Name -eq 'purge' }).DependsOn -contains 'restore-launchers') 'purge needs restored launchers'
-    Assert-True ($steps.Where({ $_.Name -eq 'setup' }).DependsOn -contains 'install-legion') 'setup needs install-legion'
+    $expected = 'install-cli-claude,install-cli-codex,install-cli-copilot,install-legion,setup,add,remove,repo-private,repo-shared,uninstall,reinstall,restore-launchers,purge'
+    Assert-Equal $expected (($steps | Where-Object { -not $_.Repeat }).Name -join ',') 'first-run step order unchanged'
+    Assert-Equal $expected (($steps | Where-Object Repeat).Name -join ',') 'repeat step order unchanged'
+    Assert-Equal 26 $steps.Count 'all thirteen first/repeat pairs retained'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $tempRoot 'home'))) 'building the steps touches nothing'
+    # Replace every real entry point with a recorder to verify action wiring, not just labels.
+    $script:listedCalls = @()
+    foreach ($functionName in @('Invoke-CliInstallFirst', 'Invoke-CliInstallRepeat', 'Invoke-LegionInstallFirst', 'Invoke-LegionInstallRepeat', 'Invoke-SetupFirst', 'Invoke-SetupRepeat', 'Invoke-AddFirst', 'Invoke-AddRepeat', 'Invoke-RemoveFirst', 'Invoke-RemoveRepeat', 'Invoke-RepoPrivateFirst', 'Invoke-RepoPrivateRepeat', 'Invoke-RepoSharedFirst', 'Invoke-RepoSharedRepeat', 'Invoke-UninstallFirst', 'Invoke-UninstallRepeat', 'Invoke-ReinstallFirst', 'Invoke-ReinstallRepeat', 'Invoke-RestoreLaunchersFirst', 'Invoke-RestoreLaunchersRepeat', 'Invoke-PurgeFirst', 'Invoke-PurgeRepeat')) {
+        Set-Item "Function:$functionName" ([scriptblock]::Create("`$script:listedCalls += '$functionName ' + (`$args -join ' ')"))
+    }
+    $listed = @(Invoke-IntegrationSteps $steps)
+    Assert-Equal 26 $script:listedCalls.Count 'every listed action is wired to a real entry point'
+    Assert-Equal 0 @($listed | Where-Object Result -ne 'passed').Count 'dry sequence passes with fakes'
+    Assert-Equal 'Invoke-CliInstallFirst claude,Invoke-CliInstallRepeat claude,Invoke-CliInstallFirst codex,Invoke-CliInstallRepeat codex,Invoke-CliInstallFirst copilot,Invoke-CliInstallRepeat copilot' ($script:listedCalls[0..5] -join ',') 'each CLI first/repeat receives the right tool'
+    Assert-Equal 'Invoke-LegionInstallFirst ,Invoke-LegionInstallRepeat ,Invoke-SetupFirst ,Invoke-SetupRepeat ,Invoke-AddFirst ,Invoke-AddRepeat ,Invoke-RemoveFirst ,Invoke-RemoveRepeat ,Invoke-RepoPrivateFirst ,Invoke-RepoPrivateRepeat ,Invoke-RepoSharedFirst ,Invoke-RepoSharedRepeat ,Invoke-UninstallFirst ,Invoke-UninstallRepeat ,Invoke-ReinstallFirst ,Invoke-ReinstallRepeat ,Invoke-RestoreLaunchersFirst ,Invoke-RestoreLaunchersRepeat ,Invoke-PurgeFirst ,Invoke-PurgeRepeat ' ($script:listedCalls[6..25] -join ',') 'remaining entry points run in order'
 
     # ---- Fakes below replace the runner's functions; each block loads the real ones again first. ----
     $fakeHome = Join-Path $tempRoot 'fake-home'
@@ -186,6 +182,16 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         . $runner -NoRun
         $null = Get-IntegrationSteps -HomeRoot $fakeHome -Checkout $root -Work $fakeWork -Os 'linux' -AllowFallback:$AllowFallback
         $script:calls = @()
+    }
+    # Dot-source to replace the script runner with one that records each call's arguments.
+    function Use-CallRecorder {
+        function Invoke-IntegrationScript { param($Script, $Arguments = @()) $script:calls += , @($Arguments | ForEach-Object { $_ }); return @('ok') }
+    }
+    function Assert-ThrowsLike {
+        param([scriptblock]$Action, [string]$Pattern, [string]$Message)
+        $text = $null
+        try { & $Action | Out-Null } catch { $text = $_.Exception.Message }
+        Assert-True (($null -ne $text) -and ($text -like $Pattern)) $Message
     }
 
     # CLI process logs are runtime output; all legion state must still be compared.
@@ -253,7 +259,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         New-Item -ItemType Directory -Path $savedFolder -Force | Out-Null
         $fakeCli = if ($IsWindows) { 'legion-fake-cli.cmd' } else { 'legion-fake-cli' }
         Set-Content -LiteralPath (Join-Path $savedFolder $fakeCli) -Value $(if ($IsWindows) { '@echo off' } else { '#!/bin/sh' })
-        if (-not $IsWindows) { chmod +x (Join-Path $savedFolder $fakeCli) }
+        Set-TestExecutable (Join-Path $savedFolder $fakeCli)
         function Get-IntegrationPersistentFolders { return @($savedFolder) }
         $resolved = Resolve-IntegrationCommand 'legion-fake-cli'
         Assert-True (Test-Path -LiteralPath $resolved -PathType Leaf) 'the executable is resolved from the saved PATH'
@@ -267,7 +273,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     # Windows without a working winget asks the installer for the zip method.
     . Reset-Runner
     function Get-IntegrationOs { return 'windows' }
-    function Invoke-IntegrationScript { param($Script, $Arguments = @()) $script:calls += , @($Arguments | ForEach-Object { $_ }); return @('ok') }
+    . Use-CallRecorder
     function Test-IntegrationWingetWorks { return $false }
     Invoke-CliInstallScript 'claude' | Out-Null
     Assert-True ((@($calls[0]) -join ' ') -like '*-Method zip*') 'no winget selects -Method zip'
@@ -322,27 +328,6 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         function Get-IntegrationPluginVersion { return Get-CheckoutVersion }
     }
 
-    # An ordinary installer failure fails the step, and the other tools are still tried.
-    . Reset-Runner -AllowFallback
-    . Install-Fakes
-    $script:behavior = { param($call) if ($call.Tool -eq 'codex') { throw "install.ps1 exited 1`nnetwork unreachable" }; 'ok' }
-    $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
-    Assert-Equal 'failed' $result.Result 'an ordinary installer failure is a failure, not a skip'
-    Assert-True ($result.Message -like '*codex*network unreachable*') "the failure keeps the tool and the message: [$($result.Message)]"
-    Assert-Equal 'claude,codex,copilot' (($calls | ForEach-Object { $_.Tool }) -join ',') 'the other tools were still installed'
-    Assert-Equal 0 $script:Ctx.NotTested.Count 'nothing was marked not tested'
-
-    # A positively identified refusal skips only that tool; the others pass with the checkout.
-    . Reset-Runner
-    . Install-Fakes
-    $script:behavior = { param($call) if ($call.Tool -eq 'codex') { throw $refusal }; 'ok' }
-    $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
-    Assert-Equal 'passed' $result.Result 'the other tools still pass'
-    Assert-Equal 'codex' (@($script:Ctx.NotTested.Keys) -join ',') 'only codex is not tested'
-    Assert-Equal 'claude,copilot' ((Get-IntegrationActiveTools) -join ',') 'later steps use the other two tools'
-    Assert-True ($result.Log -like '*not tested from the checkout*') 'the log says codex was not tested from the checkout'
-    Assert-True (-not ($calls | Where-Object { $_.Source -ne $root })) 'no call used another source'
-
     # A release call from a main push never falls back unless the parameter says so.
     $savedRef = $env:GITHUB_REF; $savedEvent = $env:GITHUB_EVENT_NAME
     try {
@@ -355,46 +340,58 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         Assert-Equal 'codex' (@($script:Ctx.NotTested.Keys) -join ',') 'the release call skips codex'
     } finally { $env:GITHUB_REF = $savedRef; $env:GITHUB_EVENT_NAME = $savedEvent }
 
-    # With the parameter, the fallback uses the published source bound to the tested revision.
-    . Reset-Runner -AllowFallback
-    . Install-Fakes
-    function Get-IntegrationRevision { return 'abc123' }
-    $script:remoteChecks = 0
-    function Get-IntegrationRemoteMain { $script:remoteChecks++; return 'abc123' }
-    $script:behavior = { param($call) if ($call.Tool -eq 'codex' -and $call.Source -eq $root) { throw $refusal }; 'ok' }
-    $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
-    Assert-Equal 'passed' $result.Result 'the fallback passes'
-    $fallback = @($calls | Where-Object { $_.Source -eq 'BlackGad/ps-legion-marketplace' })
-    Assert-Equal 1 $fallback.Count 'only the refusing tool used the fallback'
-    Assert-Equal 'codex' $fallback[0].Tool 'the fallback was for codex'
-    Assert-True ((@($fallback[0].Words) -join ' ') -like '*-Ref main*') 'the fallback installs main'
-    Assert-Equal 2 $script:remoteChecks 'the fallback checks main before and after installation'
-    Assert-Equal 0 $script:Ctx.NotTested.Count 'a fallback tool is tested'
-
-    . Reset-Runner -AllowFallback
-    . Install-Fakes
-    $script:remoteChecks = 0
-    function Get-IntegrationRemoteMain { $script:remoteChecks++; if ($script:remoteChecks -eq 1) { return 'abc123' }; return 'def456' }
-    $script:behavior = { param($call) if ($call.Tool -eq 'codex' -and $call.Source -eq $root) { throw $refusal }; 'ok' }
-    $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
-    Assert-Equal 'failed' $result.Result 'main moving during fallback installation fails provenance'
-
-    # A moved main branch is a failure, not a different revision under test.
-    . Reset-Runner -AllowFallback
-    . Install-Fakes
-    function Get-IntegrationRevision { return 'abc123' }
-    function Get-IntegrationRemoteMain { return 'def456' }
-    $script:behavior = { param($call) if ($call.Tool -eq 'codex' -and $call.Source -eq $root) { throw $refusal }; 'ok' }
-    $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
-    Assert-Equal 'failed' $result.Result 'a fallback for another revision fails'
-
-    # When every tool refuses without a fallback, the step is skipped.
+    # Each case resets the runner, fakes the installer (codex throws the given text), runs the install step and checks the outcome.
+    $codexRefused = { param($call) if ($call.Tool -eq 'codex' -and $call.Source -eq $root) { throw $refusal }; 'ok' }
+    $cases = @(
+        @{ Name = 'an ordinary installer failure fails the step and the other tools are still tried'; Fallback = $true
+           Behavior = { param($call) if ($call.Tool -eq 'codex') { throw "install.ps1 exited 1`nnetwork unreachable" }; 'ok' }
+           Result = 'failed'; Check = {
+               Assert-True ($result.Message -like '*codex*network unreachable*') "the failure keeps the tool and the message: [$($result.Message)]"
+               Assert-Equal 'claude,codex,copilot' (($calls | ForEach-Object { $_.Tool }) -join ',') 'the other tools were still installed'
+               Assert-Equal 0 $script:Ctx.NotTested.Count 'nothing was marked not tested' } }
+        @{ Name = 'a positively identified refusal skips only that tool'; Fallback = $false
+           Behavior = { param($call) if ($call.Tool -eq 'codex') { throw $refusal }; 'ok' }
+           Result = 'passed'; Check = {
+               Assert-Equal 'codex' (@($script:Ctx.NotTested.Keys) -join ',') 'only codex is not tested'
+               Assert-Equal 'claude,copilot' ((Get-IntegrationActiveTools) -join ',') 'later steps use the other two tools'
+               Assert-True ($result.Log -like '*not tested from the checkout*') 'the log says codex was not tested from the checkout'
+               Assert-True (-not ($calls | Where-Object { $_.Source -ne $root })) 'no call used another source' } }
+        @{ Name = 'the fallback uses the published source bound to the tested revision'; Fallback = $true
+           Behavior = $codexRefused; Revision = 'abc123'; Main = { 'abc123' }
+           Result = 'passed'; Check = {
+               $fallback = @($calls | Where-Object { $_.Source -eq 'BlackGad/ps-legion-marketplace' })
+               Assert-Equal 1 $fallback.Count 'only the refusing tool used the fallback'
+               Assert-Equal 'codex' $fallback[0].Tool 'the fallback was for codex'
+               Assert-True ((@($fallback[0].Words) -join ' ') -like '*-Ref main*') 'the fallback installs main'
+               Assert-Equal 2 $script:remoteChecks 'the fallback checks main before and after installation'
+               Assert-Equal 0 $script:Ctx.NotTested.Count 'a fallback tool is tested' } }
+        @{ Name = 'main moving during fallback installation fails provenance'; Fallback = $true
+           Behavior = $codexRefused; Main = { if ($script:remoteChecks -eq 1) { 'abc123' } else { 'def456' } }; Result = 'failed' }
+        @{ Name = 'a fallback for another revision fails'; Fallback = $true
+           Behavior = $codexRefused; Revision = 'abc123'; Main = { 'def456' }; Result = 'failed' }
+        @{ Name = 'all tools refusing without a fallback skips the step'; Fallback = $false
+           Behavior = { param($call) throw "install.ps1 exited 1`n$($call.Tool) exited 1`nlocal folder marketplace is not supported" }; Result = 'skipped' }
+    )
+    foreach ($case in $cases) {
+        . Reset-Runner -AllowFallback:$case.Fallback
+        . Install-Fakes
+        if ($case.Revision) { function Get-IntegrationRevision { return $case.Revision } }
+        $script:remoteChecks = 0
+        $script:mainBlock = $case.Main
+        if ($case.Main) { function Get-IntegrationRemoteMain { $script:remoteChecks++; return & $script:mainBlock } }
+        $script:behavior = $case.Behavior
+        $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
+        Assert-Equal $case.Result $result.Result $case.Name
+        if ($case.Check) { & $case.Check }
+    }
+    # When every tool refused the checkout nothing real was tested; the gate must say so instead of passing.
     . Reset-Runner
-    . Install-Fakes
-    $script:behavior = { param($call) throw "install.ps1 exited 1`n$($call.Tool) exited 1`nlocal folder marketplace is not supported" }
-    $result = Invoke-IntegrationBlock { Invoke-LegionInstallFirst }
-    Assert-Equal 'skipped' $result.Result 'all tools refusing skips the step'
-
+    Assert-Equal '' (Get-IntegrationCoverageProblem) 'Nothing refused is no coverage problem'
+    $script:Ctx.NotTested.codex = 'codex refuses a local folder'
+    Assert-Equal '' (Get-IntegrationCoverageProblem) 'One refusing tool still leaves tested tools'
+    $script:Ctx.NotTested.claude = 'claude refuses a local folder'
+    $script:Ctx.NotTested.copilot = 'copilot refuses a local folder'
+    Assert-True ((Get-IntegrationCoverageProblem).Contains('codex refuses a local folder')) 'Every tool refusing fails the gate with the reasons'
     # Another tool's refusal text does not excuse this tool.
     . Reset-Runner
     Assert-True (-not (Test-IntegrationLocalRefusal 'claude' $refusal)) 'a refusal by codex is not a claude refusal'
@@ -404,7 +401,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     # Setup repeats for explicit ids and never asks for new accounts; both runs use the same arguments.
     . Reset-Runner
     foreach ($tool in 'claude', 'codex', 'copilot') { $script:Ctx.Targets[$tool] = @{ Source = $root; SourceRef = '' } }
-    function Invoke-IntegrationScript { param($Script, $Arguments = @()) $script:calls += , @($Arguments | ForEach-Object { $_ }); return @('ok') }
+    . Use-CallRecorder
     Invoke-SetupAccounts | Out-Null
     $firstCalls = @($calls | ForEach-Object { @($_) -join ' ' })
     $script:calls = @()
@@ -418,7 +415,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
 
     # The Shared fixture commits AGENTS.md and passes -RulesFile; Private passes none.
     . Reset-Runner
-    function Invoke-IntegrationScript { param($Script, $Arguments = @()) $script:calls += , @($Arguments | ForEach-Object { $_ }); return @('ok') }
+    . Use-CallRecorder
     Invoke-RepositoryScript 'repo' 'Shared' | Out-Null
     Assert-True ((@($calls[0]) -join ' ') -like '*-RulesFile AGENTS.md*') 'Shared passes -RulesFile'
     $script:calls = @()
@@ -464,9 +461,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     Assert-True (-not (Test-IntegrationPluginListed 'claude' 'folder' -IncludeDisabled)) 'an empty folder lists nothing'
     Assert-IntegrationControlFolder 'claude'
     $script:listing = '[{"id":"legion@ps-legion-marketplace","enabled":true}]'
-    $threw = $false
-    try { Assert-IntegrationControlFolder 'claude' } catch { $threw = $true }
-    Assert-True $threw 'a control folder that lists legion fails'
+    Assert-ThrowsLike { Assert-IntegrationControlFolder 'claude' } '*' 'a control folder that lists legion fails'
 
     # Uninstall: default and account folders are captured first and checked afterwards; the repeat must have nothing to do.
     . Reset-Runner
@@ -487,30 +482,20 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     Invoke-UninstallFirst | Out-Null
     $ownerPath = @(Get-IntegrationLauncherPaths 'legion')[0]
     Set-Content -LiteralPath $ownerPath -Value 'owner'
-    $threw = $false
-    try { Invoke-UninstallFirst | Out-Null } catch { $threw = $_.Exception.Message -like '*legion*' }
-    Assert-True $threw 'an owner command left behind fails the uninstall'
+    Assert-ThrowsLike { Invoke-UninstallFirst } '*legion*' 'an owner command left behind fails the uninstall'
     Remove-Item -LiteralPath $ownerPath
     $launcherPath = @(Get-IntegrationLauncherPaths 'claude1')[0]
     Rename-Item -LiteralPath $launcherPath -NewName 'claude1.hidden'
-    $threw = $false
-    try { Invoke-UninstallFirst | Out-Null } catch { $threw = $_.Exception.Message -like '*launcher claude1*' }
-    Assert-True $threw 'an account launcher removed by the uninstall fails it'
+    Assert-ThrowsLike { Invoke-UninstallFirst } '*launcher claude1*' 'an account launcher removed by the uninstall fails it'
     Rename-Item -LiteralPath "$launcherPath.hidden" -NewName 'claude1'
     $script:stale = 'claude1'
-    $threw = $false
-    try { Invoke-UninstallFirst | Out-Null } catch { $threw = $_.Exception.Message -like '*claude1*' }
-    Assert-True $threw 'a plugin left in an account folder fails the uninstall'
+    Assert-ThrowsLike { Invoke-UninstallFirst } '*claude1*' 'a plugin left in an account folder fails the uninstall'
     $script:stale = ''
     $cacheFolder = Join-Path $fakeHome '.claude/plugins/cache/ps-legion-marketplace'
     New-Item -ItemType Directory -Path $cacheFolder -Force | Out-Null
-    $threw = $false
-    try { Invoke-UninstallFirst | Out-Null } catch { $threw = $_.Exception.Message -like '*cache*' }
-    Assert-True $threw 'a cache left behind fails the uninstall'
+    Assert-ThrowsLike { Invoke-UninstallFirst } '*cache*' 'a cache left behind fails the uninstall'
     Remove-Item -LiteralPath (Join-Path $fakeHome '.claude') -Recurse -Force
-    $threw = $false
-    try { Invoke-UninstallRepeat | Out-Null } catch { $threw = $true }
-    Assert-True $threw 'a repeat that does not say Nothing to uninstall fails'
+    Assert-ThrowsLike { Invoke-UninstallRepeat } '*' 'a repeat that does not say Nothing to uninstall fails'
     $script:uninstallOutput = 'Nothing to uninstall.'
     Invoke-UninstallRepeat | Out-Null
 

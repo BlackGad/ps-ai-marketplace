@@ -6,55 +6,11 @@ param(
     [switch]$NoRun
 )
 
-. (Join-Path $PSScriptRoot 'lib/paths.ps1')
+. (Join-Path $PSScriptRoot 'lib/footprints.ps1')
 
 . (Join-Path $PSScriptRoot 'lib/tools.ps1')
 
-function Get-ToolInstallData {
-    param([string]$Tool)
-    $recipes = Get-LegionInstallRecipes
-    if (-not $recipes.ContainsKey($Tool)) { throw "unknown tool '$Tool'" }
-    return $recipes[$Tool]
-}
-
 . (Join-Path $PSScriptRoot 'install-tool/recipe.ps1')
-
-function Test-ToolCommandAvailable {
-    param([string]$Name)
-    return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
-}
-
-function Test-ToolInstalled {
-    param([string]$Tool)
-    $check = (Get-ToolInstallData -Tool $Tool).check
-    $name = $check[0]
-    $command = $null
-    if (Test-ToolCommandAvailable -Name $name) { $command = $name }
-    elseif ($IsWindows) {
-        # Installers update persistent PATH, while the current shell keeps its old copy.
-        $persistentPath = (Get-UserPath) + ';' + [Environment]::GetEnvironmentVariable('PATH', 'Machine')
-        foreach ($entry in ($persistentPath -split ';' | Where-Object { $_.Trim() })) {
-            $folder = [Environment]::ExpandEnvironmentVariables($entry.Trim().Trim('"'))
-            foreach ($suffix in @('.exe','.cmd','.ps1')) {
-                $candidate = Join-Path $folder "$name$suffix"
-                if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-                    # A sanitized shell may deliberately exclude this directory.
-                    # Recognize an installation without executing outside its PATH.
-                    return @{ Installed=$true; Version='persisted PATH' }
-                }
-            }
-        }
-    }
-    if (-not $command) { return @{ Installed=$false; Version='' } }
-    try {
-        $arguments = [string[]]@($check | Select-Object -Skip 1)
-        $global:LASTEXITCODE = 0
-        $versionLines = @(& $command @arguments 2>$null)
-        if ($LASTEXITCODE -ne 0) { return @{ Installed=$false; Version='' } }
-        $version = $versionLines | Select-Object -First 1
-        return @{ Installed=$true; Version=([string]$version).Trim() }
-    } catch { return @{ Installed=$false; Version='' } }
-}
 
 function Invoke-ToolCommand {
     param([string[]]$Command)
@@ -146,37 +102,6 @@ function Test-DownloadHash {
     (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash -ieq $Expected
 }
 
-function Get-UserPath {
-    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
-    try {
-        if ($key) { [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) }
-    } finally { if ($key) { $key.Dispose() } }
-}
-function Set-UserPath {
-    param([string]$Path)
-    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
-    try {
-        $kind = if ($key.GetValueNames() -icontains 'Path') { $key.GetValueKind('Path') } else { [Microsoft.Win32.RegistryValueKind]::ExpandString }
-        $key.SetValue('Path', $Path, $kind)
-    } finally { $key.Dispose() }
-    # Notify Explorer so future terminals receive the changed persistent environment.
-    if (-not ('Legion.InstallEnvironment' -as [type])) {
-        Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-namespace Legion {
-    public static class InstallEnvironment {
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern IntPtr SendMessageTimeout(IntPtr window, uint message,
-            UIntPtr parameter, string value, uint flags, uint timeout, out UIntPtr result);
-    }
-}
-'@
-    }
-    $result = [uintptr]::Zero
-    [Legion.InstallEnvironment]::SendMessageTimeout([intptr]0xffff, 0x1a, [uintptr]::Zero, 'Environment', 2, 5000, [ref]$result) | Out-Null
-}
-
 function Resolve-ToolRelativePath {
     param([string]$Root, [AllowEmptyString()][string]$RelativePath)
     $relative = $RelativePath.Replace('\', [IO.Path]::DirectorySeparatorChar).Replace('/', [IO.Path]::DirectorySeparatorChar)
@@ -185,8 +110,7 @@ function Resolve-ToolRelativePath {
     }
     $rootPath = [IO.Path]::GetFullPath($Root)
     $path = [IO.Path]::GetFullPath((Join-Path $rootPath $relative))
-    $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
-    if (-not $path.Equals($rootPath, $comparison) -and -not $path.StartsWith($rootPath + [IO.Path]::DirectorySeparatorChar, $comparison)) {
+    if (-not (Test-LegionPathUnder -Path $path -Root $rootPath -AllowEqual -PreserveLinks)) {
         throw 'path must be inside the tool folder'
     }
     return $path
@@ -227,12 +151,7 @@ function Install-ToolZip {
     $command = Get-ToolPortableCommand -Tool $Tool
     if (-not $command -or -not (Test-Path -LiteralPath $command -PathType Leaf)) { throw "$Tool executable missing from download" }
     if (-not (Test-Path -LiteralPath $folder -PathType Container)) { throw "executable folder missing for $Tool download" }
-    $userPath = Get-UserPath
-    $entries = @($userPath -split ';' | ForEach-Object { [Environment]::ExpandEnvironmentVariables($_.Trim().Trim('"')).TrimEnd('\','/') })
-    if ($entries -inotcontains $folder.TrimEnd('\','/')) {
-        $updated = if ([string]::IsNullOrEmpty($userPath)) { $folder } else { $userPath.TrimEnd(';') + ';' + $folder }
-        Set-UserPath -Path $updated
-    }
+    Add-LegionUserPath -Folder $folder
 }
 
 function Invoke-ToolDownloadInstall {

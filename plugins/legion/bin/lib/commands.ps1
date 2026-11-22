@@ -3,20 +3,18 @@ param()
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'paths.ps1')
 
-function Get-LegionOwnerCommands {
-    return [ordered]@{
-        'legion' = 'legion.ps1'
-    }
+function ConvertTo-LegionShellLiteral {
+    param([string]$Value)
+    return "'" + $Value.Replace("'", "'" + '"' + "'" + '"' + "'") + "'"
 }
 
 function Get-LegionShimText {
     param([string]$Script, [switch]$Windows, [string]$HomeRoot)
 
-    # Load the existing quoting helper only when generating a shim, so status stays read-only and lean.
-    . (Join-Path $PSScriptRoot '../legion-account.ps1') -NoRun -HomeRoot $HomeRoot
     $homeArgument = Get-LegionShimHomeArgument -HomeRoot $HomeRoot -Windows:$Windows
-    if ($Windows) { return '@pwsh -NoProfile -File "' + $Script.Replace('%', '%%') + '"' + $homeArgument + ' %* & (goto) 2>nul & exit /b' + "`r`n" }
-    return "#!/bin/sh`n" + 'exec pwsh -NoProfile -File ' + (ConvertTo-LegionShellLiteral $Script) + $homeArgument + ' "$@"' + "`n"
+    $header = Get-LegionHeader -Name 'owner command' -Windows:$Windows
+    if ($Windows) { return "$header`r`n" + '@pwsh -NoProfile -File "' + $Script.Replace('%', '%%') + '"' + $homeArgument + ' %* & (goto) 2>nul & exit /b' + "`r`n" }
+    return "#!/bin/sh`n$header`n" + 'exec pwsh -NoProfile -File ' + (ConvertTo-LegionShellLiteral $Script) + $homeArgument + ' "$@"' + "`n"
 }
 
 function Get-LegionShimHomeArgument {
@@ -29,68 +27,31 @@ function Get-LegionShimHomeArgument {
     return ' -HomeRoot ' + $literal
 }
 
-# The whole file is the generated launcher: an optional shebang, then one line
-# [exec |@]pwsh <options> -File <script path> <owner flags>. Any other code makes it the owner's file.
-# Owner flags are plain words, quoted words, "$@" and %*. install.ps1 keeps its own copy of this rule.
-# The .cmd line ends with '& (goto) 2>nul & exit /b': uninstall deletes the .cmd, and (goto) ends the batch so cmd
-# never reads the deleted file again; exit /b then returns the script's status (the line is parsed before it runs).
-
-# -Batch: a .cmd file writes % as %%, so decode it before looking for the file.
-function Get-LegionOwnerCommandTarget {
-    param([string]$Text, [string]$Script, [switch]$Batch)
-
-    $launcher = '\A(?:#![^\r\n]*\r?\n)?(?:[ \t]*\r?\n)*[ \t]*(?:exec[ \t]+|@)?pwsh[ \t]+(?:-\S+[ \t]+)*?-File[ \t]+'
-    $scriptWord = '(?<target>(?:''[^''\r\n]*''|"[^"\r\n]*"|[^\s''"]+)+)'
-    $match = [regex]::Match($Text, $launcher + $scriptWord)
-    if (-not $match.Success) { return $null }
-    # Batch double quotes keep dollar signs literal; shell double quotes expand them.
-    $argument = '(?<argument>(?:''[^''\r\n]*''|"[^"$`\r\n]*")+|"\$@"|\$@|%\*|[\w.=:/\\-]+)'
-    $batchExit = ''
-    if ($Batch) { $argument = '(?<argument>"[^"\r\n]*"|%\*|[\w.=:/\\-]+)'; $batchExit = '(?:[ \t]+&[ \t]+\(goto\)[ \t]+2>nul[ \t]+&[ \t]+exit[ \t]+/b)?' }
-    $tail = $Text.Substring($match.Length)
-    $tailMatch = [regex]::Match($tail, '\A(?:[ \t]+' + $argument + ')*' + $batchExit + '\s*\z')
-    if (-not $tailMatch.Success) { return $null }
-    $word = $match.Groups['target']
-    # Drop the shell quotes; the generated form joins quoted pieces such as 'a'"'"'b'.
-    $path = [regex]::Replace($word.Value, '''([^'']*)''|"([^"]*)"', { param($piece) $piece.Groups[1].Value + $piece.Groups[2].Value })
-    if ($Batch) { $path = $path.Replace('%%', '%') }
-    if (-not $path.Replace('\', '/').EndsWith("/bin/$Script", [StringComparison]::Ordinal)) { return $null }
-    return [pscustomobject]@{ Start = $word.Index; Length = $word.Length; Path = $path; Arguments = @($tailMatch.Groups['argument'].Captures.Value) }
-}
-
-function Read-LegionOwnerCommandTarget {
-    param([string]$Path, [string]$Script)
-
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
-    $batch = [IO.Path]::GetExtension($Path) -ieq '.cmd'
-    return Get-LegionOwnerCommandTarget -Text ([IO.File]::ReadAllText($Path)) -Script $Script -Batch:$batch
-}
-
-function Test-LegionOwnerCommandFile {
-    param([string]$Path, [string]$Script)
-
-    return [bool](Read-LegionOwnerCommandTarget -Path $Path -Script $Script)
-}
-
-# missing: no file; blocked: someone else's file; stale: ours, but its script is gone; owned: ours and working.
 function Get-LegionOwnerCommandState {
-    param([string]$Path, [string]$Script)
-
+    param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return 'missing' }
-    $target = Read-LegionOwnerCommandTarget -Path $Path -Script $Script
-    if (-not $target) { return 'blocked' }
-    if (-not (Test-Path -LiteralPath $target.Path -PathType Leaf)) { return 'stale' }
+    if (-not (Test-LegionOwnerCommandFile -Path $Path)) { return 'blocked' }
     return 'owned'
 }
 
-# Point an owned command at a new script and keep the owner's own flags.
-function Update-LegionOwnerCommandText {
-    param([string]$Text, [string]$Script, [string]$Runner, [switch]$Windows, [string]$HomeRoot)
-
-    $target = Get-LegionOwnerCommandTarget -Text $Text -Script $Script -Batch:$Windows
-    $literal = if ($Windows) { '"' + $Runner.Replace('%', '%%') + '"' } else { ConvertTo-LegionShellLiteral $Runner }
-    if ($target.Arguments -inotcontains '-HomeRoot') {
-        $literal += Get-LegionShimHomeArgument -HomeRoot $HomeRoot -Windows:$Windows
+# One state per command file, shared by setup and status.
+function Get-LegionCommandState {
+    param([string]$Bin, [string]$HomeRoot)
+    $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
+    foreach ($suffix in $suffixes) {
+        $path = Join-Path $Bin "legion$suffix"
+        $state = Get-LegionOwnerCommandState -Path $path
+        if ($state -eq 'owned' -and -not (Test-LegionLauncherExecutable -Path $path)) { $state = 'permission' }
+        [pscustomobject]@{ Name = 'legion'; Script = 'legion.ps1'; Path = $path; Windows = ($suffix -eq '.cmd'); State = $state }
     }
-    return $Text.Substring(0, $target.Start) + $literal + $Text.Substring($target.Start + $target.Length)
+}
+
+# Setup and refresh write the same platform command files, preserving unrelated files.
+function Write-LegionOwnerCommands {
+    param([string]$Bin, [string]$HomeRoot, [Collections.Generic.List[string]]$Changes)
+    foreach ($file in (Get-LegionCommandState -Bin (Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin') -HomeRoot $HomeRoot)) {
+        if ($file.State -eq 'blocked' -or -not (Test-LegionOwnerPathSafe -Path $file.Path -StopRoot $HomeRoot)) { continue }
+        $text = Get-LegionShimText -Script (Join-Path $Bin $file.Script) -Windows:$file.Windows -HomeRoot $HomeRoot
+        Write-LegionGeneratedFile -Path $file.Path -Content $text -Executable:(-not $file.Windows) -Changes $Changes
+    }
 }

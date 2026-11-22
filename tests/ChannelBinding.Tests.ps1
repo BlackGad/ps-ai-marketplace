@@ -45,14 +45,21 @@ Assert-Equal 'skip: channel remove my-telegram (already done)' (Invoke-Channel -
 
 # check: bun and plugin folder, without starting any CLI
 . $script -NoRun -HomeRoot $homeRoot
-function Test-ChannelCommand { param([string]$Name) $script:bunFound }
-$script:bunFound = $true
-$lines = Get-ChannelCheck -Kind telegram -Accounts @('claude1', 'codex1') -HomeRoot $homeRoot
-Assert-Equal 'bun        found' $lines[0] 'bun found'
-Assert-Equal 'claude1    telegram plugin not found' $lines[1] 'Plugin folder missing'
-Assert-Equal 'codex1     not supported (telegram supports: claude)' $lines[2] 'Unsupported tool'
-New-Item -ItemType Directory (Join-Path $claudeDir 'plugins/cache/claude-plugins-official/telegram') -Force | Out-Null
-$script:bunFound = $false
-$lines = Get-ChannelCheck -Kind telegram -Accounts @('claude1') -HomeRoot $homeRoot
-Assert-Equal 'bun        not found' $lines[0] 'bun missing'
-Assert-Equal 'claude1    telegram plugin found' $lines[1] 'Plugin folder present'
+$savedPath = $env:PATH
+$fakeBin = Join-Path $homeRoot 'bin'
+New-Item -ItemType Directory -Path $fakeBin | Out-Null
+$bun = Join-Path $fakeBin $(if ($IsWindows) { 'bun.cmd' } else { 'bun' })
+[IO.File]::WriteAllText($bun, $(if ($IsWindows) { '@exit /b 99' } else { "#!/bin/sh`nexit 99`n" }))
+if (-not $IsWindows) { [IO.File]::SetUnixFileMode($bun, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserExecute) }
+try {
+    $env:PATH = $fakeBin
+    $lines = Get-ChannelCheck -Kind telegram -Accounts @('claude1', 'codex1') -HomeRoot $homeRoot
+    Assert-Equal 'bun        found' $lines[0] 'bun found without executing it'
+    Assert-Equal 'claude1    telegram plugin not found' $lines[1] 'Plugin folder missing'
+    Assert-Equal 'codex1     not supported (telegram supports: claude)' $lines[2] 'Unsupported tool'
+    New-Item -ItemType Directory (Join-Path $claudeDir 'plugins/cache/claude-plugins-official/telegram') -Force | Out-Null
+    Remove-Item -LiteralPath $bun -Force
+    $lines = Get-ChannelCheck -Kind telegram -Accounts @('claude1') -HomeRoot $homeRoot
+    Assert-Equal 'bun        not found' $lines[0] 'bun missing'
+    Assert-Equal 'claude1    telegram plugin found' $lines[1] 'Plugin folder present'
+} finally { $env:PATH = $savedPath }

@@ -1,10 +1,11 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'lib/workspace.ps1')
 $scratch = Join-Path $root ('.agents/temp/refresh-accounts-' + [guid]::NewGuid().ToString('N'))
 $savedPath = $env:PATH
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 try {
-    . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -NoRun
+    . (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
     $refresh = Join-Path $root 'plugins/legion/bin/legion-refresh.ps1'
     $fakeBin = Join-Path $scratch 'fake tools'
     New-Item -ItemType Directory -Path $fakeBin -Force | Out-Null
@@ -16,7 +17,7 @@ try {
         $text = if ($IsWindows) { '@echo %' + $descriptor.configEnv + '%' + "`r`n@exit /b 0`r`n" }
             else { '#!/bin/sh' + "`n" + 'printenv ' + $descriptor.configEnv + "`n" }
         [IO.File]::WriteAllText($cli, $text)
-        if (-not $IsWindows) { & chmod +x $cli }
+        Set-TestExecutable $cli
         $agents += @{ id = "$($descriptor.id)-a"; tool = $descriptor.id; configDir = "~/.legion/agents/$($descriptor.id)-a" }
     }
     $settings = Join-Path $scratch '.legion/configuration/personalisation.json'

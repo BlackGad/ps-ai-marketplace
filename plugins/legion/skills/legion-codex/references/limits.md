@@ -1,20 +1,5 @@
 # Codex CLI limits
 
-Follow [owner notes](../../legion-personalisation/references/fields.md) before account, model or channel choices.
-Run a short ping through the selected account's command, from a disposable git repository:
+Run `legion limits <id>` for the selected account (`legion limits` lists every account). It prints one table: window, used percentage, reset time and status. `unknown` means the tool gave no readout; never fill it in. Only `limit reached` (a quota error, with its retry time) or a window status from this account can justify calling it exhausted.
 
-```sh
-<command> exec "ping" < /dev/null
-```
-
-When launched by a script, close stdin immediately. Read the newest session record under **that account's** `CODEX_HOME/sessions` and find its `rate_limits` event. Report the available window percentages and reset times from the record. Use the account's configured `configDir` or wrapper environment to identify `CODEX_HOME`; never inspect credential files. If no `rate_limits` event appears, report limits as unknown. Only a quota error or a limit event from this account can justify calling it exhausted; never transfer another account's result.
-
-## Foundry agent
-
-Codex is **not yet proven against Foundry**. When `provider.kind` is `foundry`, use this check instead of subscription session limits above:
-
-```powershell
-az account get-access-token --resource https://cognitiveservices.azure.com -o none
-```
-
-Exit 0 means Azure can issue a token. Foundry has no subscription window to report. This does not prove GPT deployment access or a working Codex session. On failure, show the Azure error; do not declare subscription exhaustion. Do not print or save the token. Add and launch try interactive `az login` once after a failure.
+The recipe lives in `scripts/limits.ps1` of this skill; do not repeat it by hand. Codex is **not yet proven against Foundry**: a Foundry account shows the Azure token check (`token ok` or the Azure error), which does not prove GPT deployment access or a working Codex session. Never use one account's result for another.

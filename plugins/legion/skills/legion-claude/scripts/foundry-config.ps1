@@ -1,7 +1,8 @@
 param($Agent, [string]$HomeRoot)
 
-$folder = [string]$Agent.configDir
-if ($folder.StartsWith('~/')) { $folder = Join-Path $HomeRoot $folder.Substring(2) }
+. (Join-Path $PSScriptRoot '../../../bin/lib/paths.ps1')
+
+$folder = Resolve-LegionHomePath -Path $Agent.configDir -HomeRoot $HomeRoot
 $path = Join-Path $folder 'settings.json'
 $settings = [ordered]@{}
 if (Test-Path -LiteralPath $path) {

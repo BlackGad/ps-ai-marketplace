@@ -44,49 +44,14 @@ exit 0
     Assert-True (-not (Test-Path -LiteralPath $observation.File)) 'Private provider file is removed after launch'
     Assert-True (-not (($output -join "`n").Contains('FAKE-NONCREDENTIAL'))) 'Runner output does not expose fake token'
 
-    # Exercise the Unix ordering even when the test host is Windows.
-    & {
-        . $runner -NoRun
-        $savedIsWindows = $IsWindows
-        $savedExitCode = $global:LASTEXITCODE
-        $script:chmodCalls = 0
-        $script:chmodExitCode = 0
-        function chmod {
-            param([string]$Mode, [string]$Path)
-            Assert-Equal '600' $Mode 'Unix provider requests exact owner read/write mode'
-            Assert-Equal 0 (Get-Item -LiteralPath $Path).Length 'Permission change happens before credential bytes'
-            $script:chmodCalls++
-            $global:LASTEXITCODE = $script:chmodExitCode
-        }
-        try {
-            Set-Variable IsWindows -Value $false -Force
-            $providerFile = Join-Path $tempRoot 'unix-success.json'
-            $writeError = ''
-            try { Write-FoundryProviderFile -Path $providerFile -Json 'FAKE-NONCREDENTIAL' }
-            catch { $writeError = $_.Exception.Message }
-            Assert-Equal 1 $script:chmodCalls "Unix provider changes permissions before writing ($writeError)"
-            Assert-Equal '' $writeError 'Successful permission change allows writing'
-            Assert-Equal 'FAKE-NONCREDENTIAL' ([IO.File]::ReadAllText($providerFile)) 'Unix provider writes after permissions succeed'
-
-            $script:chmodExitCode = 7
-            $failedFile = Join-Path $tempRoot 'unix-failure.json'
-            Assert-Throws { Write-FoundryProviderFile -Path $failedFile -Json 'FAKE-NONCREDENTIAL' } 'Permission failure stops provider write'
-            Assert-Equal 2 $script:chmodCalls 'Failed permission change is checked'
-            Assert-True (-not (Test-Path -LiteralPath $failedFile)) 'Permission failure removes the empty file'
-        } finally {
-            Set-Variable IsWindows -Value $savedIsWindows -Force
-            $global:LASTEXITCODE = $savedExitCode
-        }
-    }
-    # macOS chmod stops reading options at the mode, so "--" must come first; this fake refuses any other order.
+    # Unix: the file is created owner read/write only.
     if (-not $IsWindows) {
-        $fakeChmod = Join-Path $fakeTools 'chmod'
-        "#!/bin/sh`n[ `"`$1`" = `"--`" ] || exit 1`nshift`nexec /bin/chmod `"`$@`"`n" | Set-Content -NoNewline -LiteralPath $fakeChmod
-        [IO.File]::SetUnixFileMode($fakeChmod, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
         . $runner -NoRun
-        $orderedFile = Join-Path $tempRoot 'chmod-order.json'
-        Write-FoundryProviderFile -Path $orderedFile -Json 'FAKE-NONCREDENTIAL'
-        Assert-Equal 'FAKE-NONCREDENTIAL' ([IO.File]::ReadAllText($orderedFile)) 'chmod receives -- before the mode'
+        $modeFile = Join-Path $tempRoot 'mode.json'
+        Write-FoundryProviderFile -Path $modeFile -Json 'FAKE-NONCREDENTIAL'
+        Assert-Equal ([IO.UnixFileMode]'UserRead, UserWrite') ([IO.File]::GetUnixFileMode($modeFile)) 'Provider file is owner read and write only'
+        Assert-Equal 'FAKE-NONCREDENTIAL' ([IO.File]::ReadAllText($modeFile)) 'Provider file holds the written bytes'
+        Assert-Throws { Write-FoundryProviderFile -Path $modeFile -Json 'FAKE-OTHER' } 'An existing provider file is never overwritten'
     }
 } finally {
     foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }

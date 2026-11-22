@@ -128,7 +128,6 @@
             ".tmp/marketplaces/ps-legion-marketplace",
             "plugins/data/legion-ps-legion-marketplace"
           ],
-          "legacyHookTrust": true,
           "settings": [
             {
               "path": "config.toml",

@@ -1,3 +1,4 @@
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
 # LaunchAdapterContract: invoke adapters, never dot-source their internals.
 & {
     $repoRoot = Split-Path $PSScriptRoot -Parent
@@ -15,11 +16,14 @@
     foreach ($id in @('claude', 'codex', 'copilot')) {
         $adapter = Join-Path $skillRoot "legion-$id/scripts/foundry-launch.ps1"
         Assert-True (Test-Path -LiteralPath $adapter) "$id launch adapter exists"
-        foreach ($configDir in @('~/.legion/agents/agent-a', (Join-Path $homeRoot 'absolute config'))) {
+        foreach ($configDir in @('~/.legion/agents/agent-a', '~\.legion/agents/agent-a', (Join-Path $homeRoot 'absolute config'))) {
             $adapterAgent = [pscustomobject]@{ id = 'agent-a'; tool = $id; configDir = $configDir; provider = $provider }
             $result = @(& $adapter -Agent $adapterAgent -HomeRoot $homeRoot -Token $injectedToken)
             Assert-Equal 1 $result.Count "$id emits exactly one object"
             $launch = $result[0]
+            $configEnv = @{ claude='CLAUDE_CONFIG_DIR'; codex='CODEX_HOME'; copilot='COPILOT_HOME' }[$id]
+            $expectedFolder = if ($configDir.StartsWith('~')) { Join-Path $homeRoot '.legion/agents/agent-a' } else { $configDir }
+            Assert-Equal $expectedFolder $launch.Set[$configEnv] "$id launch adapter expands both home separators"
             Assert-True ($launch -is [hashtable]) "$id returns a hashtable"
             Assert-Equal 'Clear|Notice|ProvidersFile|ProvidersJson|Set' (($launch.Keys | Sort-Object) -join '|') "$id launch contract has exactly five fields"
             Assert-True ($launch.Clear -is [string[]]) "$id clear list is typed"
@@ -80,7 +84,7 @@
                 $configFile = Join-Path $configDir $configName
                 if ($seeded) {
                     New-Item -ItemType Directory -Path $configDir -Force | Out-Null
-                    $configAgent.configDir = "~/$adapterId-$seeded"
+                    $configAgent.configDir = "~\$adapterId-$seeded"
                     $seed = if ($adapterId -eq 'claude') { '{"theme":"dark","custom":{"label":"café","lastViewed":"2026-11-18T16:01:00+03:00"}}' } else { "approval_policy = `"never`"`n[other]`nmodel = `"kept-nested`"`n" }
                     [IO.File]::WriteAllText($configFile, $seed, [Text.UTF8Encoding]::new($false))
                 }
@@ -204,7 +208,7 @@ $agentData = Get-Content -LiteralPath $AgentPath -Raw | ConvertFrom-Json
         New-Item -ItemType Directory -Path (Split-Path $personalisation -Parent) -Force | Out-Null
         [IO.File]::WriteAllText($personalisation, '{"schemaVersion":1,"agents":[]}')
         & {
-            . (Join-Path $pluginCopy 'bin/legion-account.ps1') -HomeRoot $homeCopy
+            . (Join-Path $pluginCopy 'bin/lib/accounts.ps1')
             foreach ($adapterId in @('copilot', 'fourth')) {
                 $absentDir = Join-Path $homeCopy $adapterId
                 $configAgent = @{ tool = $adapterId; configDir = $absentDir; provider = $configProvider }
@@ -232,9 +236,7 @@ $agentData = Get-Content -LiteralPath $AgentPath -Raw | ConvertFrom-Json
         }
     } finally {
         $env:PATH = $savedPath
-        $cleanupPath = [IO.Path]::GetFullPath($configRoot)
-        if (-not $cleanupPath.StartsWith($scratchRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe test cleanup path' }
-        if (Test-Path -LiteralPath $cleanupPath) { Remove-Item -LiteralPath $cleanupPath -Recurse -Force }
+        Remove-TestFolder -Path $configRoot -AllowedParent $scratchRoot
     }
 }
 

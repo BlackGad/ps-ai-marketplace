@@ -32,8 +32,7 @@ function Get-FoundryTomlMultilineState {
 }
 
 . (Join-Path $PSScriptRoot '../../../bin/lib/paths.ps1')
-$folder = [string]$Agent.configDir
-if ($folder.StartsWith('~/')) { $folder = Join-Path $HomeRoot $folder.Substring(2) }
+$folder = Resolve-LegionHomePath -Path $Agent.configDir -HomeRoot $HomeRoot
 $path = Join-Path $folder 'config.toml'
 $az = Get-Command az -CommandType Application,ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $az) { throw 'az is not installed; run legion-install-tool.ps1 -Tool az' }

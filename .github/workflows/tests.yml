@@ -52,13 +52,11 @@ jobs:
           ref: ${{ inputs.sha || github.sha }}
       - shell: powershell
         run: |
-          foreach ($file in @('install.ps1', 'plugins/legion/install.ps1')) {
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $file), [ref]$null, [ref]$errors) | Out-Null
-            if ($errors) {
-              $errors | ForEach-Object { Write-Error $_.Message }
-              exit 1
-            }
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'install.ps1'), [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
           }
 
   pr-title:

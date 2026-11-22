@@ -72,8 +72,7 @@ jobs:
     Assert-Equal 1 $noTimeout.Count 'missing timeout flagged'
     Assert-Equal "job 'build' has no timeout-minutes" $noTimeout[0] 'timeout message'
 
-    $ids = @(Get-WorkflowJobIds -Path $local)
-    Assert-Equal 'call,build' ($ids -join ',') 'job ids in order'
+    Assert-Equal 'call,build' (@(Get-WorkflowJobIds -Path $local) -join ',') 'job ids in order'
     Assert-Equal 'call,build' ((Get-WorkflowJobBlocks -Path $local).Name -join ',') 'displayed names default to job ids'
 
     $named = Join-Path $temp 'named.yml'
@@ -94,6 +93,9 @@ jobs:
 '@
     Assert-Equal 'build,gate' ((Get-WorkflowJobBlocks -Path $named).Id -join ',') 'displayed names do not change job ids'
     Assert-Equal 'gate,another check' ((Get-WorkflowJobBlocks -Path $named).Name -join ',') 'displayed names include quoted names and ignore step names'
+    $withComment = (Get-Content $named -Raw).Replace('  gate:', "# job boundary comment`n  gate:")
+    Set-Content $named ($withComment + "`nconcurrency:`n  group: fixture`n")
+    Assert-Equal 'build,gate' ((Get-WorkflowJobBlocks -Path $named).Id -join ',') 'root comments preserve jobs and later top-level fields stay outside jobs'
 
     $workflowFolder = Join-Path $root '.github/workflows'
     $files = @()
@@ -103,10 +105,12 @@ jobs:
         Assert-Equal 0 $problems.Count "$($file.Name): $($problems -join '; ')"
         $jobIds = @(Get-WorkflowJobIds -Path $file.FullName)
         $jobNames = @((Get-WorkflowJobBlocks -Path $file.FullName).Name)
-        if ($file.Name -ne 'tests.yml') { Assert-True ('gate' -notin $jobIds) "$($file.Name) must not have a job named gate" }
-        if ($file.Name -ne 'tests.yml') { Assert-True ('gate' -notin $jobNames) "$($file.Name) must not display a check named gate" }
-        if ($file.Name -ne 'integration.yml') { Assert-True ('integration' -notin $jobIds) "$($file.Name) must not have a job named integration" }
-        if ($file.Name -ne 'integration.yml') { Assert-True ('integration' -notin $jobNames) "$($file.Name) must not display a check named integration" }
+        # A required check name belongs to one workflow file only.
+        foreach ($reserved in @{ gate = 'tests.yml'; integration = 'integration.yml' }.GetEnumerator()) {
+            if ($file.Name -eq $reserved.Value) { continue }
+            Assert-True ($reserved.Key -notin $jobIds) "$($file.Name) must not have a job named $($reserved.Key)"
+            Assert-True ($reserved.Key -notin $jobNames) "$($file.Name) must not display a check named $($reserved.Key)"
+        }
     }
     $tests = $files | Where-Object Name -eq 'tests.yml'
     if ($tests) { Assert-True ('gate' -in @(Get-WorkflowJobIds -Path $tests.FullName)) 'tests.yml has job gate' }
@@ -216,17 +220,11 @@ ${{ (inputs.sha != '' || (github.event_name == 'pull_request' && github.event.pu
         Require-Workflow ($integrationCall -match 'contents: write' -and $integrationCall -match 'pages: write' -and $integrationCall -notmatch 'steps:|runs-on:') 'release caller grants only the callee permission ceiling and cannot execute code itself'
         Require-Workflow ($mark -match 'context=integration' -and $mark.Contains('INTEGRATION_RESULT: ${{ needs.integration-release-pr.result }}') -and $mark -match "INTEGRATION_RESULT -eq 'success'") 'trusted status publisher reports the integration result independently on the resolved SHA'
         # Expressions in env values are data. No event, input or artifact text belongs in shell source.
-        $inRun = $false
-        foreach ($line in $integrationText -split "`n") {
-            if ($line -match '^        run: \|') { $inRun = $true; continue }
-            if ($inRun -and $line -match '^\S|^ {0,9}\S') { $inRun = $false }
-            if ($inRun) { Require-Workflow ($line -notmatch '\$\{\{') 'integration shell source must use env values instead of expression substitution' }
-        }
-
         $scripts = @([regex]::Matches($integrationText, '(?m)^        run: \|\r?\n(?<body>(?:^          [^\r\n]*(?:\r?\n|$)|^\r?\n)*)') | ForEach-Object {
             $_.Groups['body'].Value -replace '(?m)^          ', ''
         })
         foreach ($script in $scripts) {
+            Require-Workflow ($script -notmatch '\$\{\{') 'integration shell source must use env values instead of expression substitution'
             $parseErrors = $null
             [Management.Automation.Language.Parser]::ParseInput($script, [ref]$null, [ref]$parseErrors) | Out-Null
             Require-Workflow ($parseErrors.Count -eq 0) 'inline integration PowerShell parses cleanly'

@@ -23,6 +23,7 @@ function Get-LegionHelp {
         '  legion add <tool> [<folder>] [--yes] add a claude, codex or copilot account (new or existing folder)'
         '  legion remove <id>                   remove an account (its folder is kept)'
         '  legion status                        show accounts, commands, channels and this repository'
+        '  legion limits [<id>]                 show each account''s usage windows and reset times (or one account)'
         '  legion update [--yes]                update legion to the newest version of the track it was installed from'
         '  legion uninstall [--purge] [--yes]   remove legion; --purge also deletes settings, notes and legion-made logins'
         '  legion help                          show this list'
@@ -97,6 +98,12 @@ function Get-LegionCall {
             Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags @() -MinArguments 0 -MaxArguments 0
             return @{ Script = 'legion-status.ps1'; Splat = @{ Repo = $repo }; AsksToApply = $false }
         }
+        'limits' {
+            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags @() -MinArguments 0 -MaxArguments 1
+            $splat = @{}
+            if ($arguments.Count) { $splat.Account = $arguments[0] }
+            return @{ Script = 'legion-limits.ps1'; Splat = $splat; AsksToApply = $false }
+        }
         { $_ -in @('', 'pick') } {
             $noChannelFlags = @('--no-channel', '-NoChannel')
             Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags $noChannelFlags -MinArguments 0 -MaxArguments 0
@@ -127,6 +134,11 @@ function Copy-LegionInstaller {
     $folder = Get-LegionHomePath -Path ('temp/installer-' + [guid]::NewGuid().ToString('N')) -HomeRoot $homeRoot
     New-Item -ItemType Directory -Path $folder -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $script:LegionBin '../install.ps1'), (Join-Path $script:LegionBin '../tools.json') -Destination $folder
+    $libraryFolder = Join-Path $folder 'bin/lib'
+    New-Item -ItemType Directory -Path $libraryFolder -Force | Out-Null
+    foreach ($name in @('paths.ps1', 'footprints.ps1')) {
+        Copy-Item -LiteralPath (Join-Path $script:LegionBin "lib/$name") -Destination $libraryFolder
+    }
     return $folder
 }
 

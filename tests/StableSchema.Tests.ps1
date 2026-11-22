@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 & {
-    . (Join-Path $repo 'plugins/legion/bin/legion-account.ps1') -NoRun
+    . (Join-Path $repo 'plugins/legion/bin/lib/accounts.ps1')
     $sandbox = Join-Path $repo ('.agents/temp/stable-schema-' + [guid]::NewGuid().ToString('N'))
     $path = Join-Path $sandbox 'personalisation.json'
     $stable = 'https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/plugins/legion/schemas/personalisation.schema.json'

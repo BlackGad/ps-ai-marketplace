@@ -39,7 +39,7 @@ try {
     $output = & pwsh -NoProfile -File $script -Kind personalisation -Path $bomFile
     Assert-Equal 0 $LASTEXITCODE 'BOM CRLF owner exits zero'
     Assert-Equal 0 @($output).Count 'BOM CRLF owner has no output'
-    . $script -NoRun
+    . (Join-Path $root 'plugins/legion/bin/lib/settings.ps1')
     Assert-Equal 1 (Read-LegionJson -Path $bomFile).schemaVersion 'Read-LegionJson accepts BOM CRLF'
     $foundryFile = Join-Path $PSScriptRoot 'fixtures/personalisation/valid-foundry.json'
     Assert-Equal 0 @(Invoke-LegionValidation -Kind personalisation -Path $foundryFile).Count 'Foundry provider validates'
@@ -91,7 +91,7 @@ try {
         Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') $fourthSkill -Recurse
         $owner = [pscustomobject]@{schemaVersion=1;agents=@();channels=@()}
         $owner | ConvertTo-Json -Depth 100 | Set-Content $ownerPath
-        . (Join-Path $plugin 'bin/legion-account.ps1') -HomeRoot $homeRoot
+        . (Join-Path $plugin 'bin/lib/accounts.ps1')
         Assert-Equal 'FOURTH_HOME' (Get-LegionTool -Tool fourth).configEnv 'Fourth config environment comes from descriptor'
         $env:PATH = @($fourthSkill,$env:PATH) -join [IO.Path]::PathSeparator
         & (Join-Path $plugin 'bin/legion-account.ps1') -Action add -Tool fourth -Id fourth-dev -HomeRoot $homeRoot | Out-Null

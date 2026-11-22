@@ -8,29 +8,14 @@ param(
     [switch]$NoRun
 )
 
-# Dot-sourcing the account script resets same-named variables, so keep the request first.
-$request = @{ Action = $Action; Id = $Id; Kind = $Kind; Target = $Target; Accounts = @($Accounts); HomeRoot = $HomeRoot }
-$channelNoRun = $NoRun
-. (Join-Path $PSScriptRoot 'legion-account.ps1') -NoRun -HomeRoot $HomeRoot
+. (Join-Path $PSScriptRoot 'lib/accounts.ps1')
 . (Join-Path $PSScriptRoot 'lib/channels.ps1')
-
-function Test-ChannelCommand {
-    param([string]$Name)
-    return [bool](Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue)
-}
-
-function Get-ChannelKind {
-    param([string]$Kind)
-    $descriptor = @(Get-LegionChannels | Where-Object id -CEQ $Kind)[0]
-    if (-not $descriptor) { throw "unknown channel kind '$Kind'" }
-    return $descriptor
-}
 
 function Get-ChannelAccount {
     param($Data, [string]$AccountId, $Descriptor)
-    $account = @($Data.agents | Where-Object id -CEQ $AccountId)[0]
+    $account = Get-LegionAgent -Data $Data -Id $AccountId
     if (-not $account) { throw "unknown account '$AccountId'" }
-    if ($account.tool -cnotin $Descriptor.launch.PSObject.Properties.Name) {
+    if (-not (Test-LegionChannelLaunchesTool -Descriptor $Descriptor -Tool $account.tool)) {
         throw "account '$AccountId' uses $($account.tool), which $($Descriptor.id) does not support"
     }
     return $account
@@ -39,7 +24,7 @@ function Get-ChannelAccount {
 function Add-ChannelBinding {
     param($Data, [string]$Path, [string]$Id, [string]$Kind, [string]$Target, [string[]]$Accounts)
     Assert-LegionId -Id $Id
-    $descriptor = Get-ChannelKind $Kind
+    $descriptor = Get-LegionChannelKind $Kind
     foreach ($accountId in $Accounts) { $null = Get-ChannelAccount $Data $accountId $descriptor }
     $existing = @($Data.channels | Where-Object id -CEQ $Id)[0]
     if ($existing) {
@@ -64,35 +49,34 @@ function Remove-ChannelBinding {
 function Get-ChannelCheck {
     param([string]$Kind, [string[]]$Accounts, [string]$HomeRoot)
     $data = Read-LegionJson -Path (Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings)
-    $descriptor = Get-ChannelKind $Kind
+    $descriptor = Get-LegionChannelKind $Kind
     $supported = $descriptor.launch.PSObject.Properties.Name
     $command = $descriptor.ready.command
-    if ($command) { "{0,-10} {1}" -f $command, $(if (Test-ChannelCommand $command) { 'found' } else { 'not found' }) }
+    if ($command) { "{0,-10} {1}" -f $command, $(if (Get-Command $command -CommandType Application -ErrorAction SilentlyContinue) { 'found' } else { 'not found' }) }
     foreach ($accountId in $Accounts) {
-        $account = @($data.agents | Where-Object id -CEQ $accountId)[0]
+        $account = Get-LegionAgent -Data $data -Id $accountId
         if (-not $account) { throw "unknown account '$accountId'" }
-        if ($account.tool -cnotin $supported) {
+        if (-not (Test-LegionChannelLaunchesTool -Descriptor $descriptor -Tool $account.tool)) {
             "{0,-10} not supported ({1} supports: {2})" -f $accountId, $Kind, ($supported -join ', ')
             continue
         }
         $folder = $descriptor.ready.pluginFolder.($account.tool)
-        $configDir = $account.configDir
-        if ($configDir -like '~[/\]*') { $configDir = Join-Path $HomeRoot $configDir.Substring(2) }
+        $configDir = Resolve-LegionHomePath -Path $account.configDir -HomeRoot $HomeRoot
         $found = $folder -and (Test-Path -LiteralPath (Join-Path $configDir $folder) -PathType Container)
         "{0,-10} {1} plugin {2}" -f $accountId, $Kind, $(if ($found) { 'found' } else { 'not found' })
     }
 }
 
-if ($channelNoRun) { return }
+if ($NoRun) { return }
 
-$file = Get-LegionOwnerPath -HomeRoot $request.HomeRoot -Name Settings
-if ($request.Action -eq 'check') {
-    Get-ChannelCheck -Kind $request.Kind -Accounts $request.Accounts -HomeRoot $request.HomeRoot
+$file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings
+if ($Action -eq 'check') {
+    Get-ChannelCheck -Kind $Kind -Accounts @($Accounts) -HomeRoot $HomeRoot
     return
 }
 $data = Read-LegionJson -Path $file
-switch ($request.Action) {
-    add { Add-ChannelBinding $data $file $request.Id $request.Kind $request.Target $request.Accounts }
-    remove { Remove-ChannelBinding $data $file $request.Id }
+switch ($Action) {
+    add { Add-ChannelBinding $data $file $Id $Kind $Target @($Accounts) }
+    remove { Remove-ChannelBinding $data $file $Id }
     default { throw '-Action add, remove or check is required' }
 }

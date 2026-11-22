@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
-. (Join-Path $PSScriptRoot 'legion-validate.ps1') -NoRun
+. (Join-Path $PSScriptRoot 'lib/settings.ps1')
 
 $references = Join-Path $PSScriptRoot '../skills/legion-repository/references'
 $rulesHeading = '## legion orchestration'

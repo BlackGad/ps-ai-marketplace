@@ -48,7 +48,7 @@ function Get-LegionChannelWarnings {
         $comparer = Get-LegionPathComparer
         $accounts = @($owner.agents | Where-Object {
             if ($_.tool -cne $tool.id -or -not $_.configDir) { return $false }
-            $folder = if ($_.configDir -match '^~[/\\]') { Join-Path $homeRoot $_.configDir.Substring(2) } else { $_.configDir }
+            $folder = Resolve-LegionHomePath -Path $_.configDir -HomeRoot $homeRoot
             $folder = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($folder))
             $comparer.Equals($configDir, $folder)
         })

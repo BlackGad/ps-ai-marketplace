@@ -11,9 +11,7 @@ param(
     [switch]$NoRun
 )
 
-$launcherNoRun = $NoRun
-. (Join-Path $PSScriptRoot 'legion-validate.ps1') -NoRun
-
+. (Join-Path $PSScriptRoot 'lib/settings.ps1')
 . (Join-Path $PSScriptRoot 'lib/common.ps1')
 . (Join-Path $PSScriptRoot 'lib/channels.ps1')
 
@@ -59,9 +57,8 @@ function Invoke-OverseerRepositorySetup {
 function Select-OverseerAccount {
     param($Personalisation, [string]$Account, [string]$Tool, [string[]]$Channel, [string]$Last)
     if (-not $Account) { return Select-OnlyOverseerAccount $Personalisation $Tool $Channel -Last $Last }
-    $matches = @($Personalisation.agents | Where-Object id -CEQ $Account)
-    if ($matches.Count -ne 1) { throw "unknown account '$Account'" }
-    $selected = $matches[0]
+    $selected = Get-LegionAgent -Data $Personalisation -Id $Account
+    if (-not $selected) { throw "unknown account '$Account'" }
     if ($Tool -and $selected.tool -cne $Tool) { throw "account '$Account' is a $($selected.tool) account, not $Tool" }
     return $selected
 }
@@ -90,7 +87,7 @@ function Select-OnlyOverseerAccount {
 # The default channel is used only when exactly one binding fits.
 function Get-OverseerDefaultChannel {
     param($Personalisation, [string]$AccountId, [string]$Tool)
-    $kinds = @(Get-LegionChannels | Where-Object { $Tool -cin $_.launch.PSObject.Properties.Name })
+    $kinds = @(Get-LegionChannels | Where-Object { Test-LegionChannelLaunchesTool $_ $Tool })
     $fitting = @($Personalisation.channels | Where-Object { $AccountId -cin $_.accounts -and $_.kind -cin $kinds.id })
     if ($fitting.Count -eq 1) { return $fitting[0].id }
     return $null
@@ -138,7 +135,7 @@ function Get-OverseerResume {
     if (-not $Last -or -not $Last.session -or $Last.account -cne $Selected.id) { return $null }
     if ($Selected.tool -ceq 'codex') { return 'codex' }
     if ($Selected.tool -cne 'claude') { return $null }
-    $configDir = if ($Selected.configDir -match '^~[/\\]') { Join-Path $HomeRoot $Selected.configDir.Substring(2) } else { $Selected.configDir }
+    $configDir = Resolve-LegionHomePath -Path $Selected.configDir -HomeRoot $HomeRoot
     $pattern = Join-Path ([WildcardPattern]::Escape($configDir)) "projects/*/$($Last.session).jsonl"
     if (Test-Path -Path $pattern) { return 'claude' }
     return $null
@@ -152,10 +149,9 @@ function Get-OverseerLaunch {
     $resolved = @()
     $common = $null
     foreach ($id in $Channel) {
-        $channelData = @($Personalisation.channels | Where-Object id -CEQ $id)
-        if ($channelData.Count -ne 1) { throw "unknown or duplicate channel '$id'" }
-        if ($null -eq $common) { $common = @($channelData[0].accounts) }
-        else { $common = @($common | Where-Object { $_ -cin $channelData[0].accounts }) }
+        $channelData = Get-LegionChannelBinding -Personalisation $Personalisation -Id $id
+        if ($null -eq $common) { $common = @($channelData.accounts) }
+        else { $common = @($common | Where-Object { $_ -cin $channelData.accounts }) }
     }
     if ($Channel.Count -and -not $common.Count) { throw 'selected channels cannot share one launch' }
     foreach ($id in $Channel) {
@@ -310,7 +306,7 @@ function Invoke-Overseer {
     }
 }
 
-if (-not $launcherNoRun) {
+if (-not $NoRun) {
     try { Invoke-Overseer -Repo $Repo -HomeRoot $HomeRoot -Account $Account -Tool $Tool -Channel $Channel -Arguments $Arguments -NoChannel:$NoChannel -DryRun:$DryRun -Pick:$Pick }
     catch {
         if (-not $_.Exception.Data.Contains('LegionLaunchExitCode')) { throw }

@@ -1,8 +1,8 @@
-. (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
+. (Join-Path $PSScriptRoot '../../lib/installer.ps1')
+. $installerPath -NoRun
 . (Join-Path $PSScriptRoot 'MarketplaceListing.ps1')
 $catalog = Get-InstallCatalog -Source $repo
-$sandbox = Join-Path $repo ('.agents/temp/uninstall-clean-' + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
+$sandbox = New-InstallTestFolder 'uninstall-clean'
 $state = @{ Only=''; Plugin=$true; Marketplace=$true; FailRemove=$false; KeepListed=$false; FailVerify=$false; Answer='n'; Prompts=0 }
 $writes = [Collections.Generic.List[string]]::new()
 $calls = [Collections.Generic.List[string]]::new()
@@ -16,11 +16,11 @@ foreach ($tool in $catalog.tools) {
 function Ensure-InstallPowerShell { throw 'Uninstall must not install prerequisites' }
 function Read-Host { $state.Prompts++; $state.Answer }
 function Invoke-ClosedInput {
-    param([string[]]$Command)
+    param([string[]]$Command, $Environment)
     $line = $Command -join '|'
     $calls.Add($line)
     $entry = $catalog.tools | Where-Object command -CEQ $Command[0]
-    $callEnvironments.Add($entry.id + '=' + [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process'))
+    $callEnvironments.Add($entry.id + '=' + $Environment[$entry.configEnv])
     if ($line -ceq ((@($entry.command) + $entry.plugin.list) -join '|')) {
         if ($state.FailVerify -and $writes.Count) { return @{ExitCode=7;Output=@()} }
         # Only: when set, just that tool has legion installed, so the others are not survivors.
@@ -49,7 +49,5 @@ function New-FixtureCache {
     'keep or remove with cache' | Set-Content -LiteralPath (Join-Path $Path 'fixture.txt')
 }
 function Remove-UninstallSandbox {
-    $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
-    if (-not [IO.Path]::GetFullPath($sandbox).StartsWith($allowed)) { throw 'Unsafe uninstall fixture cleanup' }
-    Remove-Item -LiteralPath $sandbox -Recurse -Force
+    Remove-InstallTestFolder $sandbox
 }

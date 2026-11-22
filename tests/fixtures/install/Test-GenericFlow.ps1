@@ -1,7 +1,7 @@
 param([string]$Installer, [string]$Catalog, [ValidateSet('fresh','cached','update','registered')][string]$Mode)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'MarketplaceListing.ps1')
-. ([scriptblock]::Create((Get-Content -LiteralPath $Installer -Raw))) -NoRun
+. $Installer -NoRun
 $catalogText = Get-Content -LiteralPath $Catalog -Raw
 $entries = ($catalogText | ConvertFrom-Json).tools
 $fixtureHome = Split-Path $Catalog
@@ -17,7 +17,7 @@ function Get-InstallSourceText {
 function Test-InstallCommandAvailable { param($Name) $Name -in @('claude','codex','copilot') }
 function Invoke-InstallRefresh { 'fixture artifacts refreshed' }
 function Invoke-ClosedInput {
-    param($Command)
+    param($Command, $Environment)
     $entry = $entries | Where-Object command -EQ $Command[0]
     if (-not $entry) { throw 'Unexpected fixture executable' }
     $state = $states[$entry.command]

@@ -1,7 +1,7 @@
 # Integration suite: install, setup and uninstall on a clean runner with the real CLIs and no login.
 # CI only. Without -NoRun the script refuses to start unless CI is "true", so a local run never touches a real home.
 # -AllowSourceFallback is set by the workflow for runs on main; it lets a CLI that refuses the checkout use the published source at the tested revision.
-# Steps are data: @{ Name; DependsOn = @(<names>); First = { }; Repeat = { } }. A block throws to fail and may return @{ Skipped = '<reason>' }.
+# Ordered actions: @{ Name; Repeat = <bool>; Action = { } }. A failed or skipped action skips the rest.
 param(
     [string]$Out,
     [string]$HomeRoot,
@@ -60,34 +60,21 @@ function New-IntegrationCase {
 
 function Invoke-IntegrationSteps {
     param([object[]]$Steps, [string]$LogFolder)
-    $outcome = @{}
+    $blocked = ''
     foreach ($step in $Steps) {
-        $name = $step.Name
-        $blocker = @($step.DependsOn | Where-Object { $outcome[$_] -ne 'passed' })[0]
-        if ($blocker) {
-            New-IntegrationCase $name 0 'skipped' "needs $blocker" $false
-            New-IntegrationCase $name 0 'skipped' "needs $blocker" $true
-            $outcome[$name] = 'skipped'
+        $name = if ($step.Repeat) { "$($step.Name) (repeat)" } else { $step.Name }
+        if ($blocked) {
+            New-IntegrationCase $step.Name 0 'skipped' $blocked ([bool]$step.Repeat)
             continue
         }
-        $first = Invoke-IntegrationBlock $step.First
-        New-IntegrationCase $name $first.Seconds $first.Result $first.Message $false
-        $repeatMessage = if ($first.Result -eq 'skipped') { $first.Message } else { 'first run did not pass' }
-        $final = $first.Result
-        if ($first.Result -eq 'passed') {
-            $repeat = Invoke-IntegrationBlock $step.Repeat
-            New-IntegrationCase $name $repeat.Seconds $repeat.Result $repeat.Message $true
-            $final = $repeat.Result
-        } else {
-            New-IntegrationCase $name 0 'skipped' $repeatMessage $true
-        }
-        $outcome[$name] = $final
+        $result = Invoke-IntegrationBlock $step.Action
+        New-IntegrationCase $step.Name $result.Seconds $result.Result $result.Message ([bool]$step.Repeat)
+        if ($result.Result -ne 'passed') { $blocked = "previous step $($result.Result): $name" }
         if ($LogFolder) {
             New-Item -ItemType Directory -Path $LogFolder -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $LogFolder "$name.log") -Value $first.Log
-            if ($repeat) { Set-Content -LiteralPath (Join-Path $LogFolder "$name-repeat.log") -Value $repeat.Log }
+            $logName = if ($step.Repeat) { "$($step.Name)-repeat" } else { $step.Name }
+            Set-Content -LiteralPath (Join-Path $LogFolder "$logName.log") -Value $result.Log
         }
-        $repeat = $null
     }
 }
 
@@ -510,10 +497,20 @@ function Invoke-SetupFirst {
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
         Assert-IntegrationTrue ($userPath.Split(';') -contains $bin) '.legion/bin is not on the user PATH'
     } else {
-        Assert-IntegrationText $lines 'export PATH='
+        Assert-IntegrationTrue ((Get-IntegrationProfileLineCount) -eq 1) 'the shell profile must hold exactly one marked legion line after install and setup'
     }
     $script:Ctx.HomeSnapshot = Get-IntegrationHomeSnapshot
     return $lines
+}
+
+# The marked legion lines in the shell profiles under the integration home (SHELL picks which profile legion writes).
+function Get-IntegrationProfileLineCount {
+    $count = 0
+    foreach ($name in @('.zshrc', '.bashrc', '.profile')) {
+        $path = Join-Path $script:Ctx.HomeRoot $name
+        if (Test-Path -LiteralPath $path) { $count += @([IO.File]::ReadAllLines($path) | Where-Object { $_ -ceq '# Added by legion' }).Count }
+    }
+    return $count
 }
 
 function Assert-AccountsHaveLegion {
@@ -689,25 +686,15 @@ function Invoke-UninstallFirst {
         & $command --version | Out-Null
         Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "$tool is no longer installed"
     }
-    # The owner commands go; every account launcher stays, so a later install is an upgrade.
-    foreach ($name in Get-IntegrationOwnerCommandNames) {
-        foreach ($path in Get-IntegrationLauncherPaths $name) {
-            Assert-IntegrationTrue (-not (Test-Path -LiteralPath $path)) "owner command $name is still in .legion/bin"
-        }
+    # The owner command goes; every account launcher stays, so a later install is an upgrade.
+    foreach ($path in Get-IntegrationLauncherPaths 'legion') {
+        Assert-IntegrationTrue (-not (Test-Path -LiteralPath $path)) 'owner command legion is still in .legion/bin'
     }
     Assert-IntegrationLaunchersExist
     foreach ($kept in 'configuration', 'agents') {
         Assert-IntegrationTrue (Test-Path -LiteralPath (Join-Path $script:Ctx.HomeRoot ".legion/$kept") -PathType Container) ".legion/$kept was removed"
     }
     return $lines
-}
-
-# The installer's own list of owner commands, loaded in a child scope so its helpers stay out of this script.
-function Get-IntegrationOwnerCommandNames {
-    return @(& {
-        . (Join-Path $script:Ctx.Checkout 'plugins/legion/install.ps1') -NoRun
-        (Get-InstallOwnerCommands).Keys
-    })
 }
 
 # A launcher is one file on macOS and Linux, and a file plus a .cmd file on Windows.
@@ -805,12 +792,6 @@ function Assert-IntegrationPurged {
     Assert-IntegrationTrue ($listing.ExitCode -eq 0) "$($Target.Tool) marketplace listing failed after purge"
     Assert-IntegrationTrue (-not (Test-IntegrationListing -Kind marketplace -Tool $Target.Tool -Lines $listing.Lines)) "legion marketplace is still registered in $($Target.Folder)"
     $paths = @($info.plugin.cacheDir) + @($info.plugin.purge.paths) + @($info.plugin.purge.emptyDirs)
-    if ($info.plugin.purge.legacyHookTrust) {
-        $paths += & {
-            . (Join-Path $script:Ctx.Checkout 'plugins/legion/install.ps1') -NoRun
-            Get-InstallPurgeTrustPath -ConfigDir $Target.Folder
-        }
-    }
     foreach ($relative in $paths) {
         if (-not $relative) { continue }
         $path = Join-Path $Target.Folder $relative
@@ -825,6 +806,7 @@ function Assert-IntegrationPurged {
 
 function Assert-IntegrationPurgeComplete {
     Assert-IntegrationTrue (-not (Test-Path -LiteralPath (Join-Path $script:Ctx.HomeRoot '.legion'))) 'legion home remains after purge'
+    Assert-IntegrationTrue ((Get-IntegrationProfileLineCount) -eq 0) 'the marked legion line remains in the shell profile after purge'
     foreach ($target in $script:Ctx.PurgeTargets) { Assert-IntegrationPurged $target }
     foreach ($tool in $script:IntegrationTools) {
         $result = Invoke-IntegrationCli -Tool $tool -Arguments @('--version') -Folder (Get-IntegrationToolFolder $tool)
@@ -849,6 +831,12 @@ function Invoke-PurgeRepeat {
     return $lines
 }
 
+# When every CLI refused the checkout, nothing real was tested; an empty result means coverage is fine.
+function Get-IntegrationCoverageProblem {
+    if ($script:Ctx.NotTested.Count -lt $script:IntegrationTools.Count) { return '' }
+    return 'every CLI refused the checkout, so no real install was tested: ' + (@($script:Ctx.NotTested.Values) -join '; ')
+}
+
 # Building the ordered steps touches nothing; only running a block does.
 function Get-IntegrationSteps {
     param([string]$HomeRoot, [string]$Checkout, [string]$Work, [string]$Os, [switch]$AllowFallback)
@@ -856,26 +844,26 @@ function Get-IntegrationSteps {
         HomeRoot = $HomeRoot; Checkout = $Checkout; Work = $Work; Os = $Os; AllowFallback = [bool]$AllowFallback
         Versions = [ordered]@{}; Commands = @{}; Targets = @{}; NotTested = [ordered]@{}
     }
-    $steps = @()
     foreach ($tool in $script:IntegrationTools) {
-        $steps += @{
-            Name = "install-cli-$tool"; DependsOn = @()
-            First = [scriptblock]::Create("Invoke-CliInstallFirst '$tool'")
-            Repeat = [scriptblock]::Create("Invoke-CliInstallRepeat '$tool'")
-        }
+        @{ Name = "install-cli-$tool"; Repeat = $false; Action = [scriptblock]::Create("Invoke-CliInstallFirst '$tool'") }
+        @{ Name = "install-cli-$tool"; Repeat = $true; Action = [scriptblock]::Create("Invoke-CliInstallRepeat '$tool'") }
     }
-    $cliSteps = @($script:IntegrationTools | ForEach-Object { "install-cli-$_" })
-    $steps += @{ Name = 'install-legion'; DependsOn = $cliSteps; First = { Invoke-LegionInstallFirst }; Repeat = { Invoke-LegionInstallRepeat } }
-    $steps += @{ Name = 'setup'; DependsOn = @('install-legion'); First = { Invoke-SetupFirst }; Repeat = { Invoke-SetupRepeat } }
-    $steps += @{ Name = 'add'; DependsOn = @('setup'); First = { Invoke-AddFirst }; Repeat = { Invoke-AddRepeat } }
-    $steps += @{ Name = 'remove'; DependsOn = @('add'); First = { Invoke-RemoveFirst }; Repeat = { Invoke-RemoveRepeat } }
-    $steps += @{ Name = 'repo-private'; DependsOn = @(); First = { Invoke-RepoPrivateFirst }; Repeat = { Invoke-RepoPrivateRepeat } }
-    $steps += @{ Name = 'repo-shared'; DependsOn = @(); First = { Invoke-RepoSharedFirst }; Repeat = { Invoke-RepoSharedRepeat } }
-    $steps += @{ Name = 'uninstall'; DependsOn = @('setup'); First = { Invoke-UninstallFirst }; Repeat = { Invoke-UninstallRepeat } }
-    $steps += @{ Name = 'reinstall'; DependsOn = @('uninstall'); First = { Invoke-ReinstallFirst }; Repeat = { Invoke-ReinstallRepeat } }
-    $steps += @{ Name = 'restore-launchers'; DependsOn = @('reinstall'); First = { Invoke-RestoreLaunchersFirst }; Repeat = { Invoke-RestoreLaunchersRepeat } }
-    $steps += @{ Name = 'purge'; DependsOn = @('restore-launchers'); First = { Invoke-PurgeFirst }; Repeat = { Invoke-PurgeRepeat } }
-    return $steps
+    $actions = [ordered]@{
+        'install-legion' = 'LegionInstall'
+        setup = 'Setup'
+        add = 'Add'
+        remove = 'Remove'
+        'repo-private' = 'RepoPrivate'
+        'repo-shared' = 'RepoShared'
+        uninstall = 'Uninstall'
+        reinstall = 'Reinstall'
+        'restore-launchers' = 'RestoreLaunchers'
+        purge = 'Purge'
+    }
+    foreach ($step in $actions.GetEnumerator()) {
+        @{ Name = $step.Key; Repeat = $false; Action = [scriptblock]::Create("Invoke-$($step.Value)First") }
+        @{ Name = $step.Key; Repeat = $true; Action = [scriptblock]::Create("Invoke-$($step.Value)Repeat") }
+    }
 }
 
 # ---- Main -------------------------------------------------------------------------------------
@@ -900,5 +888,7 @@ $cases = @(Invoke-IntegrationSteps -Steps $steps -LogFolder (Join-Path $Out 'log
 $extra = ($script:Ctx.Versions.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value)" }) -join ', '
 if ($script:Ctx.NotTested.Count) { $extra += "; not tested from the checkout: $(@($script:Ctx.NotTested.Keys) -join ', ')" }
 Write-IntegrationReport -Out $Out -Os $os -Cases $cases -Probe $probe -Extra $extra
+$coverageProblem = Get-IntegrationCoverageProblem
+if ($coverageProblem) { Write-Error $coverageProblem; exit 1 }
 if (@($cases | Where-Object Result -eq 'failed').Count) { exit 1 }
 exit 0

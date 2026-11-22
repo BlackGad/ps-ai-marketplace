@@ -1,14 +1,13 @@
-$ErrorActionPreference = 'Stop'
-$repo = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'lib/installer.ps1')
 
 # Every scenario has its own home, all three config overrides, and an outside-home
 # sentinel. No test boundary can invoke a real CLI, registry writer or downloader.
 function Test-PurgeScenario {
     param([scriptblock]$Body)
     & {
-        . (Join-Path $repo 'plugins/legion/install.ps1') -NoRun
+        . $installerPath -NoRun
         $catalog = Get-InstallCatalog -Source $repo
-        $scratch = Join-Path $repo ('.agents/temp/purge-' + [guid]::NewGuid().ToString('N'))
+        $scratch = New-InstallTestFolder 'purge'
         $fixtureHome = Join-Path $scratch 'home'
         $outside = Join-Path $scratch 'fake-real'
         $saved = @{}
@@ -28,8 +27,8 @@ function Test-PurgeScenario {
         function Get-InstallSourceText { throw 'Network forbidden' }
         function Ensure-InstallPowerShell { throw 'Tool installation forbidden' }
         function Test-InstallCommandAvailable { -not $state.Missing }
-        function Get-InstallUserPath { $state.UserPath }
-        function Set-InstallUserPath { param($Path) $state.UserPath=$Path; $state.PathWrites++ }
+        function Get-LegionUserPath { $state.UserPath }
+        function Set-LegionUserPath { param($Path) $state.UserPath=$Path; $state.PathWrites++ }
         function Read-Host {
             param($Prompt)
             $state.Prompts += $Prompt
@@ -39,9 +38,9 @@ function Test-PurgeScenario {
             return $answer
         }
         function Invoke-ClosedInput {
-            param($Command)
+            param($Command, $Environment)
             $entry = $catalog.tools | Where-Object command -CEQ $Command[0]
-            $folder = [Environment]::GetEnvironmentVariable($entry.configEnv, 'Process')
+            $folder = $Environment[$entry.configEnv]
             Assert-True ($folder.StartsWith($fixtureHome + [IO.Path]::DirectorySeparatorChar)) 'Every CLI gets a temporary config folder'
             if ($Command[2] -eq 'list') {
                 $line = if ($entry.id -eq 'claude') { if ($state.Installed) { '[{"id":"legion@ps-legion-marketplace","enabled":true}]' } else { '[]' } }
@@ -67,11 +66,40 @@ function Test-PurgeScenario {
             Assert-Equal $outsideHash (Get-FileHash (Join-Path $outside 'keep.txt')).Hash 'Fake real folder bytes unchanged'
             Assert-Equal 1 @(Get-ChildItem $outside -Recurse -Force).Count 'Fake real folder inventory unchanged'
             foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
-            $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp')) + [IO.Path]::DirectorySeparatorChar
-            if (-not [IO.Path]::GetFullPath($scratch).StartsWith($allowed)) { throw 'Unsafe purge fixture cleanup' }
-            Remove-Item -LiteralPath $scratch -Recurse -Force
+            Remove-InstallTestFolder $scratch
         }
     }
+}
+
+Test-PurgeScenario {
+    $sharedHomePath = ${function:Resolve-LegionHomePath}
+    $expanded = [Collections.Generic.List[string]]::new()
+    function Resolve-LegionHomePath {
+        param([string]$Path, [string]$HomeRoot)
+        Assert-Equal $fixtureHome $HomeRoot 'Shared expansion receives the selected home'
+        $expanded.Add($Path)
+        & $sharedHomePath -Path $Path -HomeRoot $HomeRoot
+    }
+    foreach ($path in @('~/selected/', '~\selected\', '~/nested/../selected/')) {
+        Assert-Equal (Join-Path $fixtureHome 'selected') (Resolve-InstallConfigDir $path) 'Home aliases normalize to one folder'
+    }
+    Assert-Equal $fixtureHome (Resolve-InstallConfigDir '~') 'Bare tilde selects the home itself'
+    Assert-True ($expanded.Count -ge 3) 'Installer delegates leading tilde expansion to the shared helper'
+}
+
+Test-PurgeScenario {
+    $walks = [Collections.Generic.List[string]]::new()
+    $sharedWalk = ${function:Test-LegionOwnerPathSafe}
+    function Test-LegionOwnerPathSafe {
+        param([string]$Path, [string]$StopRoot)
+        $walks.Add($StopRoot)
+        & $sharedWalk -Path $Path -StopRoot $StopRoot
+    }
+    $file = New-PurgeFile '.legion/bin/codex-a'
+    Assert-True (Test-LegionOwnerPathSafe -Path $file -StopRoot $fixtureHome) 'Generated files use the shared link walk'
+    Assert-Equal $file (Get-InstallSafePath -Root $fixtureHome -Relative '.legion/bin/codex-a' -AllowFile) 'Purge paths use the shared link walk'
+    Assert-Equal 2 $walks.Count 'Both path guards delegate the ancestor walk'
+    foreach ($root in $walks) { Assert-Equal $fixtureHome $root 'Installer link walks stop at the selected home' }
 }
 
 Test-PurgeScenario {
@@ -103,7 +131,7 @@ Test-PurgeScenario {
     Assert-True (-not (Test-Path (Join-Path $fixtureHome 'override-copilot/plugin-data/ps-legion-marketplace'))) 'Purge removes Copilot data and empty marketplace parent'
     Assert-Equal '{"enabledPlugins":{"other@else":true},"theme":"dark"}' ([IO.File]::ReadAllText($settings)) 'Only legion member and its comma removed'
     Assert-Equal 'repository data' ([IO.File]::ReadAllText($repoFile)) 'Repository legion folder preserved'
-    Assert-True ($output.Contains('folders legion no longer knows')) 'Prints hook baseline limitation'
+    Assert-True (-not $output.Contains('hook approvals')) 'Purge no longer advertises legacy hook-trust cleanup'
     $repeat = @(Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes)
     Assert-True ($repeat -contains 'skip: purge (already done)') 'Repeated purge skips without writes'
 }
@@ -159,6 +187,7 @@ Test-PurgeScenario {
     $env:OS='Windows_NT'
     $bin = Join-Path $fixtureHome '.legion/bin'
     $portable = Join-Path $fixtureHome '.legion/tools/pwsh'
+    foreach ($entry in @($bin, $portable)) { Add-LegionFootprint -HomeRoot $fixtureHome -Kind path-entry -Path 'user PATH' -Value $entry -Owner legion }
     $state.UserPath="keep-first;$bin;keep-middle;$portable;keep-last;"
     $separator = [string][IO.Path]::PathSeparator
     $env:PATH = @('keep-first', $bin, 'keep-middle', $portable, 'keep-last') -join $separator
@@ -183,23 +212,41 @@ Test-PurgeScenario {
     Assert-True (((Get-LegionHelp) -join "`n").Contains('uninstall [--purge]')) 'Help includes purge'
     # Exercise the local root entry point without invoking any CLI or registry API.
     $entry = Get-Content (Join-Path $repo 'install.ps1') -Raw
-    $record = @{}
-    function Get-InstallSourceText { "param([switch]`$Uninstall,[switch]`$Purge,[switch]`$Yes,[string]`$HomeRoot) `$record.Purge = [bool]`$Purge" }
+    $pluginFolder=Join-Path $fixtureHome 'archive/top/plugins/legion'
+    New-Item -ItemType Directory -Path $pluginFolder -Force | Out-Null
+    'param([switch]$Uninstall,[switch]$Purge,[switch]$Yes,[string]$HomeRoot); [string][bool]$Purge | Set-Content (Join-Path $HomeRoot "purge-forwarded.txt")' |
+        Set-Content (Join-Path $pluginFolder 'install.ps1')
+    Copy-Item (Join-Path $repo 'plugins/legion/tools.json') (Join-Path $pluginFolder 'tools.json')
+    $archive=Join-Path $fixtureHome 'plugin.zip'
+    Compress-Archive -Path (Join-Path $fixtureHome 'archive/top') -DestinationPath $archive
+    function Invoke-WebRequest { param($Uri,$OutFile) Copy-Item -LiteralPath (Join-Path $fixtureHome 'plugin.zip') -Destination $OutFile }
     $null = & ([scriptblock]::Create($entry)) -Uninstall -Purge -Yes -HomeRoot $fixtureHome
-    Assert-True $record.Purge 'Downloaded root one-liner forwards purge'
+    Assert-Equal 'True' ((Get-Content (Join-Path $fixtureHome 'purge-forwarded.txt') -Raw).Trim()) 'Downloaded root one-liner forwards purge'
 }
 
 Test-PurgeScenario {
     $state.Missing=$true
     $config = Join-Path $fixtureHome '.codex'
-    $baseline = New-PurgeFile ('.codex/' + (Get-InstallPurgeTrustPath -ConfigDir $config)) 'legion bundle hash'
+    # Reproduce the historical key only in this fixture to prove it stays untouched.
+    $bytes = [Collections.Generic.List[byte]]::new()
+    foreach ($part in @([IO.Path]::GetFullPath((Join-Path $config 'config.toml')), 'legion@ps-legion-marketplace')) {
+        $textBytes = [Text.Encoding]::UTF8.GetBytes($part)
+        $length = [BitConverter]::GetBytes([uint64]$textBytes.Length)
+        if (-not [BitConverter]::IsLittleEndian) { [Array]::Reverse($length) }
+        $bytes.AddRange($length)
+        $bytes.AddRange($textBytes)
+    }
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { $key = ([BitConverter]::ToString($hash.ComputeHash($bytes.ToArray()))).Replace('-', '').ToLowerInvariant() }
+    finally { $hash.Dispose() }
+    $baseline = New-PurgeFile ".codex/.hook-trust/$key" 'legion bundle hash'
     $unknown = New-PurgeFile '.codex/.hook-trust/unknown-baseline' 'unattributable hash'
     $otherData = New-PurgeFile 'override-copilot/plugin-data/ps-legion-marketplace/other/keep.txt' 'other plugin'
     $otherCache = New-PurgeFile '.codex/plugins/cache/other-marketplace/other/1.0/plugin.json' 'other cache'
     $data = New-PurgeFile '.codex/plugins/data/legion-ps-legion-marketplace/state.json'
     $checkout = New-PurgeFile '.codex/.tmp/marketplaces/ps-legion-marketplace/.git/config'
     $null = Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes
-    Assert-True (-not (Test-Path $baseline)) 'Known Codex baseline removed'
+    Assert-Equal 'legion bundle hash' ([IO.File]::ReadAllText($baseline)) 'Legacy Codex baseline preserved'
     Assert-Equal 'unattributable hash' ([IO.File]::ReadAllText($unknown)) 'Unknown baseline preserved'
     Assert-True (-not (Test-Path $data)) 'Codex plugin data removed'
     Assert-True (-not (Test-Path $checkout)) 'Managed marketplace checkout removed'
@@ -266,8 +313,8 @@ Test-PurgeScenario {
     $fakes = @'
 function Test-InstallCommandAvailable { $false }
 function Get-InstallSourceText { throw 'Network forbidden' }
-function Get-InstallUserPath { '' }
-function Set-InstallUserPath { throw 'Registry writes forbidden' }
+function Get-LegionUserPath { '' }
+function Set-LegionUserPath { throw 'Registry writes forbidden' }
 function Read-Host { throw 'Yes must not prompt' }
 function Invoke-ClosedInput { throw 'Real CLI calls forbidden' }
 '@
@@ -304,12 +351,50 @@ Test-PurgeScenario {
     Assert-True (-not (Test-Path $owned)) 'Applier removes the folder declared by the descriptor'
     Assert-Equal '{"enabledPlugins":{},"other":1}' ([IO.File]::ReadAllText($settings)) 'Applier uses the descriptor settings file and preserves unrelated bytes'
     $entry.plugin.purge.paths=@('../fake-real')
-    Assert-Throws { Get-InstallCatalog -Catalog $catalog } 'Standalone catalog rejects purge paths outside a tool folder'
+    Assert-Throws { Get-InstallPurgePlan } 'Purge rejects catalog paths outside a tool folder'
     $descriptor = Get-Content (Join-Path $repo 'plugins/legion/skills/legion-claude/tool.json') -Raw | ConvertFrom-Json
     $descriptor.plugin.purge.settings[0].path='../outside.json'
     $invalid = $descriptor | ConvertTo-Json -Depth 100
-    # The standalone installer also runs on 5.1; JSON Schema validation is a 7-only check.
-    if (Get-Command Test-Json -ErrorAction SilentlyContinue) {
-        Assert-True (-not (Test-Json -Json $invalid -SchemaFile (Join-Path $repo 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) 'Tool schema rejects settings paths outside the config folder'
+    Assert-True (-not (Test-Json -Json $invalid -SchemaFile (Join-Path $repo 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)) 'Tool schema rejects settings paths outside the config folder'
+}
+
+Test-PurgeScenario {
+    # Purge rechecks the index under the footprint lock and holds the lock until the legion folder is gone.
+    $script:installCatalog = $catalog
+    $null = New-PurgeFile '.legion/configuration/notes.md' 'notes'
+    $plan = Get-InstallPurgePlan
+    Add-LegionFootprint -HomeRoot $fixtureHome -Kind file -Path (Join-Path $fixtureHome '.legion/bin/legion') -Owner 'claude:installed-after-preview'
+    Assert-Throws { Invoke-InstallPurgePlan -Plan $plan } 'Purge refuses records added after its preview'
+    Assert-Equal 1 @(Get-LegionFootprints -HomeRoot $fixtureHome).Count 'A record added after the preview stays'
+    $plan = Get-InstallPurgePlan
+    $lockPath = (Get-LegionOwnerPath -Name Index -HomeRoot $fixtureHome) + '.lock'
+    $observed = [Collections.Generic.List[string]]::new()
+    $sharedSafePath = ${function:Get-InstallSafePath}
+    function Get-InstallSafePath {
+        param([string]$Root, $Relative, [switch]$AllowFile, [string[]]$Except = @())
+        if ($Relative -ceq '.legion') {
+            try { ([IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None')).Dispose(); $observed.Add('free') }
+            catch [IO.IOException] { $observed.Add('held') }
+        }
+        & $sharedSafePath -Root $Root -Relative $Relative -AllowFile:$AllowFile -Except $Except
     }
+    Invoke-InstallPurgePlan -Plan $plan
+    Assert-Equal 'held' ($observed -join '|') 'A writer waits while purge removes the legion folder'
+    Assert-True (-not (Test-Path (Join-Path $fixtureHome '.legion'))) 'The lock file goes last, with the legion folder'
+}
+
+Test-PurgeScenario {
+    # The link lookup compares paths with the OS rules, so a differently cased spelling on Windows finds its record.
+    $script:installCatalog = $catalog
+    $target = Join-Path $fixtureHome 'portable'
+    New-Item -ItemType Directory -Path $target, (Join-Path $fixtureHome '.legion/bin') -Force | Out-Null
+    $link = Join-Path $fixtureHome '.legion/bin/pwsh'
+    $type = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+    New-Item -ItemType $type -Path $link -Target $target | Out-Null
+    Add-LegionFootprint -HomeRoot $fixtureHome -Kind link -Path $link -Value (Get-Item -LiteralPath $link -Force).LinkTarget -Owner legion
+    $plan = Get-InstallPurgePlan
+    if ($IsWindows) { $plan.Links = @($plan.Links | ForEach-Object { $_.ToUpperInvariant() }) }
+    Invoke-InstallPurgePlan -Plan $plan
+    Assert-True (-not (Test-Path (Join-Path $fixtureHome '.legion'))) 'Purge removes the recorded link, then the legion folder'
+    Assert-True (Test-Path $target) 'The link target stays'
 }

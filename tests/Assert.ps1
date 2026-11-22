@@ -1,3 +1,5 @@
+. (Join-Path $PSScriptRoot 'lib/guard.ps1')
+
 function Assert-Equal {
     param($Expected, $Actual, [string]$Message)
     if ($Expected -cne $Actual) { throw "$Message`: expected '$Expected', got '$Actual'" }

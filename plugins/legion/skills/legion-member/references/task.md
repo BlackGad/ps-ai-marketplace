@@ -16,3 +16,5 @@ Legion runs without the CLI sandbox and inherits the owner's installed SDKs, too
 In a Private worktree, the overseer supplies read-only copies of `.legion/configuration/` and `.legion/scripts/`. Run indexed checks from those copies. If a script or rule needs changing, stop and report it; the overseer makes that change through the main tree. Shared mode needs no copy.
 
 Never edit `.legion/state/handoff.md`. Fixed repository gates run through their indexed `.legion/scripts/` scripts. Before committing, inspect `git diff --check` and the changed-file list against task scope. Record exact commands and results in `{REPORT_FILE}` using [report-format.md](report-format.md).
+
+Follow the repository's `AGENTS.md` test rule: a single file runs through `pwsh -NoProfile -File tests/run.ps1 -Name <file>` (wildcards allowed), never directly.

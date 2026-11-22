@@ -79,6 +79,7 @@ legion - legion commands
   legion add <tool> [<folder>] [--yes] add a claude, codex or copilot account (new or existing folder)
   legion remove <id>                   remove an account (its folder is kept)
   legion status                        show accounts, commands, channels and this repository
+  legion limits [<id>]                 show each account's usage windows and reset times (or one account)
   legion update [--yes]                update legion to the newest version of the track it was installed from
   legion uninstall [--purge] [--yes]   remove legion; --purge also deletes settings, notes and legion-made logins
   legion help                          show this list
@@ -197,6 +198,8 @@ if ($Uninstall) {
     # The uninstall deletes the installed source folder, then reads the copied catalog.
     Remove-Item -LiteralPath (Join-Path $HomeRoot 'source') -Recurse -Force
     $entry.Catalog = (Get-Content -LiteralPath $catalog -Raw).Trim()
+    . (Join-Path $PSScriptRoot 'bin/lib/paths.ps1')
+    $entry.SharedPath = Get-LegionOwnerPath -Name Settings -HomeRoot $HomeRoot
 }
 $entry | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $HomeRoot 'installer-record.json')
 if ($Uninstall) { exit 4 }
@@ -205,6 +208,9 @@ if ($Uninstall) { exit 4 }
     New-Item -ItemType Directory -Path (Join-Path $sourceFolder 'bin') -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $sourceFolder 'install.ps1') -Value $installerText
     Set-Content -LiteralPath (Join-Path $sourceFolder 'tools.json') -Value 'catalog-text'
+    New-Item -ItemType Directory -Path (Join-Path $sourceFolder 'bin/lib') -Force | Out-Null
+    Copy-Item (Join-Path $root 'plugins/legion/bin/lib/paths.ps1') (Join-Path $sourceFolder 'bin/lib/paths.ps1')
+    Copy-Item (Join-Path $root 'plugins/legion/bin/lib/footprints.ps1') (Join-Path $sourceFolder 'bin/lib/footprints.ps1')
     $script:LegionBin = Join-Path $sourceFolder 'bin'
     $installerRecord = Join-Path $scratch 'installer-record.json'
     $script:LegionHomeRoot = $scratch
@@ -220,6 +226,7 @@ if ($Uninstall) { exit 4 }
     $copied = Get-Content -LiteralPath $installerRecord -Raw | ConvertFrom-Json
     Assert-True ($copied.Uninstall -and $copied.Yes) 'uninstall arrives as -Uninstall -Yes'
     Assert-Equal 'catalog-text' $copied.Catalog 'the catalog is read from the copy after the source is deleted'
+    Assert-Equal (Join-Path $scratch '.legion/configuration/personalisation.json') $copied.SharedPath 'Copied library still runs after its source is deleted'
     Assert-Equal 4 $script:LegionExit 'the installer exit code comes out'
     Assert-True (-not (Test-Path -LiteralPath $sourceFolder)) 'the stand-in deleted its source folder'
     $script:LegionHomeRoot = $null

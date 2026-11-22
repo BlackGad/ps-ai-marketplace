@@ -4,25 +4,23 @@ $scratch = Join-Path $root ('.agents/temp/account-repair-' + [guid]::NewGuid().T
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 $savedPath = $env:PATH
 try {
-    . (Join-Path $root 'plugins/legion/bin/legion-account.ps1') -NoRun
+    . (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
     $env:PATH = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' }
-    # Exercise interrupted chmod even on Windows; chmod itself is an inert seam.
-    & {
-        $originalWindows = $IsWindows
-        try {
-            Set-Variable IsWindows -Value $false -Force
-            $state = @{ Calls = 0; Executable = $false }
-            function Test-LegionLauncherExecutable { param($Path) return $state.Executable }
-            function chmod { $state.Calls++; $state.Executable = $true; $global:LASTEXITCODE = 0 }
+    if (-not $IsWindows) {
+        & {
             $file = Join-Path $scratch 'launcher'
             [IO.File]::WriteAllText($file, 'owned content')
+            [IO.File]::SetUnixFileMode($file, [IO.UnixFileMode]'UserRead, UserWrite')
             $before = (Get-Item $file).LastWriteTimeUtc
-            Write-LegionGeneratedFile -Path $file -Content 'owned content' -Executable
-            Assert-Equal 1 $state.Calls 'G1 equal launcher content still repairs execute permission'
+            $changes = [Collections.Generic.List[string]]::new()
+            Write-LegionGeneratedFile -Path $file -Content 'owned content' -Changes $changes -Executable
+            Assert-True (([IO.File]::GetUnixFileMode($file) -band [IO.UnixFileMode]::UserExecute) -ne 0) 'G1 equal launcher content still repairs execute permission'
+            Assert-Equal 1 $changes.Count 'G1 permission repair is reported as a change'
             Assert-Equal $before (Get-Item $file).LastWriteTimeUtc 'G1 permission repair preserves content timestamp'
-            Write-LegionGeneratedFile -Path $file -Content 'owned content' -Executable
-            Assert-Equal 1 $state.Calls 'G1 executable repeat makes no chmod call'
-        } finally { Set-Variable IsWindows -Value $originalWindows -Force }
+            $changes.Clear()
+            Write-LegionGeneratedFile -Path $file -Content 'owned content' -Changes $changes -Executable
+            Assert-Equal 0 $changes.Count 'G1 executable repeat changes nothing'
+        }
     }
     $custom = Join-Path $scratch 'custom target.ps1'
     '# inert' | Set-Content $custom
