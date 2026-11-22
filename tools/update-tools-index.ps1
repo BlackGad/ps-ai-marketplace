@@ -20,13 +20,14 @@ function Get-ToolsIndexContent {
             }
         }
     )
-    # The standalone installer only consumes this Windows bootstrap subset.
+    # Bootstrap entry points consume only these PowerShell download recipes.
     $bootstrapEntry = [ordered]@{
         windows = [ordered]@{
             wingetId = $Bootstrap.windows.wingetId
             portableCommand = $Bootstrap.windows.portableCommand
             download = [ordered]@{ zip = $Bootstrap.windows.download.zip }
         }
+        posix = $Bootstrap.posix
     }
     $index = [ordered]@{ schemaVersion = 1; bootstrap = $bootstrapEntry; tools = $entries }
     return ($index | ConvertTo-Json -Depth 100).Replace("`r`n", "`n") + "`n"
@@ -43,8 +44,8 @@ $windows.type = 'object'
 $windows.properties.download.required = @('zip')
 $windows.properties.download.properties.Remove('msi')
 $bootstrapSchema = @{
-    '$defs' = $schema.'$defs'; type = 'object'; required = @('windows'); additionalProperties = $false
-    properties = @{windows = $windows}
+    '$defs' = $schema.'$defs'; type = 'object'; required = @('windows', 'posix'); additionalProperties = $false
+    properties = @{windows = $windows; posix = @{'$ref' = '#/$defs/bootstrapPosix'}}
 } | ConvertTo-Json -Depth 100
 if (-not (Test-Json -Json $bootstrapJson -Schema $bootstrapSchema -ErrorAction SilentlyContinue)) { throw 'invalid PowerShell bootstrap recipe' }
 $bootstrap = ConvertFrom-LegionToolJson -Json $bootstrapJson

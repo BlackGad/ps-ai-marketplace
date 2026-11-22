@@ -14,11 +14,25 @@ legion connects **Claude Code, Codex CLI and Copilot CLI** into a team. An **ove
 
 ## Install
 
+Windows (PowerShell):
+
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1)))
 ```
 
-Run this in PowerShell to install legion for your installed AI tools; it asks once before installing, and again before installing missing prerequisites. Add `-Yes` to skip the questions.
+macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.sh | sh
+```
+
+Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.sh | sh
+```
+
+The launcher offers to install PowerShell 7 if missing, then installs legion for your installed AI tools after asking. On macOS and Linux it uses a SHA-256 verified official archive in `~/.legion/tools/pwsh`, without sudo. Add `-Yes` in PowerShell to skip the questions; for macOS and Linux, replace `sh` with `sh -s -- --yes`. See [installer options](docs/reference.md#installer-parameters).
 
 ## Why mix tools
 

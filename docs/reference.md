@@ -4,7 +4,8 @@ Installer options, CLI guides and repository details for maintainers and power u
 
 ## Requirements
 
-- PowerShell 7 (`pwsh`) on every machine. The installer offers to install it on Windows; on macOS and Linux, install it first using the official instructions linked below.
+- PowerShell 7 (`pwsh`) on every machine. The platform launchers offer to install it when missing.
+- On macOS and Linux: `sh`, `curl`, `awk`, `tar`, and either `sha256sum` or `shasum`. The portable PowerShell archive needs the platform's PowerShell runtime dependencies.
 - At least one of: Claude Code, Codex CLI, Copilot CLI.
 
 ## Install
@@ -17,11 +18,19 @@ On Windows, start the bootstrap below in Windows PowerShell 5.1 or PowerShell 7 
 
 The bootstrap downloads and expands the plugin archive from the fixed legion repository, then reads its PowerShell recipe. If PowerShell 7 is missing on Windows, it shows `winget install --id Microsoft.PowerShell -e` and asks before installing. If winget is missing or fails, it uses the official per-user ZIP, verifies its SHA-256 digest, extracts it to `~/.legion/tools/pwsh/`, and adds that folder to the process and user PATH after consent. The installer then runs under PowerShell 7 and asks `Install legion for <tools> now? [y/N]`, including a PATH hint when needed. The first install can therefore ask twice. A declined question prints `Nothing changed` and stops successfully. Use `-Yes` to skip questions. Without PowerShell 7, `-DryRun` shows only the PowerShell hint. `-Update` and `-Uninstall` skip the legion install question; update asks its own question for a folder where legion is missing (see Install and update targets). The temporary archive is removed after the run. `-Source` selects marketplace and catalog data; executable installer code always comes from the fixed legion repository or the local checkout.
 
-On macOS or Linux, [install PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) first, then run:
+macOS:
 
 ```sh
-pwsh -c '& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1)))'
+curl -fsSL https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.sh | sh
 ```
+
+Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.sh | sh
+```
+
+The POSIX launcher reuses PowerShell 7 on PATH or in `~/.legion/tools/pwsh`. If missing, it shows a hint and asks in the terminal before installing; without a terminal it changes nothing unless `--yes` (or `-y`) was supplied. `--dry-run` never installs PowerShell. After consent, it reads the selected track's catalog bootstrap recipe, downloads the latest official PowerShell release archive for macOS or Linux (x64 or arm64), verifies SHA-256 against the release asset's digest, and extracts to `~/.legion/tools/pwsh`, without sudo. It adds that folder to the current process PATH and runs the root PowerShell stub, which owns the plugin archive flow described above. A local checkout uses its own catalog and stub. Temporary downloads are removed after success or failure. A repeated run skips PowerShell installation. If the portable runtime cannot start, resolve the platform runtime dependencies and rerun.
 
 By default, the script installs legion for every installed coding CLI, using the targets below. If none is installed, it prints the official CLI install commands and stops successfully. Install one and rerun the script. Repeated runs skip completed steps and preserve hook approval.
 
@@ -43,6 +52,23 @@ Run `legion update` to update all selected targets, or the command below when `l
 ```
 
 ### Installer parameters
+
+For macOS and Linux shell options, put arguments after `sh -s --`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.sh | sh -s -- --tools codex,claude --config-dir "$HOME/account folder" --yes
+```
+
+| Shell option | PowerShell parameter |
+| --- | --- |
+| `--main` | `-Ref main` (default: release / stable) |
+| `--update` | `-Update` |
+| `--uninstall` | `-Uninstall` |
+| `--purge` | `-Purge` |
+| `--dry-run` | `-DryRun` |
+| `--yes`, `-y` | `-Yes` |
+| `--tools codex,claude` | `-Tools` with an array of comma-separated ids |
+| `--config-dir <folder>` | `-ConfigDir <folder>` |
 
 For options, use the script-block form in PowerShell. This example selects an extra account:
 
