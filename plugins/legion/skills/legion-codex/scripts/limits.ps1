@@ -13,6 +13,7 @@ function Get-CodexWindowName {
 $work = Join-Path ([IO.Path]::GetTempPath()) ('legion-limits-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work | Out-Null
 try {
+    $workPath = Resolve-LegionDirectoryPath $work
     & git -C $work init -q
     $ping = Invoke-LegionProcess -Command $Command -Arguments @('exec', 'ping') `
         -WorkingDirectory $work -TimeoutSeconds $TimeoutSeconds
@@ -40,7 +41,7 @@ if (Test-Path -LiteralPath $sessions) {
             if (-not $lines.MoveNext()) { continue }
             try { $metadata = $lines.Current | ConvertFrom-Json -ErrorAction Stop } catch { continue }
             if ($metadata.type -cne 'session_meta' -or -not $metadata.payload.cwd) { continue }
-            if (-not (Get-LegionPathComparer).Equals([IO.Path]::GetFullPath($metadata.payload.cwd), [IO.Path]::GetFullPath($work))) { continue }
+            if (-not (Get-LegionPathComparer).Equals((Resolve-LegionDirectoryPath $metadata.payload.cwd), $workPath)) { continue }
             while ($lines.MoveNext()) {
                 if ($lines.Current -notlike '*"rate_limits"*') { continue }
                 try { $record = $lines.Current | ConvertFrom-Json -ErrorAction Stop } catch { continue }

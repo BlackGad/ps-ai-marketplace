@@ -83,6 +83,24 @@ function Get-LegionPathComparer {
     return [StringComparer]::Ordinal
 }
 
+# Resolve linked ancestors too, keeping missing leaves such as a removed probe folder.
+function Resolve-LegionDirectoryPath {
+    param([string]$Path)
+    $full = [IO.Path]::GetFullPath($Path)
+    $parent = Split-Path $full -Parent
+    if ($parent) {
+        $full = Join-Path (Resolve-LegionDirectoryPath $parent) (Split-Path $full -Leaf)
+    }
+    if (Test-Path -LiteralPath $full -PathType Container) {
+        $directory = Get-Item -LiteralPath $full -Force
+        if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            return Resolve-LegionDirectoryPath ($directory.ResolveLinkTarget($true).FullName)
+        }
+        return $directory.FullName
+    }
+    return $full
+}
+
 # The one under-root test: Path is inside Root (or Root itself with -AllowEqual), case-insensitive on Windows.
 function Test-LegionPathUnder {
     param([string]$Path, [string]$Root, [switch]$AllowEqual)
