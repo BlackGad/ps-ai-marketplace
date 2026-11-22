@@ -16,19 +16,8 @@ function Test-ToolInstalled {
     $name = $check[0]
     $command = $null
     if (Test-ToolCommandAvailable -Name $name) { $command = $name }
-    elseif ($IsWindows) {
-        # Installers update persistent PATH, while the current shell keeps its old copy.
-        foreach ($folder in (Get-LegionPersistentFolders)) {
-            foreach ($suffix in @('.exe','.cmd','.ps1')) {
-                $candidate = Join-Path $folder "$name$suffix"
-                if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-                    # A sanitized shell may deliberately exclude this directory.
-                    # Recognize an installation without executing outside its PATH.
-                    return @{ Installed=$true; Version='persisted PATH' }
-                }
-            }
-        }
-    }
+    # Installers update the saved PATH, while the current shell keeps its old copy.
+    elseif (Find-LegionPersistentCommand -Name $name) { return @{ Installed=$true; Version='persisted PATH' } }
     if (-not $command) { return @{ Installed=$false; Version='' } }
     try {
         $arguments = [string[]]@($check | Select-Object -Skip 1)

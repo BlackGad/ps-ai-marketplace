@@ -317,11 +317,6 @@ function Get-UpdateConfigDirs {
     return ,$folders
 }
 
-# Used by the install plan and the integration runner.
-function Get-InstallOwnerCommands {
-    return [ordered]@{ 'legion' = 'legion.ps1' }
-}
-
 function Get-UninstallCachePath {
     param($Entry, [string]$ConfigDir)
     if (-not $Entry.plugin.cacheDir) { return }
@@ -588,7 +583,7 @@ function Split-InstallPath {
     $kept = @()
     $removed = @()
     foreach ($part in ($Path -split [regex]::Escape($Separator))) {
-        if (@($Owned | Where-Object { Test-InstallPathEntry -Path $part -Entry $_ -Separator $Separator }).Count) { $removed += $part } else { $kept += $part }
+        if (@($Owned | Where-Object { Test-LegionPathEntry -Path $part -Folder $_ -Separator $Separator }).Count) { $removed += $part } else { $kept += $part }
     }
     return @{ Kept=$kept; Removed=$removed }
 }
@@ -602,7 +597,7 @@ function Get-InstallPurgePlan {
     $manualSteps = @()
     $footprints = @(Get-LegionFootprints -HomeRoot (Get-InstallHome) | Where-Object { $_.kind -ceq 'edit' -or ($_.kind -ceq 'path-entry' -and $_.path -cne 'user PATH') })
     $pathEntries = @(Get-LegionFootprints -HomeRoot (Get-InstallHome) -Kind path-entry | Where-Object path -CEQ 'user PATH' | ForEach-Object value)
-    $userPath = if ($env:OS -eq 'Windows_NT') { Get-InstallUserPath } else { '' }
+    $userPath = if ($env:OS -eq 'Windows_NT') { Get-LegionUserPath } else { '' }
     $user = Split-InstallPath -Path $userPath -Separator ';' -Owned $pathEntries
     $processPath = $env:PATH
     $processSeparator = [string][IO.Path]::PathSeparator
@@ -689,8 +684,8 @@ function Show-InstallPurgePlan {
 function Invoke-InstallPurgePlan {
     param($Plan)
     if ($Plan.UserPath.Entries.Count) {
-        if ((Get-InstallUserPath) -cne $Plan.UserPath.Before) { throw 'User PATH changed after preview; run purge again.' }
-        Set-InstallUserPath -Path $Plan.UserPath.After
+        if ((Get-LegionUserPath) -cne $Plan.UserPath.Before) { throw 'User PATH changed after preview; run purge again.' }
+        Set-LegionUserPath -Path $Plan.UserPath.After
     }
     if ($Plan.ProcessPath.Entries.Count) {
         if ($env:PATH -cne $Plan.ProcessPath.Before) { throw 'Process PATH changed after preview; run purge again.' }
@@ -1036,7 +1031,7 @@ function Invoke-LegionInstaller {
     "Install legion for $($Tools -join ', ')"
     $bin = Get-InstallLegionPath 'bin'
     $pathQuestion = ''
-    if ($onWindows -and -not (Test-InstallPathEntry -Path (Get-InstallUserPath) -Entry $bin -Separator ';')) {
+    if ($onWindows -and -not (Test-LegionPathEntry -Path (Get-LegionUserPath) -Folder $bin -Separator ';')) {
         $pathQuestion = ', and add ~/.legion/bin to your PATH'
     }
     if (-not $onWindows -and -not (Get-LegionShellProfile -HomeRoot (Get-InstallHome)).HasPath) { $pathQuestion = ', and add ~/.legion/bin to your shell profile PATH' }

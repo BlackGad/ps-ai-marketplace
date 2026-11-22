@@ -27,8 +27,8 @@ function Test-PurgeScenario {
         function Get-InstallSourceText { throw 'Network forbidden' }
         function Ensure-InstallPowerShell { throw 'Tool installation forbidden' }
         function Test-InstallCommandAvailable { -not $state.Missing }
-        function Get-InstallUserPath { $state.UserPath }
-        function Set-InstallUserPath { param($Path) $state.UserPath=$Path; $state.PathWrites++ }
+        function Get-LegionUserPath { $state.UserPath }
+        function Set-LegionUserPath { param($Path) $state.UserPath=$Path; $state.PathWrites++ }
         function Read-Host {
             param($Prompt)
             $state.Prompts += $Prompt
@@ -313,8 +313,8 @@ Test-PurgeScenario {
     $fakes = @'
 function Test-InstallCommandAvailable { $false }
 function Get-InstallSourceText { throw 'Network forbidden' }
-function Get-InstallUserPath { '' }
-function Set-InstallUserPath { throw 'Registry writes forbidden' }
+function Get-LegionUserPath { '' }
+function Set-LegionUserPath { throw 'Registry writes forbidden' }
 function Read-Host { throw 'Yes must not prompt' }
 function Invoke-ClosedInput { throw 'Real CLI calls forbidden' }
 '@

@@ -20,14 +20,8 @@ function Find-SetupCommand {
     param([string]$Name)
     $command = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($command) { return $command.Source }
-    if ($IsWindows) {
-        # Probe newly installed commands without changing the calling process's PATH.
-        foreach ($folder in (Get-LegionPersistentFolders)) {
-            $command = Get-Command (Join-Path $folder $Name) -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($command) { return $command.Source }
-        }
-    }
-    return $null
+    # Probes newly installed commands without changing the calling process's PATH.
+    return Find-LegionPersistentCommand -Name $Name
 }
 
 function Test-SetupCommand {
@@ -186,7 +180,7 @@ function Get-SetupPlan {
         if ($tool.id -cin @($needsStockCommand.Tool.id) -and -not (Test-SetupCommand -Name $tool.command)) { $missing += $tool }
     }
     $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
-    $path = if ($IsWindows) { Get-InstallUserPath } else { $env:PATH }
+    $path = if ($IsWindows) { Get-LegionUserPath } else { $env:PATH }
     $version = (Read-LegionJson (Join-Path $script:SetupPluginRoot 'plugin.json')).version
     return @{
         HomeRoot = $HomeRoot; Settings = $settings; Data = $data; Accounts = $accounts; MissingTools = $missing

@@ -94,8 +94,8 @@ $cases = [ordered]@{
             $az = Join-Path $sandbox '.legion/tools/az'
             $state.UserPath = "%USERPROFILE%\bin;$bin;$az"
             $env:PATH = @('%USERPROFILE%\bin', $bin, $az) -join [IO.Path]::PathSeparator
-            function Get-InstallUserPath { $state.UserPath }
-            function Set-InstallUserPath { param($Path) $state.UserPath = $Path }
+            function Get-LegionUserPath { $state.UserPath }
+            function Set-LegionUserPath { param($Path) $state.UserPath = $Path }
             foreach ($path in @($bin, $az)) { Add-LegionFootprint -HomeRoot $sandbox -Kind path-entry -Path 'user PATH' -Value $path -Owner legion }
             $settings = Join-Path $sandbox '.claude/settings.json'
             $before = '{/*keep*/"permissions":{"allow":["Bash(LEGION_ROLE=member *)",/*other*/"Read(*)"]},"theme":"dark"}'
@@ -189,8 +189,8 @@ $cases = [ordered]@{
             $env:OS = 'Windows_NT'
             $bin = Join-Path $sandbox '.legion/bin'
             $state.UserPath = "C:\owner;$bin"
-            function Get-InstallUserPath { $state.UserPath }
-            function Set-InstallUserPath { throw 'An existing entry needs no write' }
+            function Get-LegionUserPath { $state.UserPath }
+            function Set-LegionUserPath { throw 'An existing entry needs no write' }
             $null = Add-LegionUserPath -Folder $bin -HomeRoot $sandbox
             Assert-Equal 0 @(Get-LegionFootprints -HomeRoot $sandbox).Count 'B-b: a user PATH entry the owner already had is not recorded'
         } finally { $env:OS = $savedOS }

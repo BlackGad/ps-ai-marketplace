@@ -135,10 +135,10 @@ Invoke-InstallTestCase 'Tool' {
             New-Item -ItemType Directory $temp -Force | Out-Null
             Join-Path $temp ("install-$([guid]::NewGuid().ToString('N')).$Extension")
         }
-        function Get-InstallUserPath { $userPathState.Value }
+        function Get-LegionUserPath { $userPathState.Value }
         function Add-LegionFootprint { param($Kind, $Path, $Value, $Owner) $pathRecords.Add($Value) }
         $pathRecords = [Collections.Generic.List[string]]::new()
-        function Set-InstallUserPath { param($Path) $pathWrites.Add($Path); $userPathState.Value = $Path }
+        function Set-LegionUserPath { param($Path) $pathWrites.Add($Path); $userPathState.Value = $Path }
         function Test-ToolCommandAvailable { param($Name) [bool]$available[$Name] }
         function Test-ToolInstalled { param($Tool) @{ Installed=[bool]$installed[$Tool]; Version='test-version' } }
         $commandState = @{ Exit=0 }
@@ -295,7 +295,7 @@ Invoke-InstallTestCase 'Tool' {
             if ($IsWindows) {
                 Set-Item Function:Test-ToolInstalled $realInstalledCheck
                 function Test-ToolCommandAvailable { param($Name) $false }
-                function Get-InstallUserPath { Join-Path $PSScriptRoot 'fixtures/install/path-only' }
+                function Get-LegionUserPath { Join-Path $PSScriptRoot 'fixtures/install/path-only' }
                 $state = Test-ToolInstalled -Tool az
                 Assert-True $state.Installed 'Installed tool is found on persisted PATH before shell refresh'
                 Assert-Equal 'persisted PATH' $state.Version 'Persisted-only tool is recognized without execution'
@@ -358,10 +358,10 @@ Invoke-InstallTestCase 'Tool' {
             Assert-Equal $expectedCommand (Get-ToolPortableCommand fourth) 'Portable glob compares numeric version components'
             $pathState = @{Value='existing'}
             $writes = [Collections.Generic.List[string]]::new()
-            function Get-InstallUserPath { $pathState.Value }
+            function Get-LegionUserPath { $pathState.Value }
             function Add-LegionFootprint { param($Kind, $Path, $Value, $Owner) $pathRecords.Add($Value) }
             $pathRecords = [Collections.Generic.List[string]]::new()
-            function Set-InstallUserPath { param($Path) $writes.Add($Path); $pathState.Value = $Path }
+            function Set-LegionUserPath { param($Path) $writes.Add($Path); $pathState.Value = $Path }
             $preview = @(Invoke-ToolInstall -Tool fourth -Platform windows)
             Assert-Equal 0 $writes.Count 'Portable preview does not repair PATH'
             Invoke-ToolInstall -Tool fourth -Platform windows -Yes | Out-Null
@@ -446,7 +446,7 @@ Invoke-InstallTestCase 'Tool' {
             function Invoke-ToolDownload { param($Url,$OutFile) '# inert vendor script' | Set-Content $OutFile }
             function Invoke-ToolCommand { param($Command) $commands.Add($Command); 0 }
             function Install-ToolZip { throw 'Vendor script must bypass extraction' }
-            function Set-InstallUserPath { throw 'Vendor script must bypass PATH writes' }
+            function Set-LegionUserPath { throw 'Vendor script must bypass PATH writes' }
             Invoke-ToolDownloadInstall -Tool fourth -Method zip | Out-Null
             Assert-Equal 1 $commands.Count 'Vendor script is executed once through existing consent executor'
             Assert-True ($commands[0] -contains '-File') 'Vendor script runs as a script'

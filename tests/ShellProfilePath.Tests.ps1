@@ -10,8 +10,8 @@ try {
         $env:OS = 'Unix'
         . (Join-Path $repo 'plugins/legion/bin/legion-setup.ps1') -NoRun
         function Write-SetupCommands { }
-        function Get-InstallUserPath { throw 'Unix must not read the registry' }
-        function Set-InstallUserPath { throw 'Unix must not write the registry' }
+        function Get-LegionUserPath { throw 'Unix must not read the registry' }
+        function Set-LegionUserPath { throw 'Unix must not write the registry' }
         foreach ($shell in @('zsh', 'bash', 'fish')) {
             $env:SHELL = '/bin/' + $shell
             $fixtureHome = Join-Path $scratch $shell

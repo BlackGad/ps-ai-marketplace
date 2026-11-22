@@ -64,7 +64,7 @@ function Get-InstallUserPath {
     finally { $key.Dispose() }
 }
 
-# 5.1 bootstrap twin of Set-InstallUserPath in plugins/legion/bin/lib/paths.ps1.
+# 5.1 bootstrap twin of Set-LegionUserPath in plugins/legion/bin/lib/paths.ps1.
 function Set-InstallUserPath {
     param([string]$Path)
     # Keep the existing value kind (normally REG_EXPAND_SZ), then tell Windows the environment changed.

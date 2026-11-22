@@ -33,7 +33,7 @@ Invoke-InstallTestCase 'Install' {
         . $script -NoRun
         function Ensure-InstallPowerShell { return $true }
         function Get-InstallHome { Join-Path $repo '.agents/temp/install-selected-account' }
-        function Get-InstallUserPath { Get-InstallLegionPath 'bin' }
+        function Get-LegionUserPath { Get-InstallLegionPath 'bin' }
         function Add-LegionUserPath { }
         function Invoke-InstallRefresh { }
         function Get-InstallPluginRoot { Join-Path $repo 'plugins/legion' }
@@ -345,7 +345,7 @@ Invoke-InstallTestCase 'Consent' {
         $script:installs = 0
         function Read-Host { param($Prompt) $script:prompts++; return $script:answer }
         function Add-LegionUserPath { param($Path) $script:pathWrites++ }
-        function Get-InstallUserPath { Get-InstallLegionPath 'bin' }
+        function Get-LegionUserPath { Get-InstallLegionPath 'bin' }
         function Invoke-InstallRefresh { }
         function Get-InstallPluginRoot { Join-Path $repo 'plugins/legion' }
         function Get-UpdateConfigDirs { param($Tool, $ConfigDir) ,@('') }
@@ -395,8 +395,8 @@ foreach ($case in @('InstallRunsRefresh', 'InstallQuestionNamesPath', 'InstallUn
         $refreshes = [Collections.Generic.List[string]]::new()
         $installed = @{}
         function Get-InstallHome { $scratch }
-        function Get-InstallUserPath { $state.UserPath }
-        function Set-InstallUserPath { param($Path) $state.Writes++; $state.UserPath=$Path }
+        function Get-LegionUserPath { $state.UserPath }
+        function Set-LegionUserPath { param($Path) $state.Writes++; $state.UserPath=$Path }
         function Test-InstallCommandAvailable { $true }
         function Get-InstallSourceText { throw 'Unexpected network access' }
         function Invoke-InstallDownload { throw 'Unexpected download' }

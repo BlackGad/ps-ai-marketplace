@@ -129,9 +129,18 @@ function Test-LegionLauncherExecutable {
     return ([IO.File]::GetUnixFileMode($Path) -band [IO.UnixFileMode]::UserExecute) -ne 0
 }
 
+# One platform switch for the saved-PATH helpers: $env:OS, which tests can set.
+# Windows compares without case and expands %VARIABLES%; elsewhere entries are literal.
 function Test-LegionPathEntry {
-    param([string]$Path, [string]$Folder)
-    return Test-InstallPathEntry -Path $Path -Entry $Folder -Separator ([string][IO.Path]::PathSeparator) -Comparer (Get-LegionPathComparer) -ExpandVariables $IsWindows
+    param([string]$Path, [string]$Folder, [string]$Separator = [string][IO.Path]::PathSeparator)
+    $onWindows = $env:OS -eq 'Windows_NT'
+    $comparer = if ($onWindows) { [StringComparer]::OrdinalIgnoreCase } else { [StringComparer]::Ordinal }
+    $target = $Folder.TrimEnd('\', '/')
+    foreach ($part in ($Path -split [regex]::Escape($Separator))) {
+        $expanded = if ($onWindows) { [Environment]::ExpandEnvironmentVariables($part) } else { $part }
+        if ($comparer.Equals($expanded.TrimEnd('\', '/'), $target)) { return $true }
+    }
+    return $false
 }
 
 function Test-LegionSameStartTime {
@@ -140,7 +149,7 @@ function Test-LegionSameStartTime {
     return [math]::Abs(($First.ToUniversalTime() - $Second.ToUniversalTime()).TotalMilliseconds) -lt 500
 }
 
-function Get-InstallUserPath {
+function Get-LegionUserPath {
     # Read the raw registry value so entries such as %USERPROFILE%\bin stay unexpanded.
     $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
     if (-not $key) { return '' }
@@ -148,7 +157,7 @@ function Get-InstallUserPath {
     finally { $key.Dispose() }
 }
 
-function Set-InstallUserPath {
+function Set-LegionUserPath {
     param([string]$Path)
     # Keep the existing value kind (normally REG_EXPAND_SZ), then tell Windows the environment changed.
     $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
@@ -165,17 +174,6 @@ public static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UInt
     }
     $result = [UIntPtr]::Zero
     [void][LegionInstall.Environment]::SendMessageTimeout([IntPtr]0xffff, 0x1a, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
-}
-
-function Test-InstallPathEntry {
-    param([string]$Path, [string]$Entry, [string]$Separator,
-        [StringComparer]$Comparer = [StringComparer]::OrdinalIgnoreCase, [bool]$ExpandVariables = $true)
-    $target = $Entry.TrimEnd('\', '/')
-    foreach ($part in ($Path -split [regex]::Escape($Separator))) {
-        $expanded = if ($ExpandVariables) { [Environment]::ExpandEnvironmentVariables($part) } else { $part }
-        if ($Comparer.Equals($expanded.TrimEnd('\', '/'), $target)) { return $true }
-    }
-    return $false
 }
 
 function Get-LegionShellProfile {
@@ -213,26 +211,38 @@ function Add-LegionUserPath {
         return
     }
     if ($DryRun) { "add $Folder to your user PATH"; return }
-    $userPath = Get-InstallUserPath
-    if (Test-InstallPathEntry -Path $userPath -Entry $Folder -Separator ';') { return }
+    $userPath = Get-LegionUserPath
+    if (Test-LegionPathEntry -Path $userPath -Folder $Folder -Separator ';') { return }
     Add-LegionFootprint -HomeRoot $HomeRoot -Kind path-entry -Path 'user PATH' -Value $Folder.TrimEnd('\', '/') -Owner legion
     $updated = if ($userPath) { $userPath.TrimEnd(';') + ';' + $Folder } else { $Folder }
-    Set-InstallUserPath -Path $updated
+    Set-LegionUserPath -Path $updated
 }
 
-function Get-InstallMachinePath {
+function Get-LegionMachinePath {
     return [Environment]::GetEnvironmentVariable('Path', 'Machine')
 }
 
 # Windows: the folders on the saved user and machine PATH, expanded. A new install shows up here before a new terminal.
 function Get-LegionPersistentFolders {
-    $folders = foreach ($path in @((Get-InstallUserPath), (Get-InstallMachinePath))) {
+    $folders = foreach ($path in @((Get-LegionUserPath), (Get-LegionMachinePath))) {
         foreach ($entry in ([string]$path).Split(';', [StringSplitOptions]::RemoveEmptyEntries)) {
             $folder = [Environment]::ExpandEnvironmentVariables($entry.Trim().Trim('"'))
             if ($folder) { $folder }
         }
     }
     return @($folders)
+}
+
+# Windows: a command found only on the saved PATH (a new install, before a new terminal).
+# Path-only: nothing is run, and a sanitized shell may leave these folders out on purpose.
+function Find-LegionPersistentCommand {
+    param([string]$Name)
+    if (-not $IsWindows) { return $null }
+    foreach ($folder in (Get-LegionPersistentFolders)) {
+        $command = Get-Command (Join-Path $folder $Name) -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($command) { return $command.Source }
+    }
+    return $null
 }
 
 function Get-LegionRuntimeFiles {

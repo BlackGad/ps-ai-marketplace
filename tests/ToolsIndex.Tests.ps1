@@ -231,7 +231,7 @@
     $catalog = $fixtureText | ConvertFrom-Json
     $state = @{ Reads=0; Actions=0; Url='' }
     function Get-InstallHome { Join-Path $repo '.agents/temp/catalog-home' }
-    function Get-InstallUserPath { Get-InstallLegionPath 'bin' }
+    function Get-LegionUserPath { Get-InstallLegionPath 'bin' }
     function Get-UpdateConfigDirs { ,@('fixture-account') }
     function Get-InstallSourceText { param($Url) $state.Reads++; $state.Url=$Url; return $fixtureText }
     function Invoke-LegionInstallSteps { $state.Actions++ }

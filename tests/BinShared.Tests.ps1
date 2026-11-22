@@ -9,8 +9,8 @@ foreach ($file in Get-ChildItem $bin -Recurse -Filter '*.ps1' | Where-Object { $
     Assert-True ($text -cnotmatch 'Registry\]::CurrentUser|function (Get|Set)-(Setup)?UserPath') "$($file.Name) does not read or write the user PATH itself"
 }
 $state = @{ Path = 'first'; Writes = 0 }
-function Get-InstallUserPath { $state.Path }
-function Set-InstallUserPath { param($Path) $state.Path = $Path; $state.Writes++ }
+function Get-LegionUserPath { $state.Path }
+function Set-LegionUserPath { param($Path) $state.Path = $Path; $state.Writes++ }
 $savedOS = $env:OS
 $pathHome = Join-Path $root ('.agents/temp/binshared-path-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $pathHome -Force | Out-Null
@@ -35,10 +35,24 @@ try {
 
 # PersistentFolders: saved user and machine PATH entries, expanded, quotes and blanks dropped.
 $env:LEGION_BINSHARED = 'C:\expanded'
-function Get-InstallUserPath { '%LEGION_BINSHARED%\a;"C:\quoted";;' }
-function Get-InstallMachinePath { 'C:\machine' }
+function Get-LegionUserPath { '%LEGION_BINSHARED%\a;"C:\quoted";;' }
+function Get-LegionMachinePath { 'C:\machine' }
 Assert-Equal 'C:\expanded\a|C:\quoted|C:\machine' ((Get-LegionPersistentFolders) -join '|') 'Persistent folders are expanded user then machine entries'
 Remove-Item Env:LEGION_BINSHARED
+
+# FindPersistentCommand: a command found only in a saved PATH folder; nothing outside Windows.
+$commandFolder = Join-Path $root ('.agents/temp/binshared-command-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $commandFolder -Force | Out-Null
+try {
+    Set-Content -LiteralPath (Join-Path $commandFolder 'legion-fake.cmd') -Value '@exit /b 0'
+    function Get-LegionPersistentFolders { @($commandFolder) }
+    if ($IsWindows) {
+        Assert-Equal (Join-Path $commandFolder 'legion-fake.cmd') (Find-LegionPersistentCommand -Name 'legion-fake') 'A command in a saved PATH folder is found by name'
+        Assert-Equal $null (Find-LegionPersistentCommand -Name 'legion-missing') 'A missing command is not found'
+    } else {
+        Assert-Equal $null (Find-LegionPersistentCommand -Name 'legion-fake') 'Outside Windows there is no saved PATH to search'
+    }
+} finally { Remove-Item -LiteralPath $commandFolder -Recurse -Force }
 
 # OneFoundryCheck: only lib/tools.ps1 throws "does not support Foundry".
 foreach ($file in Get-ChildItem $bin -Recurse -Filter '*.ps1' | Where-Object { $_.Name -cne 'tools.ps1' }) {

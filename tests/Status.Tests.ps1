@@ -44,12 +44,12 @@ try {
     }
     if (-not $Finding -or $Finding -eq 'G3') {
         & {
-            $originalWindows = $IsWindows
+            $originalOS = $env:OS
             try {
-                Set-Variable IsWindows -Value $false -Force
+                $env:OS = 'Unix'
                 $env:LEGION_STATUS_BIN = $bin
                 Assert-Equal $false (Test-LegionPathEntry -Path '%LEGION_STATUS_BIN%' -Folder $bin) 'G3 Unix PATH entries keep literal percent variables'
-            } finally { Set-Variable IsWindows -Value $originalWindows -Force }
+            } finally { $env:OS = $originalOS }
         }
     }
     if (-not $Finding -or $Finding -eq 'E2') {
@@ -93,7 +93,7 @@ try {
         Assert-True ($lines -match "on PATH: $expectedPath") 'E3 status uses the shared platform PATH test'
         $needsPath = & {
             . (Join-Path $root 'plugins/legion/bin/legion-setup.ps1') -NoRun
-            function Get-InstallUserPath { return $env:PATH }
+            function Get-LegionUserPath { return $env:PATH }
             (Get-SetupPlan -HomeRoot $fixtureHome).NeedsPath
         }
         Assert-Equal (-not $IsWindows) $needsPath 'E3 setup uses the same platform PATH test as status'
