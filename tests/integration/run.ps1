@@ -71,23 +71,16 @@ function Invoke-IntegrationSteps {
             continue
         }
         $first = Invoke-IntegrationBlock $step.First
+        $repeat = if ($first.Result -eq 'passed') { Invoke-IntegrationBlock $step.Repeat }
+                  else { @{ Seconds = 0; Result = 'skipped'; Log = $null; Message = $(if ($first.Result -eq 'skipped') { $first.Message } else { 'first run did not pass' }) } }
         New-IntegrationCase $name $first.Seconds $first.Result $first.Message $false
-        $repeatMessage = if ($first.Result -eq 'skipped') { $first.Message } else { 'first run did not pass' }
-        $final = $first.Result
-        if ($first.Result -eq 'passed') {
-            $repeat = Invoke-IntegrationBlock $step.Repeat
-            New-IntegrationCase $name $repeat.Seconds $repeat.Result $repeat.Message $true
-            $final = $repeat.Result
-        } else {
-            New-IntegrationCase $name 0 'skipped' $repeatMessage $true
-        }
-        $outcome[$name] = $final
+        New-IntegrationCase $name $repeat.Seconds $repeat.Result $repeat.Message $true
+        $outcome[$name] = if ($first.Result -eq 'passed') { $repeat.Result } else { $first.Result }
         if ($LogFolder) {
             New-Item -ItemType Directory -Path $LogFolder -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $LogFolder "$name.log") -Value $first.Log
-            if ($repeat) { Set-Content -LiteralPath (Join-Path $LogFolder "$name-repeat.log") -Value $repeat.Log }
+            if ($null -ne $repeat.Log) { Set-Content -LiteralPath (Join-Path $LogFolder "$name-repeat.log") -Value $repeat.Log }
         }
-        $repeat = $null
     }
 }
 

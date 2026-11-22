@@ -19,11 +19,7 @@ Route channel operations through `skills/legion-<kind>/SKILL.md`; stop if missin
 | `provider.deployments[].alias` | The alias adapter maps supported aliases. |
 | `channels[].id/kind/target/accounts` | `Resolve-LegionChannel` selects the descriptor, destination and eligible accounts; the launcher validates bindings. |
 
-Require `schemaVersion: 1`, `agents` and `channels`. Both arrays may be empty. Accounts require `id/tool/configDir`; provider is optional. Channels require `id/kind/target/accounts`; bindings are nonempty, unique and refer to supported accounts. IDs are lowercase hyphenated names, unique in each array. Descriptors determine supported tools and kinds.
-
-Provider requires `kind/endpoint/default/deployments`; each deployment requires `name`, with optional `model/alias`. Names and aliases are unique, the default must be selected, and aliases must be supported by the tool. Endpoint is an HTTPS host without a path. Never save secrets.
-
-Validate every edit with the bundled schema:
+Never save secrets. The validator enforces the required fields, unique lowercase ids, channel bindings, the default deployment and the HTTPS host; fix what it reports. Validate every edit with the bundled schema:
 
 ```text
 

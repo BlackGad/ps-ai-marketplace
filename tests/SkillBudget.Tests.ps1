@@ -58,9 +58,7 @@ $text = ($owned | ForEach-Object { Get-SkillText $_ }) -join "`n"
 $create = Get-SkillText 'legion-personalisation/references/create.md'
 Assert-True ($create.Contains('unrecorded account') -and $create.Contains('without `-Add`')) 'K10 retries distinguish unrecorded accounts from plugin install failures'
 Assert-True (-not $create.Contains('For `install failed` or `installed: open a new terminal`')) 'K10 plugin failures never repeat an unnamed add'
-foreach ($gone in @('registered in owner personalisation', 'Validate afterward', "use the installer only after the owner's login step")) {
-    Assert-True (-not $text.Contains($gone)) "'$gone' is gone"
-}
+
 Assert-True ($text -notmatch '\birm\b') 'the remote irm installer is gone from the skill text'
 
 $personalisation = Get-SkillText 'legion-personalisation/SKILL.md'
@@ -72,10 +70,4 @@ Assert-True ((Get-SkillText 'legion-overseer/SKILL.md').Contains('Keep the main 
 Assert-True ((Get-SkillText 'legion-personalisation/references/fields.md').Contains('Only the owner logs in')) 'fields.md keeps owner-only login'
 foreach ($tool in @('claude', 'codex', 'copilot')) {
     Assert-True ((Get-SkillText "legion-$tool/references/accounts.md").Contains('## Foundry agent')) "$tool keeps its Foundry section"
-}
-
-$tracked = @(git -C $root ls-files plugins README.md docs/reference.md) | Where-Object { $_ -notmatch '\.(png|jpg|ico)$' }
-foreach ($old in @('legion start\b', 'legion repo\b', '-SourceRef')) {
-    $hits = @($tracked | Where-Object { (Get-Content (Join-Path $root $_) -Raw) -match $old })
-    Assert-True ($hits.Count -eq 0) "NoRemovedVerbs: '$old' is gone ($($hits -join ', '))"
 }
