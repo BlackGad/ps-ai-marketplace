@@ -44,8 +44,13 @@ foreach ($tool in @('claude','codex','copilot')) {
     $expected += 'continue as the overseer'
     Assert-Equal $expected ($launch.Args -join '|') 'ExplicitAccountAndModel preserve argv'
 }
-$launch = Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -Channel @('main','alerts','main') -HomeRoot $tempRoot
+$launch = Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -Channel @('main','main') -HomeRoot $tempRoot
 Assert-Equal '--channels|plugin:telegram@claude-plugins-official|--|continue as the overseer' ($launch.Args -join '|') 'SameKindFlagsPreserveArgv'
+Assert-Equal (Get-LegionHomePath -HomeRoot $tempRoot -Path 'channels/telegram/main') $launch.Environment['TELEGRAM_STATE_DIR'] 'A Telegram channel gets its own bot folder under the legion home'
+Assert-Equal 'TELEGRAM_BOT_TOKEN' ($launch.Remove -join '|') 'An inherited bot token is removed'
+Assert-Equal 0 @((Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -HomeRoot $tempRoot).Environment.Keys).Count 'No channel sets no variable'
+try { Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -Channel @('main','alerts') -HomeRoot $tempRoot; throw 'Expected two-channel refusal' }
+catch { Assert-Equal 'A session can use only one telegram channel (one bot folder per session); asked for: main, alerts' $_.Exception.Message 'Two Telegram channels are refused in plain words' }
 $launch = Get-OverseerLaunch -Personalisation $owner -AccountId claude-a -Arguments @('--channels','plugin:telegram@claude-plugins-official') -HomeRoot $tempRoot
 Assert-Equal '--channels|plugin:telegram@claude-plugins-official|--|continue as the overseer' ($launch.Args -join '|') 'ExplicitChannelFlagStopsBeforePrompt'
 Assert-Throws { Get-OverseerLaunch -Personalisation $owner -AccountId claude-b -Channel alerts } 'Unbound chosen account fails'
@@ -85,6 +90,13 @@ New-Item -ItemType Directory $repoPath -Force | Out-Null
         Assert-Equal "$repoPath|||||" ([System.IO.File]::ReadAllText($resultFile)) 'In-place launch clears all parent Claude and terminal variables'
         Assert-Equal '1|1|fixture|1|dumb' "$env:CLAUDECODE|$env:CLAUDE_CODE_CHILD_SESSION|$env:CLAUDE_CODE_FIXTURE|$env:NO_COLOR|$env:TERM" 'In-place launch restores the caller environment'
         function failing-overseer { throw 'fixture failure' }
+        $env:TELEGRAM_BOT_TOKEN = 'fixture-token'
+        $probeBot = Join-Path $tempRoot 'bot-probe.ps1'
+        'param($ResultFile) [System.IO.File]::WriteAllText($ResultFile, "$env:TELEGRAM_STATE_DIR|$env:TELEGRAM_BOT_TOKEN")' | Set-Content -LiteralPath $probeBot
+        Invoke-OverseerInRepo -Repo $repoPath -Command $probeBot -Arguments @($resultFile) -Environment @{TELEGRAM_STATE_DIR='bot-folder'} -Remove @('TELEGRAM_BOT_TOKEN')
+        Assert-Equal 'bot-folder|' ([System.IO.File]::ReadAllText($resultFile)) 'In-place launch sets the bot folder and drops the inherited token'
+        Assert-Equal "|fixture-token" "$env:TELEGRAM_STATE_DIR|$env:TELEGRAM_BOT_TOKEN" 'In-place launch restores the caller bot variables'
+        Remove-Item Env:TELEGRAM_BOT_TOKEN
         Assert-Throws { Invoke-OverseerInRepo -Repo $repoPath -Command failing-overseer } 'Launch errors propagate'
         Assert-Throws { Invoke-OverseerInRepo -Repo (Join-Path $tempRoot 'missing-repo') -Command $probe } 'Missing launch folder fails'
         Assert-Equal '1|1|fixture|1|dumb' "$env:CLAUDECODE|$env:CLAUDE_CODE_CHILD_SESSION|$env:CLAUDE_CODE_FIXTURE|$env:NO_COLOR|$env:TERM" 'Failed launches restore the caller environment'
@@ -96,7 +108,7 @@ New-Item -ItemType Directory $repoPath -Force | Out-Null
         function Get-Command { param($Name, $CommandType, $ErrorAction) if ($Name -eq 'wt') { return $null }; throw 'Unexpected discovery' }
         $state = @{ Called=$false }
         function Invoke-OverseerInRepo {
-            param($Repo, $Command, $Arguments)
+            param($Repo, $Command, $Arguments, $Environment, $Remove)
             $state.Called = $true
             Assert-Equal $repoPath $Repo 'Fallback selects the project folder'
             Assert-Equal $state.Expected $Arguments[0] 'Fallback preserves literal arguments'
@@ -119,12 +131,22 @@ New-Item -ItemType Directory $repoPath -Force | Out-Null
             Assert-True ($decoded.Contains("& 'fixture.cmd' 'two words' 'apostrophe''argument'")) 'Terminal transport preserves literal values'
             Assert-True ($decoded.StartsWith('Remove-Item Env:NO_COLOR, Env:TERM, Env:CLAUDECODE, ')) 'New terminal tab drops inherited no-color settings'
             Assert-True ($decoded.Contains('Env:CLAUDE_CODE_*')) 'New terminal tab clears every Claude session variable'
+            $state.Arguments=@()
+            $bot = @{Command='fixture.cmd';Args=@('x');Environment=@{TELEGRAM_STATE_DIR="C:/bots/it's";};Remove=@('TELEGRAM_BOT_TOKEN')}
+            Start-OverseerLaunch -Repo $repoPath -Launch $bot
+            $decoded = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($state.Arguments[-1]))
+            Assert-True ($decoded.Contains('Env:TELEGRAM_BOT_TOKEN')) 'New terminal tab removes the inherited bot token'
+            Assert-True ($decoded.Contains("`$env:TELEGRAM_STATE_DIR = 'C:/bots/it''s'; & 'fixture.cmd'")) 'New terminal tab sets the bot folder on its own command line'
+            $bot.Environment = @{TELEGRAM_STATE_DIR='C:/bots;semi'}
+            $dry = @(Start-OverseerLaunch -Repo $repoPath -Launch $bot -DryRun)
+            Assert-Equal 'env TELEGRAM_STATE_DIR=C:/bots;semi' $dry[0] 'Dry run shows the bot folder'
+            Assert-True ($dry -notcontains 'wt') 'A semicolon in the bot folder keeps the launch in the current terminal'
         }
         & {
             $state = @{Terminal=$false; InRepo=$false}
             function fixture-terminal { $state.Terminal = $true }
             function Get-Command { param($Name,$CommandType,$ErrorAction) @{Source='fixture-terminal'} }
-            function Invoke-OverseerInRepo { param($Repo, $Command, $Arguments) $state.InRepo = $true }
+            function Invoke-OverseerInRepo { param($Repo, $Command, $Arguments, $Environment, $Remove) $state.InRepo = $true }
             Start-OverseerLaunch -Repo $repoPath -Launch @{Command='fixture.cmd';Args=@('x')} -InPlace
             Assert-True ($state.InRepo -and -not $state.Terminal) 'OwnerLaunchInPlace skips Windows Terminal'
             $state.InRepo = $false
@@ -226,6 +248,12 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     $text = @(Invoke-Overseer @run -Account claude1 -Channel @())
     Assert-Equal ('launched claude1 (claude) in ' + $runRepo + ' channel my-telegram') ($text -join '|') 'Launched line names the default channel'
     Assert-True ($state.Launch.Args -contains '--channels') 'One fitting binding adds the channel arguments'
+    $botFolder = Get-LegionHomePath -HomeRoot $runHome -Path 'channels/telegram/my-telegram'
+    Assert-Equal $botFolder $state.Launch.Environment['TELEGRAM_STATE_DIR'] 'The launch carries the channel bot folder'
+    Assert-True (Test-Path -LiteralPath $botFolder -PathType Container) 'A real launch creates the empty bot folder'
+    Remove-Item -LiteralPath $botFolder -Recurse -Force
+    $null = Invoke-Overseer @run -Account claude1 -Channel @() -DryRun
+    Assert-True (-not (Test-Path -LiteralPath $botFolder)) 'A dry run creates no bot folder'
     $text = @(Invoke-Overseer @run -Account claude1 -Channel @() -NoChannel)
     Assert-Equal ('launched claude1 (claude) in ' + $runRepo) ($text -join '|') 'NoChannel launched line has no channel'
     Assert-True ($state.Launch.Args -cnotcontains '--channels') 'NoChannel adds no channel arguments'

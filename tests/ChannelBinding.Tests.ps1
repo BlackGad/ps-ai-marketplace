@@ -63,3 +63,23 @@ try {
     Assert-Equal 'bun        not found' $lines[0] 'bun missing'
     Assert-Equal 'claude1    telegram plugin found' $lines[1] 'Plugin folder present'
 } finally { $env:PATH = $savedPath }
+
+# check: the bot folder of each binding (existence only, never content)
+Invoke-Channel -Action add -Id my-telegram -Kind telegram -Target 123 -Accounts claude1 | Out-Null
+$botFolder = Get-LegionHomePath -HomeRoot $homeRoot -Path 'channels/telegram/my-telegram'
+$lines = @(Get-ChannelCheck -Kind telegram -Accounts @('claude1') -HomeRoot $homeRoot)
+Assert-Equal 'my-telegram bot folder: missing token (run /telegram:configure in that session)' $lines[-1] 'Missing bot folder asks for configure'
+New-Item -ItemType Directory $botFolder -Force | Out-Null
+$lines = @(Get-ChannelCheck -Kind telegram -Accounts @('claude1') -HomeRoot $homeRoot)
+Assert-Equal 'my-telegram bot folder: missing token (run /telegram:configure in that session)' $lines[-1] 'Empty bot folder has no token'
+[IO.File]::WriteAllText((Join-Path $botFolder '.env'), 'fixture')
+$lines = @(Get-ChannelCheck -Kind telegram -Accounts @('claude1') -HomeRoot $homeRoot)
+Assert-Equal 'my-telegram bot folder: ready' $lines[-1] 'Token file present means ready'
+Assert-True (-not (($lines -join "`n").Contains('fixture'))) 'Check never prints the token file content'
+
+# Foundry accounts cannot carry channels
+$withFoundry = Get-Content $file -Raw | ConvertFrom-Json
+$withFoundry.agents = @($withFoundry.agents) + [pscustomobject]@{ id = 'claude-foundry'; tool = 'claude'; configDir = (Join-Path $homeRoot 'f-config'); provider = [pscustomobject]@{ kind = 'foundry' } }
+$withFoundry | ConvertTo-Json -Depth 10 | Set-Content $file
+try { Invoke-Channel -Action add -Id foundry-telegram -Kind telegram -Target 1 -Accounts claude-foundry; throw 'Expected Foundry refusal' }
+catch { Assert-Equal "account 'claude-foundry' runs through Foundry: channels are not available on third-party providers" $_.Exception.Message 'Foundry account is refused in plain words' }

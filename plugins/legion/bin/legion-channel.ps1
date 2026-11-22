@@ -18,6 +18,7 @@ function Get-ChannelAccount {
     if (-not (Test-LegionChannelLaunchesTool -Descriptor $Descriptor -Tool $account.tool)) {
         throw "account '$AccountId' uses $($account.tool), which $($Descriptor.id) does not support"
     }
+    if ($account.provider) { throw "account '$AccountId' runs through Foundry: channels are not available on third-party providers" }
     return $account
 }
 
@@ -64,6 +65,15 @@ function Get-ChannelCheck {
         $configDir = Resolve-LegionHomePath -Path $account.configDir -HomeRoot $HomeRoot
         $found = $folder -and (Test-Path -LiteralPath (Join-Path $configDir $folder) -PathType Container)
         "{0,-10} {1} plugin {2}" -f $accountId, $Kind, $(if ($found) { 'found' } else { 'not found' })
+    }
+    # Each binding of this kind has its own bot folder; look only for the token file, never read it.
+    foreach ($binding in @($data.channels | Where-Object { $descriptor.state -and $_.kind -ceq $Kind })) {
+        $tool = @($binding.accounts | ForEach-Object { (Get-LegionAgent -Data $data -Id $_).tool } | Where-Object { $descriptor.state.PSObject.Properties[$_] })[0]
+        if (-not $tool) { continue }
+        $state = $descriptor.state.$tool
+        $folder = Get-LegionHomePath -HomeRoot $HomeRoot -Path "$($state.folder)/$($binding.id)"
+        $ready = Test-Path -LiteralPath (Join-Path $folder $state.tokenFile) -PathType Leaf
+        "{0,-10} bot folder: {1}" -f $binding.id, $(if ($ready) { 'ready' } else { "missing token ($($state.setup))" })
     }
 }
 

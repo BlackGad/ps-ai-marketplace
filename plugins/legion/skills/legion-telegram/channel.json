@@ -4,6 +4,15 @@
   "launch": {
     "claude": ["--channels", "plugin:telegram@claude-plugins-official"]
   },
+  "state": {
+    "claude": {
+      "variable": "TELEGRAM_STATE_DIR",
+      "folder": "channels/telegram",
+      "remove": ["TELEGRAM_BOT_TOKEN"],
+      "tokenFile": ".env",
+      "setup": "run /telegram:configure in that session"
+    }
+  },
   "ready": {
     "command": "bun",
     "pluginFolder": {
