@@ -14,6 +14,7 @@ $script:SetupPluginRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'lib/installed.ps1')
 . (Join-Path $PSScriptRoot 'lib/commands.ps1')
 . (Join-Path $PSScriptRoot 'install-tool/recipe.ps1')
+. (Join-Path $PSScriptRoot 'lib/process.ps1')
 
 function Find-SetupCommand {
     param([string]$Name)
@@ -36,29 +37,16 @@ function Test-SetupCommand {
 
 function Invoke-SetupProcess {
     param([string[]]$Arguments)
-    $start = [Diagnostics.ProcessStartInfo]::new('pwsh')
-    $start.UseShellExecute = $false
-    $start.CreateNoWindow = $true
-    $start.RedirectStandardInput = $true
-    $start.RedirectStandardOutput = $true
-    $start.RedirectStandardError = $true
+    $environment = @{}
     if ($IsWindows) {
+        $path = $env:PATH
         foreach ($folder in (Get-LegionPersistentFolders)) {
-            if (-not (Test-LegionPathEntry -Path $start.Environment['PATH'] -Folder $folder)) { $start.Environment['PATH'] += ";$folder" }
+            if (-not (Test-LegionPathEntry -Path $path -Folder $folder)) { $path += ";$folder" }
         }
+        $environment.PATH = $path
     }
-    foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
-    $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $start
-    try {
-        [void]$process.Start()
-        $process.StandardInput.Close()
-        # Drain both streams concurrently so verbose installers cannot fill either pipe and deadlock.
-        $output = $process.StandardOutput.ReadToEndAsync()
-        $errors = $process.StandardError.ReadToEndAsync()
-        $process.WaitForExit()
-        return @{ Code = $process.ExitCode; Output = $output.GetAwaiter().GetResult() + $errors.GetAwaiter().GetResult() }
-    } finally { $process.Dispose() }
+    $result = Invoke-LegionProcess -Command pwsh -Arguments $Arguments -Environment $environment
+    return @{ Code = $result.ExitCode; Output = $result.Output + $result.Error }
 }
 
 function ConvertTo-SetupOneLine {
@@ -74,10 +62,6 @@ function Invoke-SetupToolInstall {
         if (-not $message) { $message = "installer exit $($result.Code)" }
         return @{ Ok = ($result.Code -eq 0); Message = $message }
     } catch { return @{ Ok = $false; Message = (ConvertTo-SetupOneLine $_.Exception.Message) } }
-}
-
-function Find-SetupInstaller {
-    return Join-Path $script:SetupPluginRoot 'install.ps1'
 }
 
 function Invoke-SetupInstaller {
@@ -213,21 +197,11 @@ function Get-SetupPlan {
     }
 }
 
-function Get-SetupPathHint {
-    param($Plan)
-    return Add-LegionUserPath -Folder $Plan.Bin -HomeRoot $Plan.HomeRoot -DryRun
-}
-
 function Test-SetupToolInstalled {
     param([string]$Tool)
     $previousExit = $global:LASTEXITCODE
-    try {
-        # Load the installer's probe in a child scope, keeping its parameters and helpers local.
-        & {
-            . (Join-Path $script:SetupBin 'legion-install-tool.ps1') -NoRun -Tool $Tool
-            return (Test-ToolInstalled -Tool $Tool).Installed
-        }
-    } finally { $global:LASTEXITCODE = $previousExit }
+    try { return (Test-ToolInstalled -Tool $Tool).Installed }
+    finally { $global:LASTEXITCODE = $previousExit }
 }
 
 function Get-SetupToolInstallHint {
@@ -261,7 +235,7 @@ function Write-SetupPlan {
     $permissions = @($Plan.Commands | Where-Object State -EQ permission | Select-Object -ExpandProperty Name -Unique)
     if ($permissions.Count) { $lines.Add("  commands restore execute permission for $($permissions -join ', ')") }
     if ($Plan.NeedsPath) {
-        $hint = if ($IsWindows) { "add $($Plan.Bin) to your user PATH" } else { Get-SetupPathHint -Plan $Plan }
+        $hint = Add-LegionUserPath -Folder $Plan.Bin -HomeRoot $Plan.HomeRoot -DryRun
         $lines.Add("  path     $hint")
     }
     $blocked = @($Plan.Commands | Where-Object State -EQ blocked | Select-Object -ExpandProperty Name -Unique)
@@ -353,18 +327,8 @@ function Write-SetupCommands {
             Add-LegionFootprint -HomeRoot $Plan.HomeRoot -Kind file -Path $file.Path -Owner (Get-LegionTargetOwner -Tool $row.Tool -Folder $row.Folder -HomeRoot $Plan.HomeRoot)
         }
     }
-    foreach ($name in (Get-LegionOwnerCommands).Keys) {
-        $files = @($Plan.Commands | Where-Object Name -CEQ $name)
-        foreach ($file in $files) {
-            if ($file.State -eq 'blocked' -or -not (Test-LegionOwnerPathSafe -Path $file.Path -StopRoot $Plan.HomeRoot)) { continue }
-            if ((Test-Path -LiteralPath $file.Path) -and -not (Test-LegionOwnerCommandFile -Path $file.Path)) { continue }
-            $runner = Join-Path $script:SetupBin $file.Script
-            $text = Get-LegionShimText -Script $runner -Windows:$file.Windows -HomeRoot $Plan.HomeRoot
-            Write-LegionGeneratedFile -Path $file.Path -Content $text -Executable
-        }
-        # Blocked commands are reported once, in the final table.
-        if (@($files | Where-Object State -EQ owned).Count) { "skip: command $name (already done)" }
-    }
+    Write-LegionOwnerCommands -Bin $script:SetupBin -HomeRoot $Plan.HomeRoot
+    if (@($Plan.Commands | Where-Object State -EQ owned).Count) { 'skip: command legion (already done)' }
 }
 
 function Set-SetupPath {
@@ -377,8 +341,7 @@ function Set-SetupPath {
 
 function Install-SetupPlugins {
     param($Plan)
-    $installer = $null
-    $installerChecked = $false
+    $installer = Join-Path $script:SetupPluginRoot 'install.ps1'
     $results = [Collections.Generic.Dictionary[string,int]]::new((Get-LegionPathComparer))
     foreach ($row in $Plan.Accounts) {
         if (-not $row.Usable) { continue }
@@ -387,8 +350,7 @@ function Install-SetupPlugins {
         $key = "$($row.Tool.id):$($row.Folder)"
         if (-not $results.ContainsKey($key)) {
             try {
-                if (-not $installerChecked) { $installerChecked = $true; $installer = Find-SetupInstaller }
-                $results[$key] = if ($installer) { Invoke-SetupInstaller -Installer $installer -Tool $row.Tool.id -ConfigDir $row.Folder } else { 1 }
+                $results[$key] = Invoke-SetupInstaller -Installer $installer -Tool $row.Tool.id -ConfigDir $row.Folder
             } catch { $results[$key] = 1 }
         }
         if ($results[$key] -ne 0) { $row.NextStep = "install failed: log in with $($row.Id), then finish setup" }

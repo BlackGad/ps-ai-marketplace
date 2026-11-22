@@ -3,12 +3,6 @@ param()
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'paths.ps1')
 
-function Get-LegionOwnerCommands {
-    return [ordered]@{
-        'legion' = 'legion.ps1'
-    }
-}
-
 function ConvertTo-LegionShellLiteral {
     param([string]$Value)
     return "'" + $Value.Replace("'", "'" + '"' + "'" + '"' + "'") + "'"
@@ -42,13 +36,21 @@ function Get-LegionOwnerCommandState {
 # One state per command file, shared by setup and status.
 function Get-LegionCommandState {
     param([string]$Bin, [string]$HomeRoot)
-    foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
-        $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
-        foreach ($suffix in $suffixes) {
-            $path = Join-Path $Bin "$($entry.Key)$suffix"
-            $state = Get-LegionOwnerCommandState -Path $path
-            if ($state -eq 'owned' -and -not (Test-LegionLauncherExecutable -Path $path)) { $state = 'permission' }
-            [pscustomobject]@{ Name = $entry.Key; Script = $entry.Value; Path = $path; Windows = ($suffix -eq '.cmd'); State = $state }
-        }
+    $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
+    foreach ($suffix in $suffixes) {
+        $path = Join-Path $Bin "legion$suffix"
+        $state = Get-LegionOwnerCommandState -Path $path
+        if ($state -eq 'owned' -and -not (Test-LegionLauncherExecutable -Path $path)) { $state = 'permission' }
+        [pscustomobject]@{ Name = 'legion'; Script = 'legion.ps1'; Path = $path; Windows = ($suffix -eq '.cmd'); State = $state }
+    }
+}
+
+# Setup and refresh write the same platform command files, preserving unrelated files.
+function Write-LegionOwnerCommands {
+    param([string]$Bin, [string]$HomeRoot, [Collections.Generic.List[string]]$Changes)
+    foreach ($file in (Get-LegionCommandState -Bin (Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin') -HomeRoot $HomeRoot)) {
+        if ($file.State -eq 'blocked' -or -not (Test-LegionOwnerPathSafe -Path $file.Path -StopRoot $HomeRoot)) { continue }
+        $text = Get-LegionShimText -Script (Join-Path $Bin $file.Script) -Windows:$file.Windows -HomeRoot $HomeRoot
+        Write-LegionGeneratedFile -Path $file.Path -Content $text -Executable:(-not $file.Windows) -Changes $Changes
     }
 }

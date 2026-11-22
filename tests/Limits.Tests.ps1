@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $root 'plugins/legion/bin/legion-limits.ps1'
 $fixtures = Join-Path $PSScriptRoot 'fixtures/limits'
+. (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
 $scratch = Join-Path ([IO.Path]::GetTempPath()) ('legion-limits-test-' + [guid]::NewGuid().ToString('N'))
 $home1 = Join-Path $scratch 'home'
 $fakeBin = Join-Path $scratch 'bin'
@@ -26,6 +27,11 @@ $agents = @(
     @{ id = 'copilot-a'; tool = 'copilot'; configDir = '~/.legion/agents/copilot-a' }
     @{ id = 'foundry-a'; tool = 'claude'; configDir = '~/.legion/agents/foundry-a'; provider = @{ kind = 'foundry' } }
 )
+foreach ($agent in $agents) {
+    if ($agent.provider) { continue }
+    $target = Join-Path $fakeBin $(if ($IsWindows) { "$($agent.tool).ps1" } else { $agent.tool })
+    New-LegionWrappers -Id $agent.id -Tool $agent.tool -HomeRoot $home1 -ConfigDir $agent.configDir -RealCommand $target | Out-Null
+}
 @{ schemaVersion = 1; agents = $agents; channels = @() } | ConvertTo-Json -Depth 10 |
     Set-Content -LiteralPath (Join-Path $home1 '.legion/configuration/personalisation.json')
 
@@ -35,7 +41,7 @@ function Get-Time { param([long]$Seconds) return [DateTimeOffset]::FromUnixTimeS
 # Runs the limits script for one account with the fake CLI behaving as the settings say.
 function Invoke-Limits {
     param([string]$Account, [hashtable]$Fake = @{}, [int]$TimeoutSeconds = 60)
-    foreach ($name in @('STDOUT', 'STDERR', 'EXIT', 'SESSION', 'SLEEP')) { Remove-Item "Env:LEGION_FAKE_$name" -ErrorAction SilentlyContinue }
+    foreach ($name in @('STDOUT', 'STDERR', 'EXIT', 'SESSION', 'SLEEP', 'CONCURRENT')) { Remove-Item "Env:LEGION_FAKE_$name" -ErrorAction SilentlyContinue }
     foreach ($key in $Fake.Keys) { Set-Item "Env:LEGION_FAKE_$key" -Value $Fake[$key] }
     Remove-Item -LiteralPath $log -ErrorAction SilentlyContinue
     return @(& $script -Account $Account -HomeRoot $home1 -TimeoutSeconds $TimeoutSeconds)
@@ -57,10 +63,10 @@ try {
     $lines = Invoke-Limits -Account 'claude-a' -Fake @{ STDOUT = (Get-Fixture 'claude-no-event.jsonl') }
     Assert-True (($lines -join "`n") -match 'claude-a\s+claude\s+-\s+unknown\s+unknown\s+no limit readout') 'Claude without an event is unknown'
 
-    # Codex: the newest session of the account, pinged from a fresh git folder.
-    $lines = Invoke-Limits -Account 'codex-a' -Fake @{ SESSION = (Get-Fixture 'codex-session.jsonl') }
-    Assert-True (($lines -join "`n") -match "codex-a\s+codex\s+5h\s+12%\s+$([regex]::Escape((Get-Time 1795350000)))\s+allowed") 'Codex primary row'
-    Assert-True (($lines -join "`n") -match "7d\s+40%\s+$([regex]::Escape((Get-Time 1795654800)))\s+allowed") 'Codex secondary row'
+    # Codex: only the probe's session, identified by its fresh git folder.
+    $lines = Invoke-Limits -Account 'codex-a' -Fake @{ SESSION = (Get-Fixture 'codex-session.jsonl'); CONCURRENT='1' }
+    Assert-True (($lines -join "`n") -match "codex-a\s+codex\s+5h\s+12%\s+$([regex]::Escape((Get-Time 1795350000)))\s+unknown") 'Codex primary row has usage without an invented status'
+    Assert-True (($lines -join "`n") -match "7d\s+40%\s+$([regex]::Escape((Get-Time 1795654800)))\s+unknown") 'Codex secondary row'
     $call = Get-Content -LiteralPath $log -Raw | ConvertFrom-Json
     Assert-Equal 'exec ping' ($call.arguments -join ' ') 'Codex ping arguments'
     Assert-Equal '' $call.stdin 'Codex ping closes stdin'
@@ -113,6 +119,6 @@ try {
     Assert-True ((Get-LegionHelp) -match 'legion limits') 'help lists limits'
 } finally {
     $env:PATH = $savedPath
-    foreach ($name in @('LOG', 'STDOUT', 'STDERR', 'EXIT', 'SESSION', 'SLEEP')) { Remove-Item "Env:LEGION_FAKE_$name" -ErrorAction SilentlyContinue }
+    foreach ($name in @('LOG', 'STDOUT', 'STDERR', 'EXIT', 'SESSION', 'SLEEP', 'CONCURRENT')) { Remove-Item "Env:LEGION_FAKE_$name" -ErrorAction SilentlyContinue }
     Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
 }

@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $root 'plugins/legion/bin/lib/commands.ps1')
-Assert-Equal 'legion' ((Get-LegionOwnerCommands).Keys -join '|') 'Only the legion owner command is published'
+Assert-Equal 'legion' ((Get-LegionCommandState -Bin $root -HomeRoot $root).Name | Select-Object -Unique) 'Only the legion owner command is published'
 $scratch = Join-Path $root ('.agents/temp/commands-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 try {

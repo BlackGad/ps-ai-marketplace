@@ -5,7 +5,7 @@ set -eu
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 
 is_pwsh7() {
-    "$1" -NoProfile -Command 'if ($PSVersionTable.PSVersion.Major -eq 7) { exit 0 }; exit 1' >/dev/null 2>&1
+    "$1" -NoProfile -Command 'if ($PSVersionTable.PSVersion -ge [version]"7.4") { exit 0 }; exit 1' >/dev/null 2>&1
 }
 
 main() {

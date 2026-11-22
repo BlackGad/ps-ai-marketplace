@@ -2,8 +2,7 @@ param($Agent, [string]$HomeRoot, $Token)
 
 . (Join-Path $PSScriptRoot '../../../bin/lib/paths.ps1')
 
-$folder = [string]$Agent.configDir
-if ($folder.StartsWith('~/')) { $folder = Join-Path $HomeRoot $folder.Substring(2) }
+$folder = Resolve-LegionHomePath -Path $Agent.configDir -HomeRoot $HomeRoot
 $launch = @{ Set = @{}; Clear = [string[]]@(); ProvidersFile = $null; ProvidersJson = $null; Notice = $null }
 if (-not $Token) { $Token = Get-FoundryToken }
 $tempFolder = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'temp'

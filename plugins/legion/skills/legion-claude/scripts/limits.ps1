@@ -1,8 +1,8 @@
-param([string]$Command, [string]$ConfigEnv, [string]$Folder, [int]$TimeoutSeconds)
+param([string]$Command, [string]$Folder, [int]$TimeoutSeconds)
 
 # Claude Code prints a rate_limit_event in its stream; each unified window has a utilization (0 to 1) and a reset time.
-$ping = Invoke-LegionPing -Command $Command -Arguments @('-p', '--output-format', 'stream-json', '--verbose', 'ping') `
-    -ConfigEnv $ConfigEnv -Folder $Folder -TimeoutSeconds $TimeoutSeconds
+$ping = Invoke-LegionProcess -Command $Command -Arguments @('-p', '--output-format', 'stream-json', '--verbose', 'ping') `
+    -TimeoutSeconds $TimeoutSeconds
 $info = $null
 foreach ($line in ($ping.Output -split '\r?\n')) {
     try { $event = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }

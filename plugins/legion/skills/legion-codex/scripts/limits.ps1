@@ -1,4 +1,4 @@
-param([string]$Command, [string]$ConfigEnv, [string]$Folder, [int]$TimeoutSeconds)
+param([string]$Command, [string]$Folder, [int]$TimeoutSeconds)
 
 # The window name from its length in minutes: 300 is 5h, 10080 is 7d.
 function Get-CodexWindowName {
@@ -14,9 +14,11 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ('legion-limits-' + [guid]::NewGuid
 New-Item -ItemType Directory -Path $work | Out-Null
 try {
     & git -C $work init -q
-    $ping = Invoke-LegionPing -Command $Command -Arguments @('exec', 'ping') -ConfigEnv $ConfigEnv -Folder $Folder `
+    $ping = Invoke-LegionProcess -Command $Command -Arguments @('exec', 'ping') `
         -WorkingDirectory $work -TimeoutSeconds $TimeoutSeconds
 } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
+
+if ($ping.TimedOut) { New-LegionLimitRow -Status 'ping timed out'; return }
 
 # A quota error names the time to try again.
 $quota = @(($ping.Error + "`n" + $ping.Output) -split '\r?\n' | Where-Object { $_ -match 'hit your usage limit' })[0]
@@ -26,17 +28,27 @@ if ($quota) {
     return
 }
 
-# Otherwise the newest session file of this account holds the last rate_limits record.
+if ($ping.ExitCode -ne 0) { New-LegionLimitRow -Status (Get-LegionPingFailure -Ping $ping -QuotaPattern 'usage limit'); return }
+
+# Only the ping's disposable working folder can identify its session; timestamps cannot.
 $limits = $null
 $sessions = Join-Path $Folder 'sessions'
-$newest = if (Test-Path -LiteralPath $sessions) {
-    Get-ChildItem -LiteralPath $sessions -Filter '*.jsonl' -File -Recurse | Sort-Object LastWriteTimeUtc | Select-Object -Last 1
-}
-if ($newest) {
-    foreach ($line in (Get-Content -LiteralPath $newest.FullName | Where-Object { $_ -like '*"rate_limits"*' })) {
-        try { $record = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
-        $found = if ($record.payload.rate_limits) { $record.payload.rate_limits } else { $record.rate_limits }
-        if ($found) { $limits = $found }
+if (Test-Path -LiteralPath $sessions) {
+    foreach ($file in (Get-ChildItem -LiteralPath $sessions -Filter '*.jsonl' -File -Recurse)) {
+        $lines = [IO.File]::ReadLines($file.FullName).GetEnumerator()
+        try {
+            if (-not $lines.MoveNext()) { continue }
+            try { $metadata = $lines.Current | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+            if ($metadata.type -cne 'session_meta' -or -not $metadata.payload.cwd) { continue }
+            if (-not (Get-LegionPathComparer).Equals([IO.Path]::GetFullPath($metadata.payload.cwd), [IO.Path]::GetFullPath($work))) { continue }
+            while ($lines.MoveNext()) {
+                if ($lines.Current -notlike '*"rate_limits"*') { continue }
+                try { $record = $lines.Current | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+                $found = if ($record.payload.rate_limits) { $record.payload.rate_limits } else { $record.rate_limits }
+                if ($found) { $limits = $found }
+            }
+            break
+        } finally { $lines.Dispose() }
     }
 }
 $rows = @()
@@ -45,8 +57,7 @@ foreach ($name in @('primary', 'secondary')) {
     if ($null -eq $window) { continue }
     $used = if ($null -ne $window.used_percent) { Format-LegionUsedPercent -Percent $window.used_percent } else { 'unknown' }
     $resets = if ($window.resets_at) { Format-LegionResetTime -UnixSeconds $window.resets_at } else { 'unknown' }
-    $rows += New-LegionLimitRow -Window (Get-CodexWindowName -Minutes $window.window_minutes -Fallback $name) -Used $used -Resets $resets -Status 'allowed'
+    $rows += New-LegionLimitRow -Window (Get-CodexWindowName -Minutes $window.window_minutes -Fallback $name) -Used $used -Resets $resets -Status 'unknown'
 }
 if ($rows.Count) { return $rows }
-if ($ping.ExitCode -eq 0) { New-LegionLimitRow -Status 'no limit readout'; return }
-New-LegionLimitRow -Status (Get-LegionPingFailure -Ping $ping -QuotaPattern 'usage limit')
+New-LegionLimitRow -Status 'no limit readout'

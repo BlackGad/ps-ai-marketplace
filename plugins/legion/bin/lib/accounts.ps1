@@ -12,7 +12,7 @@ function Assert-LegionId {
 function Assert-LegionNewId {
     param([string]$Id, $Data)
     Assert-LegionId -Id $Id
-    if ((Get-LegionOwnerCommands).Contains($Id)) { throw "'$Id' is reserved for an owner command" }
+    if ($Id -ceq 'legion') { throw "'$Id' is reserved for an owner command" }
     if (Get-LegionAgent -Data $Data -Id $Id) { throw "account '$Id' already exists" }
     if (Get-Command $Id -CommandType Application -ErrorAction SilentlyContinue) { throw "'$Id' is already a command" }
 }

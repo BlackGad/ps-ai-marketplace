@@ -1,4 +1,5 @@
-. (Join-Path $PSScriptRoot 'paths.ps1')
+. (Join-Path $PSScriptRoot 'accounts.ps1')
+. (Join-Path $PSScriptRoot 'process.ps1')
 . (Join-Path $PSScriptRoot 'tools.ps1')
 . (Join-Path $PSScriptRoot 'foundry.ps1')
 
@@ -16,47 +17,6 @@ function Format-LegionResetTime {
 function Format-LegionUsedPercent {
     param([double]$Percent)
     return "$([math]::Round($Percent))%"
-}
-
-# Runs the tool command once with stdin closed. The account's folder goes in the tool's config variable.
-# Returns @{ ExitCode; Output; Error; TimedOut }; a timeout kills the process.
-function Invoke-LegionPing {
-    param([string]$Command, [string[]]$Arguments, [string]$ConfigEnv, [string]$Folder, [string]$WorkingDirectory, [int]$TimeoutSeconds)
-
-    $start = [Diagnostics.ProcessStartInfo]::new()
-    $start.UseShellExecute = $false
-    $start.CreateNoWindow = $true
-    $start.RedirectStandardInput = $true
-    $start.RedirectStandardOutput = $true
-    $start.RedirectStandardError = $true
-    if ($WorkingDirectory) { $start.WorkingDirectory = $WorkingDirectory }
-    $start.Environment[$ConfigEnv] = $Folder
-    if ([IO.Path]::GetExtension($Command) -ieq '.ps1') {
-        $start.FileName = (Get-Process -Id $PID).Path
-        foreach ($argument in @('-NoProfile', '-File', $Command)) { $start.ArgumentList.Add($argument) }
-    } else {
-        $start.FileName = $Command
-    }
-    foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
-    $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $start
-    try {
-        $null = $process.Start()
-        $process.StandardInput.Close()
-        $output = $process.StandardOutput.ReadToEndAsync()
-        $errors = $process.StandardError.ReadToEndAsync()
-        $finished = $process.WaitForExit($TimeoutSeconds * 1000)
-        if (-not $finished) {
-            $process.Kill($true)
-            $process.WaitForExit()
-        }
-        return @{
-            ExitCode = if ($finished) { $process.ExitCode } else { -1 }
-            Output = $output.GetAwaiter().GetResult()
-            Error = $errors.GetAwaiter().GetResult()
-            TimedOut = -not $finished
-        }
-    } finally { $process.Dispose() }
 }
 
 function Get-LegionFirstLine {
@@ -86,10 +46,10 @@ function Get-LegionAccountLimits {
         $tool = Get-LegionTool -Tool $Agent.tool
         $script = Join-Path $tool.SkillRoot 'scripts/limits.ps1'
         if (-not (Test-Path -LiteralPath $script -PathType Leaf)) { return New-LegionLimitRow -Status "no limits script for $($Agent.tool)" }
-        $command = Get-Command $tool.command -CommandType Application,ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $command) { return New-LegionLimitRow -Status "$($tool.command) is not installed" }
+        $command = Get-LegionWrapperCommand $Agent.id $HomeRoot
+        if (-not (Test-LegionLauncherExecutable -Path $command)) { return New-LegionLimitRow -Status 'launcher missing; run legion setup' }
         $folder = Resolve-LegionHomePath -Path $Agent.configDir -HomeRoot $HomeRoot
-        return & $script -Command $command.Source -ConfigEnv $tool.configEnv -Folder $folder -TimeoutSeconds $TimeoutSeconds
+        return & $script -Command $command -Folder $folder -TimeoutSeconds $TimeoutSeconds
     } catch {
         return New-LegionLimitRow -Status ('error: ' + (Get-LegionFirstLine -Text $_.Exception.Message))
     }

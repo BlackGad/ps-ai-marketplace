@@ -22,15 +22,9 @@ try {
         & {
             $permissionBin = Join-Path $scratch 'permission-bin'
             New-Item -ItemType Directory -Path $permissionBin -Force | Out-Null
-            foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
-                foreach ($suffix in $(if ($IsWindows) { @('', '.cmd') } else { @('') })) {
-                    Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($entry.Value)") -Windows:([bool]$suffix) -HomeRoot $fixtureHome |
-                        Set-Content -LiteralPath (Join-Path $permissionBin "$($entry.Key)$suffix")
-                    if (-not $IsWindows -and $entry.Key -ne 'legion') {
-                        $path = Join-Path $permissionBin $entry.Key
-                        [IO.File]::SetUnixFileMode($path, ([IO.File]::GetUnixFileMode($path) -bor [IO.UnixFileMode]::UserExecute))
-                    }
-                }
+            foreach ($suffix in $(if ($IsWindows) { @('', '.cmd') } else { @('') })) {
+                Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/legion.ps1") -Windows:([bool]$suffix) -HomeRoot $fixtureHome |
+                    Set-Content -LiteralPath (Join-Path $permissionBin "legion$suffix")
             }
             if ($IsWindows) {
                 function Test-LegionLauncherExecutable { param($Path) return ((Split-Path $Path -Leaf) -ne 'legion') }
@@ -128,7 +122,7 @@ try {
         )
         channels = @(@{ id = 'my-telegram'; kind = 'telegram'; target = '123'; accounts = @('claude-a') })
     } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $config 'personalisation.json')
-    $commands = Get-LegionOwnerCommands
+    $commands = @{ legion = 'legion.ps1' }
     foreach ($name in $commands.Keys) {
         (Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$($commands[$name])") -HomeRoot $fixtureHome) |
             Set-Content -LiteralPath (Join-Path $bin $name)

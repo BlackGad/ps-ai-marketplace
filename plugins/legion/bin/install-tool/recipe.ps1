@@ -1,3 +1,45 @@
+function Get-ToolInstallData {
+    param([string]$Tool)
+    $recipes = Get-LegionInstallRecipes
+    if (-not $recipes.ContainsKey($Tool)) { throw "unknown tool '$Tool'" }
+    return $recipes[$Tool]
+}
+
+function Test-ToolCommandAvailable {
+    param([string]$Name)
+    return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Test-ToolInstalled {
+    param([string]$Tool)
+    $check = (Get-ToolInstallData -Tool $Tool).check
+    $name = $check[0]
+    $command = $null
+    if (Test-ToolCommandAvailable -Name $name) { $command = $name }
+    elseif ($IsWindows) {
+        # Installers update persistent PATH, while the current shell keeps its old copy.
+        foreach ($folder in (Get-LegionPersistentFolders)) {
+            foreach ($suffix in @('.exe','.cmd','.ps1')) {
+                $candidate = Join-Path $folder "$name$suffix"
+                if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                    # A sanitized shell may deliberately exclude this directory.
+                    # Recognize an installation without executing outside its PATH.
+                    return @{ Installed=$true; Version='persisted PATH' }
+                }
+            }
+        }
+    }
+    if (-not $command) { return @{ Installed=$false; Version='' } }
+    try {
+        $arguments = [string[]]@($check | Select-Object -Skip 1)
+        $global:LASTEXITCODE = 0
+        $versionLines = @(& $command @arguments 2>$null)
+        if ($LASTEXITCODE -ne 0) { return @{ Installed=$false; Version='' } }
+        $version = $versionLines | Select-Object -First 1
+        return @{ Installed=$true; Version=([string]$version).Trim() }
+    } catch { return @{ Installed=$false; Version='' } }
+}
+
 # Shared by setup consent and the CLI installer. The descriptors own prerequisites and commands.
 function Get-ToolRecipe {
     param([string]$Tool, [ValidateSet('windows','macos','linux')][string]$Platform, $Recipes = (Get-LegionInstallRecipes))

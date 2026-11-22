@@ -22,7 +22,6 @@ function Get-SetupTree {
 
 try {
     . $setupScript -NoRun
-    $realFindInstaller = ${function:Find-SetupInstaller}
     $realInvokeInstaller = ${function:Invoke-SetupInstaller}
     $realTestCommand = ${function:Test-SetupCommand}
     $realToolInstalled = ${function:Test-SetupToolInstalled}
@@ -45,7 +44,6 @@ try {
     function Get-InstallUserPath { return $script:userPath }
     function Get-InstallMachinePath { return '' }
     function Set-InstallUserPath { param($Path) $script:pathWrites.Add($Path); $script:userPath = $Path }
-    function Find-SetupInstaller { return (Join-Path $tempRoot 'inert-installer.ps1') }
     function Invoke-SetupToolInstall {
         param($Tool)
         $script:toolInstalls.Add($Tool)
@@ -114,19 +112,17 @@ try {
             Reset-SetupTest "unbound owner's home"
             Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
             $originals = [ordered]@{}
-            foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
-                $live = Join-Path $testHome "other cache/bin/$($entry.Value)"
-                New-Item -ItemType Directory -Path (Split-Path $live) -Force | Out-Null
-                '# inert live script' | Set-Content -LiteralPath $live
-                foreach ($suffix in $(if ($IsWindows) { @('', '.cmd') } else { @('') })) {
-                    $windows = $suffix -eq '.cmd'
-                    $path = Join-Path $testHome ".legion/bin/$($entry.Key)$suffix"
-                    $flags = if ($windows) { ' -Repo "\\server\team$\work folder" %*' } else { ' -Repo ''work folder'' "$@"' }
-                    $forward = if ($windows) { ' %*' } else { ' "$@"' }
-                    $text = (Get-LegionShimText -Script $live -Windows:$windows).Replace($forward, $flags)
-                    [IO.File]::WriteAllText($path, $text)
-                    $originals[$path] = @{ Text = $text; Windows = $windows; Flags = $flags }
-                }
+            $live = Join-Path $testHome "other cache/bin/legion.ps1"
+            New-Item -ItemType Directory -Path (Split-Path $live) -Force | Out-Null
+            '# inert live script' | Set-Content -LiteralPath $live
+            foreach ($suffix in $(if ($IsWindows) { @('', '.cmd') } else { @('') })) {
+                $windows = $suffix -eq '.cmd'
+                $path = Join-Path $testHome ".legion/bin/legion$suffix"
+                $flags = if ($windows) { ' -Repo "\\server\team$\work folder" %*' } else { ' -Repo ''work folder'' "$@"' }
+                $forward = if ($windows) { ' %*' } else { ' "$@"' }
+                $text = (Get-LegionShimText -Script $live -Windows:$windows).Replace($forward, $flags)
+                [IO.File]::WriteAllText($path, $text)
+                $originals[$path] = @{ Text = $text; Windows = $windows; Flags = $flags }
             }
             $before = Get-SetupTree $testHome
             $plan = @(Invoke-Setup -HomeRoot $testHome)
@@ -175,11 +171,9 @@ try {
             $status = @(& $legion status)
             Assert-True ($status -notcontains 'no legion settings yet') 'R4 B4 generated legion reads the selected home settings'
             Assert-True ($status -contains 'commands: yes') 'R4 B4 generated legion inspects the selected commands'
-            foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
-                $path = Join-Path $bin $entry.Key
-                $text = [IO.File]::ReadAllText($path)
-                Assert-True ($text.Contains('-HomeRoot ' + (ConvertTo-LegionShellLiteral $testHome))) 'R4 B4 every alternate-home shell command binds its home'
-            }
+            $path = Join-Path $bin 'legion'
+            $text = [IO.File]::ReadAllText($path)
+            Assert-True ($text.Contains('-HomeRoot ' + (ConvertTo-LegionShellLiteral $testHome))) 'R4 B4 every alternate-home shell command binds its home'
             $runner = Join-Path $root 'plugins/legion/bin/legion.ps1'
             Assert-Equal (Get-LegionShimText -Script $runner) (Get-LegionShimText -Script $runner -HomeRoot $HOME) 'R4 B4 default-home shim stays unchanged'
         }
@@ -336,7 +330,7 @@ try {
             if (-not $IsWindows) {
                 $plan = @{ Bin = (Join-Path $testHome '.legion/bin'); HomeRoot = $testHome }
                 $profile = Get-LegionShellProfile -HomeRoot $testHome
-                Assert-SetupText @(Get-SetupPathHint -Plan $plan) $profile.Path 'G6 shell plan names the selected home profile'
+                Assert-SetupText @(Add-LegionUserPath -Folder $plan.Bin -HomeRoot $plan.HomeRoot -DryRun) $profile.Path 'G6 shell plan names the selected home profile'
                 Set-SetupPath -Plan $plan | Out-Null
                 $command = 'HOME=' + (ConvertTo-LegionShellLiteral $testHome) + '; . ' + (ConvertTo-LegionShellLiteral $profile.Path) + '; printf "%s" "$PATH"'
                 $actual = & /bin/sh -c $command
@@ -569,12 +563,10 @@ try {
     Assert-SetupText $apply 'log in: run claude1' 'New folder asks for login'
     Assert-SetupText $apply 'ready' 'Adopted folder is ready'
     $bin = Join-Path $testHome '.legion/bin'
-    foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
-        $target = Join-Path $root "plugins/legion/bin/$($entry.Value)"
-        Assert-Equal (Get-LegionShimText -Script $target -HomeRoot $testHome) ([IO.File]::ReadAllText((Join-Path $bin $entry.Key))) 'Unix command shim equals shared format'
-        if ($IsWindows) {
-            Assert-Equal (Get-LegionShimText -Script $target -Windows -HomeRoot $testHome) ([IO.File]::ReadAllText((Join-Path $bin "$($entry.Key).cmd"))) 'Windows command shim equals shared format'
-        }
+    $target = Join-Path $root "plugins/legion/bin/legion.ps1"
+    Assert-Equal (Get-LegionShimText -Script $target -HomeRoot $testHome) ([IO.File]::ReadAllText((Join-Path $bin 'legion'))) 'Unix command shim equals shared format'
+    if ($IsWindows) {
+        Assert-Equal (Get-LegionShimText -Script $target -Windows -HomeRoot $testHome) ([IO.File]::ReadAllText((Join-Path $bin "legion.cmd"))) 'Windows command shim equals shared format'
     }
     Assert-Equal $(if ($IsWindows) { 1 } else { 0 }) $pathWrites.Count 'Only Windows writes user PATH'
     if ($IsWindows) { Assert-Equal "fixture-path;$bin" $pathWrites[0] 'User PATH appends bin' }
@@ -597,9 +589,7 @@ try {
     Reset-SetupTest 'rejections'
     $before = Get-SetupTree $testHome
     Assert-Throws { Invoke-Setup -HomeRoot $testHome -Add @('claude', 'codex') -Id chosen -Yes } 'Custom id needs exactly one add'
-    foreach ($id in (Get-LegionOwnerCommands).Keys) {
-        Assert-Throws { Invoke-Setup -HomeRoot $testHome -Add claude -Id $id -Yes } 'Reserved id rejected'
-    }
+    Assert-Throws { Invoke-Setup -HomeRoot $testHome -Add claude -Id 'legion' -Yes } 'Reserved id rejected'
     Assert-Throws { Invoke-Setup -HomeRoot $testHome -Add @('claude', "codex:$(Join-Path $testHome 'missing')") -Yes } 'Missing adopted folder rejected'
     Assert-Equal $before (Get-SetupTree $testHome) 'All bad input is rejected before any change'
     Assert-Equal 0 $pathWrites.Count 'Bad input does not write PATH'
@@ -707,21 +697,22 @@ try {
     Assert-Equal 'owner command' ([IO.File]::ReadAllText((Join-Path $bin 'legion'))) 'Unrelated command stays unchanged'
     Assert-SetupText $output 'Blocked commands: legion' 'Blocked command is listed after table'
     Assert-Equal 1 @($output | Where-Object { $_ -like '*legion*another file*' -or $_ -like 'Blocked commands:*' }).Count 'N3 a blocked command is reported once on apply'
-    Reset-SetupTest 'finder-failure'
-    $script:findCalls = 0
-    function Find-SetupInstaller { $script:findCalls++; throw 'fixture download failure' }
+    Reset-SetupTest 'missing-installer'
+    $savedInstaller = ${function:Invoke-SetupInstaller}
+    $script:installerAttempts = 0
+    function Invoke-SetupInstaller { $script:installerAttempts++; throw 'fixture missing installer' }
     $output = @(Invoke-Setup -HomeRoot $testHome -Add @('claude', 'codex') -Yes)
-    Assert-Equal 1 $findCalls 'Installer discovery failure is attempted only once for the run'
-    Assert-Equal 0 $installs.Count 'A missing installer is never invoked'
-    Assert-SetupText $output 'install failed: log in with claude1, then finish setup' 'Discovery failure produces first fallback row'
-    Assert-SetupText $output 'install failed: log in with codex1, then finish setup' 'Discovery failure still produces next fallback row'
+    Assert-Equal 2 $installerAttempts 'Missing shipped installer gives a failure for each target'
+    Assert-Equal 0 $installs.Count 'A missing installer completes no installations'
+    Assert-SetupText $output 'install failed: log in with claude1, then finish setup' 'Missing installer produces first fallback row'
+    Assert-SetupText $output 'install failed: log in with codex1, then finish setup' 'Missing installer still produces next fallback row'
+    Set-Item function:Invoke-SetupInstaller $savedInstaller
 
     # -Source reaches the installer call only when given; the plan output stays the same.
     $fakeInstaller = ${function:Invoke-SetupInstaller}
     $realProcess = ${function:Invoke-SetupProcess}
     try {
         Set-Item function:Invoke-SetupInstaller $realInvokeInstaller
-        function Find-SetupInstaller { return (Join-Path $tempRoot 'inert-installer.ps1') }
         function Invoke-SetupProcess { param([string[]]$Arguments) $script:processCalls.Add($Arguments); return @{ Code = 0; Output = '' } }
         $sourceFolder = Join-Path $tempRoot 'work/my-project'
         $sourceCases = @(
@@ -742,7 +733,7 @@ try {
                 Assert-True ($position -ge 0 -and $call[$position + 1] -ceq $case.Expected) "Source $($case.Name): installer receives -Source unchanged"
             } else {
                 Assert-Equal -1 $position 'Without -Source the installer arguments have no -Source'
-                Assert-Equal ('-NoProfile -File ' + (Join-Path $tempRoot 'inert-installer.ps1') + ' -Tools claude -ConfigDir ' + (Join-Path $testHome '.legion/agents/claude1') + ' -HomeRoot ' + $testHome + ' -Update -Yes') ($call -join ' ') 'Without -Source the installer arguments are unchanged'
+                Assert-Equal ('-NoProfile -File ' + (Join-Path $root 'plugins/legion/install.ps1') + ' -Tools claude -ConfigDir ' + (Join-Path $testHome '.legion/agents/claude1') + ' -HomeRoot ' + $testHome + ' -Update -Yes') ($call -join ' ') 'Without -Source the installer arguments are unchanged'
             }
         }
         Reset-SetupTest 'source-plan'
@@ -759,7 +750,13 @@ try {
     $script:SetupHomeRoot = $testHome
     $script:SetupPluginRoot = Join-Path $testHome 'cache/plugins/legion'
     $shipped = Join-Path $script:SetupPluginRoot 'install.ps1'
-    Assert-Equal $shipped (& $realFindInstaller) 'Setup uses its own shipped installer without searching or downloading'
+    $script:processCalls = [Collections.Generic.List[object]]::new()
+    $realProcess = ${function:Invoke-SetupProcess}
+    try {
+        function Invoke-SetupProcess { param([string[]]$Arguments) $script:processCalls.Add($Arguments); return @{ Code=0; Output='' } }
+        & $realInvokeInstaller -Installer $shipped -Tool claude -ConfigDir $testHome | Out-Null
+        Assert-Equal $shipped $processCalls[0][2] 'Setup passes the shipped installer directly without searching or downloading'
+    } finally { Set-Item function:Invoke-SetupProcess $realProcess }
 
     # Exercise the real process boundary against an inert script: flags, closed stdin and captured output.
     $standIn = Join-Path $testHome 'stand in.ps1'

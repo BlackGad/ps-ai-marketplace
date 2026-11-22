@@ -10,9 +10,10 @@ $ErrorActionPreference = 'Stop'
 
 $file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings
 if (-not (Test-Path -LiteralPath $file)) { throw 'No legion settings yet; run legion setup.' }
-$agents = @((Read-LegionJson -Path $file).agents)
+$data = Read-LegionJson -Path $file
+$agents = @($data.agents)
 if ($Account) {
-    $agents = @($agents | Where-Object { $_.id -ceq $Account })
+    $agents = @(Get-LegionAgent -Data $data -Id $Account | Where-Object { $null -ne $_ })
     if ($agents.Count -eq 0) { throw "unknown account '$Account'" }
 }
 

@@ -9,8 +9,7 @@ if (Test-Path -LiteralPath $file) {
     foreach ($agent in $owner.agents) {
         if (-not $agent.provider) {
             if (-not (Test-LegionLauncherMissing -Id $agent.id -HomeRoot $HomeRoot)) { continue }
-            $folder = $agent.configDir
-            if ($folder -match '^~[/\\]') { $folder = Join-Path $HomeRoot $folder.Substring(2) }
+            $folder = Resolve-LegionHomePath -Path $agent.configDir -HomeRoot $HomeRoot
             $target = Get-LegionWrapperTarget -Id $agent.id -Tool $agent.tool -HomeRoot $HomeRoot -ConfigDir $folder
             if (-not $target) { "skip: account $($agent.id) (CLI target not found or launcher needs repair)"; continue }
             New-LegionWrappers -Id $agent.id -Tool $agent.tool -HomeRoot $HomeRoot -ConfigDir $folder -RealCommand $target -Changes $changes
@@ -23,17 +22,6 @@ if (Test-Path -LiteralPath $file) {
     }
 }
 
-foreach ($entry in (Get-LegionOwnerCommands).GetEnumerator()) {
-    $runner = Join-Path $PSScriptRoot $entry.Value
-    foreach ($suffix in @('', '.cmd')) {
-        $path = Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$($entry.Key)$suffix"
-        if (-not (Test-LegionOwnerPathSafe -Path $path -StopRoot $HomeRoot)) { continue }
-        $state = Get-LegionOwnerCommandState -Path $path
-        if ($state -eq 'blocked') { continue }
-        if ($state -eq 'missing' -and $suffix -and -not $IsWindows) { continue }
-        $updated = Get-LegionShimText -Script $runner -Windows:([bool]$suffix) -HomeRoot $HomeRoot
-        Write-LegionGeneratedFile -Path $path -Content $updated -Changes $changes -Executable:($suffix -eq '')
-    }
-}
+Write-LegionOwnerCommands -Bin $PSScriptRoot -HomeRoot $HomeRoot -Changes $changes
 if ($changes.Count) { 'legion generated runtimes and launchers refreshed' }
 else { 'skip: legion generated runtimes and launchers (already done)' }

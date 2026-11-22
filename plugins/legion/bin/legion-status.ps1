@@ -15,8 +15,7 @@ function Write-StatusAccounts {
 
     'accounts'
     foreach ($agent in $Settings.agents) {
-        $folder = $agent.configDir
-        if ($folder.StartsWith('~/') -or $folder.StartsWith('~\')) { $folder = Join-Path $HomeRoot $folder.Substring(2) }
+        $folder = Resolve-LegionHomePath -Path $agent.configDir -HomeRoot $HomeRoot
         $tool = Get-LegionTool -Tool $agent.tool
         $version = Get-LegionInstalledVersion -ConfigDir $folder -Tool $tool
         if (-not $version) { $version = 'missing' }
@@ -28,7 +27,7 @@ function Write-StatusCommands {
     param([string]$Bin, [string]$HomeRoot)
 
     $rows = @(Get-LegionCommandState -Bin $Bin -HomeRoot $HomeRoot)
-    $labels = [ordered]@{ blocked = 'blocked'; missing = 'missing'; stale = 'stale'; unbound = 'unbound'; permission = 'not executable' }
+    $labels = [ordered]@{ blocked = 'blocked'; missing = 'missing'; permission = 'not executable' }
     # Each command is reported once, under its most serious state.
     $worst = @{}
     foreach ($name in ($rows.Name | Select-Object -Unique)) {
@@ -46,13 +45,13 @@ function Write-StatusRepository {
     param([string]$Repo)
 
     $legion = Get-LegionRepoPath -Repo $Repo -Path ''
-    foreach ($file in @('configuration/project.json', 'configuration/workflow.md', 'scripts/index.md')) {
+    $required = @('configuration/project.json', 'configuration/workflow.md', 'scripts/index.md')
+    foreach ($file in $required) {
         if (-not (Test-Path -LiteralPath (Join-Path $legion $file) -PathType Leaf)) { 'repo none'; return }
     }
     # Private orchestration owns an inner Git history; Shared uses the code repository's history.
     $mode = if (Test-Path -LiteralPath (Join-Path $legion '.git')) { 'Private' } else { 'Shared' }
     $gitRoot = if ($mode -eq 'Private') { $legion } else { $Repo }
-    $required = @('configuration/project.json', 'configuration/workflow.md', 'scripts/index.md')
     $paths = if ($mode -eq 'Private') { $required } else { @($required | ForEach-Object { ".legion/$_" }) }
     $previousExit = $global:LASTEXITCODE
     try {
