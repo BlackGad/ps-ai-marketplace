@@ -4,7 +4,7 @@
 function Get-WorkflowJobBlocks {
     param([string]$Path)
     $text = Get-Content -LiteralPath $Path -Raw
-    $jobs = [regex]::Match($text, '(?ms)^jobs:[ \t]*\r?\n(?<body>.*?)(?=^\S|\z)').Groups['body'].Value
+    $jobs = [regex]::Match($text, '(?ms)^jobs:[ \t]*\r?\n(?<body>.*?)(?=^[^\s#]|\z)').Groups['body'].Value
     foreach ($job in [regex]::Matches($jobs, '(?ms)^  (?<id>[\w-]+):[ \t]*\r?\n(?<body>.*?)(?=^  [\w-]+:|\z)')) {
         $id = $job.Groups['id'].Value
         $body = $job.Groups['body'].Value
