@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.11.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.10.0...v0.11.0) (2026-11-21)
+
+
+### Features
+
+* **hooks:** warn when a bound channel is not connected ([#33](https://github.com/BlackGad/ps-legion-marketplace/issues/33)) ([df0fc29](https://github.com/BlackGad/ps-legion-marketplace/commit/df0fc2903acd67896707a68b969499c580367ffe))
+* **setup:** allow the overseer to start legion members in Claude ([#31](https://github.com/BlackGad/ps-legion-marketplace/issues/31)) ([f323f76](https://github.com/BlackGad/ps-legion-marketplace/commit/f323f766b88a71774df100cd6a937fbb4bfeab1e))
+
+
+### Fixes
+
+* **ci:** pass the source fallback only on a direct main push ([#34](https://github.com/BlackGad/ps-legion-marketplace/issues/34)) ([b81f52c](https://github.com/BlackGad/ps-legion-marketplace/commit/b81f52c867e2ea861c425f8ecded83cba0e3598c))
+* point links and defaults to ps-legion-marketplace ([#30](https://github.com/BlackGad/ps-legion-marketplace/issues/30)) ([258fb6f](https://github.com/BlackGad/ps-legion-marketplace/commit/258fb6fe23c5373a1a222df99044d4cee57f3600))
+
 ## [0.10.0](https://github.com/BlackGad/ps-ai-marketplace/compare/v0.9.0...v0.10.0) (2026-11-21)
 
 
