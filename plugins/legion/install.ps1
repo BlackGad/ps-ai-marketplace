@@ -745,12 +745,17 @@ function Invoke-LegionUninstall {
     foreach ($tool in ($selectedTools | Select-Object -Unique)) {
         $entry = Get-InstallTool -Tool $tool
         if (-not (Test-InstallCommandAvailable -Name $entry.command)) { "skip: $tool (not installed)"; continue }
-        foreach ($folder in (Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir)) {
+        $folders = Get-UpdateConfigDirs -Tool $tool -ConfigDir $ConfigDir
+        # A removed account keeps its folder; the index still names it as an install target.
+        if (-not $ConfigDir) { $folders += @(Get-LegionFootprints -HomeRoot $homeRoot | ForEach-Object { $_.owners } | Where-Object { $_ -clike "${tool}:*" } | ForEach-Object { $_.Substring($tool.Length + 1) }) }
+        foreach ($folder in $folders) {
+            $owner = Get-LegionTargetOwner -Tool $entry -Folder $folder -HomeRoot $homeRoot
+            if ($owners -ccontains $owner) { continue }
             $label = if ($folder) { $folder } else { 'default config' }
             # In a chosen home the tool's default folder may not exist; then nothing is installed there.
-            $isHomeDefault = $folder -and $entry.plugin.defaultConfigDir -and (Get-LegionTargetOwner -Tool $entry -Folder $folder -HomeRoot $homeRoot) -ceq (Get-LegionTargetOwner -Tool $entry -HomeRoot $homeRoot)
+            $isHomeDefault = $folder -and $entry.plugin.defaultConfigDir -and $owner -ceq (Get-LegionTargetOwner -Tool $entry -HomeRoot $homeRoot)
             if ($isHomeDefault -and -not (Test-InstallRealProfile) -and -not (Test-Path -LiteralPath $folder)) { "skip: $tool plugin in $label (not installed)"; continue }
-            $owners += Get-LegionTargetOwner -Tool $entry -Folder $folder -HomeRoot $homeRoot
+            $owners += $owner
             $steps = @()
             foreach ($kind in @('plugin', 'marketplace')) {
                 $check = if ($kind -eq 'plugin') { @($entry.command) + $entry.plugin.install }

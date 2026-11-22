@@ -93,7 +93,7 @@ $cases = [ordered]@{
             $bin = Join-Path $sandbox '.legion/bin'
             $az = Join-Path $sandbox '.legion/tools/az'
             $state.UserPath = "%USERPROFILE%\bin;$bin;$az"
-            $env:PATH = $state.UserPath
+            $env:PATH = @('%USERPROFILE%\bin', $bin, $az) -join [IO.Path]::PathSeparator
             function Get-InstallUserPath { $state.UserPath }
             function Set-InstallUserPath { param($Path) $state.UserPath = $Path }
             foreach ($path in @($bin, $az)) { Add-LegionFootprint -HomeRoot $sandbox -Kind path-entry -Path 'user PATH' -Value $path -Owner legion }
