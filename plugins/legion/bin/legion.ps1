@@ -23,6 +23,7 @@ function Get-LegionHelp {
         '  legion add <tool> [<folder>] [--yes] add a claude, codex or copilot account (new or existing folder)'
         '  legion remove <id>                   remove an account (its folder is kept)'
         '  legion status                        show accounts, commands, channels and this repository'
+        '  legion limits [<id>]                 show each account''s usage windows and reset times (or one account)'
         '  legion update [--yes]                update legion to the newest version of the track it was installed from'
         '  legion uninstall [--purge] [--yes]   remove legion; --purge also deletes settings, notes and legion-made logins'
         '  legion help                          show this list'
@@ -96,6 +97,12 @@ function Get-LegionCall {
         'status' {
             Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags @() -MinArguments 0 -MaxArguments 0
             return @{ Script = 'legion-status.ps1'; Splat = @{ Repo = $repo }; AsksToApply = $false }
+        }
+        'limits' {
+            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags @() -MinArguments 0 -MaxArguments 1
+            $splat = @{}
+            if ($arguments.Count) { $splat.Account = $arguments[0] }
+            return @{ Script = 'legion-limits.ps1'; Splat = $splat; AsksToApply = $false }
         }
         { $_ -in @('', 'pick') } {
             $noChannelFlags = @('--no-channel', '-NoChannel')

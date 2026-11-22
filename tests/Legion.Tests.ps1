@@ -79,6 +79,7 @@ legion - legion commands
   legion add <tool> [<folder>] [--yes] add a claude, codex or copilot account (new or existing folder)
   legion remove <id>                   remove an account (its folder is kept)
   legion status                        show accounts, commands, channels and this repository
+  legion limits [<id>]                 show each account's usage windows and reset times (or one account)
   legion update [--yes]                update legion to the newest version of the track it was installed from
   legion uninstall [--purge] [--yes]   remove legion; --purge also deletes settings, notes and legion-made logins
   legion help                          show this list

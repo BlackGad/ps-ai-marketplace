@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init"}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1795350000,"rateLimitType":"five_hour","unifiedWindows":{"five_hour":{"utilization":0.69,"resetsAt":1795350000,"status":"allowed"},"seven_day":{"utilization":0.55,"resetsAt":1795654800,"status":"allowed"}}}}
+{"type":"result","subtype":"success","result":"pong"}
