@@ -41,6 +41,31 @@ jobs:
           path: results
           if-no-files-found: ignore
 
+  python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/.legion/temp/python/env
+      UV_CACHE_DIR: ${{ github.workspace }}/.legion/temp/python/cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          python-version: '3.12'
+          enable-cache: false
+      - run: uv run --project plugins/legion --frozen --group dev ruff check plugins/legion/src tests/python
+      - run: uv run --project plugins/legion --frozen --group dev ruff format --check plugins/legion/src tests/python
+      - run: uv run --project plugins/legion --frozen --group dev pyright
+      - run: uv run --project plugins/legion --frozen --group dev pytest --rootdir=. -c plugins/legion/pyproject.toml
+
   parse-5-1:
     runs-on: windows-2025
     timeout-minutes: 5
@@ -96,7 +121,7 @@ jobs:
   gate:
     # Release PRs use the trusted commit status, including while PR runs await approval.
     name: ${{ (inputs.sha != '' || (github.event_name == 'pull_request' && github.event.pull_request.user.login == 'github-actions[bot]' && startsWith(github.head_ref, 'release-please--'))) && 'release PR tests' || 'gate' }}
-    needs: [unit, parse-5-1, pr-title]
+    needs: [unit, python, parse-5-1, pr-title]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -104,12 +129,14 @@ jobs:
       - shell: pwsh
         env:
           UNIT_RESULT: ${{ needs.unit.result }}
+          PYTHON_RESULT: ${{ needs.python.result }}
           PARSE_RESULT: ${{ needs.parse-5-1.result }}
           TITLE_RESULT: ${{ needs.pr-title.result }}
         run: |
           # pr-title is skipped on push and workflow_call runs; that counts as success
           $failed = @()
           if ($env:UNIT_RESULT -ne 'success') { $failed += "unit: $env:UNIT_RESULT" }
+          if ($env:PYTHON_RESULT -ne 'success') { $failed += "python: $env:PYTHON_RESULT" }
           if ($env:PARSE_RESULT -ne 'success') { $failed += "parse-5-1: $env:PARSE_RESULT" }
           if ($env:TITLE_RESULT -notin 'success', 'skipped') { $failed += "pr-title: $env:TITLE_RESULT" }
           if ($failed) {
