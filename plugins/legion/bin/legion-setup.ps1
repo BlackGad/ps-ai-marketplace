@@ -207,14 +207,15 @@ function Get-SetupPlan {
     return @{
         HomeRoot = $HomeRoot; Settings = $settings; Data = $data; Accounts = $accounts; MissingTools = $missing
         Notes = (Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Notes); Bin = $bin
-        Commands = @(Get-LegionCommandState -Bin $bin -HomeRoot $HomeRoot); NeedsPath = (-not (Test-LegionPathEntry -Path $path -Folder $bin))
+        Commands = @(Get-LegionCommandState -Bin $bin -HomeRoot $HomeRoot)
+        NeedsPath = $(if ($IsWindows) { -not (Test-LegionPathEntry -Path $path -Folder $bin) } else { -not (Get-LegionShellProfile -HomeRoot $HomeRoot).HasPath })
         Version = $version
     }
 }
 
 function Get-SetupPathHint {
     param($Plan)
-    return 'add to your shell profile: export PATH=' + (ConvertTo-LegionShellLiteral $Plan.Bin) + ':"$PATH"'
+    return Add-LegionUserPath -Folder $Plan.Bin -HomeRoot $Plan.HomeRoot -DryRun
 }
 
 function Test-SetupToolInstalled {
@@ -367,11 +368,8 @@ function Write-SetupCommands {
 
 function Set-SetupPath {
     param($Plan)
-    if (-not $IsWindows) {
-        if (-not $Plan.NeedsPath) { 'skip: path (already done)' }
-        return
-    }
     Add-LegionUserPath -Folder $Plan.Bin -HomeRoot $Plan.HomeRoot
+    if (-not $IsWindows) { return }
     if (-not $Plan.NeedsPath) { 'skip: path (already done)' }
     if (-not (Test-LegionPathEntry -Path $env:PATH -Folder $Plan.Bin)) { $env:PATH += ";$($Plan.Bin)" }
 }
@@ -408,7 +406,6 @@ function Write-SetupTable {
     }
     $blocked = @($Plan.Commands | Where-Object State -EQ blocked | Select-Object -ExpandProperty Name -Unique)
     if ($blocked.Count) { "Blocked commands: $($blocked -join ', ')" }
-    if (-not $IsWindows -and $Plan.NeedsPath) { Get-SetupPathHint -Plan $Plan }
 }
 
 function Invoke-Setup {

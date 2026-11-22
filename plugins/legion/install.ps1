@@ -536,6 +536,14 @@ function Get-InstallPurgeEdit {
         $text = $encoding.GetString($before, $bom, $before.Length - $bom)
         $entries = @()
         foreach ($footprint in $Footprints) {
+            if ($footprint.kind -ceq 'path-entry') {
+                $pattern = '(?m)(?:' + [regex]::Escape($footprint.key) + '^# Added by legion\r?\n)?^' + [regex]::Escape($footprint.value) + '(?:\r?\n|$)'
+                if ([regex]::IsMatch($text, $pattern)) {
+                    $text = [regex]::Replace($text, $pattern, '')
+                    $entries += $footprint.value
+                }
+                continue
+            }
             $result = Get-InstallPurgeJsonText -Text $text -Kind allow -Key $footprint.key -Value $footprint.value
             $text = $result.Text; $entries += $result.Entries
         }
@@ -581,7 +589,7 @@ function Get-InstallPurgePlan {
     $edits = @()
     $editedPaths = [Collections.Generic.HashSet[string]]::new((Get-LegionPathComparer))
     $manualSteps = @()
-    $footprints = @(Get-LegionFootprints -HomeRoot (Get-InstallHome) -Kind edit)
+    $footprints = @(Get-LegionFootprints -HomeRoot (Get-InstallHome) | Where-Object { $_.kind -ceq 'edit' -or ($_.kind -ceq 'path-entry' -and $_.path -cne 'user PATH') })
     $pathEntries = @(Get-LegionFootprints -HomeRoot (Get-InstallHome) -Kind path-entry | Where-Object path -CEQ 'user PATH' | ForEach-Object value)
     $userPath = if ($env:OS -eq 'Windows_NT') { Get-InstallUserPath } else { '' }
     $keptPath = @()
@@ -1009,14 +1017,16 @@ function Invoke-LegionInstaller {
     if ($onWindows -and -not (Test-InstallPathEntry -Path (Get-InstallUserPath) -Entry $bin -Separator ';')) {
         $pathQuestion = ', and add ~/.legion/bin to your PATH'
     }
+    if (-not $onWindows -and -not (Get-LegionShellProfile -HomeRoot (Get-InstallHome)).HasPath) { $pathQuestion = ', and add ~/.legion/bin to your shell profile PATH' }
+    if ($DryRun -and -not $onWindows) { Add-LegionUserPath -Folder $bin -HomeRoot (Get-InstallHome) -DryRun }
     if (-not $DryRun) {
         if (-not (Confirm-InstallChange -Yes:$Yes -Question "Install legion for $($Tools -join ', ') now${pathQuestion}? [y/N]")) {
             'Nothing changed. Run again with -Yes to apply.'
             return
         }
+        Add-LegionUserPath -Folder $bin -HomeRoot (Get-InstallHome)
         if ($onWindows) {
             New-Item -ItemType Directory -Path $bin -Force | Out-Null
-            Add-LegionUserPath -Folder $bin -HomeRoot (Get-InstallHome)
             if (-not (Test-LegionPathEntry -Path $env:PATH -Folder $bin)) { $env:PATH = $bin + [IO.Path]::PathSeparator + $env:PATH }
         }
     }
@@ -1047,9 +1057,6 @@ function Invoke-LegionInstaller {
     }
     if (-not $DryRun) {
         $results | Format-Table Tool, Version, Plugin, Hooks -AutoSize
-        if (-not $onWindows -and -not (Test-InstallPathEntry -Path $env:PATH -Entry $bin -Separator ([string][IO.Path]::PathSeparator))) {
-            'add to your shell profile: export PATH="$HOME/.legion/bin:$PATH"'
-        }
         "installed: legion $pluginVersion ($Ref)"
         'next: legion add claude (or legion in a repository)'
     }

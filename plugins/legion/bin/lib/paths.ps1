@@ -143,9 +143,39 @@ function Test-InstallPathEntry {
     return $false
 }
 
-# The one place that adds a folder to the saved user PATH (Windows registry); a repeat changes nothing.
+function Get-LegionShellProfile {
+    param([string]$HomeRoot = $HOME)
+    $name = switch ([IO.Path]::GetFileName($env:SHELL)) { zsh { '.zshrc' } bash { '.bashrc' } default { '.profile' } }
+    $path = Join-Path $HomeRoot $name
+    $text = if (Test-Path -LiteralPath $path) { [IO.File]::ReadAllText($path) } else { '' }
+    $line = 'export PATH="$HOME/.legion/bin:$PATH"'
+    return [pscustomobject]@{ Path=$path; Text=$text; Line=$line; HasPath=($line -cin ($text -split '\r?\n')) }
+}
+
+# The one saved user PATH writer; callers obtain consent before calling it.
 function Add-LegionUserPath {
-    param([string]$Folder, [string]$HomeRoot = $HOME)
+    param([string]$Folder, [string]$HomeRoot = $HOME, [switch]$DryRun)
+    if ($env:OS -ne 'Windows_NT') {
+        $profile = Get-LegionShellProfile -HomeRoot $HomeRoot
+        if (-not (Test-LegionOwnerPathSafe -Path $profile.Path -StopRoot $HomeRoot)) { throw 'Shell profile contains a link; resolve it before writing' }
+        if ($profile.HasPath) {
+            if (-not $DryRun) {
+                $recorded = Get-LegionFootprints -HomeRoot $HomeRoot -Kind path-entry | Where-Object { $_.value -ceq $profile.Line -and (Resolve-LegionHomePath -Path $_.path -HomeRoot $HomeRoot) -ceq $profile.Path }
+                Add-LegionFootprint -HomeRoot $HomeRoot -Kind path-entry -Path $profile.Path -Key ([string]$recorded.key) -Value $profile.Line -Owner legion
+            }
+            'skip: shell profile PATH (already done)'; return
+        }
+        "add # Added by legion and $($profile.Line) to $($profile.Path)"
+        if ($DryRun) { return }
+        # Record a separating newline too, so purge restores a file without a final newline exactly.
+        $separator = if ($profile.Text -and -not $profile.Text.EndsWith("`n")) { "`n" } else { '' }
+        Add-LegionFootprint -HomeRoot $HomeRoot -Kind path-entry -Path $profile.Path -Key $separator -Value $profile.Line -Owner legion
+        $text = $profile.Text + $separator + "# Added by legion`n" + $profile.Line + "`n"
+        if (Test-Path -LiteralPath $profile.Path) { Set-LegionTextPreservingEncoding -Path $profile.Path -Text $text }
+        else { [IO.File]::WriteAllText($profile.Path, $text) }
+        return
+    }
+    if ($DryRun) { "add $Folder to your user PATH"; return }
     Add-LegionFootprint -HomeRoot $HomeRoot -Kind path-entry -Path 'user PATH' -Value $Folder.TrimEnd('\', '/') -Owner legion
     $userPath = Get-InstallUserPath
     if (Test-InstallPathEntry -Path $userPath -Entry $Folder -Separator ';') { return }

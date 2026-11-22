@@ -70,13 +70,19 @@ foreach ($case in $Cases) {
                 # Missing-pwsh consent and both prompts are covered by the stub tests.
                 'InstallUnixPathHint' {
                     $env:OS='fixture-unix'
+                    $preview = @(Invoke-LegionInstaller @options -DryRun) -join "`n"
+                    $profile = Get-LegionShellProfile -HomeRoot $scratch
+                    Assert-True ($preview.Contains($profile.Path)) 'InstallUnixPathHint: dry run names the profile'
+                    Assert-True (-not (Test-Path $profile.Path)) 'InstallUnixPathHint: dry run never writes the profile'
+                    $state.Answer = 'n'
+                    $null = Invoke-LegionInstaller @options
+                    Assert-True (-not (Test-Path $profile.Path)) 'InstallUnixPathHint: decline never writes the profile'
                     $output = @(Invoke-LegionInstaller @options -Yes)
-                    Assert-True ($output -contains 'add to your shell profile: export PATH="$HOME/.legion/bin:$PATH"') 'InstallUnixPathHint: prints the shell profile line'
+                    Assert-True (Get-LegionShellProfile -HomeRoot $scratch).HasPath 'InstallUnixPathHint: consent writes the shell profile line'
                     Assert-Equal 0 $state.Writes 'InstallUnixPathHint: no user PATH write'
                     Assert-Equal $savedPath $env:PATH 'InstallUnixPathHint: no process PATH write'
-                    $env:PATH = (Join-Path $scratch '.legion/bin') + [IO.Path]::PathSeparator + $savedPath
                     $repeat = @(Invoke-LegionInstaller @options -Yes)
-                    Assert-True (-not ($repeat -match '^add to your shell profile:')) 'InstallUnixPathHint: no hint when already on PATH'
+                    Assert-True ($repeat -contains 'skip: shell profile PATH (already done)') 'InstallUnixPathHint: repeat skips the profile before a new terminal'
                 }
                 'InstallNextStep' {
                     foreach ($track in @('release','main')) {

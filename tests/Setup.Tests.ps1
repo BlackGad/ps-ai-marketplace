@@ -333,13 +333,14 @@ try {
         }
         G6 = {
             Reset-SetupTest 'alternate home with spaces'
-            $plan = @{ Bin = (Join-Path $testHome '.legion/bin') }
-            $hint = Get-SetupPathHint -Plan $plan
-            Assert-Equal ("add to your shell profile: export PATH='" + $plan.Bin + "'" + ':"$PATH"') $hint 'G6 shell hint quotes the selected bin folder'
             if (-not $IsWindows) {
-                $export = $hint.Substring('add to your shell profile: '.Length)
-                $actual = & /bin/sh -c ($export + '; printf "%s" "$PATH"')
-                Assert-Equal ($plan.Bin + ':' + $fixturePath) $actual 'G6 following the hint adds the alternate bin with spaces'
+                $plan = @{ Bin = (Join-Path $testHome '.legion/bin'); HomeRoot = $testHome }
+                $profile = Get-LegionShellProfile -HomeRoot $testHome
+                Assert-SetupText @(Get-SetupPathHint -Plan $plan) $profile.Path 'G6 shell plan names the selected home profile'
+                Set-SetupPath -Plan $plan | Out-Null
+                $command = 'HOME=' + (ConvertTo-LegionShellLiteral $testHome) + '; . ' + (ConvertTo-LegionShellLiteral $profile.Path) + '; printf "%s" "$PATH"'
+                $actual = & /bin/sh -c $command
+                Assert-Equal ($plan.Bin + ':' + $fixturePath) $actual 'G6 sourcing the profile adds the alternate home bin with spaces'
             }
         }
         B1 = {
@@ -578,9 +579,7 @@ try {
     Assert-Equal $(if ($IsWindows) { 1 } else { 0 }) $pathWrites.Count 'Only Windows writes user PATH'
     if ($IsWindows) { Assert-Equal "fixture-path;$bin" $pathWrites[0] 'User PATH appends bin' }
     else {
-        $quotedBinHint = 'add to your shell profile: export PATH=' + (ConvertTo-LegionShellLiteral $bin) + ':"$PATH"'
-        Assert-SetupText $apply $quotedBinHint 'R4 B6 Unix profile instruction quotes the fixture bin'
-        $env:PATH += [IO.Path]::PathSeparator + $bin
+        Assert-True (Get-LegionShellProfile -HomeRoot $testHome).HasPath 'R4 B6 Unix apply writes the fixture profile'
     }
     $before = Get-SetupTree $testHome
     $repeat = @(Invoke-Setup -HomeRoot $testHome -Yes)
