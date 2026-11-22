@@ -2,7 +2,8 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $root = Split-Path $PSScriptRoot -Parent
 $account = Join-Path $root 'plugins/legion/bin/legion-account.ps1'
-$tempRoot = Join-Path (Get-TestTempPath) ('legion-tests/' + [guid]::NewGuid())
+# The runner already gives this file a unique temp folder; keep cmd.exe paths short.
+$tempRoot = Join-Path (Get-TestTempPath) 'wrappers'
 $previousLog = $env:LEGION_WRAPPER_LOG
 $previousExpand = $env:LEGION_WRAPPER_EXPAND
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null

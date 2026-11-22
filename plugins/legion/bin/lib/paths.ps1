@@ -45,7 +45,7 @@ function Test-LegionOwnerPathSafe {
     $comparer = Get-LegionPathComparer
     $current = [IO.Path]::GetFullPath($Path)
     $root = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($StopRoot))
-    if (-not (Test-LegionPathUnder -Path $current -Root $root -AllowEqual)) { throw 'Path is outside the link-walk stop root' }
+    if (-not (Test-LegionPathUnder -Path $current -Root $root -AllowEqual -PreserveLinks)) { throw 'Path is outside the link-walk stop root' }
     while ($current) {
         if ((Test-Path -LiteralPath $current) -and ((Get-Item -LiteralPath $current -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { return $false }
         if ($comparer.Equals($current, $root)) { return $true }
@@ -101,11 +101,13 @@ function Resolve-LegionDirectoryPath {
     return $full
 }
 
-# The one under-root test: Path is inside Root (or Root itself with -AllowEqual), case-insensitive on Windows.
+# Compare resolved paths with OS case rules. Safety walks preserve links so they can refuse them.
 function Test-LegionPathUnder {
-    param([string]$Path, [string]$Root, [switch]$AllowEqual)
-    $full = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Path))
-    $rootPath = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Root))
+    param([string]$Path, [string]$Root, [switch]$AllowEqual, [switch]$PreserveLinks)
+    $full = if ($PreserveLinks) { [IO.Path]::GetFullPath($Path) } else { Resolve-LegionDirectoryPath $Path }
+    $rootPath = if ($PreserveLinks) { [IO.Path]::GetFullPath($Root) } else { Resolve-LegionDirectoryPath $Root }
+    $full = [IO.Path]::TrimEndingDirectorySeparator($full)
+    $rootPath = [IO.Path]::TrimEndingDirectorySeparator($rootPath)
     if ((Get-LegionPathComparer).Equals($full, $rootPath)) { return [bool]$AllowEqual }
     $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     return $full.StartsWith($rootPath.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar, $comparison)

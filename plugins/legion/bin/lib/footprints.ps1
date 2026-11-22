@@ -49,7 +49,7 @@ function Add-LegionFootprint {
         [string]$Path, [string]$Key = '', [string]$Value = '', [string]$Owner)
     if ($Path -cne 'user PATH') {
         $Path = [IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $Path -HomeRoot $HomeRoot))
-        if (Test-LegionPathUnder -Path $Path -Root $HomeRoot) { $Path = '~/' + [IO.Path]::GetRelativePath($HomeRoot, $Path).Replace('\', '/') }
+        if (Test-LegionPathUnder -Path $Path -Root $HomeRoot -PreserveLinks) { $Path = '~/' + [IO.Path]::GetRelativePath($HomeRoot, $Path).Replace('\', '/') }
     }
     $lock = Lock-LegionFootprints -HomeRoot $HomeRoot
     try {
@@ -67,7 +67,7 @@ function Test-LegionFootprintSafe {
     param($Entry, [string]$HomeRoot)
     if ($Entry.path -match '(^|[/\\])\.\.([/\\]|$)|[*?]') { return $false }
     $path = [IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $Entry.path -HomeRoot $HomeRoot))
-    if (-not (Test-LegionPathUnder -Path $path -Root (Get-LegionHomePath -Path '' -HomeRoot $HomeRoot))) { return $false }
+    if (-not (Test-LegionPathUnder -Path $path -Root (Get-LegionHomePath -Path '' -HomeRoot $HomeRoot) -PreserveLinks)) { return $false }
     # A link is itself a reparse point; it is ours while it still points at the recorded target.
     $walked = if ($Entry.kind -ceq 'link') { Split-Path $path } else { $path }
     if (-not (Test-LegionOwnerPathSafe -Path $walked -StopRoot $HomeRoot)) { return $false }

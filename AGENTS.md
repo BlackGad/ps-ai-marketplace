@@ -29,6 +29,7 @@ A settings field exists only if a script reads it. Everything else is a plain-wo
 - **Readable and simple code is a must (KISS).** Write code the next person can read without explanation: plain control flow, clear names, no clever tricks, no abstraction without a real second use.
 - **DRY is desired.** Keep one home for each rule, format or list and reuse it, unless repeating it is simpler to read.
 - **Minimal diff.** Change only what the task needs.
+- Compare paths by resolving links with `Resolve-LegionDirectoryPath` in `plugins/legion/bin/lib/paths.ps1`, then using the OS comparer; keep deliberate link-refusal checks lexical.
 - Skills talk to the owner in plain words. `SKILL.md` holds the flow and the conversation; commands, script paths and flags go in `references/`.
 
 ## Release

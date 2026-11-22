@@ -11,13 +11,13 @@ $savedTemp = @{}
 foreach ($name in @('TMP', 'TEMP', 'TMPDIR')) { $savedTemp[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 try {
     New-Item -ItemType Directory -Path $physical, $sessions -Force | Out-Null
-    $physical = Resolve-TestDirectory $physical
+    $physical = Resolve-LegionDirectoryPath $physical
     $linkType = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
     New-Item -ItemType $linkType -Path $linked -Target $physical | Out-Null
     function Invoke-LegionProcess {
         param($Command, $Arguments, $WorkingDirectory)
         $call.probe = $WorkingDirectory
-        $cwd = if ($scenario -eq 'linked probe') { Resolve-TestDirectory $WorkingDirectory }
+        $cwd = if ($scenario -eq 'linked probe') { Resolve-LegionDirectoryPath $WorkingDirectory }
             else { Join-Path $linked (Split-Path $WorkingDirectory -Leaf) }
         $metadata = @{ type='session_meta'; payload=@{ cwd=$cwd } } | ConvertTo-Json -Compress
         $records = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'fixtures/limits/codex-session.jsonl') |

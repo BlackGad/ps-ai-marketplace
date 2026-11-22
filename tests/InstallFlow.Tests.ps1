@@ -578,6 +578,7 @@ Invoke-InstallTestCase 'WorkingFolder' {
     Remove-Item -LiteralPath (Join-Path $callerFolder '.codex') -Force
     Remove-Item -LiteralPath $callerFolder
     Assert-Equal 0 $result.ExitCode 'Working folder probe runs'
-    $expected = (Get-TestTempPath).TrimEnd('\', '/')
-    Assert-Equal $expected ($result.Output[0].TrimEnd('\', '/')) 'CLI processes run from the system temp folder, not the caller folder'
+    $expected = Resolve-LegionDirectoryPath (Get-TestTempPath)
+    $actual = Resolve-LegionDirectoryPath $result.Output[0]
+    Assert-True ((Get-LegionPathComparer).Equals($expected, $actual)) 'CLI processes run from the system temp folder, not the caller folder'
 }

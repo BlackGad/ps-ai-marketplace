@@ -11,7 +11,7 @@ if (Test-Path -LiteralPath $catalogPath) {
     $configEnvs = (Get-Content $catalogPath -Raw | ConvertFrom-Json).tools.configEnv
 }
 $toolConfigEnvs = @($configEnvs)
-$configEnvs += @('LEGION_ROLE', 'LEGION_TASK', 'HOME', 'USERPROFILE', 'LEGION_TEST_GUARD')
+$configEnvs += @('LEGION_ROLE', 'LEGION_TASK', 'HOME', 'USERPROFILE', 'LEGION_TEST_GUARD', 'TMPDIR', 'TEMP', 'TMP')
 function Get-TestOutsideSnapshot {
     param([string]$Path)
     return @(Get-ChildItem -LiteralPath $Path -File -Recurse -Force | Sort-Object FullName | ForEach-Object { $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash }) -join '|'
@@ -24,15 +24,22 @@ foreach ($test in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Where-Obje
         Remove-Item -LiteralPath "Env:$configEnv" -ErrorAction SilentlyContinue
     }
     $guard = Join-Path $PSScriptRoot ('../.agents/temp/test-home-' + [guid]::NewGuid().ToString('N'))
-    $guardHome = Join-Path $guard 'home'
+    $guardLink = Join-Path $guard 'linked'
+    $guardHome = Join-Path $guardLink 'home'
+    $physical = Join-Path $guard 'physical'
     $outside = Join-Path $guard 'fake-real'
-    New-Item -ItemType Directory -Path $guardHome, $outside -Force | Out-Null
-    $guardHome = Resolve-TestDirectory $guardHome
+    New-Item -ItemType Directory -Path (Join-Path $physical 'home'), $outside -Force | Out-Null
+    $linkType = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+    New-Item -ItemType $linkType -Path $guardLink -Target (Resolve-LegionDirectoryPath $physical) | Out-Null
+    $guardHome = [IO.Path]::GetFullPath($guardHome)
+    $temp = Join-Path $guardHome 'temp'
+    New-Item -ItemType Directory -Path $temp -Force | Out-Null
     'owner sentinel' | Set-Content (Join-Path $outside 'keep.txt')
     $outsideSnapshot = Get-TestOutsideSnapshot $outside
     $env:HOME = $guardHome
     $env:USERPROFILE = $guardHome
     $env:LEGION_TEST_GUARD = $guardHome
+    foreach ($tempEnv in @('TMPDIR', 'TEMP', 'TMP')) { [Environment]::SetEnvironmentVariable($tempEnv, $temp, 'Process') }
     foreach ($configEnv in $toolConfigEnvs) { [Environment]::SetEnvironmentVariable($configEnv, (Join-Path $guardHome $configEnv), 'Process') }
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $result = 'passed'
@@ -64,7 +71,9 @@ foreach ($test in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Where-Obje
         }
         $guardPath = [IO.Path]::GetFullPath($guard)
         $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.agents/temp/'))
-        if (-not $guardPath.StartsWith($allowed)) { throw 'Unsafe test-home cleanup' }
+        if (-not (Test-LegionPathUnder -Path $guardPath -Root $allowed)) { throw 'Unsafe test-home cleanup' }
+        # Unlink first: recursive cleanup must never walk through the home link.
+        Remove-Item -LiteralPath $guardLink -Force
         Remove-Item -LiteralPath $guardPath -Recurse -Force
     }
 }

@@ -342,12 +342,12 @@ function Get-InstallSafePath {
     }
     $rootPath = [IO.Path]::GetFullPath($Root)
     $path = [IO.Path]::GetFullPath((Join-Path $rootPath $Relative))
-    if (-not (Test-LegionPathUnder -Path $path -Root $rootPath)) { throw 'Unsafe path outside the root' }
+    if (-not (Test-LegionPathUnder -Path $path -Root $rootPath -PreserveLinks)) { throw 'Unsafe path outside the root' }
     if (-not (Test-Path -LiteralPath $path)) { return }
     if (-not $AllowFile -and -not (Test-Path -LiteralPath $path -PathType Container)) { return }
     $homeRoot = [IO.Path]::GetFullPath((Get-InstallHome))
     # Selected config folders may live outside home; home paths never walk above it.
-    $stopRoot = if (Test-LegionPathUnder -Path $path -Root $homeRoot) { $homeRoot } else { [IO.Path]::GetPathRoot($path) }
+    $stopRoot = if (Test-LegionPathUnder -Path $path -Root $homeRoot -PreserveLinks) { $homeRoot } else { [IO.Path]::GetPathRoot($path) }
     if (-not (Test-LegionOwnerPathSafe -Path $path -StopRoot $stopRoot)) {
         Write-Host "skip: plugin cache $path (linked folder)"
         return

@@ -110,7 +110,7 @@ function Resolve-ToolRelativePath {
     }
     $rootPath = [IO.Path]::GetFullPath($Root)
     $path = [IO.Path]::GetFullPath((Join-Path $rootPath $relative))
-    if (-not (Test-LegionPathUnder -Path $path -Root $rootPath -AllowEqual)) {
+    if (-not (Test-LegionPathUnder -Path $path -Root $rootPath -AllowEqual -PreserveLinks)) {
         throw 'path must be inside the tool folder'
     }
     return $path

@@ -8,6 +8,9 @@ try {
     Copy-Item (Join-Path $PSScriptRoot 'run.ps1') $testRoot
     Copy-Item (Join-Path $PSScriptRoot 'Assert.ps1') $testRoot
     Copy-Item (Join-Path $PSScriptRoot 'lib') $testRoot -Recurse
+    $pathLibrary = Join-Path $fixtureRepo 'plugins/legion/bin/lib'
+    New-Item -ItemType Directory -Path $pathLibrary -Force | Out-Null
+    Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/paths.ps1') $pathLibrary
     $fakeReal = Join-Path $tempRoot 'fake-real'
     $childEnvironment = @{
         HOME = Join-Path $tempRoot 'home'; USERPROFILE = Join-Path $tempRoot 'home'
@@ -64,25 +67,29 @@ Assert-True ($null -eq (Get-Command fixture-leak -ErrorAction SilentlyContinue))
     $catalogFolder = Join-Path $fixtureRepo 'plugins/legion'
     New-Item -ItemType Directory -Path $catalogFolder -Force | Out-Null
     Copy-Item (Join-Path $repo 'plugins/legion/tools.json') $catalogFolder
-    Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/paths.ps1') (Join-Path $testRoot 'lib/owner-paths.ps1')
     @'
-. (Join-Path $PSScriptRoot 'lib/owner-paths.ps1')
+. (Join-Path $PSScriptRoot '../plugins/legion/bin/lib/paths.ps1')
 $catalog = Get-Content (Join-Path $PSScriptRoot '../plugins/legion/tools.json') -Raw | ConvertFrom-Json
 Assert-Equal $env:HOME $env:USERPROFILE 'Both profile variables use the same home'
+Assert-True ((Get-Item -LiteralPath (Split-Path $env:HOME) -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) 'The fenced home is reached through a link'
 foreach ($name in @('HOME', 'USERPROFILE') + @($catalog.tools.configEnv)) {
     $folder = [Environment]::GetEnvironmentVariable($name, 'Process')
     Assert-True ([IO.Path]::IsPathFullyQualified($folder)) "$name is absolute"
-    Assert-True (Test-LegionOwnerPathSafe $folder -StopRoot $env:HOME) "$name has no linked ancestors"
+    Assert-True (Test-LegionPathUnder $folder -Root $env:HOME -AllowEqual) "$name stays inside the fenced home"
     if ($name -in $catalog.tools.configEnv) {
-        Assert-True ($folder.StartsWith($env:HOME + [IO.Path]::DirectorySeparatorChar)) "$name stays inside the fenced home"
+        Assert-Equal (Join-Path $env:HOME $name) $folder "$name keeps the linked spelling"
     }
+}
+foreach ($name in @('TMPDIR', 'TEMP', 'TMP')) {
+    Assert-Equal (Join-Path $env:HOME 'temp') ([Environment]::GetEnvironmentVariable($name, 'Process')) "$name stays behind the home link"
 }
 '@ | Set-Content (Join-Path $testRoot 'D.Tests.ps1')
     $linkType = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
     New-Item -ItemType $linkType -Path $linkedRoot -Target $fixtureRepo | Out-Null
     $linkedOutput = & pwsh -NoProfile -File (Join-Path $linkedRoot 'tests/run.ps1')
     Assert-Equal 0 $LASTEXITCODE 'Runner succeeds through a linked ancestor'
-    Assert-Equal '3 passed, 0 failed' $linkedOutput[-1] 'Every fenced home and tool folder is link-free'
+    Assert-Equal '3 passed, 0 failed' $linkedOutput[-1] 'Every fenced home, tool folder and temp folder stays behind a link'
+    Assert-Equal 0 @(Get-ChildItem (Join-Path $fixtureRepo '.agents/temp') -Force).Count 'Successful and failed child runs remove their links and physical homes'
 
     # Inherited account overrides must survive the profile test's applying purge.
     $seeds = @{

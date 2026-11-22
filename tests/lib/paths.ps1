@@ -1,3 +1,5 @@
+. (Join-Path $PSScriptRoot '../../plugins/legion/bin/lib/paths.ps1')
+
 function Get-LongPath {
     # Windows CI runners use an 8.3 short TEMP such as C:\Users\RUNNER~1; tools report the long form.
     param([string]$Path)
@@ -13,22 +15,7 @@ public static extern int GetLongPathName(string shortPath, System.Text.StringBui
     return $buffer.ToString()
 }
 
-function Resolve-TestDirectory {
-    param([string]$Path)
-    $directory = Get-Item -LiteralPath $Path -Force
-    if ($directory.Parent) {
-        $parent = Resolve-TestDirectory $directory.Parent.FullName
-        $directory = Get-Item -LiteralPath (Join-Path $parent $directory.Name) -Force
-    }
-    if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-        $target = $directory.ResolveLinkTarget($true)
-        return Resolve-TestDirectory $target.FullName
-    }
-    return $directory.FullName
-}
-
 function Get-TestTempPath {
-    # The macOS temp folder is under /var, a link to /private/var, but a real home is not linked.
-    # Fixtures use the resolved folder so they follow the same rules as a real home.
-    return Resolve-TestDirectory ([IO.Path]::GetTempPath())
+    # Keep the runner's linked temp path so every OS exercises linked ancestors.
+    return [IO.Path]::GetTempPath()
 }
