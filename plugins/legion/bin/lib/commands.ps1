@@ -1,20 +1,43 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'paths.ps1')
+. (Join-Path $PSScriptRoot 'python.ps1')
 
 function ConvertTo-LegionShellLiteral {
     param([string]$Value)
     return "'" + $Value.Replace("'", "'" + '"' + "'" + '"' + "'") + "'"
 }
 
+# The owner command runs the app version in $App through uv, with that version's environment.
+# Windows: one line sets the environment, runs uv and ends the batch with (goto), so a command that an
+# update rewrites while it runs still ends cleanly. Then, in the caller's context, it restores the caller's
+# value and a child cmd exits with uv's code. `exit /b` there would close an interactive console, and
+# %errorlevel% can be a caller's variable; the hidden %=ExitCode% (uv's code in hex) is neither. No
+# setlocal: its end would reset %=ExitCode%.
 function Get-LegionShimText {
-    param([string]$Script, [switch]$Windows, [string]$HomeRoot)
+    param([string]$App, [switch]$Windows, [string]$HomeRoot = $HOME)
 
+    $environment = Get-LegionPythonEnvironment -PluginRoot $App -HomeRoot $HomeRoot
     $homeArgument = Get-LegionShimHomeArgument -HomeRoot $HomeRoot -Windows:$Windows
+    $missing = 'uv is missing. Ask the owner before installing it, then run the legion installer again.'
     $header = Get-LegionHeader -Name 'owner command' -Windows:$Windows
-    if ($Windows) { return "$header`r`n" + '@pwsh -NoProfile -File "' + $Script.Replace('%', '%%') + '"' + $homeArgument + ' %* & (goto) 2>nul & exit /b' + "`r`n" }
-    return "#!/bin/sh`n$header`n" + 'exec pwsh -NoProfile -File ' + (ConvertTo-LegionShellLiteral $Script) + $homeArgument + ' "$@"' + "`n"
+    if ($Windows) {
+        $lines = @(
+            $header
+            '@where /q uv || (>&2 echo ' + $missing + '& exit /b 127)'
+            ('@set "UV_PROJECT_ENVIRONMENT=' + $environment.Replace('%', '%%') + '" & uv run --project "' + $App.Replace('%', '%%') + '" --frozen --quiet legion' + $homeArgument + ' %* & (goto) 2>nul & ' +
+                'set "UV_PROJECT_ENVIRONMENT=%UV_PROJECT_ENVIRONMENT%" & "%COMSPEC%" /d /c "set /a LEGION_EXIT=0x%%=ExitCode%% >nul & call exit %%^LEGION_EXIT%%"')
+        )
+        return ($lines -join "`r`n") + "`r`n"
+    }
+    $lines = @(
+        '#!/bin/sh'
+        $header
+        "command -v uv >/dev/null 2>&1 || { echo '$missing' >&2; exit 127; }"
+        'export UV_PROJECT_ENVIRONMENT=' + (ConvertTo-LegionShellLiteral $environment)
+        'exec uv run --project ' + (ConvertTo-LegionShellLiteral $App) + ' --frozen --quiet legion' + $homeArgument + ' "$@"'
+    )
+    return ($lines -join "`n") + "`n"
 }
 
 function Get-LegionShimHomeArgument {
@@ -24,7 +47,7 @@ function Get-LegionShimHomeArgument {
     $defaultHome = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($HOME))
     if ((Get-LegionPathComparer).Equals($selectedHome, $defaultHome)) { return '' }
     $literal = if ($Windows) { '"' + $selectedHome.Replace('%', '%%') + '"' } else { ConvertTo-LegionShellLiteral $selectedHome }
-    return ' -HomeRoot ' + $literal
+    return ' --home ' + $literal
 }
 
 function Get-LegionOwnerCommandState {
@@ -46,12 +69,28 @@ function Get-LegionCommandState {
     }
 }
 
-# Setup and refresh write the same platform command files, preserving unrelated files.
+# Setup and refresh write the same platform command files for one ready app version, preserving unrelated files.
 function Write-LegionOwnerCommands {
-    param([string]$Bin, [string]$HomeRoot, [Collections.Generic.List[string]]$Changes)
+    param([string]$App, [string]$HomeRoot, [Collections.Generic.List[string]]$Changes)
     foreach ($file in (Get-LegionCommandState -Bin (Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin') -HomeRoot $HomeRoot)) {
         if ($file.State -eq 'blocked' -or -not (Test-LegionOwnerPathSafe -Path $file.Path -StopRoot $HomeRoot)) { continue }
-        $text = Get-LegionShimText -Script (Join-Path $Bin $file.Script) -Windows:$file.Windows -HomeRoot $HomeRoot
+        $text = Get-LegionShimText -App $App -Windows:$file.Windows -HomeRoot $HomeRoot
         Write-LegionGeneratedFile -Path $file.Path -Content $text -Executable:(-not $file.Windows) -Changes $Changes
     }
+}
+
+# Setup and refresh: sync the app, point every command at the version sync made ready, and only then prune
+# older versions. One sync runs at a time; another one waiting would only repeat it.
+function Publish-LegionApp {
+    param([string]$HomeRoot = $HOME, [Collections.Generic.List[string]]$Changes)
+    if (-not (Test-LegionOwnerPathSafe -Path (Get-LegionHomePath -Path 'app' -HomeRoot $HomeRoot) -StopRoot $HomeRoot)) { throw 'The legion app folder contains a link; resolve it before refreshing' }
+    $lock = Open-LegionLockFile -Path (Get-LegionHomePath -Path 'app/.sync.lock' -HomeRoot $HomeRoot)
+    if (-not $lock) { 'skip: legion app sync (another sync is running)'; return }
+    try {
+        $ready = $null
+        Sync-LegionApp -HomeRoot $HomeRoot -Changes $Changes -ReadyPath ([ref]$ready)
+        if (-not $ready) { 'skip: command legion (the legion app is not ready)'; return }
+        Write-LegionOwnerCommands -App $ready -HomeRoot $HomeRoot -Changes $Changes
+        Remove-LegionOldAppVersions -Keep $ready -HomeRoot $HomeRoot
+    } finally { $lock.Dispose() }
 }

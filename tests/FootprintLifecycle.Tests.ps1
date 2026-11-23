@@ -18,7 +18,7 @@ try {
     function Invoke-ClosedInput {
         param([string[]]$Command, $Environment)
         if ($Command -contains '-File') {
-            foreach ($name in $commandNames) { [IO.File]::WriteAllText((Join-Path $bin $name), (Get-LegionShimText -Script legion.ps1 -Windows:$name.EndsWith('.cmd'))) }
+            foreach ($name in $commandNames) { [IO.File]::WriteAllText((Join-Path $bin $name), (Get-LegionShimText -App app -Windows:$name.EndsWith('.cmd'))) }
             return @{ ExitCode = 0; Output = @(); ErrorOutput = @() }
         }
         $tool = $catalog.tools | Where-Object command -CEQ $Command[0]

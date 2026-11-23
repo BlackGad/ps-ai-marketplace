@@ -1,6 +1,9 @@
 $ErrorActionPreference = 'Stop'
+# Refresh syncs the legion app through the fake uv.
+$env:LEGION_TEST_UV_SYNC = '1'
 $root = Split-Path $PSScriptRoot -Parent
 $refresh = Join-Path $root 'plugins/legion/bin/legion-refresh.ps1'
+$version = (Get-Content -LiteralPath (Join-Path $root 'plugins/legion/plugin.json') -Raw | ConvertFrom-Json).version
 $tempRoot = Join-Path $root ('.agents/temp/refresh-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
@@ -16,7 +19,7 @@ try {
             Assert-Equal $IsWindows (Test-Path -LiteralPath "$path.cmd") 'RefreshCreatesMissing creates missing batch shims only on Windows'
             $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
             foreach ($suffix in $suffixes) {
-                $expected = Get-LegionShimText -Script (Join-Path $root "plugins/legion/bin/$name.ps1") -Windows:([bool]$suffix) -HomeRoot $alternateHome
+                $expected = Get-LegionShimText -App (Join-Path $alternateHome ".legion/app/$version") -Windows:([bool]$suffix) -HomeRoot $alternateHome
                 Assert-Equal $expected ([IO.File]::ReadAllText("$path$suffix")) 'Refresh writes the whole generated command for the selected home'
             }
         }
@@ -74,11 +77,11 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
     & $refresh -HomeRoot $tempRoot | Out-Null
     $homeFlag = & {
         . (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
-        '-HomeRoot ' + (ConvertTo-LegionShellLiteral $tempRoot)
+        '--home ' + (ConvertTo-LegionShellLiteral $tempRoot)
     }
     Assert-True ((Get-Content $shim -Raw).Contains($homeFlag)) 'R4 B4 refresh binds an older unbound command to the selected home'
     & $refresh -HomeRoot $tempRoot | Out-Null
-    Assert-Equal 1 ([regex]::Matches((Get-Content $shim -Raw), '-HomeRoot ').Count) 'R4 B4 refresh preserves one home binding'
+    Assert-Equal 1 ([regex]::Matches((Get-Content $shim -Raw), '--home ').Count) 'R4 B4 refresh preserves one home binding'
     & $refresh -HomeRoot $tempRoot | Out-Null
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/legion/bin/legion-foundry.ps1'))) ([IO.File]::ReadAllText((Join-Path $runtime 'legion-foundry.ps1'))) 'Approved refresh updates copied runtime bytes'
     foreach ($name in @('foundry', 'tools')) {
@@ -91,7 +94,7 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
     Assert-True ((Get-Content (Join-Path $bin 'foundry-a') -Raw).Contains('.runtime')) 'Refresh regenerates owned Foundry wrapper'
     foreach ($path in $(if ($IsWindows) { @($shim,$cmdShim) } else { @($shim) })) {
         $text = Get-Content $path -Raw
-        Assert-True ($text.Contains((Join-Path $root 'plugins/legion/bin/legion.ps1'))) 'Refresh retargets the existing legion shim'
+        Assert-True ($text.Contains((Join-Path $tempRoot ".legion/app/$version"))) 'Refresh retargets the existing legion shim to the app'
         Assert-True (-not $text.Contains('-Account chosen')) 'Refresh replaces hand-added shim arguments'
     }
     if ($IsWindows) { Assert-True (-not (Get-Content $cmdShim -Raw).Contains('-Repo ')) 'Refresh replaces hand-added batch arguments' }
@@ -118,7 +121,7 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
     [IO.File]::WriteAllText((Join-Path $bin 'legion'), $stale)
     & $refresh -HomeRoot $tempRoot | Out-Null
     $fixed = [IO.File]::ReadAllText((Join-Path $bin 'legion'))
-    Assert-True ($fixed.Contains((Join-Path $root 'plugins/legion/bin/legion.ps1')) -and -not $fixed.Contains('-OwnerFlag keep')) 'Refresh rewrites a marked command and discards hand-added flags'
+    Assert-True ($fixed.Contains((Join-Path $tempRoot ".legion/app/$version")) -and -not $fixed.Contains('-OwnerFlag keep')) 'Refresh rewrites a marked command and discards hand-added flags'
 } finally {
     if ([IO.Path]::GetFullPath($tempRoot).StartsWith([IO.Path]::GetFullPath((Join-Path $root '.agents/temp/')))) {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force

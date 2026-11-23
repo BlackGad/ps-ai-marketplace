@@ -1,5 +1,7 @@
 # Install flow: accounts, target folders, consent, refs, finish and progress.
 . (Join-Path $PSScriptRoot 'lib/installer.ps1')
+# Install runs refresh, which syncs the legion app through the fake uv.
+$env:LEGION_TEST_UV_SYNC = '1'
 
 Invoke-InstallTestCase 'Install' {
     $fixtureConfig0 = Join-Path $env:HOME 'selected-account'
@@ -417,6 +419,7 @@ foreach ($case in @('InstallRunsRefresh', 'InstallQuestionNamesPath', 'InstallUn
                 return @{ExitCode=0;Output=@($listing)}
             }
             if ($Command[2] -eq 'install') { $installed[$folder]=$true }
+            if ($Command[2] -eq 'uninstall') { $installed[$folder]=$false }
             return @{ExitCode=0;Output=@();ErrorOutput=@()}
         }
         $savedPath = $env:PATH
@@ -430,7 +433,10 @@ foreach ($case in @('InstallRunsRefresh', 'InstallQuestionNamesPath', 'InstallUn
                     Assert-Equal 2 $refreshes.Count 'InstallRunsRefresh: refresh runs once for each installed folder'
                     $command = Join-Path $scratch '.legion/bin/legion'
                     Assert-True (Test-Path -LiteralPath $command) 'InstallRunsRefresh: plain install creates legion'
-                    Assert-True ((Get-Content -LiteralPath $command -Raw).Replace('\','/').Contains($plugin.Replace('\','/'))) 'InstallRunsRefresh: legion points at the installed copy'
+                    $app = Join-Path $scratch '.legion/app/0.8.0'
+                    Assert-True ((Get-Content -LiteralPath $command -Raw).Replace('\','/').Contains($app.Replace('\','/'))) 'InstallRunsRefresh: legion points at the app copy of the installed version'
+                    Assert-Equal ([IO.File]::ReadAllText((Join-Path $plugin 'bin/legion.ps1'))) ([IO.File]::ReadAllText((Join-Path $app 'bin/legion.ps1'))) 'InstallRunsRefresh: the app is a copy of the installed plugin'
+                    Assert-Equal 2 @(Get-LegionFootprints -HomeRoot $scratch -Kind app).owners.Count 'InstallRunsRefresh: each installing account owns the app'
                 }
                 'InstallQuestionNamesPath' {
                     $null = Invoke-LegionInstaller @options
@@ -477,9 +483,10 @@ foreach ($case in @('InstallRunsRefresh', 'InstallQuestionNamesPath', 'InstallUn
                     Assert-Equal 0 @(Get-LegionFootprints -HomeRoot $scratch -Kind path-entry | Where-Object path -CEQ 'user PATH').Count 'InstallLinksPortablePwsh: no Windows PATH record'
                     $repeat = @(Invoke-LegionInstaller @options -Yes)
                     Assert-True ($repeat -contains 'skip: pwsh link (already done)') 'InstallLinksPortablePwsh: repeat skips the link'
-                    $preview = @(Invoke-LegionPurge -DryRun)
+                    # Purge follows uninstall, which first removes the recorded app versions.
+                    $preview = @(Invoke-LegionInstaller @options -Uninstall -Purge -DryRun)
                     Assert-True ($preview -contains "Remove link: $link") 'InstallLinksPortablePwsh: purge lists the link'
-                    $null = Invoke-LegionPurge -Yes
+                    $null = Invoke-LegionInstaller @options -Uninstall -Purge -Yes
                     Assert-Equal $false (Test-Path (Join-Path $scratch '.legion')) 'InstallLinksPortablePwsh: purge removes the link, then the legion folder'
                 }
                 # A linked ~/.legion/bin would put the pwsh link in the link's target, outside legion's home.

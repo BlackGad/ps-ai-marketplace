@@ -21,6 +21,12 @@ function Get-SetupTree {
     }) -join '|')
 }
 
+# The app version folder setup makes in a home; the owner command runs it.
+function Get-SetupApp {
+    param([string]$HomeRoot)
+    return Join-Path $HomeRoot ('.legion/app/' + (Get-InstallPluginVersion -Root (Join-Path $root 'plugins/legion')))
+}
+
 try {
     . $setupScript -NoRun
     $realInvokeInstaller = ${function:Invoke-SetupInstaller}
@@ -34,6 +40,10 @@ try {
         [IO.File]::WriteAllText($path, $text)
         Set-TestExecutable $path
     }
+    # uv syncs the app; the stand-in succeeds without the network.
+    $uvPath = Join-Path $fakeBin $(if ($IsWindows) { 'uv.cmd' } else { 'uv' })
+    [IO.File]::WriteAllText($uvPath, $(if ($IsWindows) { '@exit /b 0' } else { "#!/bin/sh`nexit 0`n" }))
+    Set-TestExecutable $uvPath
     $systemBin = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' }
     $fixturePath = @($fakeBin, (Split-Path (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source), $systemBin) -join [IO.Path]::PathSeparator
     $env:PATH = $fixturePath
@@ -121,7 +131,7 @@ try {
                 $path = Join-Path $testHome ".legion/bin/legion$suffix"
                 $flags = if ($windows) { ' -Repo "\\server\team$\work folder" %*' } else { ' -Repo ''work folder'' "$@"' }
                 $forward = if ($windows) { ' %*' } else { ' "$@"' }
-                $text = (Get-LegionShimText -Script $live -Windows:$windows).Replace($forward, $flags)
+                $text = (Get-LegionShimText -App (Split-Path (Split-Path $live)) -Windows:$windows).Replace($forward, $flags)
                 [IO.File]::WriteAllText($path, $text)
                 $originals[$path] = @{ Text = $text; Windows = $windows; Flags = $flags }
             }
@@ -132,7 +142,7 @@ try {
             foreach ($path in $originals.Keys) {
                 $original = $originals[$path]
                 $text = [IO.File]::ReadAllText($path)
-                Assert-Equal (Get-LegionShimText -Script (Join-Path $root 'plugins/legion/bin/legion.ps1') -HomeRoot $testHome -Windows:$original.Windows) $text 'Setup rewrites the marked command whole'
+                Assert-Equal (Get-LegionShimText -App (Get-SetupApp $testHome) -HomeRoot $testHome -Windows:$original.Windows) $text 'Setup rewrites the marked command whole'
             }
             $before = Get-SetupTree $testHome
             Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
@@ -168,15 +178,18 @@ try {
             Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
             $bin = Join-Path $testHome '.legion/bin'
             $legion = Join-Path $bin $(if ($IsWindows) { 'legion.cmd' } else { 'legion' })
-            Assert-True ([IO.File]::ReadAllText($legion).Contains('-HomeRoot ')) 'R4 B4 generated command binds its home before execution'
-            $status = @(& $legion status)
+            Assert-True ([IO.File]::ReadAllText($legion).Contains('--home ')) 'R4 B4 generated command binds its home before execution'
+            # The fake uv runs the app's PowerShell entry point, as the Python CLI forwards status to it.
+            $previousPath = $env:PATH
+            $env:PATH = (Split-Path (New-TestCommandStub -Folder (Join-Path $tempRoot 'forwarding uv') -Name uv -Script (Join-Path $PSScriptRoot 'fixtures/fake-tools/uv.ps1'))) + [IO.Path]::PathSeparator + $env:PATH
+            try { $status = @(& $legion status) } finally { $env:PATH = $previousPath }
             Assert-True ($status -notcontains 'no legion settings yet') 'R4 B4 generated legion reads the selected home settings'
             Assert-True ($status -contains 'commands: yes') 'R4 B4 generated legion inspects the selected commands'
             $path = Join-Path $bin 'legion'
             $text = [IO.File]::ReadAllText($path)
-            Assert-True ($text.Contains('-HomeRoot ' + (ConvertTo-LegionShellLiteral $testHome))) 'R4 B4 every alternate-home shell command binds its home'
-            $runner = Join-Path $root 'plugins/legion/bin/legion.ps1'
-            Assert-Equal (Get-LegionShimText -Script $runner) (Get-LegionShimText -Script $runner -HomeRoot $HOME) 'R4 B4 default-home shim stays unchanged'
+            Assert-True ($text.Contains('--home ' + (ConvertTo-LegionShellLiteral $testHome))) 'R4 B4 every alternate-home shell command binds its home'
+            $app = Get-SetupApp $HOME
+            Assert-Equal (Get-LegionShimText -App $app) (Get-LegionShimText -App $app -HomeRoot $HOME) 'R4 B4 default-home shim stays unchanged'
         }
         R4B3 = {
             foreach ($addStockAccount in @($false, $true)) {
@@ -564,11 +577,14 @@ try {
     Assert-SetupText $apply 'log in: run claude1' 'New folder asks for login'
     Assert-SetupText $apply 'ready' 'Adopted folder is ready'
     $bin = Join-Path $testHome '.legion/bin'
-    $target = Join-Path $root "plugins/legion/bin/legion.ps1"
-    Assert-Equal (Get-LegionShimText -Script $target -HomeRoot $testHome) ([IO.File]::ReadAllText((Join-Path $bin 'legion'))) 'Unix command shim equals shared format'
+    $target = Get-SetupApp $testHome
+    Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/legion/bin/legion.ps1'))) ([IO.File]::ReadAllText((Join-Path $target 'bin/legion.ps1'))) 'Setup copies the plugin into the app folder'
+    Assert-Equal (Get-LegionShimText -App $target -HomeRoot $testHome) ([IO.File]::ReadAllText((Join-Path $bin 'legion'))) 'Unix command shim equals shared format'
     if ($IsWindows) {
-        Assert-Equal (Get-LegionShimText -Script $target -Windows -HomeRoot $testHome) ([IO.File]::ReadAllText((Join-Path $bin "legion.cmd"))) 'Windows command shim equals shared format'
+        Assert-Equal (Get-LegionShimText -App $target -Windows -HomeRoot $testHome) ([IO.File]::ReadAllText((Join-Path $bin "legion.cmd"))) 'Windows command shim equals shared format'
     }
+    $appOwners = @(Get-LegionFootprints -HomeRoot $testHome -Kind app).owners
+    Assert-Equal 2 $appOwners.Count 'Every installing account owns the app'
     Assert-Equal $(if ($IsWindows) { 1 } else { 0 }) $pathWrites.Count 'Only Windows writes user PATH'
     if ($IsWindows) { Assert-Equal "fixture-path;$bin" $pathWrites[0] 'User PATH appends bin' }
     else {
@@ -673,22 +689,22 @@ try {
     $liveScript = Join-Path $testHome 'cache/bin/legion.ps1'
     New-Item -ItemType Directory -Path (Split-Path $liveScript) -Force | Out-Null
     '' | Set-Content -LiteralPath $liveScript
-    $oldText = (Get-LegionShimText -Script $liveScript).Replace(' "$@"', ' --owner-flag "$@"')
+    $oldText = (Get-LegionShimText -App (Split-Path (Split-Path $liveScript))).Replace(' "$@"', ' --owner-flag "$@"')
     [IO.File]::WriteAllText($owned, $oldText)
     $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
-    Assert-Equal (Get-LegionShimText -Script (Join-Path $root 'plugins/legion/bin/legion.ps1') -HomeRoot $testHome) ([IO.File]::ReadAllText($owned)) 'Setup rewrites the whole marked command and binds its home'
+    Assert-Equal (Get-LegionShimText -App (Get-SetupApp $testHome) -HomeRoot $testHome) ([IO.File]::ReadAllText($owned)) 'Setup rewrites the whole marked command and binds its home'
     $repeat = @(Invoke-Setup -HomeRoot $testHome -Yes)
     Assert-SetupText $repeat 'skip: command legion (already done)' 'R5 B4 bound live command reports skip on repeat'
 
     Reset-SetupTest 'stale-command'
     $bin = Join-Path $testHome '.legion/bin'
     New-Item -ItemType Directory -Path $bin -Force | Out-Null
-    $staleText = (Get-LegionShimText -Script '/gone/cache/bin/legion.ps1').Replace(' "$@"', ' --keep "$@"')
+    $staleText = (Get-LegionShimText -App '/gone/app/0.0.1').Replace(' "$@"', ' --keep "$@"')
     [IO.File]::WriteAllText((Join-Path $bin 'legion'), $staleText)
     $plan = @(Invoke-Setup -HomeRoot $testHome)
     $null = Invoke-Setup -HomeRoot $testHome -Yes
     $rewritten = [IO.File]::ReadAllText((Join-Path $bin 'legion'))
-    Assert-True ($rewritten.Contains((Join-Path $root 'plugins/legion/bin/legion.ps1')) -and -not $rewritten.Contains('--keep')) 'A marked command is rewritten without hand-added flags'
+    Assert-True ($rewritten.Contains((Get-SetupApp $testHome)) -and -not $rewritten.Contains('--keep')) 'A marked command is rewritten without hand-added flags'
 
     Reset-SetupTest 'blocked-command'
     $bin = Join-Path $testHome '.legion/bin'

@@ -11,7 +11,7 @@ if (Test-Path -LiteralPath $catalogPath) {
     $configEnvs = (Get-Content $catalogPath -Raw | ConvertFrom-Json).tools.configEnv
 }
 $toolConfigEnvs = @($configEnvs)
-$configEnvs += @('LEGION_ROLE', 'LEGION_TASK', 'HOME', 'USERPROFILE', 'LEGION_TEST_GUARD', 'TMPDIR', 'TEMP', 'TMP')
+$configEnvs += @('LEGION_TEST_UV_SYNC', 'LEGION_ROLE', 'LEGION_TASK', 'HOME', 'USERPROFILE', 'LEGION_TEST_GUARD', 'TMPDIR', 'TEMP', 'TMP')
 function Get-TestOutsideSnapshot {
     param([string]$Path)
     return @(Get-ChildItem -LiteralPath $Path -File -Recurse -Force | Sort-Object FullName | ForEach-Object { $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash }) -join '|'
@@ -46,6 +46,27 @@ foreach ($test in $testFiles) {
     $env:LEGION_TEST_GUARD = $guardHome
     foreach ($tempEnv in @('TMPDIR', 'TEMP', 'TMP')) { [Environment]::SetEnvironmentVariable($tempEnv, $temp, 'Process') }
     foreach ($configEnv in $toolConfigEnvs) { [Environment]::SetEnvironmentVariable($configEnv, (Join-Path $guardHome $configEnv), 'Process') }
+    # Tests never run the real uv: a stand-in first on PATH rejects every call, except `uv sync` for a
+    # test that opts in with LEGION_TEST_UV_SYNC; that sync succeeds and does nothing.
+    $fakeUvFolder = Join-Path $guard 'fake-uv'
+    New-Item -ItemType Directory -Path $fakeUvFolder -Force | Out-Null
+    if ($IsWindows) {
+        [IO.File]::WriteAllText((Join-Path $fakeUvFolder 'uv.cmd'), (@(
+            '@if "%~1"=="sync" if defined LEGION_TEST_UV_SYNC exit /b 0'
+            '@>&2 echo fake uv: unexpected call: uv %*'
+            '@exit /b 2'
+        ) -join "`r`n") + "`r`n")
+    } else {
+        [IO.File]::WriteAllText((Join-Path $fakeUvFolder 'uv'), (@(
+            '#!/bin/sh'
+            'if [ "$1" = sync ] && [ -n "$LEGION_TEST_UV_SYNC" ]; then exit 0; fi'
+            'echo "fake uv: unexpected call: uv $*" >&2'
+            'exit 2'
+        ) -join "`n") + "`n")
+        [IO.File]::SetUnixFileMode((Join-Path $fakeUvFolder 'uv'), [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+    }
+    $savedPath = $env:PATH
+    $env:PATH = $fakeUvFolder + [IO.Path]::PathSeparator + $env:PATH
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $result = 'passed'
     $message = ''
@@ -71,6 +92,7 @@ foreach ($test in $testFiles) {
         }
         $cases += @{ Name = $test.Name; ClassName = 'unit'; Seconds = $watch.Elapsed.TotalSeconds; Result = $result; Message = $message }
         Set-Variable -Name HOME -Value $realHome -Force -Scope Global
+        $env:PATH = $savedPath
         foreach ($configEnv in $configEnvs) {
             if ($null -eq $savedConfig[$configEnv]) { Remove-Item -LiteralPath "Env:$configEnv" -ErrorAction SilentlyContinue }
             else { [Environment]::SetEnvironmentVariable($configEnv, $savedConfig[$configEnv], 'Process') }

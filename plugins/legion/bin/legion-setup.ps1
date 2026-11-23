@@ -317,11 +317,13 @@ function Add-SetupAllowRules {
 function Write-SetupCommands {
     param($Plan)
     foreach ($row in @($Plan.Accounts | Where-Object Version)) {
+        $owner = Get-LegionTargetOwner -Tool $row.Tool -Folder $row.Folder -HomeRoot $Plan.HomeRoot
         foreach ($file in $Plan.Commands) {
-            Add-LegionFootprint -HomeRoot $Plan.HomeRoot -Kind file -Path $file.Path -Owner (Get-LegionTargetOwner -Tool $row.Tool -Folder $row.Folder -HomeRoot $Plan.HomeRoot)
+            Add-LegionFootprint -HomeRoot $Plan.HomeRoot -Kind file -Path $file.Path -Owner $owner
         }
+        Add-LegionFootprint -HomeRoot $Plan.HomeRoot -Kind app -Path (Get-LegionHomePath -Path 'app' -HomeRoot $Plan.HomeRoot) -Owner $owner
     }
-    Write-LegionOwnerCommands -Bin $script:SetupBin -HomeRoot $Plan.HomeRoot
+    Publish-LegionApp -HomeRoot $Plan.HomeRoot
     if (@($Plan.Commands | Where-Object State -EQ owned).Count) { 'skip: command legion (already done)' }
 }
 

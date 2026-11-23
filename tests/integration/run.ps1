@@ -351,10 +351,17 @@ function Get-IntegrationSettings {
 # Step 1
 function Invoke-CliInstallScript {
     param([string]$Tool)
+    $installer = Join-Path (Get-IntegrationBin) 'legion-install-tool.ps1'
     $arguments = @('-Tool', $Tool, '-Yes')
+    $windows = (Get-IntegrationOs) -eq 'windows'
     # Without a working winget the installer only asks for a method; zip needs no admin rights.
-    if ((Get-IntegrationOs) -eq 'windows' -and -not (Test-IntegrationWingetWorks)) { $arguments += @('-Method', 'zip') }
-    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-install-tool.ps1') $arguments
+    if ($windows -and -not (Test-IntegrationWingetWorks)) { $arguments += @('-Method', 'zip') }
+    try { return Invoke-IntegrationScript $installer $arguments }
+    catch {
+        # A winget that starts but fails to install also makes the installer ask for a method (exit 2).
+        if (-not $windows -or $arguments -contains '-Method' -or -not $_.Exception.Message.StartsWith('legion-install-tool.ps1 exited 2')) { throw }
+        return Invoke-IntegrationScript $installer ($arguments + @('-Method', 'zip'))
+    }
 }
 
 function Get-IntegrationToolVersion {
@@ -386,6 +393,26 @@ function Invoke-CliInstallRepeat {
     Assert-IntegrationTrue ($installed.Version -ceq $script:Ctx.Versions[$Tool]) "$Tool version changed on the repeat run`nfirst version:`n$($script:Ctx.Versions[$Tool])`nrepeat version:`n$($installed.Version)"
     Assert-IntegrationTrue ($installed.Command -ceq $script:Ctx.Commands[$Tool]) "$Tool executable changed on the repeat run`nfirst executable:`n$($script:Ctx.Commands[$Tool])`nrepeat executable:`n$($installed.Command)"
     return $lines
+}
+
+# uv runs the legion command, so it comes before the first legion install. The runner's own PATH must
+# find it: every later step starts its children with this PATH.
+function Assert-IntegrationUv {
+    $uv = Resolve-IntegrationCommand 'uv'
+    $version = @(& $uv --version 2>&1 | ForEach-Object { "$_" })
+    Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "uv --version exited $LASTEXITCODE`n$($version -join "`n")"
+    return $version
+}
+
+function Invoke-UvInstallFirst {
+    $lines = Invoke-CliInstallScript 'uv'
+    return $lines + (Assert-IntegrationUv)
+}
+
+function Invoke-UvInstallRepeat {
+    $lines = Invoke-CliInstallScript 'uv'
+    Assert-IntegrationText $lines 'skip:'
+    return $lines + (Assert-IntegrationUv)
 }
 
 # Step 2: one install.ps1 run per tool, so one tool's refusal never hides the others.
@@ -493,6 +520,7 @@ function Invoke-SetupFirst {
     $bin = Join-Path $script:Ctx.HomeRoot '.legion/bin'
     Assert-IntegrationTrue (@(Get-ChildItem -LiteralPath $bin -File -ErrorAction SilentlyContinue).Count -gt 0) 'no owner commands in .legion/bin'
     Assert-AccountsHaveLegion $settings.Data.agents
+    $lines += Assert-IntegrationOwnerCommand
     if ($IsWindows) {
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
         Assert-IntegrationTrue ($userPath.Split(';') -contains $bin) '.legion/bin is not on the user PATH'
@@ -501,6 +529,18 @@ function Invoke-SetupFirst {
     }
     $script:Ctx.HomeSnapshot = Get-IntegrationHomeSnapshot
     return $lines
+}
+
+# The installed owner command runs the Python app through uv: its own help, and a verb it forwards to PowerShell.
+function Assert-IntegrationOwnerCommand {
+    $legion = @(Get-IntegrationLauncherPaths 'legion')[-1]
+    $help = @(& $legion --help 2>&1 | ForEach-Object { "$_" })
+    Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "legion --help exited $LASTEXITCODE`n$($help -join "`n")"
+    foreach ($verb in @('inbox', 'telegram', 'setup', 'status')) { Assert-IntegrationText $help "  $verb " }
+    $status = @(& $legion status 2>&1 | ForEach-Object { "$_" })
+    Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "legion status exited $LASTEXITCODE`n$($status -join "`n")"
+    Assert-IntegrationText $status 'commands: yes'
+    return $help + $status
 }
 
 # The marked legion lines in the shell profiles under the integration home (SHELL picks which profile legion writes).
@@ -686,10 +726,11 @@ function Invoke-UninstallFirst {
         & $command --version | Out-Null
         Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "$tool is no longer installed"
     }
-    # The owner command goes; every account launcher stays, so a later install is an upgrade.
+    # The owner command and its app go; every account launcher stays, so a later install is an upgrade.
     foreach ($path in Get-IntegrationLauncherPaths 'legion') {
         Assert-IntegrationTrue (-not (Test-Path -LiteralPath $path)) 'owner command legion is still in .legion/bin'
     }
+    Assert-IntegrationTrue (-not (Test-Path -LiteralPath (Join-Path $script:Ctx.HomeRoot '.legion/app'))) 'the legion app is still in .legion/app'
     Assert-IntegrationLaunchersExist
     foreach ($kept in 'configuration', 'agents') {
         Assert-IntegrationTrue (Test-Path -LiteralPath (Join-Path $script:Ctx.HomeRoot ".legion/$kept") -PathType Container) ".legion/$kept was removed"
@@ -849,6 +890,7 @@ function Get-IntegrationSteps {
         @{ Name = "install-cli-$tool"; Repeat = $true; Action = [scriptblock]::Create("Invoke-CliInstallRepeat '$tool'") }
     }
     $actions = [ordered]@{
+        'install-uv' = 'UvInstall'
         'install-legion' = 'LegionInstall'
         setup = 'Setup'
         add = 'Add'

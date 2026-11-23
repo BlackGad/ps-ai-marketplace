@@ -23,11 +23,13 @@ try {
     . (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
     . (Join-Path $root 'plugins/legion/bin/lib/commands.ps1')
     $public = Join-Path $scratch $(if ($IsWindows) { 'legion.cmd' } else { 'legion' })
-    Get-LegionShimText -Script (Join-Path $plugin 'bin/legion.ps1') -Windows:$IsWindows | Set-Content $public
+    Get-LegionShimText -App $plugin -Windows:$IsWindows | Set-Content $public
     Set-TestExecutable $public
+    # The fake uv forwards to the app's PowerShell entry point, as the Python CLI does.
+    $uvFolder = Split-Path (New-TestCommandStub -Folder (Join-Path $scratch 'uv') -Name uv -Script (Join-Path $PSScriptRoot 'fixtures/fake-tools/uv.ps1'))
     $pwsh = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
     $git = (Get-Command git -CommandType Application | Select-Object -First 1).Source
-    $env:PATH = (Split-Path $pwsh) + [IO.Path]::PathSeparator + (Split-Path $git) + [IO.Path]::PathSeparator + $(if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/usr/bin' })
+    $env:PATH = $uvFolder + [IO.Path]::PathSeparator + (Split-Path $pwsh) + [IO.Path]::PathSeparator + (Split-Path $git) + [IO.Path]::PathSeparator + $(if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/usr/bin' })
     Push-Location $repo
     try { $output = @(& $public --no-channel 2>&1) }
     finally { Pop-Location }

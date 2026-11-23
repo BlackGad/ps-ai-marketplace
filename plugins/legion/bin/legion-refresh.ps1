@@ -22,6 +22,6 @@ if (Test-Path -LiteralPath $file) {
     }
 }
 
-Write-LegionOwnerCommands -Bin $PSScriptRoot -HomeRoot $HomeRoot -Changes $changes
+Publish-LegionApp -HomeRoot $HomeRoot -Changes $changes
 if ($changes.Count) { 'legion generated runtimes and launchers refreshed' }
 else { 'skip: legion generated runtimes and launchers (already done)' }
