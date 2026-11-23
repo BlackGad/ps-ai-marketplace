@@ -740,11 +740,12 @@ function Invoke-InstallPurgeSteps {
             # An app version uninstall had to keep stays with its environment and record for the next run.
             $app = @(Get-LegionFootprints -HomeRoot $Plan.HomeRoot | Where-Object { $_.kind -cin @('app', 'app-version') })
             $kept = @($Keep)
-            if (@($app | Where-Object kind -CEQ 'app-version').Count) {
+            $appInUse = [bool]@($app | Where-Object kind -CEQ 'app-version').Count
+            if ($appInUse) {
                 $kept += @((Get-LegionHomePath -Path 'app' -HomeRoot $Plan.HomeRoot), (Get-LegionHomePath -Path 'python' -HomeRoot $Plan.HomeRoot), (Get-LegionOwnerPath -Name Index -HomeRoot $Plan.HomeRoot)) | ForEach-Object { [IO.Path]::GetFullPath($_) }
             }
             Get-ChildItem -LiteralPath $safe -Force | Where-Object { $item = $_.FullName; -not @($kept | Where-Object { (Get-LegionPathComparer).Equals($_, $item) }).Count } | Remove-Item -Recurse -Force -ErrorAction Stop
-            if ($kept.Count -gt 1) { Write-LegionFootprints -HomeRoot $Plan.HomeRoot -Entries $app }
+            if ($appInUse) { Write-LegionFootprints -HomeRoot $Plan.HomeRoot -Entries $app }
         }
     }
 }

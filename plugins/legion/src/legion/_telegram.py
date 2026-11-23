@@ -1,4 +1,3 @@
-import json
 import re
 import sys
 import urllib.error
@@ -7,7 +6,19 @@ import urllib.request
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Optional
+from typing import (
+    Literal,
+    Optional,
+)
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    TypeAdapter,
+    ValidationError,
+)
 
 MESSAGE_LIMIT = 4096
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
@@ -16,7 +27,59 @@ PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 _opener = urllib.request.build_opener(urllib.request.HTTPSHandler)
 
 # post(token, method, fields, files) returns the Bot API "result" or raises TelegramError.
-Post = Callable[[str, str, dict[str, str], list[tuple[str, Path]]], Any]
+Post = Callable[[str, str, dict[str, str], list[tuple[str, Path]]], JsonValue]
+
+
+# The Telegram plugin's access.json. The bridge reads only the policy and allowlist; the plugin's other
+# settings (groups, pending pairings, reactions) stay as they are.
+class Access(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    dm_policy: Literal["pairing", "allowlist", "disabled"] = Field("pairing", alias="dmPolicy")
+    allow_from: list[str] = Field(default_factory=list, alias="allowFrom")
+
+
+# Bot API objects: only the fields legion reads; Telegram adds fields over time.
+class User(BaseModel):
+    id: int
+    first_name: str = ""
+    username: Optional[str] = None
+
+
+class Chat(BaseModel):
+    id: int
+    type: str
+
+
+class Message(BaseModel):
+    message_id: int
+    chat: Chat
+    sender: Optional[User] = Field(None, alias="from")
+    text: Optional[str] = None
+    caption: Optional[str] = None
+
+
+class Update(BaseModel):
+    update_id: int
+    message: Optional[Message] = None
+
+
+class ReplyParameters(BaseModel):
+    message_id: int
+
+
+class EmojiReaction(BaseModel):
+    type: Literal["emoji"] = "emoji"
+    emoji: str
+
+
+_REACTIONS = TypeAdapter(list[EmojiReaction])
+
+
+class Reply(BaseModel):
+    ok: bool = False
+    result: JsonValue = None
+    description: Optional[str] = None
+    error_code: int = 0
 
 
 class TelegramError(Exception):
@@ -56,7 +119,7 @@ def _multipart(fields: dict[str, str], files: list[tuple[str, Path]]) -> tuple[b
     return body + f"--{boundary}--\r\n".encode(), f"multipart/form-data; boundary={boundary}"
 
 
-def _post(token: str, method: str, fields: dict[str, str], files: list[tuple[str, Path]]) -> Any:
+def _post(token: str, method: str, fields: dict[str, str], files: list[tuple[str, Path]]) -> JsonValue:
     if files:
         body, content_type = _multipart(fields, files)
     else:
@@ -64,20 +127,27 @@ def _post(token: str, method: str, fields: dict[str, str], files: list[tuple[str
     request = urllib.request.Request(f"https://api.telegram.org/bot{token}/{method}", data=body, headers={"Content-Type": content_type})
     try:
         with _opener.open(request, timeout=60) as response:
-            answer = json.load(response)
+            reply = Reply.model_validate_json(response.read())
     except urllib.error.HTTPError as error:
         # The error text holds the URL, which holds the token: use only Telegram's own description.
         try:
-            answer = json.load(error)
+            description = Reply.model_validate_json(error.read()).description
         except Exception:
-            answer = {}
-        raise TelegramError(answer.get("description", f"HTTP {error.code}"), error.code) from None
+            description = None
+        raise TelegramError(description or f"HTTP {error.code}", error.code) from None
     except Exception:
         # Any HTTP-layer error can quote the URL, so none is chained or shown.
         raise TelegramError("network error", 0) from None
-    if not answer.get("ok"):
-        raise TelegramError(answer.get("description", "request failed"), answer.get("error_code", 0))
-    return answer.get("result")
+    if not reply.ok:
+        raise TelegramError(reply.description or "request failed", reply.error_code)
+    return reply.result
+
+
+def _sent(result: JsonValue, method: str) -> Message:
+    try:
+        return Message.model_validate(result)
+    except ValidationError:
+        raise TelegramError(f"Telegram sent an unexpected reply to {method}") from None
 
 
 def _split(text: str) -> list[str]:
@@ -106,19 +176,20 @@ def send(channel: str, chat: str, text: str, text_format: str, reply_to: Optiona
     def action() -> None:
         call = post or _post
         token = read_token(channel, home)
-        reply = {"reply_parameters": json.dumps({"message_id": reply_to})} if reply_to else {}
+        reply = {"reply_parameters": ReplyParameters(message_id=reply_to).model_dump_json()} if reply_to else {}
         for part in _split(text) if text else []:
             fields = {"chat_id": chat, "text": part}
             if text_format == "markdownv2":
                 fields["parse_mode"] = "MarkdownV2"
-            sent = call(token, "sendMessage", fields | reply, [])
-            print(sent["message_id"], flush=True)
+            sent = _sent(call(token, "sendMessage", fields | reply, []), "sendMessage")
+            print(sent.message_id, flush=True)
             reply = {}
         for path in files:
             photo = path.suffix.lower() in PHOTO_SUFFIXES
             field = "photo" if photo else "document"
-            sent = call(token, "sendPhoto" if photo else "sendDocument", {"chat_id": chat} | reply, [(field, path)])
-            print(sent["message_id"], flush=True)
+            method = "sendPhoto" if photo else "sendDocument"
+            sent = _sent(call(token, method, {"chat_id": chat} | reply, [(field, path)]), method)
+            print(sent.message_id, flush=True)
             reply = {}
 
     return _run(action)
@@ -126,7 +197,7 @@ def send(channel: str, chat: str, text: str, text_format: str, reply_to: Optiona
 
 def react(channel: str, chat: str, message: str, emoji: str, *, post: Optional[Post] = None, home: Optional[Path] = None) -> int:
     def action() -> None:
-        fields = {"chat_id": chat, "message_id": message, "reaction": json.dumps([{"type": "emoji", "emoji": emoji}])}
+        fields = {"chat_id": chat, "message_id": message, "reaction": _REACTIONS.dump_json([EmojiReaction(emoji=emoji)]).decode()}
         (post or _post)(read_token(channel, home), "setMessageReaction", fields, [])
 
     return _run(action)

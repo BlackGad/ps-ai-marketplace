@@ -24,7 +24,7 @@ try {
     $arguments = @($output[0] | ConvertFrom-Json)
     Assert-Equal 'run|--project' (($arguments | Select-Object -First 2) -join '|') 'uv project invocation'
     Assert-Equal (Resolve-LegionDirectoryPath (Join-Path $repo 'plugins/legion')) $arguments[2] 'Plugin project path'
-    Assert-Equal '--frozen|legion|--version|two words' (($arguments | Select-Object -Skip 3) -join '|') 'Arguments stay separate'
+    Assert-Equal "--frozen|legion|--home|$selectedHome|--version|two words" (($arguments | Select-Object -Skip 3) -join '|') 'A selected home goes first, as --home; arguments stay separate'
     Assert-Equal (Get-LegionPythonEnvironment -PluginRoot $arguments[2] -HomeRoot $selectedHome) $output[1] 'Environment under selected legion home'
     Assert-True ($result.Error.Contains('fixture stderr')) 'stderr returned'
     Assert-Equal 'caller environment' $env:UV_PROJECT_ENVIRONMENT 'Caller environment restored'
@@ -33,6 +33,7 @@ try {
     Remove-Item Env:UV_PROJECT_ENVIRONMENT
     $result = Invoke-LegionPython -Arguments @('--version')
     Assert-Equal 0 $result.ExitCode 'Success exit code returned'
+    Assert-Equal '--frozen|legion|--version' ((@(($result.Output -split '\r?\n')[0] | ConvertFrom-Json) | Select-Object -Skip 3) -join '|') 'The default home adds no --home'
     Assert-Equal (Get-LegionPythonEnvironment -PluginRoot $arguments[2]) ($result.Output -split '\r?\n')[1] 'Default legion home'
     Assert-Equal $null $env:UV_PROJECT_ENVIRONMENT 'Absent environment restored'
 

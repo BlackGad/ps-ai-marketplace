@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from cli_runner import run
 
-from legion import _forward
+from legion import _plugin
 
 # A stand-in for the PowerShell entry point: it records how it was called and exits with a chosen code.
 FAKE_ENTRY = """param([Parameter(Position = 0, ValueFromRemainingArguments = $true)][string[]]$Words, [string]$HomeRoot)
@@ -18,7 +18,7 @@ def app_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "app 1.0.0"
     (root / "bin").mkdir(parents=True)
     (root / "bin" / "legion.ps1").write_text(FAKE_ENTRY, encoding="utf-8")
-    monkeypatch.setattr(_forward, "__file__", str(root / "src" / "legion" / "_forward.py"))
+    monkeypatch.setattr(_plugin, "PLUGIN_ROOT", root)
     return root
 
 
@@ -39,6 +39,13 @@ def test_home_is_passed_as_one_home_root(app_root: Path, tmp_path: Path) -> None
     call = read_call(app_root)
     assert call["words"] == ["status"]
     assert call["home"] == str(home)
+
+
+# The Windows command passes its home as <home>/.legion/bin/../..; legion takes it as plain <home>.
+def test_home_with_parent_steps_is_normalised(app_root: Path, tmp_path: Path) -> None:
+    home = tmp_path / "alternate home"
+    assert run(["--home", str(home / ".legion" / "bin" / ".." / ".."), "status"]) == 7
+    assert read_call(app_root)["home"] == str(home)
 
 
 @pytest.mark.parametrize("arguments", [[], ["--no-channel"], ["pick"], ["help"]])
@@ -65,6 +72,5 @@ def test_missing_pwsh_is_one_line_and_exit_127(app_root: Path, tmp_path: Path, m
 def test_help_lists_python_and_forwarded_verbs(capsys: pytest.CaptureFixture[str]) -> None:
     assert run(["--help"]) == 0
     output = capsys.readouterr().out
-    for verb in ("inbox", "telegram", "setup", "add", "remove", "status", "limits", "update", "uninstall", "pick", "help"):
+    for verb in ("inbox", "telegram", "validate", "setup", "add", "remove", "status", "limits", "update", "uninstall", "pick", "help"):
         assert f"  {verb} " in output
-    assert "  validate " not in output

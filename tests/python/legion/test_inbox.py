@@ -11,7 +11,10 @@ import pytest
 
 from cli_runner import run
 from legion import _inbox
-from legion._inbox import repo_key
+from legion._inbox import (
+    InboxMessage,
+    repo_key,
+)
 
 
 @pytest.fixture
@@ -92,6 +95,15 @@ def test_read_orders_moves_and_prunes(inbox_home: Path, repo: Path, monkeypatch:
     assert [path.name for path in new.iterdir()] == [".partial.json"]
     assert run(["inbox", "read", "--repo", str(repo)]) == 0
     assert capsys.readouterr().out == "inbox: empty\n"
+
+
+def test_message_file_round_trips_through_the_model(inbox_home: Path, repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "Привіт 👋"]) == 0
+    text = (inbox_path(inbox_home, repo) / "new" / capsys.readouterr().out.strip()).read_text(encoding="utf-8")
+    message = InboxMessage.model_validate_json(text)
+    assert (message.sender, message.text) == ("repo-a", "Привіт 👋")
+    assert list(json.loads(text)) == ["from", "text", "at"]
+    assert InboxMessage.model_validate_json(message.model_dump_json(by_alias=True)) == message
 
 
 def test_read_empty_inbox(inbox_home: Path, repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -209,13 +221,14 @@ def test_read_skips_bad_files_with_one_warning_each(inbox_home: Path, repo: Path
     (new / "001-broken.json").write_text("{not json", encoding="utf-8")
     (new / "002-incomplete.json").write_text(json.dumps({"from": "repo-a"}), encoding="utf-8")
     (new / "003-list.json").write_text("[1]", encoding="utf-8")
-    (new / "004-good.json").write_text(json.dumps({"from": "repo-a", "at": "t", "text": "ok"}), encoding="utf-8")
+    (new / "004-number.json").write_text(json.dumps({"from": "repo-a", "at": "t", "text": 1}), encoding="utf-8")
+    (new / "005-good.json").write_text(json.dumps({"from": "repo-a", "at": "t", "text": "ok"}), encoding="utf-8")
     assert run(["inbox", "read", "--repo", str(repo)]) == 0
     output = capsys.readouterr()
     assert output.out == "from: repo-a\nat: t\ntext:\n    ok\n\n"
-    assert output.err.splitlines() == [f"warning: skipped unreadable inbox file {name}" for name in ("001-broken.json", "002-incomplete.json", "003-list.json")]
+    assert output.err.splitlines() == [f"warning: skipped unreadable inbox file {name}" for name in ("001-broken.json", "002-incomplete.json", "003-list.json", "004-number.json")]
     assert list(new.iterdir()) == []
-    assert len(list((root / "done").iterdir())) == 4
+    assert len(list((root / "done").iterdir())) == 5
     assert run(["inbox", "read", "--repo", str(repo)]) == 0
     assert capsys.readouterr().out == "inbox: empty\n"
 

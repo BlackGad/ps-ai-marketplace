@@ -6,13 +6,12 @@ from pathlib import Path
 import pytest
 from cli_runner import run
 
-from legion import _cli
+from legion import _plugin
 
 
 @pytest.fixture
 def plugin_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    module_path = tmp_path / "src" / "legion" / "_cli.py"
-    monkeypatch.setattr(_cli, "__file__", str(module_path))
+    monkeypatch.setattr(_plugin, "PLUGIN_ROOT", tmp_path)
     manifest = tmp_path / "plugin.json"
     manifest.write_text(json.dumps({"version": "9.8.7"}), encoding="utf-8")
     return manifest
@@ -65,7 +64,7 @@ def test_help_does_not_import_command_modules() -> None:
         "    _cli.main(['--help'])\n"
         "except SystemExit:\n"
         "    pass\n"
-        "loaded = [name for name in ('legion._bridge', 'legion._telegram', 'legion._inbox', 'asyncio') if name in sys.modules]\n"
+        "loaded = [name for name in ('legion._bridge', 'legion._telegram', 'legion._inbox', 'legion._validate', 'legion._settings_models', 'pydantic', 'asyncio') if name in sys.modules]\n"
         "assert not loaded, loaded\n"
     )
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)

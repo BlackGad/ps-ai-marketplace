@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 2,
+  "agents": [
+    {"id": "Bad Id", "tool": "claude"}
+  ],
+  "channels": [],
+  "extra": true
+}

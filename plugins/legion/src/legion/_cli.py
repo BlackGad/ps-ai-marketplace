@@ -1,20 +1,21 @@
 import io
-import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
 
 import click
 
-from . import _forward
+from . import _forward, _plugin
 
 
 def _show_version(context: click.Context, _parameter: click.Parameter, value: bool) -> None:
     if not value:
         return
-    manifest_path = Path(__file__).resolve().parents[2] / "plugin.json"
-    version = json.loads(manifest_path.read_text(encoding="utf-8"))["version"]
-    click.echo(f"{context.find_root().info_name} {version}")
+    from ._settings_models import PluginManifest
+
+    manifest = PluginManifest.model_validate_json((_plugin.PLUGIN_ROOT / "plugin.json").read_text(encoding="utf-8"))
+    click.echo(f"{context.find_root().info_name} {manifest.version}")
     context.exit()
 
 
@@ -44,9 +45,25 @@ def main(context: click.Context, home: Optional[Path]) -> None:
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper):
             stream.reconfigure(encoding="utf-8")
+    # The Windows command passes its home as <home>/.legion/bin/../..
+    if home is not None:
+        home = Path(os.path.normpath(home))
     context.obj = home
     if context.invoked_subcommand is None:
         context.exit(_forward.run([], home))
+
+
+@main.command("validate", help="Check a settings or project file against its schema")
+@click.option("--kind", required=True, type=click.Choice(["personalisation", "project"]))
+@click.option("--path", "path", required=True, type=click.Path(path_type=Path))
+@click.pass_context
+def validate(context: click.Context, kind: str, path: Path) -> None:
+    from . import _validate
+
+    issues = _validate.validate(kind, path)
+    for issue in issues:
+        click.echo(issue)
+    context.exit(1 if issues else 0)
 
 
 @main.group(help="Send or read repository overseer messages")

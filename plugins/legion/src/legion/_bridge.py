@@ -1,23 +1,29 @@
 import ctypes
-import json
 import os
 import sys
 import time
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
+
+from pydantic import TypeAdapter
 
 from . import _inbox
 from ._telegram import (
+    Access,
+    Message,
     Post,
     TelegramError,
+    Update,
+    User,
     _post,
     bot_folder,
     read_token,
 )
 
 MAX_BACKOFF = 60
+_UPDATES = TypeAdapter(list[Update])
 
 
 def process_alive(pid: int) -> bool:
@@ -64,29 +70,28 @@ def _claim_pid_file(path: Path, alive: Callable[[int], bool]) -> bool:
 
 def _allow_from(folder: Path) -> list[str]:
     try:
-        access = json.loads((folder / "access.json").read_text(encoding="utf-8"))
+        access = Access.model_validate_json((folder / "access.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
-    if access.get("dmPolicy") == "disabled":
+    if access.dm_policy == "disabled":
         return []
-    return [str(user) for user in access.get("allowFrom", [])]
+    return access.allow_from
 
 
-def _inbox_text(message: dict[str, Any]) -> Optional[str]:
-    text = message.get("text") or message.get("caption")
+def _inbox_text(message: Message, sender: User) -> Optional[str]:
+    text = message.text or message.caption
     if not text:
         return None
-    sender = message["from"]
-    name = " ".join(str(sender.get("username") or sender.get("first_name") or sender["id"]).split())
-    return f"telegram chat_id={message['chat']['id']} message_id={message['message_id']} user={name}\n{text}"
+    name = " ".join(str(sender.username or sender.first_name or sender.id).split())
+    return f"telegram chat_id={message.chat.id} message_id={message.message_id} user={name}\n{text}"
 
 
-def _deliver_updates(updates: list[dict[str, Any]], allowed: list[str], repo: Path, deliver: Callable[[Path, str, str], None]) -> None:
+def _deliver_updates(updates: list[Update], allowed: list[str], repo: Path, deliver: Callable[[Path, str, str], None]) -> None:
     for item in updates:
-        message = item.get("message", {})
-        if message.get("chat", {}).get("type") != "private" or str(message.get("from", {}).get("id")) not in allowed:
+        message = item.message
+        if message is None or message.sender is None or message.chat.type != "private" or str(message.sender.id) not in allowed:
             continue
-        text = _inbox_text(message)
+        text = _inbox_text(message, message.sender)
         if text:
             deliver(repo, "telegram", text)
 
@@ -124,7 +129,7 @@ def run(
             if offset is not None:
                 fields["offset"] = str(offset)
             try:
-                updates = post(token, "getUpdates", fields, [])
+                updates = _UPDATES.validate_python(post(token, "getUpdates", fields, []))
             except TelegramError as error:
                 if error.code == 409:
                     print(f"telegram: another program is polling this bot ({error})", file=sys.stderr)
@@ -138,7 +143,7 @@ def run(
             backoff = 1
             _deliver_updates(updates, _allow_from(folder), repo, send)
             if updates:
-                offset = updates[-1]["update_id"] + 1
+                offset = updates[-1].update_id + 1
     except KeyboardInterrupt:
         return 0
     finally:

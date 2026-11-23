@@ -510,7 +510,7 @@ function Invoke-SetupAccounts {
 function Invoke-SetupFirst {
     $lines = Invoke-SetupAccounts
     $settings = Get-IntegrationSettings
-    Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-validate.ps1') @('-Kind', 'personalisation', '-Path', $settings.Path) | Out-Null
+    Invoke-IntegrationValidate 'personalisation' $settings.Path
     Assert-IntegrationTrue (Test-Path -LiteralPath (Join-Path (Split-Path $settings.Path) 'notes.md')) 'notes.md is missing'
     $ids = @($settings.Data.agents | ForEach-Object id)
     foreach ($tool in (Get-IntegrationActiveTools)) {
@@ -536,11 +536,19 @@ function Assert-IntegrationOwnerCommand {
     $legion = @(Get-IntegrationLauncherPaths 'legion')[-1]
     $help = @(& $legion --help 2>&1 | ForEach-Object { "$_" })
     Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "legion --help exited $LASTEXITCODE`n$($help -join "`n")"
-    foreach ($verb in @('inbox', 'telegram', 'setup', 'status')) { Assert-IntegrationText $help "  $verb " }
+    foreach ($verb in @('inbox', 'telegram', 'validate', 'setup', 'status')) { Assert-IntegrationText $help "  $verb " }
     $status = @(& $legion status 2>&1 | ForEach-Object { "$_" })
     Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "legion status exited $LASTEXITCODE`n$($status -join "`n")"
     Assert-IntegrationText $status 'commands: yes'
     return $help + $status
+}
+
+# Validates a settings or project file through the installed owner command.
+function Invoke-IntegrationValidate {
+    param([string]$Kind, [string]$Path)
+    $legion = @(Get-IntegrationLauncherPaths 'legion')[-1]
+    $lines = @(& $legion validate --kind $Kind --path $Path 2>&1 | ForEach-Object { "$_" })
+    Assert-IntegrationTrue ($LASTEXITCODE -eq 0) "legion validate $Kind exited $LASTEXITCODE`n$($lines -join "`n")"
 }
 
 # The marked legion lines in the shell profiles under the integration home (SHELL picks which profile legion writes).
@@ -645,7 +653,7 @@ function Assert-LegionItems {
     foreach ($item in 'configuration/project.json', 'configuration/workflow.md', 'scripts/index.md', 'scripts/check-task.ps1', 'state/handoff.md') {
         Assert-IntegrationTrue (Test-Path -LiteralPath (Join-Path $Repo ".legion/$item")) ".legion/$item is missing"
     }
-    Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-validate.ps1') @('-Kind', 'project', '-Path', (Join-Path $Repo '.legion/configuration/project.json')) | Out-Null
+    Invoke-IntegrationValidate 'project' (Join-Path $Repo '.legion/configuration/project.json')
 }
 
 function Invoke-RepoPrivateFirst {

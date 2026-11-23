@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "agents": [
+    {"id": "claude", "tool": "claude", "configDir": "~/.claude",
+     "provider": {"kind": "bedrock", "endpoint": "https://res.cognitiveservices.azure.com", "default": "x", "deployments": [{"name": "x"}]}},
+    {"id": "other", "tool": "other", "configDir": "~/.other",
+     "provider": {"kind": "foundry", "endpoint": "https://res.cognitiveservices.azure.com", "default": "x", "deployments": [{"name": "x"}]}}
+  ],
+  "channels": []
+}
