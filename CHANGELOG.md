@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.13.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.12.0...v0.13.0) (2026-11-23)
+
+
+### Features
+
+* **inbox:** add repository overseer messages ([#40](https://github.com/BlackGad/ps-legion-marketplace/issues/40)) ([65f2e4d](https://github.com/BlackGad/ps-legion-marketplace/commit/65f2e4d9bc8b07cc93058275b6241426bec2984c))
+* **python:** add uv project and CLI bridge ([#37](https://github.com/BlackGad/ps-legion-marketplace/issues/37)) ([c32bb95](https://github.com/BlackGad/ps-legion-marketplace/commit/c32bb95374a12ab34360471f403b572ecc215845))
+* **telegram:** give each overseer its own bot ([#38](https://github.com/BlackGad/ps-legion-marketplace/issues/38)) ([3b52015](https://github.com/BlackGad/ps-legion-marketplace/commit/3b5201524e1a52bd624fedb423917719925471a2))
+* **telegram:** run Telegram on Codex through a bridge and send script ([#41](https://github.com/BlackGad/ps-legion-marketplace/issues/41)) ([cf439d2](https://github.com/BlackGad/ps-legion-marketplace/commit/cf439d24fda9e2be69ad75276fb27a854282c506))
+
+
+### Fixes
+
+* **ci:** pass the token to the report timing step ([#42](https://github.com/BlackGad/ps-legion-marketplace/issues/42)) ([664ffbf](https://github.com/BlackGad/ps-legion-marketplace/commit/664ffbf89ec5cad67d74b14d42d4d35f210708e3))
+
 ## [0.12.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.11.0...v0.12.0) (2026-11-22)
 
 
