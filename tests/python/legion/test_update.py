@@ -33,14 +33,15 @@ def plugin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def remote(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     state: dict[str, Any] = {"text": '{"name":"legion","version":"0.4.0"}', "calls": [], "fail": False}
 
-    def open_fake(url: str, *, timeout: float) -> io.BytesIO:
-        assert 0 < timeout <= 3
-        state["calls"].append(url)
+    # Cache and manifest tests must not depend on the daemon worker meeting its real deadline.
+    # The subprocess tests below exercise that deadline with the real downloader.
+    def download_fake(_deadline: float) -> str:
+        state["calls"].append(URL)
         if state["fail"]:
             raise OSError("private fixture detail")
-        return io.BytesIO(state["text"].encode())
+        return state["text"]
 
-    monkeypatch.setattr(urllib.request, "urlopen", open_fake)
+    monkeypatch.setattr(_update, "_download", download_fake)
     return state
 
 
@@ -191,6 +192,21 @@ def test_version_order(left: str, right: str, expected: int) -> None:
 def test_invalid_version(version: str) -> None:
     with pytest.raises(ValueError):
         _update.compare_versions(version, "1.0.0")
+
+
+def test_download_reads_remote_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+
+    def open_fake(url: str, *, timeout: float) -> io.BytesIO:
+        calls.append((url, timeout))
+        return io.BytesIO(b"\xef\xbb\xbfnull")
+
+    monkeypatch.setattr(urllib.request, "urlopen", open_fake)
+    # Allow scheduling slack here; the subprocess tests verify the three-second deadline.
+    assert _update._download(time.monotonic() + 30) == "null"
+    assert len(calls) == 1
+    assert calls[0][0] == URL
+    assert 0 < calls[0][1] <= 30
 
 
 @pytest.mark.parametrize("stage", ["open", "body"])
