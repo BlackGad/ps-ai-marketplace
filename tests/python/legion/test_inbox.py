@@ -4,10 +4,10 @@ import os
 import subprocess
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -221,11 +221,11 @@ def test_nudge_that_outlives_its_timeout_is_killed_and_the_message_kept(inbox_ho
 def test_nudge_does_not_start_powershell(repo: Path, fake_wrapper: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
     started: list[object] = []
-    real_popen = subprocess.Popen
+    real_popen = cast(Callable[..., subprocess.Popen[bytes]], subprocess.Popen)
 
     def record(arguments: object, *rest: object, **options: object) -> object:
         started.append(arguments)
-        return real_popen(arguments, *rest, **options)  # type: ignore[call-overload]
+        return real_popen(arguments, *rest, **options)
 
     monkeypatch.setattr(subprocess, "Popen", record)
     assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0

@@ -289,7 +289,7 @@ def test_launcher_without_the_executable_bit_is_missing(bench: Bench) -> None:
 
 
 def test_tool_without_a_recipe_says_so(bench: Bench) -> None:
-    assert bench.rows("claude-a", "gemini") == [LimitRow(status="no limits script for gemini")]
+    assert bench.rows("claude-a", "gemini") == [LimitRow(status="no limits reader for gemini")]
 
 
 @pytest.mark.parametrize(("percent", "expected"), [(12.0, "12%"), (12.5, "12%"), (13.5, "14%"), (68.99999, "69%")])

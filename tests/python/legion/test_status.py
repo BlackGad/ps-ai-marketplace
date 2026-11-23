@@ -48,7 +48,7 @@ def commands(home: Path, *, executable: bool = True) -> Path:
 def git(repo: Path, *words: str) -> None:
     executable = shutil.which("git")
     assert executable is not None
-    result = subprocess.run([executable, "-C", str(repo), *words], stdin=subprocess.DEVNULL, capture_output=True, check=False)  # noqa: S603
+    result = subprocess.run([executable, "-C", str(repo), *words], stdin=subprocess.DEVNULL, capture_output=True, check=False)
     assert result.returncode == 0, result.stderr
 
 
@@ -165,7 +165,7 @@ function Get-LegionUserPath { return '%LEGION_STATUS_BIN%' }
 (Get-SetupPlan -HomeRoot $FixtureHome).NeedsPath
 """
     probe = write(tmp_path / "parity.ps1", script)
-    result = subprocess.run([pwsh, "-NoProfile", "-File", str(probe), str(REPO / "plugins/legion/bin/legion-setup.ps1"), str(tmp_path)], capture_output=True, text=True, check=False)  # noqa: S603
+    result = subprocess.run([pwsh, "-NoProfile", "-File", str(probe), str(REPO / "plugins/legion/bin/legion-setup.ps1"), str(tmp_path)], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     monkeypatch.setenv("PATH", "%LEGION_STATUS_BIN%")
     assert result.stdout.strip() == ("False" if _status.on_path(folder) else "True")
@@ -190,7 +190,7 @@ function Get-IntegrationLauncherPaths { return $Launcher }
 Assert-IntegrationOwnerCommand
 """
     probe = write(tmp_path / "integration-status.ps1", script)
-    result = subprocess.run([pwsh, "-NoProfile", "-File", str(probe), str(REPO / "tests/integration/run.ps1"), str(launcher)], capture_output=True, text=True, check=False)  # noqa: S603
+    result = subprocess.run([pwsh, "-NoProfile", "-File", str(probe), str(REPO / "tests/integration/run.ps1"), str(launcher)], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     assert "commands: yes" in result.stdout
     assert "no legion settings yet" not in result.stdout

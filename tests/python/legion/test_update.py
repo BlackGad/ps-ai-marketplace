@@ -66,8 +66,9 @@ def test_check_cache_and_running_manifest(plugin: Path, remote: dict[str, Any], 
     before = path.read_bytes()
     record = _update.UpdateCache.from_json(before.decode())
     assert dataclasses.is_dataclass(record)
+    field = "failed"
     with pytest.raises(dataclasses.FrozenInstanceError):
-        record.failed = True  # type: ignore[misc]
+        setattr(record, field, True)
     assert set(json.loads(before)) == {"Source", "CheckedAt", "Available", "Failed"}
     assert _update.get_update(plugin, tmp_path) == result
     assert path.read_bytes() == before
@@ -212,7 +213,7 @@ _plugin.PLUGIN_ROOT = Path(sys.argv[1])
 _cli.main(['--home', sys.argv[2], 'update', '--check', '--force'], prog_name='legion')
 """
     started = time.monotonic()
-    process = subprocess.run([sys.executable, "-c", script, str(plugin), str(tmp_path), stage], capture_output=True, text=True, timeout=6, check=False)  # noqa: S603
+    process = subprocess.run([sys.executable, "-c", script, str(plugin), str(tmp_path), stage], capture_output=True, text=True, timeout=6, check=False)
     elapsed = time.monotonic() - started
     assert process.returncode == 0, process.stderr
     assert process.stdout == FAILURE
@@ -232,7 +233,7 @@ assert get_update(Path(sys.argv[1]), Path(sys.argv[2])) is not None
 assert not any(name in sys.modules for name in ('urllib.request', 'click', 'pydantic'))
 assert not any(name.startswith('urllib') for name in set(sys.modules) - before)
 """
-    result = subprocess.run([sys.executable, "-c", script, str(plugin), str(tmp_path)], capture_output=True, text=True, check=False)  # noqa: S603
+    result = subprocess.run([sys.executable, "-c", script, str(plugin), str(tmp_path)], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
 
 
@@ -240,6 +241,6 @@ def test_legacy_help_lists_python_check(tmp_path: Path) -> None:
     pwsh = shutil.which("pwsh")
     assert pwsh is not None
     entry = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "bin" / "legion.ps1"
-    process = subprocess.run([pwsh, "-NoProfile", "-File", str(entry), "help", "-HomeRoot", str(tmp_path)], capture_output=True, text=True, check=False)  # noqa: S603
+    process = subprocess.run([pwsh, "-NoProfile", "-File", str(entry), "help", "-HomeRoot", str(tmp_path)], capture_output=True, text=True, check=False)
     assert process.returncode == 0, process.stderr
     assert "legion update --check [--force]" in process.stdout

@@ -66,7 +66,7 @@ def mode_text(folder: Path, environment: Mapping[str, str], home: Optional[Path]
             lines.append(f'legion {update.available} is available (installed {update.installed}); say "update legion" to update.')
     except Exception:
         pass  # An update check failure keeps the mode guidance.
-    return "\n".join(lines)
+    return " ".join(lines)
 
 
 # The session folder may be below the repository root; the nearest .legion/state or .git marks the root.

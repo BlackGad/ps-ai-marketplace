@@ -83,7 +83,7 @@ def run(shell: Path, flag: str, command: str, plugin_root: str, case: str, *, ro
     env["PATH"] = path
     args = [str(shell), "-NoProfile", "-Command", command] if flag == "-Command" else [str(shell), "-c", command]
     stdin = json.dumps({"cwd": str(folder), "hook_event_name": "SessionStart"})
-    return subprocess.run(args, input=stdin, capture_output=True, text=True, cwd=folder, env=env, timeout=60, check=False)  # noqa: S603
+    return subprocess.run(args, input=stdin, capture_output=True, text=True, cwd=folder, env=env, timeout=60, check=False)
 
 
 def check(result: subprocess.CompletedProcess[str], case: str, *, copilot: bool, member: bool) -> None:
@@ -146,7 +146,35 @@ sys.stderr.write(",".join(loaded))
     env = {key: value for key, value in os.environ.items() if not key.startswith("LEGION_")}
     env.update(HOME=str(home), USERPROFILE=str(home))
     stdin = json.dumps({"cwd": str(repo)})
-    result = subprocess.run([sys.executable, "-c", script, str(plugin / "hooks" / "session_start.py")], input=stdin, capture_output=True, text=True, env=env, check=False)  # noqa: S603
+    result = subprocess.run([sys.executable, "-c", script, str(plugin / "hooks" / "session_start.py")], input=stdin, capture_output=True, text=True, env=env, check=False)
     assert result.returncode == 0
     assert result.stderr == ""
-    assert result.stdout.splitlines()[1].startswith("legion 999.0.0 is available")
+    assert len(result.stdout.splitlines()) == 1
+    assert "legion 999.0.0 is available" in result.stdout
+
+
+@pytest.mark.parametrize("key", ["command", "bash", "commandWindows", "powershell"])
+def test_manifest_update_notice_is_one_line(plugin: Path, tmp_path: Path, key: str) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".legion" / "state").mkdir(parents=True)
+    (repo / ".legion" / "state" / "handoff.md").write_text("## Goal\nM1\n", encoding="utf-8")
+    cache = Path.home() / ".legion" / "temp" / "update.json"
+    cache.parent.mkdir(parents=True)
+    record = {"Source": "BlackGad/ps-legion-marketplace", "CheckedAt": datetime.now(UTC).isoformat(), "Available": "999.0.0", "Failed": False}
+    cache.write_text(json.dumps(record), encoding="utf-8")
+    before = cache.read_bytes()
+    version = json.loads((plugin / "plugin.json").read_text(encoding="utf-8"))["version"]
+    expected = f'legion: this repo is orchestrated. Say continue to act as the overseer. legion 999.0.0 is available (installed {version}); say "update legion" to update.'
+    if key in ("commandWindows", "powershell"):
+        if sys.platform != "win32":
+            pytest.skip("Windows manifest command")
+        shells, flag = powershells(), "-Command"
+    else:
+        shells, flag = posix_shells(), "-c"
+    root_name = "CLAUDE_PLUGIN_ROOT" if key in ("command", "commandWindows") else "COPILOT_PLUGIN_ROOT"
+    for shell in shells.values():
+        result = run(shell, flag, COMMANDS[key], plugin.as_posix(), "ok", root_name=root_name, folder=repo, member=False)
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == ""
+        assert result.stdout.splitlines() == [json.dumps({"additionalContext": expected}, separators=(",", ":")) if key in ("bash", "powershell") else expected]
+        assert cache.read_bytes() == before

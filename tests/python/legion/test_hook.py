@@ -70,7 +70,7 @@ def write_lease(repo: Path, **fields: object) -> Path:
 
 def run_hook(*args: str, stdin: str = "", cwd: Path, **environment: str) -> subprocess.CompletedProcess[str]:
     env = {**os.environ, "LEGION_ROLE": "", "LEGION_TASK": "", **environment}
-    return subprocess.run([sys.executable, str(HOOK), *args], input=stdin, capture_output=True, text=True, cwd=cwd, env=env, check=False)  # noqa: S603
+    return subprocess.run([sys.executable, str(HOOK), *args], input=stdin, capture_output=True, text=True, cwd=cwd, env=env, check=False)
 
 
 def stdin(text: str) -> io.TextIOWrapper:
@@ -187,6 +187,11 @@ def test_session_folder_uses_existing_stdin_cwd(tmp_path: Path, monkeypatch: pyt
 
 def test_hook_run_from_another_folder_uses_stdin_cwd(repo: Path, tmp_path: Path) -> None:
     write_lease(repo)
+    cache = Path.home() / ".legion" / "temp" / "update.json"
+    cache.parent.mkdir(parents=True)
+    record = {"Source": "BlackGad/ps-legion-marketplace", "CheckedAt": datetime.now(UTC).isoformat(), "Available": "0.0.0", "Failed": False}
+    cache.write_text(json.dumps(record), encoding="utf-8")
+    before = cache.read_bytes()
     result = run_hook("--format", "context-json", stdin=json.dumps({"cwd": str(repo)}), cwd=tmp_path)
     assert result.returncode == 0
     assert result.stderr == ""
@@ -194,6 +199,7 @@ def test_hook_run_from_another_folder_uses_stdin_cwd(repo: Path, tmp_path: Path)
     assert context.startswith(ORCHESTRATED + " Another overseer is active.")
     assert MILESTONE not in context
     assert TASK not in context
+    assert cache.read_bytes() == before
 
 
 def test_context_json_equals_text(repo: Path) -> None:
@@ -227,7 +233,7 @@ def test_failure_prints_one_line_and_exits_zero(repo: Path, monkeypatch: pytest.
 
 def test_update_notice_line_and_daily_cache(repo: Path, remote: dict[str, Any]) -> None:
     text = mode_text(repo, {})
-    assert text == f"{ORCHESTRATED}\n{NOTICE}"
+    assert text == f"{ORCHESTRATED} {NOTICE}"
     assert mode_text(repo, {"LEGION_ROLE": "legion", "LEGION_TASK": "task.md"}) == text
     assert remote["calls"] == 1
     for word in ("pwsh", "irm", ".ps1", " -"):
@@ -271,5 +277,6 @@ def test_hook_reads_the_update_cache_under_home(repo: Path, tmp_path: Path) -> N
     before = cache.read_bytes()
     result = run_hook(stdin="", cwd=repo, HOME=str(home), USERPROFILE=str(home))
     assert result.returncode == 0
-    assert result.stdout.splitlines()[1].startswith("legion 999.0.0 is available (installed ")
+    assert len(result.stdout.splitlines()) == 1
+    assert f"{ORCHESTRATED} legion 999.0.0 is available (installed " in result.stdout
     assert cache.read_bytes() == before

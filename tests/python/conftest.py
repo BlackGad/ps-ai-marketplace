@@ -66,6 +66,17 @@ def fence(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPa
         monkeypatch.setenv(name, str(fence.home))
     for name in ("TMPDIR", "TEMP", "TMP"):
         monkeypatch.setenv(name, str(fence.temp))
+    for name in ("UV_CACHE_DIR", "LOCALAPPDATA", "APPDATA", "XDG_CACHE_HOME"):
+        folder = fence.home / name
+        folder.mkdir()
+        monkeypatch.setenv(name, str(folder))
+    # Children cannot inherit Python mocks. Standard proxy settings reject requests locally,
+    # including on hosts with a proxy bypass list or lowercase proxy variables.
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+        for spelling in (name, name.lower()):
+            monkeypatch.setenv(spelling, "http://127.0.0.1:1")
+    for name in ("NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(name, "")
     monkeypatch.setattr(tempfile, "tempdir", str(fence.temp))
     # A child interpreter would otherwise write its bytecode cache wherever the developer's setting points.
     monkeypatch.setenv("PYTHONPYCACHEPREFIX", str(fence.temp / "pycache"))
