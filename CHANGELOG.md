@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.13.0...v0.13.1) (2026-11-23)
+
+
+### Fixes
+
+* **overseer:** keep a Codex overseer on Telegram reachable ([#43](https://github.com/BlackGad/ps-legion-marketplace/issues/43)) ([bff29a4](https://github.com/BlackGad/ps-legion-marketplace/commit/bff29a44b9f9f7f56b677c1f0517187646a8e40d))
+
 ## [0.13.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.12.0...v0.13.0) (2026-11-23)
 
 
