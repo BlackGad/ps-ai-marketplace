@@ -81,11 +81,38 @@ def test_update_explicitly_forwards_installer_arguments_home_and_exit(app_root: 
     assert "update" not in _forward.FORWARDED_VERBS
     home = tmp_path / "update home"
     assert run(["--home", str(home), "update", *words]) == 7
-    assert read_call(app_root)["words"] == ["update", *words]
+    assert read_call(app_root)["words"] == ["update", *(["--yes"] if words else [])]
     assert read_call(app_root)["home"] == str(home)
 
 
 @pytest.mark.parametrize("words", [["--check", "--yes"], ["--check", "-Yes"], ["--force"], ["--check", "extra"], ["--check", "--unknown"], ["--check=yes"], ["--unknown"]])
 def test_invalid_update_combinations_never_forward(app_root: Path, words: list[str]) -> None:
     assert run(["update", *words]) == 2
+    assert not (app_root / "bin" / "call.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("words", "message"),
+    [
+        (["--force"], "--force requires --check"),
+        (["--force", "--yes"], "--force requires --check"),
+        (["--check", "--yes"], "--yes cannot be used with --check"),
+        (["-Yes", "--check"], "--yes cannot be used with --check"),
+        (["--check", "--force", "-Yes"], "--yes cannot be used with --check"),
+        (["--unknown"], "No such option '--unknown'."),
+        (["extra"], "Got unexpected extra argument (extra)"),
+    ],
+)
+def test_update_usage_errors_are_plain_and_never_forward(app_root: Path, words: list[str], message: str, capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(["update", *words]) == 2
+    assert f"Error: {message}\n" in capsys.readouterr().err
+    assert not (app_root / "bin" / "call.json").exists()
+
+
+def test_update_help_lists_click_options_without_forwarding(app_root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(["update", "--help"]) == 0
+    output = capsys.readouterr().out
+    assert "Usage: legion update [OPTIONS]" in output
+    for option in ("--check", "--force", "--yes", "-Yes", "--help"):
+        assert option in output
     assert not (app_root / "bin" / "call.json").exists()

@@ -34,8 +34,8 @@ def _version_key(text: str) -> tuple[tuple[int, ...], bool, tuple[tuple[bool, in
     return numbers, prerelease is None, tuple(labels)
 
 
+# Match PowerShell SemanticVersion ordering; ignore build metadata.
 def compare_versions(left: str, right: str) -> int:
-    """Compare like PowerShell's SemanticVersion: numeric parts, ordinal prerelease labels, no build metadata."""
     a, b = _version_key(left), _version_key(right)
     return (a > b) - (a < b)
 
@@ -93,7 +93,7 @@ def _download(deadline: float) -> str:
 
     def fetch() -> None:
         try:
-            from urllib.request import urlopen  # noqa: PLC0415
+            from urllib.request import urlopen
 
             with urlopen(MANIFEST_URL, timeout=max(0.001, deadline - time.monotonic())) as response:
                 downloaded.append(response.read().decode("utf-8-sig"))
