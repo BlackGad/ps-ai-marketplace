@@ -2,6 +2,8 @@ param([string]$JUnitPath, [string]$Name = '*')
 
 . (Join-Path $PSScriptRoot 'lib/junit.ps1')
 . (Join-Path $PSScriptRoot 'lib/paths.ps1')
+. (Join-Path $PSScriptRoot 'lib/user-path.ps1')
+$userPathBefore = Get-TestUserPathSnapshot
 $failed = 0
 $passed = 0
 $cases = @()
@@ -11,7 +13,7 @@ if (Test-Path -LiteralPath $catalogPath) {
     $configEnvs = (Get-Content $catalogPath -Raw | ConvertFrom-Json).tools.configEnv
 }
 $toolConfigEnvs = @($configEnvs)
-$configEnvs += @('LEGION_TEST_UV_SYNC', 'LEGION_ROLE', 'LEGION_TASK', 'HOME', 'USERPROFILE', 'LEGION_TEST_GUARD', 'TMPDIR', 'TEMP', 'TMP')
+$configEnvs += @('LEGION_TEST_UV_SYNC', 'LEGION_ROLE', 'LEGION_TASK', 'HOME', 'USERPROFILE', 'LEGION_TEST_GUARD', 'LEGION_TEST_USER_PATH_FILE', 'TMPDIR', 'TEMP', 'TMP')
 function Get-TestOutsideSnapshot {
     param([string]$Path)
     return @(Get-ChildItem -LiteralPath $Path -File -Recurse -Force | Sort-Object FullName | ForEach-Object { $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash }) -join '|'
@@ -44,6 +46,8 @@ foreach ($test in $testFiles) {
     Set-Variable -Name HOME -Value $guardHome -Force -Scope Global
     $env:USERPROFILE = $guardHome
     $env:LEGION_TEST_GUARD = $guardHome
+    $env:LEGION_TEST_USER_PATH_FILE = Join-Path $guardHome 'user-path.txt'
+    [IO.File]::WriteAllText($env:LEGION_TEST_USER_PATH_FILE, '')
     foreach ($tempEnv in @('TMPDIR', 'TEMP', 'TMP')) { [Environment]::SetEnvironmentVariable($tempEnv, $temp, 'Process') }
     foreach ($configEnv in $toolConfigEnvs) { [Environment]::SetEnvironmentVariable($configEnv, (Join-Path $guardHome $configEnv), 'Process') }
     # Tests never run the real uv: a stand-in first on PATH rejects every call, except `uv sync` for a
@@ -84,6 +88,17 @@ foreach ($test in $testFiles) {
         $result = 'failed'
         $message = $_.Exception.Message
     } finally {
+        try { Assert-TestUserPathUnchanged -Before $userPathBefore }
+        catch {
+            if ($result -eq 'passed') { $passed--; $failed++ }
+            $result = 'failed'
+            $message = $_.Exception.Message
+            Write-Output "FAIL $($test.Name): $message"
+        }
+        $pathLog = Join-Path $guardHome 'user-path.txt.writes.jsonl'
+        if (Test-Path -LiteralPath $pathLog) {
+            foreach ($line in [IO.File]::ReadAllLines($pathLog)) { Write-Output "FENCED user PATH write ($($test.Name)): $line" }
+        }
         if ((Get-TestOutsideSnapshot $outside) -cne $outsideSnapshot) {
             if ($result -eq 'passed') { $passed--; $failed++ }
             $result = 'failed'

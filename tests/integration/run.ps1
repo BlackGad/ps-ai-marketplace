@@ -15,6 +15,8 @@ $PSStyle.OutputRendering = 'PlainText'
 $env:NO_COLOR = '1'
 . (Join-Path $PSScriptRoot '../lib/junit.ps1')
 . (Join-Path $PSScriptRoot '../lib/benchmark.ps1')
+. (Join-Path $PSScriptRoot '../lib/user-path.ps1')
+. (Join-Path $PSScriptRoot '../../plugins/legion/bin/lib/paths.ps1')
 . (Join-Path $PSScriptRoot '../../plugins/legion/bin/lib/installed.ps1')
 $script:IntegrationScriptLog = $null
 
@@ -268,7 +270,7 @@ function Get-IntegrationActiveTools {
 
 function Get-IntegrationPersistentFolders {
     if ((Get-IntegrationOs) -eq 'windows') {
-        $text = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')
+        $text = (Get-LegionUserPath) + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')
         return @($text -split ';' | Where-Object { $_.Trim() } | ForEach-Object { [Environment]::ExpandEnvironmentVariables($_.Trim().Trim('"')) })
     }
     return @((Join-Path $HOME '.local/bin'))
@@ -522,7 +524,7 @@ function Invoke-SetupFirst {
     Assert-AccountsHaveLegion $settings.Data.agents
     $lines += Assert-IntegrationOwnerCommand
     if ($IsWindows) {
-        $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+        $userPath = Get-LegionUserPath
         Assert-IntegrationTrue ($userPath.Split(';') -contains $bin) '.legion/bin is not on the user PATH'
     } else {
         Assert-IntegrationTrue ((Get-IntegrationProfileLineCount) -eq 1) 'the shell profile must hold exactly one marked legion line after install and setup'
@@ -931,14 +933,23 @@ $os = Get-IntegrationOs
 $work = Join-Path (Split-Path $HomeRoot -Parent) 'legion-work'
 New-Item -ItemType Directory -Path $HomeRoot, $work, $Out -Force | Out-Null
 
-$probe = @(Get-IntegrationProbe -Checks (Get-IntegrationProbeChecks))
-$steps = Get-IntegrationSteps -HomeRoot $HomeRoot -Checkout $Checkout -Work $work -Os $os -AllowFallback:$AllowSourceFallback
-Set-IntegrationConfigEnvironment
-$cases = @(Invoke-IntegrationSteps -Steps $steps -LogFolder (Join-Path $Out 'logs'))
-$extra = ($script:Ctx.Versions.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value)" }) -join ', '
-if ($script:Ctx.NotTested.Count) { $extra += "; not tested from the checkout: $(@($script:Ctx.NotTested.Keys) -join ', ')" }
-Write-IntegrationReport -Out $Out -Os $os -Cases $cases -Probe $probe -Extra $extra
-$coverageProblem = Get-IntegrationCoverageProblem
-if ($coverageProblem) { Write-Error $coverageProblem; exit 1 }
-if (@($cases | Where-Object Result -eq 'failed').Count) { exit 1 }
+$userPathBefore = Get-TestUserPathSnapshot
+$savedUserPathFile = $env:LEGION_TEST_USER_PATH_FILE
+$env:LEGION_TEST_USER_PATH_FILE = Join-Path $work 'user-path.txt'
+[IO.File]::WriteAllText($env:LEGION_TEST_USER_PATH_FILE, '')
+try {
+    $probe = @(Get-IntegrationProbe -Checks (Get-IntegrationProbeChecks))
+    $steps = Get-IntegrationSteps -HomeRoot $HomeRoot -Checkout $Checkout -Work $work -Os $os -AllowFallback:$AllowSourceFallback
+    Set-IntegrationConfigEnvironment
+    $cases = @(Invoke-IntegrationSteps -Steps $steps -LogFolder (Join-Path $Out 'logs'))
+    $extra = ($script:Ctx.Versions.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value)" }) -join ', '
+    if ($script:Ctx.NotTested.Count) { $extra += "; not tested from the checkout: $(@($script:Ctx.NotTested.Keys) -join ', ')" }
+    Write-IntegrationReport -Out $Out -Os $os -Cases $cases -Probe $probe -Extra $extra
+    $coverageProblem = Get-IntegrationCoverageProblem
+    if ($coverageProblem) { Write-Error $coverageProblem; exit 1 }
+    if (@($cases | Where-Object Result -eq 'failed').Count) { exit 1 }
+} finally {
+    $env:LEGION_TEST_USER_PATH_FILE = $savedUserPathFile
+    Assert-TestUserPathUnchanged -Before $userPathBefore
+}
 exit 0

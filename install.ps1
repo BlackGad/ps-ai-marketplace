@@ -57,6 +57,7 @@ function Get-InstallPortablePowerShell {
 }
 
 function Get-InstallUserPath {
+    if ($env:LEGION_TEST_USER_PATH_FILE) { return [IO.File]::ReadAllText($env:LEGION_TEST_USER_PATH_FILE) }
     # Read the raw registry value so entries such as %USERPROFILE%\bin stay unexpanded.
     $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
     if (-not $key) { return '' }
@@ -67,6 +68,14 @@ function Get-InstallUserPath {
 # 5.1 bootstrap twin of Set-LegionUserPath in plugins/legion/bin/lib/paths.ps1.
 function Set-InstallUserPath {
     param([string]$Path)
+    if ($env:LEGION_TEST_USER_PATH_FILE) {
+        [IO.File]::WriteAllText($env:LEGION_TEST_USER_PATH_FILE, $Path)
+        # Record callers, never PATH values, so child-process writes can be traced.
+        $callers = @(Get-PSCallStack | ForEach-Object { if ($_.ScriptName) { (Split-Path $_.ScriptName -Leaf) + ':' + $_.ScriptLineNumber + ':' + $_.FunctionName } else { $_.FunctionName } })
+        $record = @{ ProcessId=$PID; Callers=$callers } | ConvertTo-Json -Compress
+        [IO.File]::AppendAllText($env:LEGION_TEST_USER_PATH_FILE + '.writes.jsonl', $record + "`n")
+        return
+    }
     # Keep the existing value kind (normally REG_EXPAND_SZ), then tell Windows the environment changed.
     $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
     try {
