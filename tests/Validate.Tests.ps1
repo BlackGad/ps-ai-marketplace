@@ -126,7 +126,6 @@ try {
         '{broken' | Set-Content $descriptorPath
         . (Join-Path $plugin 'bin/lib/common.ps1')
         Assert-Equal 'free' (Get-LegionLease -Repo $fixture).State 'Lease remains usable with a malformed descriptor'
-        . (Join-Path $plugin 'hooks/detect-mode.ps1') -NoRun
         Assert-Throws { Get-LegionTool -Tool fourth } 'Tool operations discover malformed descriptor lazily'
     } finally {
         $env:PATH = $savedPath

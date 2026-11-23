@@ -33,7 +33,14 @@ Get-ChildItem (Join-Path $root 'plugins/legion/skills') -Directory | ForEach-Obj
 # NeutralHookFormatAndManifestPaths: both native invocations retain their required root.
 $neutralHooks = Get-Content -Raw (Join-Path $root 'plugins/legion/hooks/copilot-hooks.json') | ConvertFrom-Json
 $sessionHook = $neutralHooks.hooks.sessionStart[0]
-Assert-Equal 'pwsh -NoProfile -File "$env:COPILOT_PLUGIN_ROOT/hooks/detect-mode.ps1" -Format context-json' $sessionHook.powershell 'PowerShell hook uses neutral context format'
-Assert-Equal 'pwsh -NoProfile -File "$COPILOT_PLUGIN_ROOT/hooks/detect-mode.ps1" -Format context-json' $sessionHook.bash 'Bash hook uses neutral context format'
+# The literal strings are run in their shells by tests/python/legion/test_hook_commands.py.
+$uv = 'uv run --no-project --no-python-downloads --offline --quiet --python ">=3.12" '
+$fallback = 'legion: uv or Python 3.12 is missing, so mode detection did not run; run the legion installer. If LEGION_ROLE=member is set, load the legion-member skill.'
+$fallbackJson = '{"additionalContext":"' + $fallback + '"}'
+Assert-Equal ($uv + '"$env:COPILOT_PLUGIN_ROOT\hooks\session_start.py" --format context-json; if (-not $?) { ''' + $fallbackJson + ''' }') $sessionHook.powershell 'PowerShell hook uses neutral context format'
+Assert-Equal ($uv + '"$COPILOT_PLUGIN_ROOT/hooks/session_start.py" --format context-json || echo ''' + $fallbackJson + '''') $sessionHook.bash 'Bash hook uses neutral context format'
 $sharedHooks = Get-Content -Raw (Join-Path $root 'plugins/legion/hooks/hooks.json') | ConvertFrom-Json
 Assert-True ([bool]$sharedHooks.hooks.SessionStart) 'Shared hook stays at required path'
+$sharedHook = $sharedHooks.hooks.SessionStart[0].hooks[0]
+Assert-Equal ($uv + '"${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py" --format text || echo "' + $fallback + '"') $sharedHook.command 'Shared hook runs the Python hook through uv'
+Assert-Equal ($uv + '"$env:CLAUDE_PLUGIN_ROOT\hooks\session_start.py" --format text; if (-not $?) { ''' + $fallback + ''' }') $sharedHook.commandWindows 'Codex on Windows runs the Python hook through PowerShell'

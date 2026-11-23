@@ -4,8 +4,8 @@
     "sessionStart": [
       {
         "type": "command",
-        "powershell": "pwsh -NoProfile -File \"$env:COPILOT_PLUGIN_ROOT/hooks/detect-mode.ps1\" -Format context-json",
-        "bash": "pwsh -NoProfile -File \"$COPILOT_PLUGIN_ROOT/hooks/detect-mode.ps1\" -Format context-json",
+        "powershell": "uv run --no-project --no-python-downloads --offline --quiet --python \">=3.12\" \"$env:COPILOT_PLUGIN_ROOT\\hooks\\session_start.py\" --format context-json; if (-not $?) { '{\"additionalContext\":\"legion: uv or Python 3.12 is missing, so mode detection did not run; run the legion installer. If LEGION_ROLE=member is set, load the legion-member skill.\"}' }",
+        "bash": "uv run --no-project --no-python-downloads --offline --quiet --python \">=3.12\" \"$COPILOT_PLUGIN_ROOT/hooks/session_start.py\" --format context-json || echo '{\"additionalContext\":\"legion: uv or Python 3.12 is missing, so mode detection did not run; run the legion installer. If LEGION_ROLE=member is set, load the legion-member skill.\"}'",
         "timeoutSec": 10
       }
     ]

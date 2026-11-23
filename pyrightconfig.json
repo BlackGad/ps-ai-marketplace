@@ -1,7 +1,7 @@
 {
   "typeCheckingMode": "standard",
   "pythonVersion": "3.12",
-  "include": ["plugins/legion/src", "tests/python"],
+  "include": ["plugins/legion/src", "plugins/legion/hooks", "tests/python"],
   "extraPaths": ["plugins/legion/src"],
   "exclude": ["**/__pycache__", "**/node_modules", "**/.*"]
 }
