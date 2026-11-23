@@ -1,6 +1,7 @@
 . (Join-Path $PSScriptRoot 'paths.ps1')
 . (Join-Path $PSScriptRoot 'tools.ps1')
 
+# Get-LegionLease and Get-LegionLeaseOwnerProcess serve status, the hook and the overseer; milestone 2 task 4 removes them.
 function Get-LegionLease {
     param([string]$Repo)
     $path = Get-LegionRepoPath -Repo $Repo -Path 'temp/overseer.lock'

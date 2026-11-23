@@ -19,7 +19,6 @@ from legion._process import process_started_at
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 COMMON_PS1 = REPO_ROOT / "plugins/legion/bin/lib/common.ps1"
-LEASE_PS1 = REPO_ROOT / "plugins/legion/bin/legion-lease.ps1"
 DEAD_PID = 99_999_999
 
 
@@ -115,6 +114,14 @@ def test_take_refuses_held_and_foreign_leases(tmp_path: Path) -> None:
     write_lease(tmp_path, host="fixture-foreign-host")
     with pytest.raises(LeaseError, match="lease from host fixture-foreign-host; ask the owner"):
         take(tmp_path, "codex", "other", process_id=os.getpid())
+
+
+def test_release_without_a_lock_skips_before_looking_for_the_owner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def no_owner() -> None:
+        raise LookupError("cannot find the agent session process; pass --process-id explicitly")
+
+    monkeypatch.setattr(_lease, "owner_process", no_owner)
+    assert release(tmp_path) == "skip: lease release (already done)"
 
 
 def test_take_needs_a_running_owner(tmp_path: Path) -> None:
@@ -323,7 +330,7 @@ def test_from_json_rejects_wrong_types() -> None:
             Lease.from_json(text)
 
 
-# Cross-language proof: the PowerShell reader and writer agree with Python.
+# Cross-language proof: the PowerShell reader, kept until milestone 2 task 4, agrees with Python.
 
 PWSH = shutil.which("pwsh")
 needs_pwsh = pytest.mark.skipif(PWSH is None, reason="pwsh is not on PATH")
@@ -342,10 +349,6 @@ def powershell(script: str) -> list[str]:
 def powershell_states(*repos: Path) -> list[str]:
     reads = "; ".join(f"(Get-LegionLease -Repo '{repo}').State" for repo in repos)
     return powershell(f". '{COMMON_PS1}'; {reads}")
-
-
-def quote(path: Path) -> str:
-    return f"'{path}'"
 
 
 @needs_pwsh
@@ -371,24 +374,8 @@ def test_cross_language_states_agree(tmp_path: Path) -> None:
 
 
 @needs_pwsh
-def test_powershell_lock_is_held_and_released_by_python(tmp_path: Path) -> None:
-    powershell(f"& '{LEASE_PS1}' -Action take -Repo {quote(tmp_path)} -Tool codex -Account owner -ProcessId {os.getpid()}; exit $LASTEXITCODE")
-    current = state(tmp_path)
-    assert current.state == "held"
-    assert current.lease is not None
-    assert current.lease.pid == os.getpid()
-    assert take(tmp_path, "codex", "owner", process_id=os.getpid()).startswith("skip:")
-    assert release(tmp_path, process_id=os.getpid()) == "lease released"
-    assert not lease_path(tmp_path).exists()
-
-
-@needs_pwsh
-def test_python_lock_is_held_and_released_by_powershell(tmp_path: Path) -> None:
+def test_python_lock_is_read_by_powershell(tmp_path: Path) -> None:
     take(tmp_path, "codex", "owner", process_id=os.getpid())
-    output = powershell(
-        f". '{COMMON_PS1}'; (Get-LegionLease -Repo {quote(tmp_path)}).State; "
-        f"& '{LEASE_PS1}' -Action take -Repo {quote(tmp_path)} -Tool codex -Account owner -ProcessId {os.getpid()}; "
-        f"& '{LEASE_PS1}' -Action release -Repo {quote(tmp_path)} -ProcessId {os.getpid()}; exit $LASTEXITCODE"
-    )
-    assert " ".join(output) == "held skip: lease take (already done) lease released"
-    assert state(tmp_path).state == "free"
+    assert powershell_states(tmp_path) == ["held"]
+    assert release(tmp_path, process_id=os.getpid()) == "lease released"
+    assert powershell_states(tmp_path) == ["free"]

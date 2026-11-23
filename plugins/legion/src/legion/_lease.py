@@ -148,10 +148,10 @@ def take(repo: Path, tool: str, account: str, process_id: Optional[int] = None) 
 
 def release(repo: Path, process_id: Optional[int] = None) -> str:
     """Remove the lock only when it names this owner session, checked by pid, host and start time."""
-    pid, started = _owner(process_id)
     path = lease_path(repo)
     if not path.exists():
         return "skip: lease release (already done)"
+    pid, started = _owner(process_id)
     guard = _open_guard(path)
     if guard is None:
         raise LeaseError("lease change in progress in another session; retry")

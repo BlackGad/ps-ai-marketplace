@@ -80,6 +80,7 @@ legion - legion commands
   legion remove <id>                   remove an account (its folder is kept)
   legion status                        show accounts, commands, channels and this repository
   legion limits [<id>]                 show each account's usage windows and reset times (or one account)
+  legion lease take|status|release     take, check or release this repository's overseer lease
   legion update [--yes]                update legion to the newest version of the track it was installed from
   legion uninstall [--purge] [--yes]   remove legion; --purge also deletes settings, notes and legion-made logins
   legion help                          show this list
