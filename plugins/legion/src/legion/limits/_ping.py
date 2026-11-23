@@ -1,0 +1,72 @@
+# What every tool's recipe shares: the limits row, its formats and the ping from a disposable folder.
+
+import re
+import shutil
+import tempfile
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Sequence
+
+from .._run import run_command
+
+
+# One row of the limits table; every field a tool does not expose stays 'unknown'.
+@dataclass(frozen=True)
+class LimitRow:
+    window: str = "-"
+    used: str = "unknown"
+    resets: str = "unknown"
+    status: str = "unknown"
+
+
+# A finished ping. folder is the resolved ping folder, which a Codex session names as its working folder.
+@dataclass(frozen=True)
+class Ping:
+    exit_code: int
+    output: str
+    error: str
+    timed_out: bool
+    folder: Path
+
+
+def format_reset_time(unix_seconds: float) -> str:
+    return datetime.fromtimestamp(unix_seconds, UTC).astimezone().strftime("%Y-%m-%d %H:%M")
+
+
+# round() rounds half to even, as PowerShell's [math]::Round does.
+def format_used_percent(percent: float) -> str:
+    return f"{round(percent)}%"
+
+
+def first_line(text: str) -> str:
+    return next((line.strip() for line in text.splitlines() if line.strip()), "")
+
+
+def find_executable(name: str) -> str:
+    path = shutil.which(name)
+    if not path:
+        raise RuntimeError(f"{name} is not installed")
+    return path
+
+
+# A fresh empty folder keeps a ping away from every project's settings, rules and hooks.
+def ping(command: str, arguments: Sequence[str], timeout: float, *, git: bool = False) -> Ping:
+    work = Path(tempfile.mkdtemp(prefix="legion-limits-"))
+    try:
+        if git:
+            run_command(find_executable("git"), ["-C", str(work), "init", "-q"], timeout=timeout)
+        result = run_command(command, arguments, timeout=timeout, cwd=work)
+        return Ping(result.exit_code, result.output, result.error, result.timed_out, work.resolve())
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+# The status of a ping that gave no readout. Only the tool's own quota wording counts as 'limit reached'.
+def ping_failure(result: Ping, quota_pattern: str) -> str:
+    if result.timed_out:
+        return "ping timed out"
+    text = result.error + "\n" + result.output
+    if any(re.search(quota_pattern, line, re.IGNORECASE) for line in text.splitlines()):
+        return "limit reached"
+    return "ping failed: " + first_line(result.error)

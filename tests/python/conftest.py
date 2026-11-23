@@ -12,7 +12,7 @@ if sys.platform == "win32":
     import _winapi
 
 REPO = Path(__file__).resolve().parents[2]
-CLEARED_ENVIRONMENT = ("LEGION_ROLE", "LEGION_TASK", "PYTHONSTARTUP", "PYTHONUSERBASE")
+CLEARED_ENVIRONMENT = ("LEGION_ROLE", "LEGION_TASK", "PYTHONSTARTUP", "PYTHONUSERBASE", "CODEX_THREAD_ID")
 
 
 # Mirrors the fence in tests/run.ps1: every test runs with a temp home reached through a link, and the
