@@ -1,11 +1,29 @@
+import codecs
 import json
 from pathlib import Path
 from typing import Any
 
 import fastjsonschema
 
-PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+from ._plugin import PLUGIN_ROOT
+
 FRAME = "$: {}; run legion setup to update your settings"
+
+
+# A settings file may be saved as UTF-8 or, with a byte-order mark, as UTF-16.
+def _read_text(path: Path) -> str:
+    data = path.read_bytes()
+    encoding = "utf-16" if data[:2] in (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE) else "utf-8-sig"
+    return data.decode(encoding)
+
+
+# JSON allows a key twice and keeps the last value; legion settings reject it.
+def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    keys = [key for key, _ in pairs]
+    for key in keys:
+        if keys.count(key) > 1:
+            raise ValueError(f"duplicate key '{key}'")
+    return dict(pairs)
 
 
 def _load_descriptors(file_name: str) -> list[dict[str, Any]]:
@@ -80,7 +98,7 @@ def _provider_issues(data: dict[str, Any], tools: list[dict[str, Any]]) -> list[
 
 def validate(kind: str, path: Path) -> list[str]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8").lstrip("﻿"))
+        data = json.loads(_read_text(path), object_pairs_hook=_unique_keys)
         schema = json.loads((PLUGIN_ROOT / "schemas" / f"{kind}.schema.json").read_text(encoding="utf-8"))
         try:
             fastjsonschema.compile(schema)(data)

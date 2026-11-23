@@ -1,27 +1,31 @@
 {
-  "note": "Recorded from the PowerShell validator and Test-Json with the draft 2020-12 schemas, before the move to Python.",
+  "note": "Recorded from the PowerShell validator and Test-Json with the draft 2020-12 schemas, before the move to Python. A tool case edits the real descriptor: it sets the value at the JSON pointer path, or removes the property when no value is given.",
   "validate": [
     {
       "name": "valid-owner",
       "kind": "personalisation",
+      "path": "tests/fixtures/personalisation/valid-owner.json",
       "exit": 0,
       "output": []
     },
     {
       "name": "valid-foundry",
       "kind": "personalisation",
+      "path": "tests/fixtures/personalisation/valid-foundry.json",
       "exit": 0,
       "output": []
     },
     {
       "name": "valid-project",
       "kind": "project",
+      "path": "tests/fixtures/project/valid.json",
       "exit": 0,
       "output": []
     },
     {
       "name": "invalid-tool",
       "kind": "personalisation",
+      "path": "tests/fixtures/personalisation/invalid-tool.json",
       "exit": 1,
       "output": [
         "agents: unknown tool 'other'"
@@ -30,6 +34,7 @@
     {
       "name": "invalid-version",
       "kind": "personalisation",
+      "path": "tests/fixtures/personalisation/invalid-version.json",
       "exit": 1,
       "output": [
         "$: The JSON is not valid with the schema: Required properties [\"schemaVersion\"] are not present at ''; run legion setup to update your settings"
@@ -38,6 +43,7 @@
     {
       "name": "invalid-duplicate",
       "kind": "personalisation",
+      "path": "tests/fixtures/personalisation/invalid-duplicate.json",
       "exit": 1,
       "output": [
         "agents: duplicate id 'codex-a'"
@@ -46,6 +52,7 @@
     {
       "name": "invalid-id",
       "kind": "personalisation",
+      "path": "tests/fixtures/personalisation/invalid-id.json",
       "exit": 1,
       "output": [
         "$: The JSON is not valid with the schema: The string value is not a match for the indicated regular expression at '/agents/0/id'; run legion setup to update your settings"
@@ -54,6 +61,7 @@
     {
       "name": "invalid-foundry-default",
       "kind": "personalisation",
+      "path": "tests/fixtures/personalisation/invalid-foundry-default.json",
       "exit": 1,
       "output": [
         "agents[0].provider: default 'x' is not a deployment"
@@ -62,6 +70,7 @@
     {
       "name": "invalid-foundry-alias",
       "kind": "personalisation",
+      "path": "tests/fixtures/personalisation/invalid-foundry-alias.json",
       "exit": 1,
       "output": [
         "agents[0].provider: duplicate deployment 'x'",
@@ -75,6 +84,7 @@
     {
       "name": "invalid-channels",
       "kind": "personalisation",
+      "path": "tests/fixtures/validate/invalid-channels.json",
       "exit": 1,
       "output": [
         "channel 'tg': unknown account 'ghost'",
@@ -86,6 +96,7 @@
     {
       "name": "invalid-schema-multi",
       "kind": "personalisation",
+      "path": "tests/fixtures/validate/invalid-schema-multi.json",
       "exit": 1,
       "output": [
         "$: The JSON is not valid with the schema: Expected \"1\" at '/schemaVersion'; run legion setup to update your settings",
@@ -97,6 +108,7 @@
     {
       "name": "invalid-provider-kind",
       "kind": "personalisation",
+      "path": "tests/fixtures/validate/invalid-provider-kind.json",
       "exit": 1,
       "output": [
         "agents: unknown tool 'other'",
@@ -107,6 +119,7 @@
     {
       "name": "invalid-project",
       "kind": "project",
+      "path": "tests/fixtures/validate/invalid-project.json",
       "exit": 1,
       "output": [
         "$: The JSON is not valid with the schema: Expected \"1\" at '/schemaVersion'; run legion setup to update your settings",
@@ -116,75 +129,113 @@
     {
       "name": "malformed",
       "kind": "personalisation",
+      "path": "tests/fixtures/validate/malformed.json",
       "exit": 1,
       "output": [
         "$: Conversion from JSON failed with error: Unexpected end when deserializing object. Path 'schemaVersion', line 2, position 0.; run legion setup to update your settings"
       ]
     },
     {
-      "name": "bom-crlf",
+      "name": "missing-file",
       "kind": "personalisation",
+      "path": "tests/fixtures/validate/no-such-file.json",
+      "exit": 1,
+      "output": [
+        "$: Exception calling \"ReadAllText\" with \"1\" argument(s): \"Value cannot be null. (Parameter 'path')\"; run legion setup to update your settings"
+      ]
+    },
+    {
+      "name": "duplicate-key",
+      "kind": "project",
+      "path": "tests/fixtures/validate/duplicate-key.json",
+      "exit": 1,
+      "output": [
+        "$: Cannot parse the JSON.; run legion setup to update your settings"
+      ]
+    },
+    {
+      "name": "utf16-le",
+      "kind": "project",
+      "path": "tests/fixtures/validate/utf16-le.json",
       "exit": 0,
       "output": []
     },
     {
-      "name": "missing-file",
-      "kind": "personalisation",
-      "exit": 1,
-      "output": [
-        "\u001b[31;1mResolve-Path: \u001b[0m<repo>/plugins/legion/bin/lib/settings.ps1:76\u001b[0m",
-        "\u001b[31;1m\u001b[0m\u001b[36;1mLine |\u001b[0m",
-        "\u001b[31;1m\u001b[0m\u001b[36;1m\u001b[36;1m  76 | \u001b[0m . System.IO.File]::ReadAllText((\u001b[36;1mResolve-Path -LiteralPath $Path\u001b[0m)).TrimS .\u001b[0m",
-        "\u001b[31;1m\u001b[0m\u001b[36;1m\u001b[36;1m\u001b[0m\u001b[36;1m\u001b[0m\u001b[36;1m     | \u001b[31;1m                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\u001b[0m",
-        "\u001b[31;1m\u001b[0m\u001b[36;1m\u001b[36;1m\u001b[0m\u001b[36;1m\u001b[0m\u001b[36;1m\u001b[31;1m\u001b[31;1m\u001b[36;1m     | \u001b[31;1mCannot find path\u001b[0m",
-        "\u001b[31;1m\u001b[0m\u001b[36;1m\u001b[36;1m\u001b[0m\u001b[36;1m\u001b[0m\u001b[36;1m\u001b[31;1m\u001b[31;1m\u001b[36;1m\u001b[31;1m\u001b[36;1m     | \u001b[31;1m'<repo>/tests/fixtures/validate/no-such-file.json' because it does not exist.\u001b[0m",
-        "$: Exception calling \"ReadAllText\" with \"1\" argument(s): \"Value cannot be null. (Parameter 'path')\"; run legion setup to update your settings"
-      ]
+      "name": "utf16-be",
+      "kind": "project",
+      "path": "tests/fixtures/validate/utf16-be.json",
+      "exit": 0,
+      "output": []
     }
   ],
   "tool": [
     {
-      "name": "valid",
-      "valid": true
-    },
-    {
       "name": "missing-hint",
+      "tool": "claude",
+      "path": "/install/hint",
       "valid": false
     },
     {
       "name": "empty-command",
+      "tool": "claude",
+      "path": "/install/check",
+      "value": [],
       "valid": false
     },
     {
       "name": "empty-first-word",
+      "tool": "claude",
+      "path": "/install/check",
+      "value": [
+        "",
+        "x"
+      ],
       "valid": false
     },
     {
       "name": "empty-later-word",
+      "tool": "claude",
+      "path": "/install/check/1",
+      "value": "",
       "valid": true
     },
     {
       "name": "numeric-later-word",
+      "tool": "claude",
+      "path": "/install/check/1",
+      "value": 1,
       "valid": false
     },
     {
       "name": "numeric-first-word",
+      "tool": "claude",
+      "path": "/install/check",
+      "value": [
+        1,
+        "x"
+      ],
       "valid": false
     },
     {
       "name": "bad-platform-command",
+      "tool": "claude",
+      "path": "/install/macos/commands/0",
+      "value": [],
       "valid": false
     },
     {
       "name": "real-claude",
+      "tool": "claude",
       "valid": true
     },
     {
       "name": "real-codex",
+      "tool": "codex",
       "valid": true
     },
     {
       "name": "real-copilot",
+      "tool": "copilot",
       "valid": true
     }
   ]

@@ -1,29 +1,39 @@
 $root = Split-Path $PSScriptRoot -Parent
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('legion-tests/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+
+# A tool case is the real descriptor with one edit: the value at a JSON pointer path, or no property there.
+function Get-EditedDescriptor {
+    param($Case)
+    $data = Get-Content (Join-Path $root "plugins/legion/skills/legion-$($Case.tool)/tool.json") -Raw | ConvertFrom-Json
+    if (-not $Case.path) { return $data }
+    $keys = @($Case.path.Split('/') | Select-Object -Skip 1)
+    $target = $data
+    foreach ($key in @($keys | Select-Object -SkipLast 1)) {
+        if ($target -is [array]) { $target = $target[[int]$key] } else { $target = $target.$key }
+    }
+    $last = $keys[-1]
+    if ($Case.PSObject.Properties.Name -notcontains 'value') { $target.PSObject.Properties.Remove($last) }
+    elseif ($target -is [array]) { $target[[int]$last] = $Case.value }
+    else { $target.$last = $Case.value }
+    return $data
+}
+
 try {
     . (Join-Path $root 'plugins/legion/bin/lib/settings.ps1')
     $ownerFile = Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json'
     # The command moved to Python (tests/python/legion/test_validate.py); both engines must give the verdicts recorded from the old run.
     $recorded = Get-Content (Join-Path $PSScriptRoot 'fixtures/validate/old-behaviour.json') -Raw | ConvertFrom-Json
-    $files = @{
-        'valid-owner' = $ownerFile
-        'valid-foundry' = Join-Path $PSScriptRoot 'fixtures/personalisation/valid-foundry.json'
-        'valid-project' = Join-Path $PSScriptRoot 'fixtures/project/valid.json'
-    }
-    foreach ($name in 'invalid-tool', 'invalid-version', 'invalid-duplicate', 'invalid-id', 'invalid-foundry-default', 'invalid-foundry-alias') { $files[$name] = Join-Path $PSScriptRoot "fixtures/personalisation/$name.json" }
-    foreach ($name in 'invalid-channels', 'invalid-schema-multi', 'invalid-provider-kind', 'invalid-project', 'malformed') { $files[$name] = Join-Path $PSScriptRoot "fixtures/validate/$name.json" }
-    foreach ($case in @($recorded.validate | Where-Object { $files.ContainsKey($_.name) })) {
-        $issues = @(Invoke-LegionValidation -Kind $case.kind -Path $files[$case.name])
+    foreach ($case in $recorded.validate) {
+        $issues = @(Invoke-LegionValidation -Kind $case.kind -Path (Join-Path $root $case.path) 2>$null)
         Assert-Equal ([int]($case.exit -ne 0)) ([int]($issues.Count -gt 0)) "$($case.name) verdict matches the recorded run"
         if (@($case.output).Count -gt 0 -and -not $case.output[0].StartsWith('$:')) {
             Assert-Equal (@($case.output) -join '|') ($issues -join '|') "$($case.name) semantic messages match the recorded run"
         }
     }
     foreach ($case in $recorded.tool) {
-        $path = Join-Path $PSScriptRoot "fixtures/validate/tool-cases/$($case.name).json"
-        if ($case.name.StartsWith('real-')) { $path = Join-Path $root "plugins/legion/skills/legion-$($case.name.Substring(5))/tool.json" }
-        $valid = [bool](Test-Json -Json (Get-Content $path -Raw) -SchemaFile (Join-Path $root 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)
+        $json = Get-EditedDescriptor $case | ConvertTo-Json -Depth 100
+        $valid = [bool](Test-Json -Json $json -SchemaFile (Join-Path $root 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)
         Assert-Equal $case.valid $valid "Tool schema case $($case.name) matches the recorded run"
     }
     $raw = Get-Content -Raw $ownerFile
@@ -31,23 +41,7 @@ try {
     [System.IO.File]::WriteAllText($bomFile, [char]0xFEFF + ($raw -replace "`r?`n", "`r`n"))
     Assert-Equal 0 @(Invoke-LegionValidation -Kind personalisation -Path $bomFile).Count 'BOM CRLF owner validates'
     Assert-Equal 1 (Read-LegionJson -Path $bomFile).schemaVersion 'Read-LegionJson accepts BOM CRLF'
-    $foundryFile = Join-Path $PSScriptRoot 'fixtures/personalisation/valid-foundry.json'
-    Assert-Equal 0 @(Invoke-LegionValidation -Kind personalisation -Path $foundryFile).Count 'Foundry provider validates'
-    $foundryIssues = @{
-        'invalid-foundry-default' = @("agents[0].provider: default 'x' is not a deployment")
-        'invalid-foundry-alias' = @(
-            "agents[0].provider: alias 'sonnet' used twice",
-            "agents[0].provider: duplicate deployment 'x'",
-            "agents[1].provider: alias 'sonnet' is not supported by tool 'codex'"
-        )
-    }
-    foreach ($name in $foundryIssues.Keys) {
-        $issues = @(Invoke-LegionValidation -Kind personalisation -Path (Join-Path $PSScriptRoot "fixtures/personalisation/$name.json"))
-        foreach ($expectedIssue in $foundryIssues[$name]) {
-            Assert-True ($issues -contains $expectedIssue) "$name exact provider issue: $expectedIssue"
-        }
-    }
-    $foundry = Read-LegionJson -Path $foundryFile
+    $foundry = Read-LegionJson -Path (Join-Path $PSScriptRoot 'fixtures/personalisation/valid-foundry.json')
     foreach ($change in @(
         { param($p) $p.kind = 'bedrock' },
         { param($p) $p.endpoint += '/anthropic/' },
