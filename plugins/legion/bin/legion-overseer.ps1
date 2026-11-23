@@ -174,6 +174,9 @@ function Get-OverseerLaunch {
     $environment = [ordered]@{}
     $removed = @()
     foreach ($destination in $stateful) {
+        if (-not (Test-Path -LiteralPath (Join-Path $destination.State.Folder $destination.State.TokenFile) -PathType Leaf)) {
+            Write-Warning ("{0,-10} bot folder: missing token ({1})" -f $destination.Id, $destination.State.Setup)
+        }
         $environment[$destination.State.Variable] = $destination.State.Folder
         $removed += $destination.State.Remove
     }

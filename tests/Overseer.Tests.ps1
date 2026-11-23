@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Stop'
+Assert-True (-not $env:TELEGRAM_STATE_DIR) 'The test runner clears the inherited Telegram state folder'
+Assert-True (-not $env:TELEGRAM_BOT_TOKEN) 'The test runner clears the inherited Telegram bot token'
 $root = Split-Path $PSScriptRoot -Parent
 $script = Join-Path $root 'plugins/legion/bin/legion-overseer.ps1'
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('overseer-' + [guid]::NewGuid().ToString('N'))
@@ -243,6 +245,53 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
         $state.Events += 'setup'
         New-Item -ItemType Directory (Join-Path $Repo '.legion/configuration') -Force | Out-Null
         '{"schemaVersion":1}' | Set-Content (Join-Path $Repo '.legion/configuration/project.json')
+    }
+    # Both tools warn on the warning stream, using their descriptor's setup instructions.
+    foreach ($case in @(
+        @{Tool='claude'; Setup='run /telegram:configure in that session'},
+        @{Tool='codex'; Setup='pair the bot on Claude first'}
+    )) {
+        $channelHome = Join-Path $runHome $case.Tool
+        $settingsFolder = Join-Path $channelHome '.legion/configuration'
+        New-Item -ItemType Directory $settingsFolder -Force | Out-Null
+        $channelOwner = $two | ConvertTo-Json -Depth 100 | ConvertFrom-Json
+        $channelOwner.channels[0].accounts = @($case.Tool + '1')
+        $channelOwner | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $settingsFolder 'personalisation.json')
+        $channelRun = @{Repo=$runRepo; HomeRoot=$channelHome; Account=($case.Tool + '1')}
+        $botFolder = Get-LegionHomePath -HomeRoot $channelHome -Path 'channels/telegram/my-telegram'
+        $tokenFile = Join-Path $botFolder '.env'
+        $expectedWarning = 'my-telegram bot folder: missing token (' + $case.Setup + ')'
+        $beforeDryRun = @(Get-ChildItem -LiteralPath $channelHome -Recurse -Force).FullName -join '|'
+        $launches = $state.Launches
+        $output = @(Invoke-Overseer @channelRun -DryRun 3>&1)
+        $warnings = @($output | Where-Object { $_ -is [Management.Automation.WarningRecord] })
+        Assert-Equal $expectedWarning ($warnings.Message -join '|') "$($case.Tool) dry run warns about a missing bot folder"
+        Assert-Equal $beforeDryRun (@(Get-ChildItem -LiteralPath $channelHome -Recurse -Force).FullName -join '|') 'Dry run creates nothing'
+        Assert-Equal ($launches + 1) $state.Launches 'Dry run still prepares the launch'
+
+        $output = @(Invoke-Overseer @channelRun 3>&1)
+        $warnings = @($output | Where-Object { $_ -is [Management.Automation.WarningRecord] })
+        Assert-Equal $expectedWarning ($warnings.Message -join '|') "$($case.Tool) launch warns about a missing bot folder"
+        Assert-True ($output -contains "launched $($case.Tool)1 ($($case.Tool)) in $runRepo channel my-telegram") 'Missing folder still launches'
+        Assert-True (Test-Path -LiteralPath $botFolder -PathType Container) 'Launch still creates the bot folder'
+        Assert-Equal 0 @(Get-ChildItem -LiteralPath $botFolder -Force).Count 'Launch never creates a token or access file'
+
+        $output = @(Invoke-Overseer @channelRun 3>&1)
+        $warnings = @($output | Where-Object { $_ -is [Management.Automation.WarningRecord] })
+        Assert-Equal $expectedWarning ($warnings.Message -join '|') "$($case.Tool) launch warns about an existing folder without a token"
+        Assert-True (-not (Test-Path -LiteralPath $tokenFile)) 'Launch never creates a missing token'
+
+        # An empty file is enough: readiness checks existence, never token contents.
+        New-Item -ItemType File -Path $tokenFile | Out-Null
+        $output = @(Invoke-Overseer @channelRun 3>&1)
+        Assert-Equal 0 @($output | Where-Object { $_ -is [Management.Automation.WarningRecord] }).Count "$($case.Tool) ready folder has no warning"
+        Assert-Equal 0 (Get-Item -LiteralPath $tokenFile -Force).Length 'Launch leaves the existing token file untouched'
+
+        Remove-Item -LiteralPath $botFolder -Recurse -Force
+        $output = @(Invoke-Overseer @channelRun -NoChannel 3>&1)
+        Assert-Equal 0 @($output | Where-Object { $_ -is [Management.Automation.WarningRecord] }).Count "$($case.Tool) NoChannel skips the bot check"
+        Assert-Equal 0 $state.Launch.Environment.Count 'NoChannel has no channel environment'
+        Assert-True (-not (Test-Path -LiteralPath $botFolder)) 'NoChannel creates no bot folder'
     }
     $run = @{Repo=$runRepo; HomeRoot=$runHome; Arguments=@()}
     $text = @(Invoke-Overseer @run -Account claude1 -Channel @())
