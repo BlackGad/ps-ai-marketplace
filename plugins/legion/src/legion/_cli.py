@@ -1,6 +1,7 @@
 import io
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
@@ -135,6 +136,59 @@ def telegram_bridge(context: click.Context, channel: str, repo: Path) -> None:
     from . import _bridge
 
     context.exit(_bridge.run(channel, repo, home=context.obj))
+
+
+@main.group(help="Take, check or release this repository's overseer lease")
+def lease() -> None:
+    pass
+
+
+_repo_option = click.option("--repo", type=click.Path(path_type=Path), default=None, help="the repository (default: current folder)")
+_process_option = click.option("--process-id", type=int, help="the owner session's process id (default: the agent session that runs legion)")
+
+
+# Prints the lease message, or its refusal on stderr with exit code 1.
+def _report_lease(context: click.Context, change: Callable[[], str]) -> None:
+    from ._lease import LeaseError
+
+    try:
+        click.echo(change())
+    except LeaseError as error:
+        click.echo(str(error), err=True)
+        context.exit(1)
+
+
+@lease.command("take", help="Take the lease for this session; a stale lease is replaced")
+@_repo_option
+@click.option("--tool", required=True)
+@click.option("--account", required=True)
+@_process_option
+@click.pass_context
+def lease_take(context: click.Context, repo: Optional[Path], tool: str, account: str, process_id: Optional[int]) -> None:
+    from . import _lease
+
+    _report_lease(context, lambda: _lease.take(repo or Path.cwd(), tool, account, process_id))
+
+
+@lease.command("status", help="Print free, held, stale or foreign")
+@_repo_option
+def lease_status(repo: Optional[Path]) -> None:
+    from . import _lease
+
+    click.echo(_lease.state(repo or Path.cwd()).state)
+
+
+@lease.command("release", help="Release the lease if this session holds it")
+@_repo_option
+@click.option("--tool", help="accepted and ignored, so release takes the same options as take")
+@click.option("--account", help="accepted and ignored, so release takes the same options as take")
+@_process_option
+@click.pass_context
+def lease_release(context: click.Context, repo: Optional[Path], tool: Optional[str], account: Optional[str], process_id: Optional[int]) -> None:
+    from . import _lease
+
+    del tool, account
+    _report_lease(context, lambda: _lease.release(repo or Path.cwd(), process_id))
 
 
 for _verb, _help in _forward.FORWARDED_VERBS.items():

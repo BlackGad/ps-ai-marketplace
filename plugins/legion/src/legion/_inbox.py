@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import ntpath
 import os
@@ -21,9 +20,12 @@ from pydantic import (
     Field,
 )
 
-from ._plugin import PLUGIN_ROOT
+from . import _lease
+from ._run import run_command
 
-COMMON_PATH = PLUGIN_ROOT / "bin/lib/common.ps1"
+NUDGE_TIMEOUT_SECONDS = 15
+# The account id rule of Get-LegionWrapperCommand, so an id from the lock cannot point outside <home>/.legion/bin.
+ACCOUNT_ID = re.compile(r"[a-z][a-z0-9-]*")
 
 
 # One inbox file: {"from": ..., "text": ..., "at": ...}.
@@ -65,7 +67,7 @@ def send(repo: Path, sender: str, text: str, home: Optional[Path] = None) -> Non
     finally:
         temporary.unlink(missing_ok=True)
     print(name, flush=True)
-    asyncio.run(_nudge(repo.resolve(), sender, home or Path.home()))
+    _nudge(repo.resolve(), sender, home or Path.home())
 
 
 def read(repo: Path, home: Optional[Path] = None) -> None:
@@ -92,39 +94,24 @@ def read(repo: Path, home: Optional[Path] = None) -> None:
         item.rename(done / item.name)
 
 
-async def _nudge(repo: Path, sender: str, home: Path) -> None:
-    if not (repo / ".legion/temp/overseer.lock").is_file():
+def _nudge(repo: Path, sender: str, home: Path) -> None:
+    current = _lease.state(repo)
+    lease = current.lease
+    if current.state != "held" or lease is None or lease.tool != "codex" or not lease.session:
         return
-    # Reuse lease lifetime checks and platform wrapper selection from PowerShell.
-    command = """
-$ErrorActionPreference = 'Stop'
-. $env:LEGION_INBOX_COMMON
-. (Join-Path (Split-Path $env:LEGION_INBOX_COMMON) 'process.ps1')
-$lease = Get-LegionLease -Repo $env:LEGION_INBOX_REPO
-if ($lease.State -ne 'held' -or $lease.Data.tool -ne 'codex' -or -not $lease.Data.session) { exit 0 }
-$wrapper = Get-LegionWrapperCommand -Id $lease.Data.account -HomeRoot $env:LEGION_INBOX_HOME
-$pointer = 'New legion inbox message from ' + $env:LEGION_INBOX_SENDER + '; read it as the legion-overseer inbox reference describes (inbox.md).'
-$result = Invoke-LegionProcess -Command $wrapper -Arguments @('queue', '--thread', $lease.Data.session, '--message', $pointer) -TimeoutSeconds 15
-exit $result.ExitCode
-"""
-    environment = os.environ | {
-        "LEGION_INBOX_COMMON": str(COMMON_PATH),
-        "LEGION_INBOX_REPO": str(repo),
-        "LEGION_INBOX_HOME": str(home),
-        "LEGION_INBOX_SENDER": sender,
-    }
-    try:
-        process = await asyncio.create_subprocess_exec(
-            "pwsh", "-NoProfile", "-NonInteractive", "-Command", command, env=environment, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
-        )
-        try:
-            result = await asyncio.wait_for(process.wait(), timeout=30)
-        finally:
-            if process.returncode is None:
-                process.kill()
-                await process.wait()
-        if result == 0:
-            return
-    except (OSError, TimeoutError):
-        pass
+    if _queue_pointer(lease.account, lease.session, sender, home):
+        return
     print("warning: inbox message saved; Codex nudge failed.", file=sys.stderr)
+
+
+# Queues a short pointer in the overseer's Codex thread through the account's command; true when it worked.
+def _queue_pointer(account: str, session: str, sender: str, home: Path) -> bool:
+    if not ACCOUNT_ID.fullmatch(account):
+        return False
+    wrapper = home / ".legion" / "bin" / (f"{account}.cmd" if os.name == "nt" else account)
+    pointer = f"New legion inbox message from {sender}; read it as the legion-overseer inbox reference describes (inbox.md)."
+    try:
+        result = run_command(str(wrapper), ["queue", "--thread", session, "--message", pointer], timeout=NUDGE_TIMEOUT_SECONDS)
+    except OSError:
+        return False
+    return result.exit_code == 0

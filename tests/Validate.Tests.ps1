@@ -127,9 +127,6 @@ try {
         . (Join-Path $plugin 'bin/lib/common.ps1')
         Assert-Equal 'free' (Get-LegionLease -Repo $fixture).State 'Lease remains usable with a malformed descriptor'
         . (Join-Path $plugin 'hooks/detect-mode.ps1') -NoRun
-        $output = & pwsh -NoProfile -File (Join-Path $plugin 'bin/legion-lease.ps1') -Action status -Repo $fixture
-        Assert-Equal 0 $LASTEXITCODE 'Lease script does not discover tools'
-        Assert-Equal 'free' $output 'Lease output is unchanged'
         Assert-Throws { Get-LegionTool -Tool fourth } 'Tool operations discover malformed descriptor lazily'
     } finally {
         $env:PATH = $savedPath

@@ -3,8 +3,11 @@ import json
 import os
 import subprocess
 import sys
+import time
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Optional
 from unittest.mock import MagicMock
 
 import pytest
@@ -15,6 +18,7 @@ from legion._inbox import (
     InboxMessage,
     repo_key,
 )
+from legion._run import RunResult
 
 
 @pytest.fixture
@@ -117,35 +121,53 @@ def fake_wrapper(inbox_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPat
     bin_path = inbox_home / "bin"
     bin_path.mkdir(parents=True)
     record = tmp_path / "argv.json"
-    fake = tmp_path / "fake-codex.ps1"
+    fake = tmp_path / "fake-codex.py"
     fake.write_text(
-        "$args | ConvertTo-Json -Compress | Add-Content -LiteralPath $env:LEGION_TEST_ARGV -Encoding utf8\n"
-        "'wrapper output'\n[Console]::Error.WriteLine('wrapper error')\nexit ([int]$env:LEGION_TEST_QUEUE_EXIT)\n",
+        "import json, os, sys, time\n"
+        "with open(os.environ['LEGION_TEST_ARGV'], 'a', encoding='utf-8') as file:\n"
+        "    file.write(json.dumps(sys.argv[1:]))\n"
+        "print('wrapper output', flush=True)\n"
+        "print('wrapper error', file=sys.stderr, flush=True)\n"
+        "time.sleep(float(os.environ['LEGION_TEST_QUEUE_SLEEP']))\n"
+        "sys.exit(int(os.environ['LEGION_TEST_QUEUE_EXIT']))\n",
         encoding="utf-8",
     )
+    # The wrapper starts Python by its full path, so the nudge needs nothing on PATH (and no pwsh).
     if os.name == "nt":
-        (bin_path / "codex-a.cmd").write_text(f'@pwsh -NoProfile -File "{fake}" %*\n@exit /b %errorlevel%\n', encoding="utf-8")
+        (bin_path / "codex-a.cmd").write_text(f'@"{sys.executable}" "{fake}" %*\n@exit /b %errorlevel%\n', encoding="utf-8")
     else:
         wrapper = bin_path / "codex-a"
-        wrapper.write_text(f"#!/bin/sh\nexec pwsh -NoProfile -File '{fake}' \"$@\"\n", encoding="utf-8")
+        wrapper.write_text(f"#!/bin/sh\nexec '{sys.executable}' '{fake}' \"$@\"\n", encoding="utf-8")
         wrapper.chmod(0o700)
     monkeypatch.setenv("LEGION_TEST_ARGV", str(record))
     monkeypatch.setenv("LEGION_TEST_QUEUE_EXIT", "0")
+    monkeypatch.setenv("LEGION_TEST_QUEUE_SLEEP", "0")
     return record
 
 
-def take_lease(repo: Path, tool: str, monkeypatch: pytest.MonkeyPatch, session: str) -> None:
+def take_lease(repo: Path, tool: str, monkeypatch: pytest.MonkeyPatch, session: str, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv("CODEX_THREAD_ID", session)
-    lease_script = Path(__file__).resolve().parents[3] / "plugins/legion/bin/legion-lease.ps1"
-    subprocess.run(  # noqa: S603 - only installed PowerShell and the fixture lease script
-        ["pwsh", "-NoProfile", "-File", str(lease_script), "-Action", "take", "-Repo", str(repo), "-Tool", tool, "-Account", "codex-a", "-ProcessId", str(os.getpid())],  # noqa: S607 - installed tool
-        check=True,
-        capture_output=True,
-    )
+    assert run(["lease", "take", "--repo", str(repo), "--tool", tool, "--account", "codex-a", "--process-id", str(os.getpid())]) == 0
+    assert capsys.readouterr().out == "lease taken\n"
 
 
-def test_send_nudges_lease_account_once(inbox_home: Path, repo: Path, fake_wrapper: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    take_lease(repo, "codex", monkeypatch, "fixture-thread")
+def without_pwsh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    empty = tmp_path / "empty path"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+
+
+def test_send_nudges_lease_account_once(inbox_home: Path, repo: Path, fake_wrapper: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
+    calls: list[tuple[str, Optional[float]]] = []
+    real_run = _inbox.run_command
+
+    def spy(command: str, arguments: Sequence[str], timeout: Optional[float] = None) -> RunResult:
+        calls.append((command, timeout))
+        return real_run(command, arguments, timeout=timeout)
+
+    monkeypatch.setattr(_inbox, "run_command", spy)
+    without_pwsh(tmp_path, monkeypatch)
     assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "private body"]) == 0
     assert json.loads(fake_wrapper.read_text(encoding="utf-8-sig")) == [
         "queue",
@@ -154,6 +176,8 @@ def test_send_nudges_lease_account_once(inbox_home: Path, repo: Path, fake_wrapp
         "--message",
         "New legion inbox message from repo-a; read it as the legion-overseer inbox reference describes (inbox.md).",
     ]
+    wrapper = inbox_home / "bin" / ("codex-a.cmd" if os.name == "nt" else "codex-a")
+    assert calls == [(str(wrapper), 15)]
     output = capsys.readouterr()
     assert output.err == ""
     assert (inbox_path(inbox_home, repo) / "new" / output.out.strip()).is_file()
@@ -165,14 +189,14 @@ def test_send_without_eligible_lease_does_not_nudge(
 ) -> None:
     assert inbox_home.is_dir()
     if tool:
-        take_lease(repo, tool, monkeypatch, session)
+        take_lease(repo, tool, monkeypatch, session, capsys)
     assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
     assert not fake_wrapper.exists()
     assert capsys.readouterr().err == ""
 
 
 def test_failed_nudge_preserves_message_and_success(inbox_home: Path, repo: Path, fake_wrapper: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    take_lease(repo, "codex", monkeypatch, "fixture-thread")
+    take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
     monkeypatch.setenv("LEGION_TEST_QUEUE_EXIT", "1")
     assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
     output = capsys.readouterr()
@@ -181,10 +205,40 @@ def test_failed_nudge_preserves_message_and_success(inbox_home: Path, repo: Path
     assert (inbox_path(inbox_home, repo) / "new" / output.out.strip()).is_file()
 
 
+def test_nudge_that_outlives_its_timeout_is_killed_and_the_message_kept(inbox_home: Path, repo: Path, fake_wrapper: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
+    monkeypatch.setattr(_inbox, "NUDGE_TIMEOUT_SECONDS", 1)
+    monkeypatch.setenv("LEGION_TEST_QUEUE_SLEEP", "30")
+    started = time.monotonic()
+    assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
+    assert time.monotonic() - started < 15
+    output = capsys.readouterr()
+    assert output.err == "warning: inbox message saved; Codex nudge failed.\n"
+    assert fake_wrapper.is_file()
+    assert (inbox_path(inbox_home, repo) / "new" / output.out.strip()).is_file()
+
+
+def test_nudge_does_not_start_powershell(repo: Path, fake_wrapper: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
+    started: list[object] = []
+    real_popen = subprocess.Popen
+
+    def record(arguments: object, *rest: object, **options: object) -> object:
+        started.append(arguments)
+        return real_popen(arguments, *rest, **options)  # type: ignore[call-overload]
+
+    monkeypatch.setattr(subprocess, "Popen", record)
+    assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
+    assert capsys.readouterr().err == ""
+    assert len(started) == 1
+    assert "pwsh" not in str(started[0]).lower()
+    assert fake_wrapper.is_file()
+
+
 @pytest.mark.parametrize("state", ["stale", "foreign"])
 def test_send_does_not_nudge_unheld_lease(inbox_home: Path, repo: Path, fake_wrapper: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], state: str) -> None:
     assert inbox_home.is_dir()
-    take_lease(repo, "codex", monkeypatch, "fixture-thread")
+    take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
     path = repo / ".legion/temp/overseer.lock"
     lease = json.loads(path.read_text(encoding="utf-8"))
     if state == "stale":
@@ -198,11 +252,20 @@ def test_send_does_not_nudge_unheld_lease(inbox_home: Path, repo: Path, fake_wra
 
 
 def test_missing_wrapper_warns_without_losing_message(inbox_home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    take_lease(repo, "codex", monkeypatch, "fixture-thread")
+    take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
     assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
     output = capsys.readouterr()
     assert output.err == "warning: inbox message saved; Codex nudge failed.\n"
     assert (inbox_path(inbox_home, repo) / "new" / output.out.strip()).is_file()
+
+
+def test_account_id_outside_the_wrapper_folder_is_not_run(repo: Path, fake_wrapper: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
+    path = repo / ".legion/temp/overseer.lock"
+    path.write_text(json.dumps(json.loads(path.read_text(encoding="utf-8")) | {"account": "../codex-a"}), encoding="utf-8")
+    assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
+    assert capsys.readouterr().err == "warning: inbox message saved; Codex nudge failed.\n"
+    assert not fake_wrapper.exists()
 
 
 def test_read_indents_body_and_flattens_sender(inbox_home: Path, repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
