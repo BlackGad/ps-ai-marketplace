@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from cli_runner import run
 
-from legion import _plugin
+from legion import _forward, _plugin
 
 # A stand-in for the PowerShell entry point: it records how it was called and exits with a chosen code.
 FAKE_ENTRY = """param([Parameter(Position = 0, ValueFromRemainingArguments = $true)][string[]]$Words, [string]$HomeRoot)
@@ -74,3 +74,18 @@ def test_help_lists_python_and_forwarded_verbs(capsys: pytest.CaptureFixture[str
     output = capsys.readouterr().out
     for verb in ("inbox", "telegram", "validate", "setup", "add", "remove", "status", "limits", "update", "uninstall", "pick", "help"):
         assert f"  {verb} " in output
+
+
+@pytest.mark.parametrize("words", [[], ["--yes"], ["-Yes"]])
+def test_update_explicitly_forwards_installer_arguments_home_and_exit(app_root: Path, tmp_path: Path, words: list[str]) -> None:
+    assert "update" not in _forward.FORWARDED_VERBS
+    home = tmp_path / "update home"
+    assert run(["--home", str(home), "update", *words]) == 7
+    assert read_call(app_root)["words"] == ["update", *words]
+    assert read_call(app_root)["home"] == str(home)
+
+
+@pytest.mark.parametrize("words", [["--check", "--yes"], ["--check", "-Yes"], ["--force"], ["--check", "extra"], ["--check", "--unknown"], ["--check=yes"], ["--unknown"]])
+def test_invalid_update_combinations_never_forward(app_root: Path, words: list[str]) -> None:
+    assert run(["update", *words]) == 2
+    assert not (app_root / "bin" / "call.json").exists()

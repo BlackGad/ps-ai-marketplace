@@ -82,7 +82,7 @@ To adopt a signed-in account folder, run `legion add codex <existing folder>`. T
 
 ### Version checks and catalog revisions
 
-Overseer sessions check for a newer legion version once a day and show a notice when one is available. Say "check legion updates" for a fresh check, or "update legion" to see the update command and approve running it. Checks never install updates. Release tags exist from `v0.6.0` onward. Update checks read the `plugin.json` on the `stable` branch, which moves only when a release is published, so a notice always means a published release. The notice names `legion update`. The shared checker is `pwsh -NoProfile -File <plugin>/bin/legion-update.ps1 -Check [-Force]`; `-Force` refreshes `~/.legion/temp/update.json` and reports check failures.
+Overseer sessions check for a newer legion version once a day and show a notice when one is available. Say "check legion updates" for a fresh check, or "update legion" to see the update command and approve running it. Checks never install updates. Release tags exist from `v0.6.0` onward. Update checks read the `plugin.json` on the `stable` branch, which moves only when a release is published, so a notice always means a published release. The notice names `legion update`. Run `legion update --check --force` for a fresh check; `--force` refreshes `~/.legion/temp/update.json` and reports check failures.
 
 To follow `main` instead of releases, add `-Ref main` to the install line. To switch between release and main later, uninstall, then install:
 

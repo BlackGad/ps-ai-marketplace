@@ -82,6 +82,7 @@ legion - legion commands
   legion limits [<id>]                 show each account's usage windows and reset times (or one account)
   legion lease take|status|release     take, check or release this repository's overseer lease
   legion update [--yes]                update legion to the newest version of the track it was installed from
+  legion update --check [--force]      check for a newer version; --force bypasses the daily cache
   legion uninstall [--purge] [--yes]   remove legion; --purge also deletes settings, notes and legion-made logins
   legion help                          show this list
 

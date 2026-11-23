@@ -16,7 +16,6 @@ FORWARDED_VERBS = {
     "remove": "Remove an account (its folder is kept)",
     "status": "Show accounts, commands, channels and this repository",
     "limits": "Show each account's usage windows and reset times",
-    "update": "Update legion to the newest version of its track",
     "uninstall": "Remove legion; --purge also deletes settings, notes and logins",
     "help": "Show the legion commands",
 }

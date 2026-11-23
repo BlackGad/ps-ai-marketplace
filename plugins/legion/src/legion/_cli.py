@@ -67,6 +67,23 @@ def validate(context: click.Context, kind: str, path: Path) -> None:
     context.exit(1 if issues else 0)
 
 
+@main.command("update", help="Check for updates, or update legion to the newest version of its track", context_settings={"ignore_unknown_options": True}, add_help_option=False)
+@click.argument("words", nargs=-1, type=click.UNPROCESSED)
+@click.pass_context
+def update(context: click.Context, words: tuple[str, ...]) -> None:
+    if "--check" in words or "--force" in words:
+        if "--check" not in words or any(word not in ("--check", "--force") for word in words):
+            raise click.UsageError("Use legion update --check [--force]")
+        from . import _update
+
+        for line in _update.check_lines(_plugin.PLUGIN_ROOT, context.obj, force="--force" in words):
+            click.echo(line)
+        return
+    if any(word.lower() not in ("--yes", "-yes") for word in words):
+        raise click.UsageError("Use legion update [--yes] or legion update --check [--force]")
+    context.exit(_forward.run(["update", *words], context.obj))
+
+
 @main.group(help="Send or read repository overseer messages")
 def inbox() -> None:
     pass

@@ -3,7 +3,7 @@
 Run the forced check from the running plugin copy:
 
 ```text
-pwsh -NoProfile -File <plugin>/bin/legion-update.ps1 -Check -Force
+legion update --check --force
 ```
 
 The result includes the installed and available versions and the update command, `legion update`. Use the versions in the owner conversation; keep the command internal unless the owner asks for it or must run it themselves. The forced check bypasses the daily session-start cache. Checks read the `stable` branch of `BlackGad/ps-legion-marketplace`, which moves only with a published release. `legion update` follows the track the install was added with; to switch between release and main, uninstall, then install.
