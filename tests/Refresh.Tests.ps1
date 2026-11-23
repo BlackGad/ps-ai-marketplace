@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Stop'
+# Refresh syncs the legion app through the fake uv.
+$env:LEGION_TEST_UV_SYNC = '1'
 $root = Split-Path $PSScriptRoot -Parent
 $refresh = Join-Path $root 'plugins/legion/bin/legion-refresh.ps1'
 $version = (Get-Content -LiteralPath (Join-Path $root 'plugins/legion/plugin.json') -Raw | ConvertFrom-Json).version

@@ -1,5 +1,7 @@
 # Install flow: accounts, target folders, consent, refs, finish and progress.
 . (Join-Path $PSScriptRoot 'lib/installer.ps1')
+# Install runs refresh, which syncs the legion app through the fake uv.
+$env:LEGION_TEST_UV_SYNC = '1'
 
 Invoke-InstallTestCase 'Install' {
     $fixtureConfig0 = Join-Path $env:HOME 'selected-account'
