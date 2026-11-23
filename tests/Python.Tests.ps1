@@ -25,7 +25,7 @@ try {
     Assert-Equal 'run|--project' (($arguments | Select-Object -First 2) -join '|') 'uv project invocation'
     Assert-Equal (Resolve-LegionDirectoryPath (Join-Path $repo 'plugins/legion')) $arguments[2] 'Plugin project path'
     Assert-Equal '--frozen|legion-py|--version|two words' (($arguments | Select-Object -Skip 3) -join '|') 'Arguments stay separate'
-    Assert-Equal (Get-LegionHomePath -Path 'python/env' -HomeRoot $selectedHome) $output[1] 'Environment under selected legion home'
+    Assert-Equal (Get-LegionPythonEnvironment -PluginRoot $arguments[2] -HomeRoot $selectedHome) $output[1] 'Environment under selected legion home'
     Assert-True ($result.Error.Contains('fixture stderr')) 'stderr returned'
     Assert-Equal 'caller environment' $env:UV_PROJECT_ENVIRONMENT 'Caller environment restored'
 
@@ -33,8 +33,20 @@ try {
     Remove-Item Env:UV_PROJECT_ENVIRONMENT
     $result = Invoke-LegionPython -Arguments @('--version')
     Assert-Equal 0 $result.ExitCode 'Success exit code returned'
-    Assert-Equal (Get-LegionHomePath -Path 'python/env') ($result.Output -split '\r?\n')[1] 'Default legion home'
+    Assert-Equal (Get-LegionPythonEnvironment -PluginRoot $arguments[2]) ($result.Output -split '\r?\n')[1] 'Default legion home'
     Assert-Equal $null $env:UV_PROJECT_ENVIRONMENT 'Absent environment restored'
+
+    New-Item -ItemType Directory -Force -Path (Join-Path $folder 'copy-a'), (Join-Path $folder 'copy-b') | Out-Null
+    $rootA = Get-LegionPythonEnvironment -PluginRoot (Join-Path $folder 'copy-a') -HomeRoot $selectedHome
+    $rootB = Get-LegionPythonEnvironment -PluginRoot (Join-Path $folder 'copy-b') -HomeRoot $selectedHome
+    Assert-Equal $rootA (Get-LegionPythonEnvironment -PluginRoot (Join-Path $folder 'copy-a') -HomeRoot $selectedHome) 'Same plugin root, same environment'
+    $separator = [IO.Path]::DirectorySeparatorChar
+    Assert-Equal $rootA (Get-LegionPythonEnvironment -PluginRoot ((Join-Path $folder 'copy-a') + $separator) -HomeRoot $selectedHome) 'Trailing separator, same environment'
+    Push-Location $folder
+    try { $relativeA = Get-LegionPythonEnvironment -PluginRoot 'copy-a' -HomeRoot $selectedHome } finally { Pop-Location }
+    Assert-Equal $rootA $relativeA 'Relative path, same environment'
+    Assert-True ($rootA -ne $rootB) 'Different plugin roots, different environments'
+    Assert-True ((Split-Path $rootA -Leaf) -match '^env-[0-9a-f]{12}$') 'Environment folder name'
 
     & {
         function Get-Command { param($Name, $CommandType, $ErrorAction) return $null }

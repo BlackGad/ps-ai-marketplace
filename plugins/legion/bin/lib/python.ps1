@@ -1,6 +1,18 @@
 . (Join-Path $PSScriptRoot 'paths.ps1')
 . (Join-Path $PSScriptRoot 'process.ps1')
 
+# One environment folder per plugin copy, so copies never rebuild each other's environment.
+function Get-LegionPythonEnvironment {
+    param([string]$PluginRoot, [string]$HomeRoot = $HOME)
+
+    $absolute = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PluginRoot)
+    $key = (Resolve-LegionDirectoryPath $absolute).TrimEnd('/', '\')
+    if ($IsWindows) { $key = $key.ToLowerInvariant() }
+    $hash = [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($key))
+    $digest = ([BitConverter]::ToString($hash) -replace '-', '').ToLowerInvariant().Substring(0, 12)
+    return Get-LegionHomePath -Path "python/env-$digest" -HomeRoot $HomeRoot
+}
+
 # The uv command line for a legion-py call, or $null when uv is missing.
 function Get-LegionPythonCommand {
     param([string[]]$Arguments = @(), [string]$HomeRoot = $HOME)
@@ -11,7 +23,7 @@ function Get-LegionPythonCommand {
     return @{
         Command = $uv.Source
         Arguments = @('run', '--project', $pluginRoot, '--frozen', 'legion-py') + $Arguments
-        Environment = @{ UV_PROJECT_ENVIRONMENT = Get-LegionHomePath -Path 'python/env' -HomeRoot $HomeRoot }
+        Environment = @{ UV_PROJECT_ENVIRONMENT = Get-LegionPythonEnvironment -PluginRoot $pluginRoot -HomeRoot $HomeRoot }
     }
 }
 
