@@ -137,6 +137,7 @@ jobs:
           gh-pages-branch: gh-pages
           benchmark-data-dir-path: dev/bench
           ref: ${{ inputs.sha || github.sha }}
+          github-token: ${{ github.token }}
           auto-push: false
           save-data-file: false
           comment-on-alert: false
