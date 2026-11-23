@@ -11,7 +11,7 @@ $owner = @{agents=@(@{id='claude-a';tool='claude'});channels=@(
 Assert-Equal '123' (Resolve-LegionChannel $owner main claude).Target 'Main destination'
 Assert-Equal '456' (Resolve-LegionChannel $owner alerts claude).Target 'Separate same-kind destination'
 Assert-Throws { Resolve-LegionChannel $owner unknown claude } 'Unknown destination fails'
-Assert-Throws { Resolve-LegionChannel $owner main codex } 'Unsupported tool fails'
+Assert-Throws { Resolve-LegionChannel $owner main copilot } 'Unsupported tool fails'
 $scratch = Join-Path $root ('.agents/temp/channel-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $scratch -Force | Out-Null
 Copy-Item (Join-Path $root 'plugins/legion/skills/legion-claude') $scratch -Recurse

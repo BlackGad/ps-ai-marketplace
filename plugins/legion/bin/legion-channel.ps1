@@ -62,6 +62,10 @@ function Get-ChannelCheck {
             continue
         }
         $folder = $descriptor.ready.pluginFolder.($account.tool)
+        if (-not $folder) {
+            "{0,-10} {1} plugin not needed" -f $accountId, $Kind
+            continue
+        }
         $configDir = Resolve-LegionHomePath -Path $account.configDir -HomeRoot $HomeRoot
         $found = $folder -and (Test-Path -LiteralPath (Join-Path $configDir $folder) -PathType Container)
         "{0,-10} {1} plugin {2}" -f $accountId, $Kind, $(if ($found) { 'found' } else { 'not found' })

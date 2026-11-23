@@ -11,7 +11,7 @@ $settings = @{
     schemaVersion = 1
     agents = @(
         @{ id = 'claude1'; tool = 'claude'; configDir = $claudeDir },
-        @{ id = 'codex1'; tool = 'codex'; configDir = (Join-Path $homeRoot 'codex1-config') }
+        @{ id = 'copilot1'; tool = 'copilot'; configDir = (Join-Path $homeRoot 'copilot1-config') }
     )
     channels = @()
 }
@@ -35,7 +35,7 @@ Assert-Equal $before (Get-Content $file -Raw) 'Conflict changes nothing'
 
 # unknown account, unsupported tool
 Assert-Throws { Invoke-Channel -Action add -Id other -Kind telegram -Target 1 -Accounts nobody } 'Unknown account'
-Assert-Throws { Invoke-Channel -Action add -Id other -Kind telegram -Target 1 -Accounts codex1 } 'Unsupported tool'
+Assert-Throws { Invoke-Channel -Action add -Id other -Kind telegram -Target 1 -Accounts copilot1 } 'Unsupported tool'
 Assert-Equal $before (Get-Content $file -Raw) 'Rejected adds change nothing'
 
 # remove, then repeat
@@ -53,10 +53,10 @@ $bun = Join-Path $fakeBin $(if ($IsWindows) { 'bun.cmd' } else { 'bun' })
 if (-not $IsWindows) { [IO.File]::SetUnixFileMode($bun, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserExecute) }
 try {
     $env:PATH = $fakeBin
-    $lines = Get-ChannelCheck -Kind telegram -Accounts @('claude1', 'codex1') -HomeRoot $homeRoot
+    $lines = Get-ChannelCheck -Kind telegram -Accounts @('claude1', 'copilot1') -HomeRoot $homeRoot
     Assert-Equal 'bun        found' $lines[0] 'bun found without executing it'
     Assert-Equal 'claude1    telegram plugin not found' $lines[1] 'Plugin folder missing'
-    Assert-Equal 'codex1     not supported (telegram supports: claude)' $lines[2] 'Unsupported tool'
+    Assert-Equal 'copilot1   not supported (telegram supports: claude, codex)' $lines[2] 'Unsupported tool'
     New-Item -ItemType Directory (Join-Path $claudeDir 'plugins/cache/claude-plugins-official/telegram') -Force | Out-Null
     Remove-Item -LiteralPath $bun -Force
     $lines = Get-ChannelCheck -Kind telegram -Accounts @('claude1') -HomeRoot $homeRoot

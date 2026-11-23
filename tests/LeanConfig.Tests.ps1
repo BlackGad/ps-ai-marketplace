@@ -34,7 +34,7 @@ foreach ($bindings in @(@(),@('missing'),@('claude-a','claude-a'))) {
     Assert-True (@(Check-Owner $data).Count -gt 0) 'Empty unknown duplicate bindings fail'
 }
 $data.channels[0].accounts=@('claude-a')
-$data.agents[0].tool='codex'
+$data.agents[0].tool='copilot'
 Assert-True (@(Check-Owner $data).Count -gt 0) 'Unsupported bound tool fails'
 $data.agents[0].tool='claude'
 $data.channels[0].Remove('accounts')

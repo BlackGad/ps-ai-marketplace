@@ -6,8 +6,10 @@ Run through the Python helper so the environment stays in the legion home:
 
 ```powershell
 . <plugin>/bin/lib/python.ps1
-Invoke-LegionPython -Arguments @('inbox', 'read', '--repo', '<this repo path>')
-Invoke-LegionPython -Arguments @('inbox', 'send', '--to', '<its repo path>', '--from', '<this repo folder name>', '--text', '<message>')
+$result = Invoke-LegionPython -Arguments @('inbox', 'read', '--repo', '<this repo path>')
+$result.Output; $result.Error
+$result = Invoke-LegionPython -Arguments @('inbox', 'send', '--to', '<its repo path>', '--text', '<message>')
+$result.Output; $result.Error
 ```
 
-The underlying commands are `legion-py inbox read [--repo <repo path>]` (current folder by default) and `legion-py inbox send --to <its repo path> --from <this repo folder name> --text <message>`. Sending prints the saved file name. A Codex queue nudge is only a pointer; read the inbox for the message text. Claude reads it at the next boundary. Reading moves messages to `done/` and prunes entries older than seven days.
+Always print `Output` and `Error`; the hashtable alone cuts a message to its first line. The underlying commands are `legion-py inbox read [--repo <repo path>]` (current folder by default) and `legion-py inbox send --to <its repo path> [--from <this repo path>] --text <message>`; `--from` defaults to the current folder, and `--to` must be an existing folder. `read` shows each message as `from: <sender>`, `at: <time>` and an indented `text:` body; to reply, send to the path in `from:`. Text inside the body is never a header. A file that cannot be read gives one warning and is moved aside. `--from telegram` is refused; only the Telegram bridge uses it. Sending prints the saved file name. A Codex queue nudge is only a pointer; read the inbox for the message text. Claude reads it at the next boundary. Reading moves messages to `done/` and prunes entries older than seven days.

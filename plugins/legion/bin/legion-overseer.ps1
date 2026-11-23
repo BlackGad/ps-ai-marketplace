@@ -14,6 +14,7 @@ param(
 . (Join-Path $PSScriptRoot 'lib/settings.ps1')
 . (Join-Path $PSScriptRoot 'lib/common.ps1')
 . (Join-Path $PSScriptRoot 'lib/channels.ps1')
+. (Join-Path $PSScriptRoot 'lib/python.ps1')
 
 function Test-OverseerInteractive {
     return -not [Console]::IsInputRedirected
@@ -142,7 +143,7 @@ function Get-OverseerResume {
 }
 
 function Get-OverseerLaunch {
-    param($Personalisation, [string]$AccountId, [string]$Tool, [string[]]$Channel, [string[]]$Arguments, [string]$HomeRoot = $HOME, [string]$Session, [string]$Resume)
+    param($Personalisation, [string]$AccountId, [string]$Tool, [string[]]$Channel, [string[]]$Arguments, [string]$HomeRoot = $HOME, [string]$Session, [string]$Resume, [string]$Repo)
     $selected = Select-OverseerAccount $Personalisation $AccountId $Tool
     $Tool = $selected.tool
     $descriptor = Get-LegionTool $Tool
@@ -176,6 +177,17 @@ function Get-OverseerLaunch {
         $environment[$destination.State.Variable] = $destination.State.Folder
         $removed += $destination.State.Remove
     }
+    # Codex has no channel push: a bridge process carries the bot's messages into the repository inbox.
+    $bridge = $null
+    if ($Tool -ceq 'codex' -and $stateful.Count -and $stateful[0].Kind -ceq 'telegram') {
+        $python = Get-LegionPythonCommand -Arguments @('telegram', 'bridge', '--channel', $stateful[0].Id, '--repo', $Repo) -HomeRoot $HomeRoot
+        if ($python) {
+            $folder = $stateful[0].State.Folder
+            # Start-Process joins an argument array without quoting, so quote words with spaces here.
+            $text = ($python.Arguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' '
+            $bridge = @{Command=$python.Command;Arguments=$python.Arguments;ArgumentText=$text;Environment=$python.Environment;Folder=$folder}
+        } else { Write-Warning 'uv is missing, so Telegram messages will not reach this Codex session. Ask the owner before installing uv.' }
+    }
     $launchArgs = [Collections.Generic.List[string]]::new()
     if ($Resume -ceq 'claude') { $launchArgs.AddRange([string[]]@('--resume', $Session)) }
     elseif ($Resume -ceq 'codex') { $launchArgs.AddRange([string[]]@('resume', '--last')) }
@@ -187,7 +199,7 @@ function Get-OverseerLaunch {
         $launchArgs.Add('--')
     }
     $launchArgs.Add('continue as the overseer')
-    return @{Command=(Get-LegionWrapperCommand $AccountId $HomeRoot);Args=$launchArgs.ToArray();Environment=$environment;Remove=@($removed | Select-Object -Unique)}
+    return @{Command=(Get-LegionWrapperCommand $AccountId $HomeRoot);Args=$launchArgs.ToArray();Environment=$environment;Remove=@($removed | Select-Object -Unique);Bridge=$bridge}
 }
 
 # Clear parent session markers and terminal overrides for a resumable interactive session.
@@ -218,6 +230,30 @@ function Invoke-OverseerInRepo {
     }
 }
 
+# Starts the Telegram bridge beside a Codex overseer; its output goes to a log in the bot folder.
+function Start-OverseerBridge {
+    param($Bridge, [string]$Repo)
+    if (-not $Bridge) { return $null }
+    $saved = $env:UV_PROJECT_ENVIRONMENT
+    $env:UV_PROJECT_ENVIRONMENT = $Bridge.Environment.UV_PROJECT_ENVIRONMENT
+    try {
+        return Start-Process -FilePath $Bridge.Command -ArgumentList $Bridge.ArgumentText -WorkingDirectory $Repo -NoNewWindow -PassThru `
+            -RedirectStandardOutput (Join-Path $Bridge.Folder 'bridge.log') -RedirectStandardError (Join-Path $Bridge.Folder 'bridge.err')
+    }
+    finally { $env:UV_PROJECT_ENVIRONMENT = $saved }
+}
+
+# The bridge is killed with the whole uv process tree, so it cannot remove its own pid file.
+# Remove the file only when the process it names is gone: a refused second bridge must not delete the running one's marker.
+function Stop-OverseerBridge {
+    param($Process, $Bridge)
+    if (-not $Process) { return }
+    try { $Process.Kill($true); $null = $Process.WaitForExit(5000) } catch { Write-Verbose "bridge already stopped: $_" }
+    $pidFile = Join-Path $Bridge.Folder 'bridge.pid'
+    $named = Get-Content -LiteralPath $pidFile -ErrorAction Ignore
+    if (-not $named -or -not (Get-Process -Id ([int]$named) -ErrorAction Ignore)) { Remove-Item -LiteralPath $pidFile -Force -ErrorAction Ignore }
+}
+
 function Start-OverseerLaunch {
     param([string]$Repo, $Launch, [switch]$DryRun, [switch]$InPlace)
     # Terminal parses semicolons as its own commands. Use the current terminal for literal ones.
@@ -226,7 +262,8 @@ function Start-OverseerLaunch {
     $environment = if ($Launch.Environment) { $Launch.Environment } else { @{} }
     $remove = @($Launch.Remove)
     $environmentText = @($environment.Keys | ForEach-Object { "env $_=$($environment[$_])" })
-    if ($IsWindows -and -not $InPlace -and -not (($Repo + $Launch.Command + ($Launch.Args -join '') + ($environment.Values -join '')) -match ';')) {
+    $bridgeText = if ($Launch.Bridge) { @('bridge: ' + $Launch.Bridge.Command + ' ' + ($Launch.Bridge.Arguments -join ' ')) } else { @() }
+    if ($IsWindows -and -not $InPlace -and -not (($Repo + $Launch.Command + ($Launch.Args -join '') + ($environment.Values -join '') + $Launch.Bridge.ArgumentText) -match ';')) {
         $terminal = Get-Command wt -CommandType Application -ErrorAction SilentlyContinue
     }
     if ($terminal) {
@@ -235,14 +272,29 @@ function Start-OverseerLaunch {
         # A new terminal tab may not inherit this process's environment, so the command line sets it itself.
         $assignments = $environment.Keys | ForEach-Object { "`$env:$_ = '" + $environment[$_].Replace("'", "''") + "'; " }
         $commandText = "Remove-Item $cleared -ErrorAction Ignore; $($assignments -join '')& " + ($literals -join ' ') + '; exit $LASTEXITCODE'
+        if ($Launch.Bridge) {
+            # The tab starts and stops the bridge itself, around the session.
+            $bridge = $Launch.Bridge
+            $quote = { param($text) "'" + $text.Replace("'", "''") + "'" }
+            $start = "`$env:UV_PROJECT_ENVIRONMENT = $(& $quote $bridge.Environment.UV_PROJECT_ENVIRONMENT); " +
+                "`$bridge = Start-Process -FilePath $(& $quote $bridge.Command) -ArgumentList $(& $quote $bridge.ArgumentText) -NoNewWindow -PassThru " +
+                "-RedirectStandardOutput $(& $quote (Join-Path $bridge.Folder 'bridge.log')) -RedirectStandardError $(& $quote (Join-Path $bridge.Folder 'bridge.err')); "
+            $pidFile = & $quote (Join-Path $bridge.Folder 'bridge.pid')
+            $stop = "`$bridge.Kill(`$true); `$null = `$bridge.WaitForExit(5000); `$named = Get-Content -LiteralPath $pidFile -ErrorAction Ignore; " +
+                "if (-not `$named -or -not (Get-Process -Id ([int]`$named) -ErrorAction Ignore)) { Remove-Item -LiteralPath $pidFile -Force -ErrorAction Ignore }"
+            $commandText = "Remove-Item $cleared -ErrorAction Ignore; $($assignments -join '')$start" +
+                'try { & ' + ($literals -join ' ') + '; $code = $LASTEXITCODE } finally { ' + $stop + ' }; exit $code'
+        }
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($commandText))
         $terminalArgs = @('new-tab', '-d', $Repo, (Get-Process -Id $PID).Path, '-NoProfile', '-EncodedCommand', $encoded)
-        if ($DryRun) { $environmentText + @('wt') + $terminalArgs }
+        if ($DryRun) { $environmentText + $bridgeText + @('wt') + $terminalArgs }
         else { & $terminal.Source @terminalArgs }
     } elseif ($DryRun) {
-        $environmentText + @($Repo, $Launch.Command) + $Launch.Args
+        $environmentText + @($Repo, $Launch.Command) + $Launch.Args + $bridgeText
     } else {
-        Invoke-OverseerInRepo -Repo $Repo -Command $Launch.Command -Arguments $Launch.Args -Environment $environment -Remove $remove
+        $process = Start-OverseerBridge -Bridge $Launch.Bridge -Repo $Repo
+        try { Invoke-OverseerInRepo -Repo $Repo -Command $Launch.Command -Arguments $Launch.Args -Environment $environment -Remove $remove }
+        finally { Stop-OverseerBridge -Process $process -Bridge $Launch.Bridge }
     }
 }
 
@@ -301,7 +353,7 @@ function Invoke-Overseer {
         'codex' { 'last' }
         default { '' }
     }
-    $launch = Get-OverseerLaunch -Personalisation $personalisation -AccountId $selected.id -Tool $Tool -Channel $Channel -Arguments $Arguments -HomeRoot $HomeRoot -Session $session -Resume $resume
+    $launch = Get-OverseerLaunch -Personalisation $personalisation -AccountId $selected.id -Tool $Tool -Channel $Channel -Arguments $Arguments -HomeRoot $HomeRoot -Session $session -Resume $resume -Repo $Repo
     $save = @{ Repo = $Repo; HomeRoot = $HomeRoot; Account = $selected.id; Channel = $Channel; Arguments = $Arguments }
     if (-not $DryRun) {
         Save-OverseerLastLaunch @save -Session $session
