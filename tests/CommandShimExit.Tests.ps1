@@ -7,7 +7,7 @@ if (-not $IsWindows) { return }
 $scratch = Join-Path ([IO.Path]::GetTempPath()) ('shim-exit-' + [guid]::NewGuid().ToString('N'))
 $savedPath = $env:PATH
 $saved = @{}
-foreach ($name in @('UV_PROJECT_ENVIRONMENT', 'FAKE_UV_LOG', 'FAKE_UV_EXIT', 'FAKE_UV_DELETE')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+foreach ($name in @('UV_PROJECT_ENVIRONMENT', 'FAKE_UV_LOG', 'FAKE_UV_EXIT', 'FAKE_UV_DELETE', 'FAKE_UV_WAIT', 'ERRORLEVEL')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
 
 # A real executable: a batch fake would never return to the command's (goto) tail.
 function New-FakeUv {
@@ -27,6 +27,11 @@ class FakeUv {
         lines.Add("stdin:" + Console.In.ReadLine());
         File.WriteAllLines(Environment.GetEnvironmentVariable("FAKE_UV_LOG"), lines.ToArray(), new UTF8Encoding(false));
         Console.Out.WriteLine("live output");
+        string wait = Environment.GetEnvironmentVariable("FAKE_UV_WAIT");
+        if (!string.IsNullOrEmpty(wait)) {
+            var deadline = DateTime.UtcNow.AddSeconds(30);
+            while (!File.Exists(wait) && DateTime.UtcNow < deadline) { System.Threading.Thread.Sleep(50); }
+        }
         string delete = Environment.GetEnvironmentVariable("FAKE_UV_DELETE");
         if (!string.IsNullOrEmpty(delete)) { File.Delete(delete); }
         return int.Parse(Environment.GetEnvironmentVariable("FAKE_UV_EXIT"));
@@ -55,6 +60,10 @@ function Invoke-TestCmd {
     return @{ ExitCode = $process.ExitCode; Output = $output; Error = $errorText }
 }
 
+# Git Bash, found through git before the test narrows PATH.
+$git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+$bash = if ($git) { @('../bin/bash.exe', '../../bin/bash.exe') | ForEach-Object { Join-Path (Split-Path $git.Source) $_ } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1 }
+
 try {
     New-FakeUv -Folder (Join-Path $scratch 'fake')
     $selectedHome = Join-Path $scratch 'home 100%'
@@ -78,6 +87,61 @@ try {
         $expected = @('arg:run', 'arg:--project', "arg:$app", 'arg:--frozen', 'arg:--quiet', 'arg:legion', 'arg:--home', "arg:$selectedHome",
             'arg:status', 'arg:two words', 'arg:', 'arg:100%', "arg:$unicode", "env:$(Get-LegionPythonEnvironment -PluginRoot $app -HomeRoot $selectedHome)", 'stdin:typed input')
         Assert-Equal ($expected -join "`n") ([IO.File]::ReadAllLines($log, [Text.Encoding]::UTF8) -join "`n") 'uv receives the app, the home, each argument unchanged, its environment and stdin'
+    }
+
+    # A caller with its own ERRORLEVEL variable still gets uv's real exit code.
+    $env:FAKE_UV_DELETE = ''
+    $env:ERRORLEVEL = '9'
+    foreach ($code in @(0, 3)) {
+        [IO.File]::WriteAllText($shim, (Get-LegionShimText -App $app -HomeRoot $selectedHome -Windows))
+        $env:FAKE_UV_EXIT = "$code"
+        $result = Invoke-TestCmd -Line ('"' + $shim + '" status')
+        Assert-Equal $code $result.ExitCode "A caller's ERRORLEVEL variable does not hide uv's status $code"
+    }
+    Remove-Item Env:ERRORLEVEL
+
+    # PowerShell runs the same command and sees uv's exact code, also after the command is deleted.
+    foreach ($code in @(0, 3, 300, -1)) {
+        [IO.File]::WriteAllText($shim, (Get-LegionShimText -App $app -HomeRoot $selectedHome -Windows))
+        $env:FAKE_UV_EXIT = "$code"
+        $env:FAKE_UV_DELETE = $shim
+        $output = @('' | & $shim status 2>&1)
+        Assert-Equal $code $LASTEXITCODE "PowerShell gets uv's status $code"
+        Assert-Equal 'live output' ($output -join '|') 'PowerShell sees only uv output'
+    }
+    $env:FAKE_UV_DELETE = ''
+
+    # Output arrives while uv still runs.
+    [IO.File]::WriteAllText($shim, (Get-LegionShimText -App $app -HomeRoot $selectedHome -Windows))
+    $release = Join-Path $scratch 'release'
+    $env:FAKE_UV_WAIT = $release
+    $env:FAKE_UV_EXIT = '0'
+    $info = [Diagnostics.ProcessStartInfo]::new('cmd.exe', '/d /s /c ""' + $shim + '" status <nul"')
+    $info.UseShellExecute = $false
+    $info.RedirectStandardOutput = $true
+    $process = [Diagnostics.Process]::Start($info)
+    try {
+        $line = $process.StandardOutput.ReadLineAsync()
+        Assert-True ($line.Wait(20000)) 'uv output arrives before uv exits'
+        Assert-Equal 'live output' $line.Result 'The live line is uv output'
+        Assert-True (-not $process.HasExited) 'uv is still running when its output arrives'
+    } finally {
+        New-Item -ItemType File -Path $release -Force | Out-Null
+        $process.WaitForExit()
+        $env:FAKE_UV_WAIT = ''
+    }
+
+    # Git Bash picks the extensionless command; it runs uv.exe and passes the status on (modulo 256).
+    if (-not $bash) { Write-Host 'skip: Git Bash case (Git Bash not found on this runner)' }
+    else {
+        $posixShim = Join-Path $scratch 'legion'
+        [IO.File]::WriteAllText($posixShim, (Get-LegionShimText -App $app -HomeRoot $selectedHome))
+        foreach ($code in @(0, 3)) {
+            $env:FAKE_UV_EXIT = "$code"
+            $output = @('' | & $bash -c "PATH=`"`$(cygpath -u '$(Join-Path $scratch 'fake')'):`$PATH`"; `"`$(cygpath -u '$posixShim')`" status" 2>&1)
+            Assert-Equal $code $LASTEXITCODE "Git Bash gets uv's status $code"
+            Assert-Equal 'live output' ($output -join '|') 'Git Bash sees uv output'
+        }
     }
 
     # An interactive console stays open after the command, with uv's exit code and its own environment.

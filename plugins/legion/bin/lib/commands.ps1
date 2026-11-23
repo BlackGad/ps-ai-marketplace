@@ -9,9 +9,11 @@ function ConvertTo-LegionShellLiteral {
 }
 
 # The owner command runs the app version in $App through uv, with that version's environment.
-# Windows: setlocal keeps the environment out of the caller's console. The run line ends the batch with
-# (goto), so a command that an update rewrites while it runs still ends cleanly; a child cmd then exits
-# with uv's code, which `exit /b` cannot do here without closing an interactive console.
+# Windows: one line sets the environment, runs uv and ends the batch with (goto), so a command that an
+# update rewrites while it runs still ends cleanly. Then, in the caller's context, it restores the caller's
+# value and a child cmd exits with uv's code. `exit /b` there would close an interactive console, and
+# %errorlevel% can be a caller's variable; the hidden %=ExitCode% (uv's code in hex) is neither. No
+# setlocal: its end would reset %=ExitCode%.
 function Get-LegionShimText {
     param([string]$App, [switch]$Windows, [string]$HomeRoot = $HOME)
 
@@ -22,10 +24,9 @@ function Get-LegionShimText {
     if ($Windows) {
         $lines = @(
             $header
-            '@setlocal'
-            '@set "UV_PROJECT_ENVIRONMENT=' + $environment.Replace('%', '%%') + '"'
             '@where /q uv || (>&2 echo ' + $missing + '& exit /b 127)'
-            '@uv run --project "' + $App.Replace('%', '%%') + '" --frozen --quiet legion' + $homeArgument + ' %* & (goto) 2>nul & call "%%COMSPEC%%" /d /c exit %%errorlevel%%'
+            ('@set "UV_PROJECT_ENVIRONMENT=' + $environment.Replace('%', '%%') + '" & uv run --project "' + $App.Replace('%', '%%') + '" --frozen --quiet legion' + $homeArgument + ' %* & (goto) 2>nul & ' +
+                'set "UV_PROJECT_ENVIRONMENT=%UV_PROJECT_ENVIRONMENT%" & "%COMSPEC%" /d /c "set /a LEGION_EXIT=0x%%=ExitCode%% >nul & call exit %%^LEGION_EXIT%%"')
         )
         return ($lines -join "`r`n") + "`r`n"
     }
