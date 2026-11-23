@@ -9,7 +9,14 @@ $savedSummary = $env:GITHUB_STEP_SUMMARY
 $savedNoColor = $env:NO_COLOR
 $savedRendering = $PSStyle.OutputRendering
 try {
+    $inheritedPathStore = $env:LEGION_TEST_USER_PATH_FILE
+    $inheritedPathText = [IO.File]::ReadAllText($inheritedPathStore)
     . $runner -NoRun
+    Assert-Equal $inheritedPathStore $env:LEGION_TEST_USER_PATH_FILE 'NoRun keeps the caller user PATH fence'
+    Assert-Equal $inheritedPathText ([IO.File]::ReadAllText($inheritedPathStore)) 'NoRun leaves the fake store unchanged'
+    . $runner
+    Assert-Equal $inheritedPathStore $env:LEGION_TEST_USER_PATH_FILE 'Dot-sourcing without NoRun keeps the caller user PATH fence'
+    Assert-Equal $inheritedPathText ([IO.File]::ReadAllText($inheritedPathStore)) 'Dot-sourcing leaves the fake store unchanged'
     Assert-Equal 'PlainText' ([string]$PSStyle.OutputRendering) 'integration runner captures plain text'
     Assert-Equal '1' $env:NO_COLOR 'integration children inherit NO_COLOR'
     $plainScript = Join-Path $tempRoot 'plain-output.ps1'

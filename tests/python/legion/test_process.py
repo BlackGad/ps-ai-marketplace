@@ -124,5 +124,5 @@ def test_module_imports_without_third_party_packages() -> None:
         "assert module.process_started_at(module.os.getpid()) is not None\n"
         "print(sorted(name for name in ('click', 'pydantic', 'legion') if name in sys.modules))\n"
     )
-    result = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True)  # noqa: S603
+    result = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True)
     assert result.stdout.strip() == "[]"

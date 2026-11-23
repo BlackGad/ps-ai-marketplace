@@ -247,16 +247,13 @@ class Contender:
 
     def attempt(self, boundary: str) -> None:
         try:
-            handle = open(self.guard, "x")  # noqa: SIM115
+            with self.guard.open("x"):
+                self.path.write_text('{"account":"successor","pid":99999999,"host":"fixture","startedAt":"replacement"}', encoding="utf-8")
+                self.events.append(f"{boundary}:admitted")
         except FileExistsError:
             self.events.append(f"{boundary}:blocked")
             return
-        try:
-            self.path.write_text('{"account":"successor","pid":99999999,"host":"fixture","startedAt":"replacement"}', encoding="utf-8")
-            self.events.append(f"{boundary}:admitted")
-        finally:
-            handle.close()
-            self.guard.unlink()
+        self.guard.unlink()
 
 
 @pytest.fixture
@@ -339,9 +336,7 @@ needs_pwsh = pytest.mark.skipif(PWSH is None, reason="pwsh is not on PATH")
 def powershell(script: str) -> list[str]:
     assert PWSH is not None
     environment = {key: value for key, value in os.environ.items() if key != "CODEX_THREAD_ID"}
-    result = subprocess.run(  # noqa: S603 - only installed PowerShell and fixture scripts
-        [PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True, text=True, timeout=120, env=environment, check=False
-    )
+    result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True, text=True, timeout=120, env=environment, check=False)
     assert result.returncode == 0, result.stderr
     return result.stdout.split()
 

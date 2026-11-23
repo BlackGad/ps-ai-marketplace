@@ -12,12 +12,7 @@ try {
         Assert-True ($output -contains 'child PATH fence passed') 'The child completes real add and purge helpers'
         Assert-Equal $seed.TrimEnd(';') ([IO.File]::ReadAllText($env:LEGION_TEST_USER_PATH_FILE)) 'Purge preserves the remaining raw fake PATH'
     }
-    $records = @([IO.File]::ReadAllLines($env:LEGION_TEST_USER_PATH_FILE + '.writes.jsonl') | ConvertFrom-Json)
-    Assert-Equal 6 $records.Count 'Each child writes once for bootstrap add, plugin add and purge'
-    foreach ($record in $records) {
-        Assert-True ($record.ProcessId -ne $PID) 'The file records writes from inherited child processes'
-        Assert-True (($record.Callers -join '|').Contains('Test-UserPathFence.ps1')) 'Write logs identify the child fixture'
-    }
+    Assert-True (-not (Test-Path -LiteralPath ($env:LEGION_TEST_USER_PATH_FILE + '.writes.jsonl'))) 'Fake PATH writes create no debug sidecar'
 
     # Exercise the guard without touching HKCU, including a kind-only change.
     foreach ($change in @('value', 'kind')) {

@@ -95,10 +95,6 @@ foreach ($test in $testFiles) {
             $message = $_.Exception.Message
             Write-Output "FAIL $($test.Name): $message"
         }
-        $pathLog = Join-Path $guardHome 'user-path.txt.writes.jsonl'
-        if (Test-Path -LiteralPath $pathLog) {
-            foreach ($line in [IO.File]::ReadAllLines($pathLog)) { Write-Output "FENCED user PATH write ($($test.Name)): $line" }
-        }
         if ((Get-TestOutsideSnapshot $outside) -cne $outsideSnapshot) {
             if ($result -eq 'passed') { $passed--; $failed++ }
             $result = 'failed'
