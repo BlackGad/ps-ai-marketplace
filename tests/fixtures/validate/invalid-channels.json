@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "agents": [
+    {"id": "claude", "tool": "claude", "configDir": "~/.claude"},
+    {"id": "copilot", "tool": "copilot", "configDir": "~/.copilot"}
+  ],
+  "channels": [
+    {"id": "tg", "kind": "telegram", "target": "1", "accounts": ["claude", "ghost", "copilot"]},
+    {"id": "tg", "kind": "nothing", "target": "2", "accounts": ["claude"]}
+  ]
+}

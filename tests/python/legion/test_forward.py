@@ -65,6 +65,5 @@ def test_missing_pwsh_is_one_line_and_exit_127(app_root: Path, tmp_path: Path, m
 def test_help_lists_python_and_forwarded_verbs(capsys: pytest.CaptureFixture[str]) -> None:
     assert run(["--help"]) == 0
     output = capsys.readouterr().out
-    for verb in ("inbox", "telegram", "setup", "add", "remove", "status", "limits", "update", "uninstall", "pick", "help"):
+    for verb in ("inbox", "telegram", "validate", "setup", "add", "remove", "status", "limits", "update", "uninstall", "pick", "help"):
         assert f"  {verb} " in output
-    assert "  validate " not in output

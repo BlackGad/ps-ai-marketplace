@@ -1,0 +1,191 @@
+{
+  "note": "Recorded from the PowerShell validator and Test-Json with the draft 2020-12 schemas, before the move to Python.",
+  "validate": [
+    {
+      "name": "valid-owner",
+      "kind": "personalisation",
+      "exit": 0,
+      "output": []
+    },
+    {
+      "name": "valid-foundry",
+      "kind": "personalisation",
+      "exit": 0,
+      "output": []
+    },
+    {
+      "name": "valid-project",
+      "kind": "project",
+      "exit": 0,
+      "output": []
+    },
+    {
+      "name": "invalid-tool",
+      "kind": "personalisation",
+      "exit": 1,
+      "output": [
+        "agents: unknown tool 'other'"
+      ]
+    },
+    {
+      "name": "invalid-version",
+      "kind": "personalisation",
+      "exit": 1,
+      "output": [
+        "$: The JSON is not valid with the schema: Required properties [\"schemaVersion\"] are not present at ''; run legion setup to update your settings"
+      ]
+    },
+    {
+      "name": "invalid-duplicate",
+      "kind": "personalisation",
+      "exit": 1,
+      "output": [
+        "agents: duplicate id 'codex-a'"
+      ]
+    },
+    {
+      "name": "invalid-id",
+      "kind": "personalisation",
+      "exit": 1,
+      "output": [
+        "$: The JSON is not valid with the schema: The string value is not a match for the indicated regular expression at '/agents/0/id'; run legion setup to update your settings"
+      ]
+    },
+    {
+      "name": "invalid-foundry-default",
+      "kind": "personalisation",
+      "exit": 1,
+      "output": [
+        "agents[0].provider: default 'x' is not a deployment"
+      ]
+    },
+    {
+      "name": "invalid-foundry-alias",
+      "kind": "personalisation",
+      "exit": 1,
+      "output": [
+        "agents[0].provider: duplicate deployment 'x'",
+        "agents[0].provider: alias 'sonnet' used twice",
+        "agents[1].provider: alias 'sonnet' is not supported by tool 'codex'",
+        "agents[1].provider: duplicate deployment 'x'",
+        "agents[1].provider: alias 'sonnet' used twice",
+        "agents[1].provider: alias 'sonnet' is not supported by tool 'codex'"
+      ]
+    },
+    {
+      "name": "invalid-channels",
+      "kind": "personalisation",
+      "exit": 1,
+      "output": [
+        "channel 'tg': unknown account 'ghost'",
+        "channel 'tg': unsupported tool 'copilot'",
+        "channels: duplicate id 'tg'",
+        "unknown channel kind 'nothing'"
+      ]
+    },
+    {
+      "name": "invalid-schema-multi",
+      "kind": "personalisation",
+      "exit": 1,
+      "output": [
+        "$: The JSON is not valid with the schema: Expected \"1\" at '/schemaVersion'; run legion setup to update your settings",
+        "$: The JSON is not valid with the schema: All values fail against the false schema at '/extra'; run legion setup to update your settings",
+        "$: The JSON is not valid with the schema: Required properties [\"configDir\"] are not present at '/agents/0'; run legion setup to update your settings",
+        "$: The JSON is not valid with the schema: The string value is not a match for the indicated regular expression at '/agents/0/id'; run legion setup to update your settings"
+      ]
+    },
+    {
+      "name": "invalid-provider-kind",
+      "kind": "personalisation",
+      "exit": 1,
+      "output": [
+        "agents: unknown tool 'other'",
+        "agents[0].provider: unsupported provider 'bedrock'",
+        "agents[1].provider: unknown tool 'other'"
+      ]
+    },
+    {
+      "name": "invalid-project",
+      "kind": "project",
+      "exit": 1,
+      "output": [
+        "$: The JSON is not valid with the schema: Expected \"1\" at '/schemaVersion'; run legion setup to update your settings",
+        "$: The JSON is not valid with the schema: All values fail against the false schema at '/extra'; run legion setup to update your settings"
+      ]
+    },
+    {
+      "name": "malformed",
+      "kind": "personalisation",
+      "exit": 1,
+      "output": [
+        "$: Conversion from JSON failed with error: Unexpected end when deserializing object. Path 'schemaVersion', line 2, position 0.; run legion setup to update your settings"
+      ]
+    },
+    {
+      "name": "bom-crlf",
+      "kind": "personalisation",
+      "exit": 0,
+      "output": []
+    },
+    {
+      "name": "missing-file",
+      "kind": "personalisation",
+      "exit": 1,
+      "output": [
+        "\u001b[31;1mResolve-Path: \u001b[0m<repo>/plugins/legion/bin/lib/settings.ps1:76\u001b[0m",
+        "\u001b[31;1m\u001b[0m\u001b[36;1mLine |\u001b[0m",
+        "\u001b[31;1m\u001b[0m\u001b[36;1m\u001b[36;1m  76 | \u001b[0m . System.IO.File]::ReadAllText((\u001b[36;1mResolve-Path -LiteralPath $Path\u001b[0m)).TrimS .\u001b[0m",
+        "\u001b[31;1m\u001b[0m\u001b[36;1m\u001b[36;1m\u001b[0m\u001b[36;1m\u001b[0m\u001b[36;1m     | \u001b[31;1m                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\u001b[0m",
+        "\u001b[31;1m\u001b[0m\u001b[36;1m\u001b[36;1m\u001b[0m\u001b[36;1m\u001b[0m\u001b[36;1m\u001b[31;1m\u001b[31;1m\u001b[36;1m     | \u001b[31;1mCannot find path\u001b[0m",
+        "\u001b[31;1m\u001b[0m\u001b[36;1m\u001b[36;1m\u001b[0m\u001b[36;1m\u001b[0m\u001b[36;1m\u001b[31;1m\u001b[31;1m\u001b[36;1m\u001b[31;1m\u001b[36;1m     | \u001b[31;1m'<repo>/tests/fixtures/validate/no-such-file.json' because it does not exist.\u001b[0m",
+        "$: Exception calling \"ReadAllText\" with \"1\" argument(s): \"Value cannot be null. (Parameter 'path')\"; run legion setup to update your settings"
+      ]
+    }
+  ],
+  "tool": [
+    {
+      "name": "valid",
+      "valid": true
+    },
+    {
+      "name": "missing-hint",
+      "valid": false
+    },
+    {
+      "name": "empty-command",
+      "valid": false
+    },
+    {
+      "name": "empty-first-word",
+      "valid": false
+    },
+    {
+      "name": "empty-later-word",
+      "valid": true
+    },
+    {
+      "name": "numeric-later-word",
+      "valid": false
+    },
+    {
+      "name": "numeric-first-word",
+      "valid": false
+    },
+    {
+      "name": "bad-platform-command",
+      "valid": false
+    },
+    {
+      "name": "real-claude",
+      "valid": true
+    },
+    {
+      "name": "real-codex",
+      "valid": true
+    },
+    {
+      "name": "real-copilot",
+      "valid": true
+    }
+  ]
+}

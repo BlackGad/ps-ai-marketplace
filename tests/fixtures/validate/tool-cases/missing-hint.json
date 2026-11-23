@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "id": "claude",
+  "command": "claude",
+  "configEnv": "CLAUDE_CONFIG_DIR",
+  "foundry": {
+    "deploymentPrefix": "claude",
+    "aliases": [
+      "opus",
+      "sonnet",
+      "haiku",
+      "fable"
+    ]
+  },
+  "overseerArgs": [],
+  "allowRules": [
+    "Bash(LEGION_ROLE=member *)"
+  ],
+  "plugin": {
+    "defaultConfigDir": "~/.claude",
+    "installedRoot": "plugins/cache/ps-legion-marketplace/legion",
+    "cacheDir": "plugins/cache/ps-legion-marketplace",
+    "purge": {
+      "paths": [
+        "plugins/marketplaces/ps-legion-marketplace",
+        "plugins/data/legion-ps-legion-marketplace"
+      ],
+      "settings": [
+        {
+          "path": "settings.json",
+          "kind": "settings"
+        },
+        {
+          "path": "plugins/known_marketplaces.json",
+          "kind": "marketplaces"
+        },
+        {
+          "path": "plugins/installed_plugins.json",
+          "kind": "claude"
+        }
+      ]
+    },
+    "marketplaceAddRef": [
+      "plugin",
+      "marketplace",
+      "add",
+      "{source}#{ref}"
+    ],
+    "marketplaceAdd": [
+      "plugin",
+      "marketplace",
+      "add",
+      "{source}"
+    ],
+    "uninstall": [
+      "plugin",
+      "uninstall",
+      "legion@ps-legion-marketplace"
+    ],
+    "marketplaceRemove": [
+      "plugin",
+      "marketplace",
+      "remove",
+      "ps-legion-marketplace"
+    ],
+    "install": [
+      "plugin",
+      "install",
+      "legion@ps-legion-marketplace"
+    ],
+    "marketplaceUpdate": [
+      "plugin",
+      "marketplace",
+      "update",
+      "ps-legion-marketplace"
+    ],
+    "update": [
+      "plugin",
+      "update",
+      "legion@ps-legion-marketplace"
+    ],
+    "marketplaceList": [
+      "plugin",
+      "marketplace",
+      "list",
+      "--json"
+    ],
+    "listingEnv": {
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+    },
+    "marketplaceListing": {
+      "format": "json",
+      "nameField": "name"
+    },
+    "list": [
+      "plugin",
+      "list",
+      "--json"
+    ],
+    "listing": {
+      "format": "json",
+      "idField": "id",
+      "enabledField": "enabled"
+    }
+  },
+  "hooks": {
+    "status": "active",
+    "hint": ""
+  },
+  "install": {
+    "check": [
+      "claude",
+      "--version"
+    ],
+    "windows": {
+      "wingetId": "Anthropic.ClaudeCode",
+      "portableCommand": "claude.exe",
+      "download": {
+        "msi": {
+          "kind": "script",
+          "url": "https://claude.ai/install.ps1",
+          "verification": "vendor"
+        },
+        "zip": {
+          "kind": "script",
+          "url": "https://claude.ai/install.ps1",
+          "verification": "vendor"
+        }
+      }
+    },
+    "macos": {
+      "needs": [],
+      "commands": [
+        [
+          "bash",
+          "-c",
+          "curl -fsSL https://claude.ai/install.sh | bash"
+        ]
+      ],
+      "docs": ""
+    },
+    "linux": {
+      "needs": [],
+      "commands": [
+        [
+          "bash",
+          "-c",
+          "curl -fsSL https://claude.ai/install.sh | bash"
+        ]
+      ],
+      "docs": ""
+    }
+  }
+}

@@ -49,6 +49,19 @@ def main(context: click.Context, home: Optional[Path]) -> None:
         context.exit(_forward.run([], home))
 
 
+@main.command("validate", help="Check a settings or project file against its schema")
+@click.option("--kind", required=True, type=click.Choice(["personalisation", "project"]))
+@click.option("--path", "path", required=True, type=click.Path(path_type=Path))
+@click.pass_context
+def validate(context: click.Context, kind: str, path: Path) -> None:
+    from . import _validate
+
+    issues = _validate.validate(kind, path)
+    for issue in issues:
+        click.echo(issue)
+    context.exit(1 if issues else 0)
+
+
 @main.group(help="Send or read repository overseer messages")
 def inbox() -> None:
     pass

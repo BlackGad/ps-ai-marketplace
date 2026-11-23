@@ -23,7 +23,7 @@ Never save secrets. The validator enforces the required fields, unique lowercase
 
 ```text
 
-pwsh -NoProfile -File <plugin>/bin/legion-validate.ps1 -Kind personalisation -Path <home>/.legion/configuration/personalisation.json
+legion validate --kind personalisation --path <home>/.legion/configuration/personalisation.json
 
 ```
 
