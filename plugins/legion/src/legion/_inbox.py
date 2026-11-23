@@ -14,6 +14,7 @@ from datetime import (
     timedelta,
 )
 from pathlib import Path
+from typing import Optional
 
 COMMON_PATH = Path(__file__).resolve().parents[2] / "bin/lib/common.ps1"
 
@@ -29,13 +30,13 @@ def repo_key(repo: str, cwd: str, *, windows: bool) -> str:
     return f"{folder}-{digest}"
 
 
-def _inbox_path(repo: Path) -> Path:
+def _inbox_path(repo: Path, home: Optional[Path]) -> Path:
     key = repo_key(str(repo.resolve()), str(Path.cwd()), windows=os.name == "nt")
-    return Path.home() / ".legion" / "inbox" / key
+    return (home or Path.home()) / ".legion" / "inbox" / key
 
 
-def send(repo: Path, sender: str, text: str) -> None:
-    inbox = _inbox_path(repo)
+def send(repo: Path, sender: str, text: str, home: Optional[Path] = None) -> None:
+    inbox = _inbox_path(repo, home)
     new = inbox / "new"
     new.mkdir(parents=True, exist_ok=True)
     (inbox / "done").mkdir(exist_ok=True)
@@ -49,11 +50,11 @@ def send(repo: Path, sender: str, text: str) -> None:
     finally:
         temporary.unlink(missing_ok=True)
     print(name, flush=True)
-    asyncio.run(_nudge(repo.resolve(), sender))
+    asyncio.run(_nudge(repo.resolve(), sender, home or Path.home()))
 
 
-def read(repo: Path) -> None:
-    inbox = _inbox_path(repo)
+def read(repo: Path, home: Optional[Path] = None) -> None:
+    inbox = _inbox_path(repo, home)
     done = inbox / "done"
     cutoff = (datetime.now(UTC) - timedelta(days=7)).timestamp()
     for item in done.glob("*.json"):
@@ -79,7 +80,7 @@ def read(repo: Path) -> None:
         item.rename(done / item.name)
 
 
-async def _nudge(repo: Path, sender: str) -> None:
+async def _nudge(repo: Path, sender: str, home: Path) -> None:
     if not (repo / ".legion/temp/overseer.lock").is_file():
         return
     # Reuse lease lifetime checks and platform wrapper selection from PowerShell.
@@ -97,7 +98,7 @@ exit $result.ExitCode
     environment = os.environ | {
         "LEGION_INBOX_COMMON": str(COMMON_PATH),
         "LEGION_INBOX_REPO": str(repo),
-        "LEGION_INBOX_HOME": str(Path.home()),
+        "LEGION_INBOX_HOME": str(home),
         "LEGION_INBOX_SENDER": sender,
     }
     try:

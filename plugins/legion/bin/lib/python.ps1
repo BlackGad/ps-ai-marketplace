@@ -13,7 +13,7 @@ function Get-LegionPythonEnvironment {
     return Get-LegionHomePath -Path "python/env-$digest" -HomeRoot $HomeRoot
 }
 
-# The uv command line for a legion-py call, or $null when uv is missing.
+# The uv command line for a legion call, or $null when uv is missing.
 function Get-LegionPythonCommand {
     param([string[]]$Arguments = @(), [string]$HomeRoot = $HOME)
 
@@ -22,7 +22,7 @@ function Get-LegionPythonCommand {
     if (-not $uv) { return $null }
     return @{
         Command = $uv.Source
-        Arguments = @('run', '--project', $pluginRoot, '--frozen', 'legion-py') + $Arguments
+        Arguments = @('run', '--project', $pluginRoot, '--frozen', 'legion') + $Arguments
         Environment = @{ UV_PROJECT_ENVIRONMENT = Get-LegionPythonEnvironment -PluginRoot $pluginRoot -HomeRoot $HomeRoot }
     }
 }

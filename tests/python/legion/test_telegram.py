@@ -7,7 +7,8 @@ from typing import Any, Optional
 
 import pytest
 
-from legion import _cli, _telegram
+from cli_runner import run
+from legion import _telegram
 from legion._telegram import TelegramError
 
 BOT_KEY = "123456:secret-token"
@@ -157,9 +158,9 @@ def test_real_post_sends_multipart(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
 def test_cli_send_and_react(monkeypatch: pytest.MonkeyPatch) -> None:
     post = FakePost()
     monkeypatch.setattr(_telegram, "_post", post)
-    assert _cli.main(["telegram", "send", "--channel", "main", "--chat", "42", "--text", "hi", "--file", "x.txt", "--reply-to", "3"]) == 0
+    assert run(["telegram", "send", "--channel", "main", "--chat", "42", "--text", "hi", "--file", "x.txt", "--reply-to", "3"]) == 0
     assert [call[1] for call in post.calls] == ["sendMessage", "sendDocument"]
-    assert _cli.main(["telegram", "react", "--channel", "main", "--chat", "42", "--message", "3", "--emoji", "x"]) == 0
+    assert run(["telegram", "react", "--channel", "main", "--chat", "42", "--message", "3", "--emoji", "x"]) == 0
 
 
 def test_http_layer_errors_never_show_the_token(monkeypatch: pytest.MonkeyPatch) -> None:

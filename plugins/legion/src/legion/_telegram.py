@@ -26,14 +26,14 @@ class TelegramError(Exception):
         self.code = code
 
 
-def bot_folder(channel: str) -> Path:
+def bot_folder(channel: str, home: Optional[Path] = None) -> Path:
     if not re.fullmatch(r"[a-z][a-z0-9-]*", channel):
         raise TelegramError(f"bad channel id '{channel}'")
-    return Path.home() / ".legion" / "channels" / "telegram" / channel
+    return (home or Path.home()) / ".legion" / "channels" / "telegram" / channel
 
 
-def read_token(channel: str) -> str:
-    env_file = bot_folder(channel) / ".env"
+def read_token(channel: str, home: Optional[Path] = None) -> str:
+    env_file = bot_folder(channel, home) / ".env"
     if env_file.is_file():
         for line in env_file.read_text(encoding="utf-8").splitlines():
             name, _, value = line.partition("=")
@@ -102,10 +102,10 @@ def _run(action: Callable[[], None]) -> int:
     return 0
 
 
-def send(channel: str, chat: str, text: str, text_format: str, reply_to: Optional[int], files: list[Path], *, post: Optional[Post] = None) -> int:
+def send(channel: str, chat: str, text: str, text_format: str, reply_to: Optional[int], files: list[Path], *, post: Optional[Post] = None, home: Optional[Path] = None) -> int:
     def action() -> None:
         call = post or _post
-        token = read_token(channel)
+        token = read_token(channel, home)
         reply = {"reply_parameters": json.dumps({"message_id": reply_to})} if reply_to else {}
         for part in _split(text) if text else []:
             fields = {"chat_id": chat, "text": part}
@@ -124,9 +124,9 @@ def send(channel: str, chat: str, text: str, text_format: str, reply_to: Optiona
     return _run(action)
 
 
-def react(channel: str, chat: str, message: str, emoji: str, *, post: Optional[Post] = None) -> int:
+def react(channel: str, chat: str, message: str, emoji: str, *, post: Optional[Post] = None, home: Optional[Path] = None) -> int:
     def action() -> None:
         fields = {"chat_id": chat, "message_id": message, "reaction": json.dumps([{"type": "emoji", "emoji": emoji}])}
-        (post or _post)(read_token(channel), "setMessageReaction", fields, [])
+        (post or _post)(read_token(channel, home), "setMessageReaction", fields, [])
 
     return _run(action)
