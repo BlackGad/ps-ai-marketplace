@@ -178,7 +178,7 @@ After approving the plan, run it again with `-Yes`. Setup installs a missing CLI
 - `~/.legion/configuration/personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/legion/schemas/personalisation.schema.json`. It never holds tokens.
 - `~/.legion/configuration/notes.md`: free-form preferences and lessons.
 
-For every Claude account, setup also adds the permission rule `Bash(LEGION_ROLE=member *)` to its `settings.json`, so the overseer can start legion members without a prompt; other settings and rules stay. It also writes account wrappers and the four commands below. After the same yes, setup and the installer add `~/.legion/bin` to your user PATH on Windows. On macOS and Linux they append `# Added by legion` and `export PATH="$HOME/.legion/bin:$PATH"` once to the shell profile selected by `$SHELL`: `~/.zshrc` for zsh, `~/.bashrc` for bash, otherwise `~/.profile`. The plan shows the profile change before consent; a repeat skips it. Legion records only what it adds: a PATH entry, profile line or permission rule you already had stays yours. When the installer runs from the portable PowerShell in `~/.legion/tools/pwsh` on macOS or Linux, it also links `~/.legion/bin/pwsh` to it, so new terminals, the `legion` command, Foundry launchers and session hooks find PowerShell. Purge removes the recorded line and its marker, preserving the rest of the file. Open a new terminal if needed.
+For every Claude account, setup also adds the permission rule `Bash(LEGION_ROLE=member *)` to its `settings.json`, so the overseer can start legion members without a prompt; other settings and rules stay. It also writes account wrappers and the four commands below. After the same yes, setup and the installer add `~/.legion/bin` to your user PATH on Windows. On macOS and Linux they append `# Added by legion` and `export PATH="$HOME/.legion/bin:$PATH"` once to the shell profile selected by `$SHELL`: `~/.zshrc` for zsh, `~/.bashrc` for bash, otherwise `~/.profile`. The plan shows the profile change before consent; a repeat skips it. Legion records only what it adds: a PATH entry, profile line or permission rule you already had stays yours. When the installer runs from the portable PowerShell in `~/.legion/tools/pwsh` on macOS or Linux, it also links `~/.legion/bin/pwsh` to it, so new terminals, the `legion` command and Foundry launchers find PowerShell. Purge removes the recorded line and its marker, preserving the rest of the file. Open a new terminal if needed.
 
 Run `legion status` before making changes. Before setup, outside an orchestrated repository, status prints:
 
@@ -238,7 +238,7 @@ A hook at session start decides the mode:
 
 A session you start yourself is never a legion member.
 
-On Windows, the hook also warns when a bound channel's launch flag is absent from a recognized native CLI session; unknown accounts and unsupported or unreadable sessions stay silent.
+The hook is a small Python script in the plugin copy. `uv` starts it with Python 3.12 or later, offline and without downloads, so a session start needs no PowerShell. When uv or Python is missing, the hook prints one line asking you to run the legion installer, and the session starts normally.
 
 ## Security: legion runs without a sandbox
 

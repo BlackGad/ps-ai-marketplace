@@ -5,9 +5,10 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / "plugins/legion/src"
+HOOKS = REPO / "plugins/legion/hooks"
 
 
-@pytest.mark.parametrize("path", sorted(SOURCE.rglob("*.py")), ids=lambda path: path.relative_to(REPO).as_posix())
+@pytest.mark.parametrize("path", sorted([*SOURCE.rglob("*.py"), *HOOKS.glob("*.py")]), ids=lambda path: path.relative_to(REPO).as_posix())
 def test_no_docstrings(path: Path) -> None:
     tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
     for node in ast.walk(tree):

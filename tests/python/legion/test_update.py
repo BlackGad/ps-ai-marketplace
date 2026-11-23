@@ -236,52 +236,6 @@ assert not any(name.startswith('urllib') for name in set(sys.modules) - before)
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize("failed", [False, True])
-@pytest.mark.parametrize("direction", ["python-to-powershell", "powershell-to-python"])
-def test_cache_shared_with_surviving_hook(plugin: Path, remote: dict[str, Any], tmp_path: Path, failed: bool, direction: str) -> None:
-    checker = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "bin" / "legion-update.ps1"
-    pwsh = shutil.which("pwsh")
-    assert pwsh is not None
-    script = tmp_path / "cache-check.ps1"
-    script.write_text(
-        """param($Checker, $Plugin, $FixtureHome, $Direction, $Failed)
-$ErrorActionPreference = 'Stop'
-. $Checker -NoRun
-function Get-LegionUpdateHome { $FixtureHome }
-function Get-LegionUpdateText { throw 'Cache hit must never download' }
-if ($Direction -eq 'powershell-to-python') {
-    $cache = Get-LegionOwnerPath -HomeRoot $FixtureHome -Name Update
-    $null = New-Item -ItemType Directory -Path (Split-Path $cache -Parent) -Force
-    $failure = $Failed -eq 'true'
-    @{ Source='BlackGad/ps-legion-marketplace'; CheckedAt=[DateTimeOffset]::UtcNow.ToString('o');
-       Available=$(if ($failure) { $null } else { '0.4.0' }); Failed=$failure } | ConvertTo-Json | Set-Content $cache
-} else {
-    $before = Get-Content (Get-LegionOwnerPath -HomeRoot $FixtureHome -Name Update) -Raw
-    $result = Get-LegionUpdate -PluginRoot $Plugin
-    if ($before -cne (Get-Content (Get-LegionOwnerPath -HomeRoot $FixtureHome -Name Update) -Raw)) { throw 'Cache was refreshed' }
-    ConvertTo-Json -InputObject $result -Compress
-}
-""",
-        encoding="utf-8",
-    )
-    if direction == "python-to-powershell":
-        remote["fail"] = failed
-        _update.get_update(plugin, tmp_path)
-    process = subprocess.run([pwsh, "-NoProfile", "-File", str(script), str(checker), str(plugin), str(tmp_path), direction, str(failed).lower()], capture_output=True, text=True, check=False)  # noqa: S603
-    assert process.returncode == 0, process.stderr
-    if direction == "python-to-powershell":
-        result = json.loads(process.stdout)
-        assert result is None if failed else result["Available"] == "0.4.0"
-    else:
-        result = _update.get_update(plugin, tmp_path)
-        if failed:
-            assert result is None
-        else:
-            assert result is not None
-            assert result.available == "0.4.0"
-        assert remote["calls"] == []
-
-
 def test_legacy_help_lists_python_check(tmp_path: Path) -> None:
     pwsh = shutil.which("pwsh")
     assert pwsh is not None

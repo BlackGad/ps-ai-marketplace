@@ -20,4 +20,4 @@ codex plugin add wiki@llm-wiki
 
 After installation use the shared [wiki hub setup](../../legion-knowledge/references/llm-wiki-setup.md).
 
-Plugin hooks run only after one-time trust. Start `codex` in the selected account and run `/hooks`. Repeated plugin installation preserves that trust.
+Plugin hooks run only after trust. Start `codex` in the selected account and run `/hooks`. Repeated plugin installation preserves that trust. Codex records trust against the hook and the script it runs, so a legion update that changes either asks for trust again: run `/hooks` once more after such an update.

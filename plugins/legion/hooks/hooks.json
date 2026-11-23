@@ -5,7 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pwsh -NoProfile -File \"${CLAUDE_PLUGIN_ROOT}/hooks/detect-mode.ps1\" -Format text"
+            "command": "uv run --no-project --no-python-downloads --offline --quiet --python \">=3.12\" \"${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py\" --format text || echo \"legion: uv or Python 3.12 is missing, so mode detection did not run; run the legion installer. If LEGION_ROLE=member is set, load the legion-member skill.\"",
+            "commandWindows": "uv run --no-project --no-python-downloads --offline --quiet --python \">=3.12\" \"$env:CLAUDE_PLUGIN_ROOT\\hooks\\session_start.py\" --format text; if (-not $?) { 'legion: uv or Python 3.12 is missing, so mode detection did not run; run the legion installer. If LEGION_ROLE=member is set, load the legion-member skill.' }"
           }
         ]
       }
