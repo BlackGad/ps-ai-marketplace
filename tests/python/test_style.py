@@ -1,4 +1,6 @@
 import ast
+import io
+import tokenize
 from pathlib import Path
 
 import pytest
@@ -6,6 +8,14 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / "plugins/legion/src"
 HOOKS = REPO / "plugins/legion/hooks"
+
+
+def test_tests_have_no_inline_suppressions() -> None:
+    for path in (REPO / "tests/python").rglob("*.py"):
+        comments = (token for token in tokenize.generate_tokens(io.StringIO(path.read_text(encoding="utf-8-sig")).readline) if token.type == tokenize.COMMENT)
+        for token in comments:
+            for suppression in ("noqa", "type: ignore"):
+                assert suppression not in token.string, f"{path.relative_to(REPO)}:{token.start[0]}"
 
 
 @pytest.mark.parametrize("path", sorted([*SOURCE.rglob("*.py"), *HOOKS.glob("*.py")]), ids=lambda path: path.relative_to(REPO).as_posix())

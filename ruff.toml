@@ -174,4 +174,4 @@ suppress-none-returning = true
 "plugins/legion/src/legion/_cli.py" = ["PLC0415"]
 "plugins/legion/src/legion/_update.py" = ["PLC0415"]
 "plugins/legion/src/**" = ["S603"]
-"tests/python/legion/test_cli.py" = ["S603"]
+"tests/python/**" = ["S603"]

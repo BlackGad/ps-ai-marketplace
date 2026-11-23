@@ -13,7 +13,6 @@ param(
 $ErrorActionPreference = 'Stop'
 $PSStyle.OutputRendering = 'PlainText'
 $env:NO_COLOR = '1'
-Remove-Item -LiteralPath 'Env:LEGION_TEST_USER_PATH_FILE' -ErrorAction SilentlyContinue
 . (Join-Path $PSScriptRoot '../lib/junit.ps1')
 . (Join-Path $PSScriptRoot '../lib/benchmark.ps1')
 . (Join-Path $PSScriptRoot '../../plugins/legion/bin/lib/installed.ps1')
@@ -919,13 +918,14 @@ function Get-IntegrationSteps {
 
 # ---- Main -------------------------------------------------------------------------------------
 
-if ($NoRun) { return }
+if ($NoRun -or $MyInvocation.InvocationName -eq '.') { return }
 
 if ($env:CI -ne 'true') {
     Write-Error 'tests/integration/run.ps1 installs real tools into a throwaway home and only runs in CI (CI=true).'
     exit 1
 }
 if (-not $Out) { throw '-Out <folder> is required' }
+Remove-Item -LiteralPath 'Env:LEGION_TEST_USER_PATH_FILE' -ErrorAction SilentlyContinue
 if (-not $HomeRoot) { $HomeRoot = Join-Path $env:RUNNER_TEMP 'legion-home' }
 if (-not $Checkout) { $Checkout = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent }
 $os = Get-IntegrationOs

@@ -47,7 +47,7 @@ def main() -> int:
         return 0
     if own_setting(name, "SLEEP"):
         marker = Path(setting("LOG")) / "grandchild.pid"
-        subprocess.Popen([sys.executable, "-c", SLEEPER, str(marker)])  # noqa: S603
+        subprocess.Popen([sys.executable, "-c", SLEEPER, str(marker)])
         deadline = time.monotonic() + 20
         while not marker.is_file() and time.monotonic() < deadline:
             time.sleep(0.05)

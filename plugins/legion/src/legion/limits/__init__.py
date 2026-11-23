@@ -70,7 +70,7 @@ def account_rows(agent: Agent, home: Path, timeout: float) -> list[LimitRow]:
             return [LimitRow(used="-", resets="-", status="token ok" if check.ok else first_line(check.error))]
         reader = READERS.get(agent.tool)
         if reader is None:
-            return [LimitRow(status=f"no limits script for {agent.tool}")]
+            return [LimitRow(status=f"no limits reader for {agent.tool}")]
         command = wrapper_command(agent.id, home)
         if not _is_executable(command):
             return [LimitRow(status="launcher missing; run legion setup")]
