@@ -1,5 +1,4 @@
 import io
-import json
 import os
 import sys
 from pathlib import Path
@@ -13,9 +12,10 @@ from . import _forward, _plugin
 def _show_version(context: click.Context, _parameter: click.Parameter, value: bool) -> None:
     if not value:
         return
-    manifest_path = _plugin.PLUGIN_ROOT / "plugin.json"
-    version = json.loads(manifest_path.read_text(encoding="utf-8"))["version"]
-    click.echo(f"{context.find_root().info_name} {version}")
+    from ._settings_models import PluginManifest
+
+    manifest = PluginManifest.model_validate_json((_plugin.PLUGIN_ROOT / "plugin.json").read_text(encoding="utf-8"))
+    click.echo(f"{context.find_root().info_name} {manifest.version}")
     context.exit()
 
 

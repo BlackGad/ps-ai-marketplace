@@ -2,11 +2,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-import fastjsonschema
 import pytest
 from cli_runner import run
+from pydantic import ValidationError
 
 from legion import _validate
+from legion._settings_models import ToolDescriptor
 
 REPO = Path(__file__).resolve().parents[3]
 FIXTURES = REPO / "tests" / "fixtures"
@@ -59,6 +60,29 @@ def test_schema_message_is_normalised_to_one_line() -> None:
     assert "  " not in issue
 
 
+def test_every_schema_problem_is_one_framed_line_with_its_location() -> None:
+    assert _validate.validate("personalisation", FIXTURES / "validate" / "invalid-schema-multi.json") == [
+        f"$: {problem}{SUFFIX}"
+        for problem in (
+            "schemaVersion: Input should be less than or equal to 1",
+            "agents[0].id: String should match pattern '^[a-z][a-z0-9-]*$'",
+            "agents[0].configDir: Field required",
+            "extra: Extra inputs are not permitted",
+        )
+    ]
+
+
+def test_a_broken_descriptor_is_one_framed_line(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    skill = tmp_path / "skills" / "legion-broken"
+    skill.mkdir(parents=True)
+    (skill / "tool.json").write_text('{"schemaVersion": 1}', encoding="utf-8")
+    monkeypatch.setattr(_validate, "PLUGIN_ROOT", tmp_path)
+    (issue,) = _validate.validate("personalisation", OWNER)
+    assert issue.startswith("$: ")
+    assert "ToolDescriptor" in issue
+    assert issue.endswith(SUFFIX)
+
+
 def test_bom_with_crlf_is_accepted(tmp_path: Path) -> None:
     assert _validate.validate("personalisation", write_bom_crlf(tmp_path / "bom-crlf.json")) == []
 
@@ -97,12 +121,10 @@ def test_invalid_provider_shape_is_rejected(tmp_path: Path, change: Any) -> None
 
 @pytest.mark.parametrize("case", RECORDED["tool"], ids=lambda case: case["name"])
 def test_tool_schema_verdicts_match_the_recorded_old_run(case: dict[str, Any]) -> None:
-    schema = json.loads((REPO / "plugins" / "legion" / "schemas" / "tool.schema.json").read_text(encoding="utf-8"))
-    check = fastjsonschema.compile(schema)
     try:
-        check(edited_descriptor(case))
+        ToolDescriptor.model_validate_json(json.dumps(edited_descriptor(case)))
         valid = True
-    except fastjsonschema.JsonSchemaValueException:
+    except ValidationError:
         valid = False
     assert valid == case["valid"]
 

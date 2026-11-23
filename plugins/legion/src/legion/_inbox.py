@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-import json
 import ntpath
 import os
 import posixpath
@@ -16,9 +15,23 @@ from datetime import (
 from pathlib import Path
 from typing import Optional
 
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+)
+
 from ._plugin import PLUGIN_ROOT
 
 COMMON_PATH = PLUGIN_ROOT / "bin/lib/common.ps1"
+
+
+# One inbox file: {"from": ..., "text": ..., "at": ...}.
+class InboxMessage(BaseModel):
+    model_config = ConfigDict(strict=True, validate_by_name=True)
+    sender: str = Field(validation_alias="from", serialization_alias="from")
+    text: str
+    at: str
 
 
 def repo_key(repo: str, cwd: str, *, windows: bool) -> str:
@@ -44,10 +57,10 @@ def send(repo: Path, sender: str, text: str, home: Optional[Path] = None) -> Non
     (inbox / "done").mkdir(exist_ok=True)
     name = f"{time.time_ns():020d}-{uuid.uuid4().hex}.json"
     temporary = new / f".{name}.tmp"
-    payload = {"from": sender, "text": text, "at": datetime.now(UTC).isoformat()}
+    message = InboxMessage(sender=sender, text=text, at=datetime.now(UTC).isoformat())
     try:
         with temporary.open("x", encoding="utf-8") as stream:
-            json.dump(payload, stream, ensure_ascii=False)
+            stream.write(message.model_dump_json(by_alias=True))
         temporary.rename(new / name)
     finally:
         temporary.unlink(missing_ok=True)
@@ -69,16 +82,13 @@ def read(repo: Path, home: Optional[Path] = None) -> None:
     done.mkdir(parents=True, exist_ok=True)
     for item in messages:
         try:
-            payload = json.loads(item.read_text(encoding="utf-8"))
-            sender, at, text = payload["from"], payload["at"], payload["text"]
-            if not all(isinstance(value, str) for value in (sender, at, text)):
-                raise TypeError(item.name)
-        except (OSError, ValueError, KeyError, TypeError):
+            message = InboxMessage.model_validate_json(item.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
             print(f"warning: skipped unreadable inbox file {item.name}", file=sys.stderr, flush=True)
         else:
             # The sender is one line and the body is indented, so message text cannot fake a header.
-            body = "\n".join(f"    {line}" for line in text.splitlines() or [""])
-            print(f"from: {' '.join(sender.split())}\nat: {at}\ntext:\n{body}\n", flush=True)
+            body = "\n".join(f"    {line}" for line in message.text.splitlines() or [""])
+            print(f"from: {' '.join(message.sender.split())}\nat: {message.at}\ntext:\n{body}\n", flush=True)
         item.rename(done / item.name)
 
 

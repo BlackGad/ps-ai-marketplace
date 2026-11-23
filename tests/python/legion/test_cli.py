@@ -64,7 +64,7 @@ def test_help_does_not_import_command_modules() -> None:
         "    _cli.main(['--help'])\n"
         "except SystemExit:\n"
         "    pass\n"
-        "loaded = [name for name in ('legion._bridge', 'legion._telegram', 'legion._inbox', 'legion._validate', 'fastjsonschema', 'asyncio') if name in sys.modules]\n"
+        "loaded = [name for name in ('legion._bridge', 'legion._telegram', 'legion._inbox', 'legion._validate', 'legion._settings_models', 'pydantic', 'asyncio') if name in sys.modules]\n"
         "assert not loaded, loaded\n"
     )
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)

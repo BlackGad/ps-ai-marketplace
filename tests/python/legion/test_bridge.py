@@ -135,6 +135,23 @@ def test_process_alive_for_this_process_only() -> None:
     assert not _bridge.process_alive(0)
 
 
+@pytest.mark.usefixtures("bot_folder")
+def test_update_without_sender_or_with_unknown_fields_is_skipped(tmp_path: Path) -> None:
+    delivered: list[tuple[str, str]] = []
+    channel_post = {"update_id": 1, "channel_post": {"message_id": 1, "chat": {"id": -1, "type": "channel"}}}
+    no_sender = update(2)
+    del no_sender["message"]["from"]
+    assert run(tmp_path, Script([channel_post, no_sender, update(3)], KeyboardInterrupt()), delivered) == 0
+    assert delivered == [("telegram", "telegram chat_id=42 message_id=30 user=ann\nhello")]
+
+
+def test_access_file_with_wrong_types_delivers_nothing(bot_folder: Path, tmp_path: Path) -> None:
+    (bot_folder / "access.json").write_text(json.dumps({"dmPolicy": "allowlist", "allowFrom": [42]}), encoding="utf-8")
+    delivered: list[tuple[str, str]] = []
+    assert run(tmp_path, Script([update(1)], KeyboardInterrupt()), delivered) == 0
+    assert delivered == []
+
+
 def test_disabled_policy_delivers_nothing(bot_folder: Path, tmp_path: Path) -> None:
     (bot_folder / "access.json").write_text(json.dumps({"dmPolicy": "disabled", "allowFrom": ["42"], "groups": {}}), encoding="utf-8")
     delivered: list[tuple[str, str]] = []

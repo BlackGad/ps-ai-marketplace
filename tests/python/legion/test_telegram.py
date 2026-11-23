@@ -6,10 +6,14 @@ from pathlib import Path
 from typing import Any, Optional
 
 import pytest
+from pydantic import JsonValue
 
 from cli_runner import run
 from legion import _telegram
-from legion._telegram import TelegramError
+from legion._telegram import (
+    Access,
+    TelegramError,
+)
 
 BOT_KEY = "123456:secret-token"
 
@@ -32,7 +36,7 @@ class FakePost:
         self.calls.append((token, method, fields, files))
         if self.error:
             raise self.error
-        return {"message_id": 100 + len(self.calls)}
+        return {"message_id": 100 + len(self.calls), "chat": {"id": 42, "type": "private"}, "date": 0}
 
 
 @pytest.mark.usefixtures("bot_folder")
@@ -41,7 +45,8 @@ def test_send_text_with_format_and_reply(capsys: pytest.CaptureFixture[str]) -> 
     assert _telegram.send("main", "42", "hi", "markdownv2", 7, [], post=post) == 0
     token, method, fields, files = post.calls[0]
     assert (token, method, files) == (BOT_KEY, "sendMessage", [])
-    assert fields == {"chat_id": "42", "text": "hi", "parse_mode": "MarkdownV2", "reply_parameters": '{"message_id": 7}'}
+    assert json.loads(fields.pop("reply_parameters")) == {"message_id": 7}
+    assert fields == {"chat_id": "42", "text": "hi", "parse_mode": "MarkdownV2"}
     assert capsys.readouterr().out == "101\n"
 
 
@@ -140,13 +145,13 @@ def test_real_post_sends_multipart(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         seen["url"] = request.full_url
         seen["type"] = request.get_header("Content-type")
         seen["body"] = request.data
-        return io.BytesIO(b'{"ok": true, "result": {"message_id": 5}}')
+        return io.BytesIO(b'{"ok": true, "result": {"message_id": 5, "chat": {"id": 42, "type": "private"}}}')
 
     monkeypatch.setattr(_telegram._opener, "open", accept)
     attachment = tmp_path / "a b.txt"
     attachment.write_bytes(b"payload")
     result = _telegram._post(BOT_KEY, "sendDocument", {"chat_id": "42"}, [("document", attachment)])
-    assert result == {"message_id": 5}
+    assert result == {"message_id": 5, "chat": {"id": 42, "type": "private"}}
     assert seen["url"] == f"https://api.telegram.org/bot{BOT_KEY}/sendDocument"
     assert seen["type"].startswith("multipart/form-data; boundary=")
     assert b'name="chat_id"\r\n\r\n42' in seen["body"]
@@ -184,3 +189,24 @@ def test_malformed_token_is_refused_before_use(bot_folder: Path, capsys: pytest.
     assert "wrong format" in error
     assert token not in error
     assert post.calls == []
+
+
+def test_access_file_round_trips_with_the_plugin_fields_it_does_not_use() -> None:
+    text = json.dumps({"dmPolicy": "allowlist", "allowFrom": ["42"], "groups": {"-100": {"requireMention": True, "allowFrom": []}}, "pending": {}, "ackReaction": "👀"})
+    access = Access.model_validate_json(text)
+    assert (access.dm_policy, access.allow_from) == ("allowlist", ["42"])
+    assert json.loads(access.model_dump_json(by_alias=True)) == json.loads(text)
+
+
+def test_access_defaults_match_the_plugin() -> None:
+    access = Access.model_validate_json("{}")
+    assert (access.dm_policy, access.allow_from) == ("pairing", [])
+
+
+@pytest.mark.usefixtures("bot_folder")
+def test_send_refuses_a_reply_that_is_not_a_message(capsys: pytest.CaptureFixture[str]) -> None:
+    def post(_token: str, _method: str, _fields: dict[str, str], _files: list[tuple[str, Path]]) -> JsonValue:
+        return True
+
+    assert _telegram.send("main", "42", "hi", "text", None, [], post=post) == 1
+    assert capsys.readouterr().err == "telegram: Telegram sent an unexpected reply to sendMessage\n"
