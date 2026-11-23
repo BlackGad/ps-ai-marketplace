@@ -113,7 +113,7 @@ def test_claude_reads_every_unified_window(bench: Bench) -> None:
     [call] = bench.calls("claude")
     assert call["arguments"] == ["-p", "--output-format", "stream-json", "--verbose", "ping"]
     assert call["stdin"] == ""
-    assert call["config"]["CLAUDE_CONFIG_DIR"] == str(bench.config("claude-a"))
+    assert Path(call["config"]["CLAUDE_CONFIG_DIR"]).resolve() == bench.config("claude-a").resolve()
     assert_disposable_folder(call["folder"])
     assert bench.calls("git") == []
 
@@ -151,11 +151,13 @@ def test_codex_reads_only_its_own_session(bench: Bench) -> None:
     [call] = bench.calls("codex")
     assert call["arguments"] == ["exec", "ping"]
     assert call["stdin"] == ""
-    assert call["config"]["CODEX_HOME"] == str(bench.config("codex-a"))
+    assert Path(call["config"]["CODEX_HOME"]).resolve() == bench.config("codex-a").resolve()
     assert_disposable_folder(call["folder"])
     # Codex needs a git folder: the ping folder is initialised first.
     [git] = bench.calls("git")
-    assert git["arguments"] == ["-C", call["folder"], "init", "-q"]
+    assert git["arguments"][:1] == ["-C"]
+    assert Path(git["arguments"][1]).resolve() == Path(call["folder"]).resolve()
+    assert git["arguments"][2:] == ["init", "-q"]
 
 
 def test_codex_null_windows_have_no_readout(bench: Bench) -> None:
@@ -213,7 +215,7 @@ def test_copilot_answer_has_no_readout(bench: Bench) -> None:
     [call] = bench.calls("copilot")
     assert call["arguments"] == ["-p", "ping", "-s"]
     assert call["stdin"] == ""
-    assert call["config"]["COPILOT_HOME"] == str(bench.config("copilot-a"))
+    assert Path(call["config"]["COPILOT_HOME"]).resolve() == bench.config("copilot-a").resolve()
     assert_disposable_folder(call["folder"])
 
 
@@ -246,7 +248,7 @@ def test_foundry_token_ok_never_shows_the_token(bench: Bench, tmp_path: Path, ca
     assert rows == [LimitRow(used="-", resets="-", status="token ok")]
     [call] = bench.calls("az")
     assert call["arguments"] == TOKEN_ARGUMENTS
-    assert call["config"]["AZURE_CONFIG_DIR"] == str(bench.azure)
+    assert Path(call["config"]["AZURE_CONFIG_DIR"]).resolve() == bench.azure.resolve()
     captured = capfd.readouterr()
     assert ACCESS_VALUE not in captured.out + captured.err + repr(rows)
     assert bench.calls("claude") == []
@@ -315,9 +317,9 @@ def test_foundry_az_that_never_answers_is_stopped(bench: Bench) -> None:
 
 
 def test_account_folder_starts_at_the_home_root(tmp_path: Path) -> None:
-    assert home_path("~/.legion/agents/codex-a", tmp_path) == tmp_path / ".legion/agents/codex-a"
-    assert home_path("~\\agents", tmp_path) == tmp_path / "agents"
-    assert home_path(str(tmp_path / "elsewhere"), tmp_path) == tmp_path / "elsewhere"
+    assert home_path("~/.legion/agents/codex-a", tmp_path).resolve() == (tmp_path / ".legion/agents/codex-a").resolve()
+    assert home_path("~\\agents", tmp_path).resolve() == (tmp_path / "agents").resolve()
+    assert home_path(str(tmp_path / "elsewhere"), tmp_path).resolve() == (tmp_path / "elsewhere").resolve()
 
 
 def write_settings(home: Path, agents: list[dict[str, Any]]) -> None:
