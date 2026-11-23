@@ -849,11 +849,6 @@ function Invoke-LegionUninstall {
     'You can delete kept data by hand if you no longer need it.'
 }
 
-function Get-InstallPluginVersion {
-    param([string]$Root)
-    return (Get-Content -LiteralPath (Join-Path $Root 'plugin.json') -Raw | ConvertFrom-Json).version
-}
-
 function Invoke-LegionUpdateSteps {
     param($Entry, [string]$ConfigDir, [switch]$DryRun, [string]$Source = 'BlackGad/ps-legion-marketplace', [ValidateSet('release','main')][string]$Ref = 'release', [string]$PluginRoot)
     $configEnv = $Entry.configEnv
@@ -890,6 +885,7 @@ function Invoke-InstallRefresh {
     foreach ($name in $(if ($IsWindows) { @('legion', 'legion.cmd') } else { @('legion') })) {
         Add-LegionFootprint -HomeRoot (Get-InstallHome) -Kind file -Path (Get-InstallLegionPath "bin/$name") -Owner $owner
     }
+    Add-LegionFootprint -HomeRoot (Get-InstallHome) -Kind app -Path (Get-InstallLegionPath 'app') -Owner $owner
     $powerShell = (Get-Process -Id $PID).Path
     $environment = Get-InstallEnvironment -ConfigEnv $Entry.configEnv -ConfigDir $ConfigDir
     $result = Invoke-ClosedInput -Command @($powerShell, '-NoProfile', '-File', $refresh, '-HomeRoot', (Get-InstallHome)) -Environment $environment

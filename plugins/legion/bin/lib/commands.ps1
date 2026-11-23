@@ -1,20 +1,42 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'paths.ps1')
+. (Join-Path $PSScriptRoot 'python.ps1')
 
 function ConvertTo-LegionShellLiteral {
     param([string]$Value)
     return "'" + $Value.Replace("'", "'" + '"' + "'" + '"' + "'") + "'"
 }
 
+# The owner command runs the app version in $App through uv, with that version's environment.
+# Windows: setlocal keeps the environment out of the caller's console. The run line ends the batch with
+# (goto), so a command that an update rewrites while it runs still ends cleanly; a child cmd then exits
+# with uv's code, which `exit /b` cannot do here without closing an interactive console.
 function Get-LegionShimText {
-    param([string]$Script, [switch]$Windows, [string]$HomeRoot)
+    param([string]$App, [switch]$Windows, [string]$HomeRoot = $HOME)
 
+    $environment = Get-LegionPythonEnvironment -PluginRoot $App -HomeRoot $HomeRoot
     $homeArgument = Get-LegionShimHomeArgument -HomeRoot $HomeRoot -Windows:$Windows
+    $missing = 'uv is missing. Ask the owner before installing it, then run the legion installer again.'
     $header = Get-LegionHeader -Name 'owner command' -Windows:$Windows
-    if ($Windows) { return "$header`r`n" + '@pwsh -NoProfile -File "' + $Script.Replace('%', '%%') + '"' + $homeArgument + ' %* & (goto) 2>nul & exit /b' + "`r`n" }
-    return "#!/bin/sh`n$header`n" + 'exec pwsh -NoProfile -File ' + (ConvertTo-LegionShellLiteral $Script) + $homeArgument + ' "$@"' + "`n"
+    if ($Windows) {
+        $lines = @(
+            $header
+            '@setlocal'
+            '@set "UV_PROJECT_ENVIRONMENT=' + $environment.Replace('%', '%%') + '"'
+            '@where /q uv || (>&2 echo ' + $missing + '& exit /b 127)'
+            '@uv run --project "' + $App.Replace('%', '%%') + '" --frozen --quiet legion' + $homeArgument + ' %* & (goto) 2>nul & call "%%COMSPEC%%" /d /c exit %%errorlevel%%'
+        )
+        return ($lines -join "`r`n") + "`r`n"
+    }
+    $lines = @(
+        '#!/bin/sh'
+        $header
+        "command -v uv >/dev/null 2>&1 || { echo '$missing' >&2; exit 127; }"
+        'export UV_PROJECT_ENVIRONMENT=' + (ConvertTo-LegionShellLiteral $environment)
+        'exec uv run --project ' + (ConvertTo-LegionShellLiteral $App) + ' --frozen --quiet legion' + $homeArgument + ' "$@"'
+    )
+    return ($lines -join "`n") + "`n"
 }
 
 function Get-LegionShimHomeArgument {
@@ -24,7 +46,7 @@ function Get-LegionShimHomeArgument {
     $defaultHome = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($HOME))
     if ((Get-LegionPathComparer).Equals($selectedHome, $defaultHome)) { return '' }
     $literal = if ($Windows) { '"' + $selectedHome.Replace('%', '%%') + '"' } else { ConvertTo-LegionShellLiteral $selectedHome }
-    return ' -HomeRoot ' + $literal
+    return ' --home ' + $literal
 }
 
 function Get-LegionOwnerCommandState {
@@ -46,12 +68,14 @@ function Get-LegionCommandState {
     }
 }
 
-# Setup and refresh write the same platform command files, preserving unrelated files.
+# Setup and refresh write the same platform command files for the newest ready app, preserving unrelated files.
 function Write-LegionOwnerCommands {
-    param([string]$Bin, [string]$HomeRoot, [Collections.Generic.List[string]]$Changes)
+    param([string]$HomeRoot, [Collections.Generic.List[string]]$Changes)
+    $app = @(Get-LegionAppVersions -HomeRoot $HomeRoot)[0].Path
+    if (-not $app) { 'skip: command legion (the legion app is not ready)'; return }
     foreach ($file in (Get-LegionCommandState -Bin (Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin') -HomeRoot $HomeRoot)) {
         if ($file.State -eq 'blocked' -or -not (Test-LegionOwnerPathSafe -Path $file.Path -StopRoot $HomeRoot)) { continue }
-        $text = Get-LegionShimText -Script (Join-Path $Bin $file.Script) -Windows:$file.Windows -HomeRoot $HomeRoot
+        $text = Get-LegionShimText -App $app -Windows:$file.Windows -HomeRoot $HomeRoot
         Write-LegionGeneratedFile -Path $file.Path -Content $text -Executable:(-not $file.Windows) -Changes $Changes
     }
 }

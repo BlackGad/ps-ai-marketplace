@@ -46,7 +46,7 @@ function Write-LegionFootprints {
 }
 
 function Add-LegionFootprint {
-    param([string]$HomeRoot = $HOME, [ValidateSet('file', 'folder', 'link', 'path-entry', 'edit')][string]$Kind,
+    param([string]$HomeRoot = $HOME, [ValidateSet('file', 'folder', 'link', 'path-entry', 'edit', 'app')][string]$Kind,
         [string]$Path, [string]$Key = '', [string]$Value = '', [string]$Owner)
     if ($Path -cne 'user PATH') {
         $Path = [IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $Path -HomeRoot $HomeRoot))
@@ -97,7 +97,11 @@ function Remove-LegionFootprintOwner {
             $entry.owners = $remaining
             if ($remaining.Count) { $kept += $entry; continue }
             $path = Resolve-LegionHomePath -Path $entry.path -HomeRoot $HomeRoot
-            if ($entry.kind -cin @('file', 'folder')) {
+            if ($entry.kind -ceq 'app') {
+                Remove-LegionApp -HomeRoot $HomeRoot -WhatIf:$WhatIf
+                if (-not $WhatIf -and (Test-Path -LiteralPath $path)) { $kept += $entry }
+                $changed = $true
+            } elseif ($entry.kind -cin @('file', 'folder')) {
                 if (-not (Test-LegionFootprintSafe -Entry $entry -HomeRoot $HomeRoot)) { "skip: $path (linked or not legion's)"; $kept += $entry; continue }
                 if (Test-Path -LiteralPath $path) {
                     "Remove $($entry.kind): $path"
@@ -109,4 +113,34 @@ function Remove-LegionFootprintOwner {
         }
         if ($changed -and -not $WhatIf) { Write-LegionFootprints -HomeRoot $HomeRoot -Entries $kept }
     } finally { if ($lock) { $lock.Dispose() } }
+}
+
+# One app version and its environment. Windows refuses to move an environment a process runs from,
+# so a version still in use stays whole: false, and a later run retries.
+function Remove-LegionAppVersion {
+    param([string]$Path, [string]$HomeRoot)
+    $environment = Get-LegionPythonEnvironment -PluginRoot $Path -HomeRoot $HomeRoot
+    $removing = "$environment-removing"
+    try {
+        if (Test-Path -LiteralPath $removing) { Remove-Item -LiteralPath $removing -Recurse -Force -ErrorAction Stop }
+        if (Test-Path -LiteralPath $environment) {
+            [IO.Directory]::Move($environment, $removing)
+            Remove-Item -LiteralPath $removing -Recurse -Force -ErrorAction Stop
+        }
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+        return $true
+    } catch { return $false }
+}
+
+# Uninstall: every app version legion can remove; one line for each version still in use.
+function Remove-LegionApp {
+    param([string]$HomeRoot, [switch]$WhatIf)
+    $app = Get-LegionHomePath -Path 'app' -HomeRoot $HomeRoot
+    if (-not (Test-Path -LiteralPath $app)) { return }
+    foreach ($folder in @(Get-ChildItem -LiteralPath $app -Directory -Force)) {
+        if (-not (Test-LegionFootprintSafe -Entry ([pscustomobject]@{ kind = 'folder'; path = $folder.FullName }) -HomeRoot $HomeRoot)) { "skip: $($folder.FullName) (linked or not legion's)"; continue }
+        "Remove app version: $($folder.FullName)"
+        if (-not $WhatIf -and -not (Remove-LegionAppVersion -Path $folder.FullName -HomeRoot $HomeRoot)) { "Kept app folder in use: $($folder.FullName) (close legion, then run uninstall again)" }
+    }
+    if (-not $WhatIf -and -not @(Get-ChildItem -LiteralPath $app -Force).Count) { Remove-Item -LiteralPath $app -Force }
 }

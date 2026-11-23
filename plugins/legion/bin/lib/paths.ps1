@@ -267,3 +267,20 @@ function Find-LegionPersistentCommand {
 function Get-LegionRuntimeFiles {
     return @('bin/lib/tools.ps1', 'bin/lib/foundry.ps1', 'bin/lib/paths.ps1', 'bin/legion-foundry.ps1', 'schemas/tool.schema.json')
 }
+
+function Get-InstallPluginVersion {
+    param([string]$Root)
+    return (Get-Content -LiteralPath (Join-Path $Root 'plugin.json') -Raw | ConvertFrom-Json).version
+}
+
+# One environment folder per plugin copy, so copies never rebuild each other's environment.
+function Get-LegionPythonEnvironment {
+    param([string]$PluginRoot, [string]$HomeRoot = $HOME)
+
+    $absolute = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PluginRoot)
+    $key = (Resolve-LegionDirectoryPath $absolute).TrimEnd('/', '\')
+    if ($IsWindows) { $key = $key.ToLowerInvariant() }
+    $hash = [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($key))
+    $digest = ([BitConverter]::ToString($hash) -replace '-', '').ToLowerInvariant().Substring(0, 12)
+    return Get-LegionHomePath -Path "python/env-$digest" -HomeRoot $HomeRoot
+}

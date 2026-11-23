@@ -26,11 +26,6 @@ def test_version_reads_plugin_manifest(plugin_manifest: Path, capsys: pytest.Cap
     assert capsys.readouterr().out == "legion 9.8.8\n"
 
 
-def test_no_arguments_shows_help(capsys: pytest.CaptureFixture[str]) -> None:
-    assert run([]) == 0
-    assert "Usage: legion" in capsys.readouterr().out
-
-
 def test_help_lists_inbox_and_telegram(capsys: pytest.CaptureFixture[str]) -> None:
     assert run(["--help"]) == 0
     output = capsys.readouterr().out

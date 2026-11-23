@@ -46,6 +46,16 @@ foreach ($test in $testFiles) {
     $env:LEGION_TEST_GUARD = $guardHome
     foreach ($tempEnv in @('TMPDIR', 'TEMP', 'TMP')) { [Environment]::SetEnvironmentVariable($tempEnv, $temp, 'Process') }
     foreach ($configEnv in $toolConfigEnvs) { [Environment]::SetEnvironmentVariable($configEnv, (Join-Path $guardHome $configEnv), 'Process') }
+    # Tests never run the real uv: a stand-in first on PATH succeeds and does nothing.
+    $fakeUvFolder = Join-Path $guard 'fake-uv'
+    New-Item -ItemType Directory -Path $fakeUvFolder -Force | Out-Null
+    if ($IsWindows) { [IO.File]::WriteAllText((Join-Path $fakeUvFolder 'uv.cmd'), "@exit /b 0`r`n") }
+    else {
+        [IO.File]::WriteAllText((Join-Path $fakeUvFolder 'uv'), "#!/bin/sh`nexit 0`n")
+        [IO.File]::SetUnixFileMode((Join-Path $fakeUvFolder 'uv'), [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+    }
+    $savedPath = $env:PATH
+    $env:PATH = $fakeUvFolder + [IO.Path]::PathSeparator + $env:PATH
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $result = 'passed'
     $message = ''
@@ -71,6 +81,7 @@ foreach ($test in $testFiles) {
         }
         $cases += @{ Name = $test.Name; ClassName = 'unit'; Seconds = $watch.Elapsed.TotalSeconds; Result = $result; Message = $message }
         Set-Variable -Name HOME -Value $realHome -Force -Scope Global
+        $env:PATH = $savedPath
         foreach ($configEnv in $configEnvs) {
             if ($null -eq $savedConfig[$configEnv]) { Remove-Item -LiteralPath "Env:$configEnv" -ErrorAction SilentlyContinue }
             else { [Environment]::SetEnvironmentVariable($configEnv, $savedConfig[$configEnv], 'Process') }

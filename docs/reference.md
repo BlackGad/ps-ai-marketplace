@@ -253,6 +253,7 @@ To opt out, leave legion unused. To limit its use, route legion only to accounts
 | --- | --- | --- |
 | Personalisation and notes | `~/.legion/configuration/` | no |
 | Account wrappers and `legion` | `~/.legion/bin/` | no |
+| The app `legion` runs (a copy of the plugin per version, run through uv; each version's environment is `~/.legion/python/env-<hash>`) | `~/.legion/app/<version>/` | no |
 | New account config folders (adopted folders keep their names) | `~/.legion/agents/<id>/` | no |
 | Portable prerequisite tools | `~/.legion/tools/<tool>/` | no |
 | Cross-project knowledge wiki (optional, llm-wiki) | `~/.legion/knowledge/` | no |

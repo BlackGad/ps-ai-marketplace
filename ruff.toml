@@ -172,4 +172,5 @@ suppress-none-returning = true
 
 [lint.per-file-ignores]
 "plugins/legion/src/legion/_cli.py" = ["PLC0415"]
+"plugins/legion/src/legion/_forward.py" = ["S603"]
 "tests/python/legion/test_cli.py" = ["S603"]
