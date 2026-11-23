@@ -49,6 +49,7 @@ function Get-LegionShimHomeArgument {
     return ' --home ' + $literal
 }
 
+# Setup still uses this PowerShell twin; milestone 3 removes it.
 function Get-LegionOwnerCommandState {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return 'missing' }
@@ -56,7 +57,7 @@ function Get-LegionOwnerCommandState {
     return 'owned'
 }
 
-# One state per command file, shared by setup and status.
+# Setup still uses this PowerShell twin; milestone 3 removes it.
 function Get-LegionCommandState {
     param([string]$Bin, [string]$HomeRoot)
     $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }

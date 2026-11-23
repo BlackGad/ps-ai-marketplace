@@ -179,12 +179,7 @@ try {
             $bin = Join-Path $testHome '.legion/bin'
             $legion = Join-Path $bin $(if ($IsWindows) { 'legion.cmd' } else { 'legion' })
             Assert-True ([IO.File]::ReadAllText($legion).Contains('--home ')) 'R4 B4 generated command binds its home before execution'
-            # The fake uv runs the app's PowerShell entry point, as the Python CLI forwards status to it.
-            $previousPath = $env:PATH
-            $env:PATH = (Split-Path (New-TestCommandStub -Folder (Join-Path $tempRoot 'forwarding uv') -Name uv -Script (Join-Path $PSScriptRoot 'fixtures/fake-tools/uv.ps1'))) + [IO.Path]::PathSeparator + $env:PATH
-            try { $status = @(& $legion status) } finally { $env:PATH = $previousPath }
-            Assert-True ($status -notcontains 'no legion settings yet') 'R4 B4 generated legion reads the selected home settings'
-            Assert-True ($status -contains 'commands: yes') 'R4 B4 generated legion inspects the selected commands'
+            # Native status output for the bound home is covered by test_status.py's console-entry integration probe.
             $path = Join-Path $bin 'legion'
             $text = [IO.File]::ReadAllText($path)
             Assert-True ($text.Contains('--home ' + (ConvertTo-LegionShellLiteral $testHome))) 'R4 B4 every alternate-home shell command binds its home'

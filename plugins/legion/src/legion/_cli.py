@@ -86,6 +86,15 @@ def update(context: click.Context, check: bool, force: bool, yes: bool) -> None:
     context.exit(_forward.run(["update", *(["--yes"] if yes else [])], context.obj))
 
 
+@main.command("status", help="Show accounts, commands, channels and this repository")
+@click.pass_obj
+def status(home: Optional[Path]) -> None:
+    from . import _status
+
+    for line in _status.status_lines(Path.cwd(), home):
+        click.echo(line)
+
+
 @main.group(help="Send or read repository overseer messages")
 def inbox() -> None:
     pass
