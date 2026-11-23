@@ -68,6 +68,26 @@ def test_status_without_settings_is_native_and_exits_zero(tmp_path: Path, monkey
     assert capsys.readouterr().out.splitlines() == ["no legion settings yet", "path ~/.legion/bin on PATH: no", "commands: missing legion", "repo none"]
 
 
+@pytest.mark.parametrize("broken", ["invalid", "extra", "unreadable"])
+def test_status_tells_broken_settings_from_missing_ones(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], broken: str) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    home = tmp_path / "home"
+    file = home / ".legion/configuration/personalisation.json"
+    if broken == "invalid":
+        write(file, '{"private-sentinel": ')
+    elif broken == "extra":
+        write(file, json.dumps({"schemaVersion": 1, "agents": [], "channels": [], "private-sentinel": "private-sentinel"}))
+    else:
+        (file / "private-sentinel").mkdir(parents=True)
+    assert run(["--home", str(home), "status"]) == 0
+    output = capsys.readouterr()
+    problem = "cannot be read" if broken == "unreadable" else "are not valid"
+    expected = f"legion settings {problem}: {file}; run legion setup"
+    assert output.out.splitlines() == [expected, "path ~/.legion/bin on PATH: no", "commands: missing legion", "repo none"]
+    assert "private-sentinel" not in output.out + output.err
+
+
 def snapshot(home: Path) -> dict[Path, tuple[bytes, int]]:
     return {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in home.rglob("*") if path.is_file()}
 
@@ -371,6 +391,8 @@ def test_broken_inputs_preserve_the_rest_of_status(channel_session: tuple[Person
         write(root / "skills" / file, "{")
         monkeypatch.setattr(_validate, "PLUGIN_ROOT", root)
     lines = _status.status_lines(tmp_path, home)
+    if broken == "settings":
+        assert lines[0] == f"legion settings are not valid: {home / '.legion/configuration/personalisation.json'}; run legion setup"
     assert lines[-1] == "repo none"
     assert any(line.startswith("commands:") for line in lines)
     assert WARNING not in lines

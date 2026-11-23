@@ -1,9 +1,11 @@
+import contextlib
 import dataclasses
 import io
 import json
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from datetime import UTC, datetime, timedelta
@@ -157,6 +159,41 @@ def test_unwritable_cache_keeps_result(plugin: Path, remote: dict[str, Any], tmp
     assert remote["calls"] == [URL]
 
 
+def test_concurrent_writers_never_show_a_reader_a_partial_cache(plugin: Path, remote: dict[str, Any], tmp_path: Path) -> None:
+    remote["text"] = '{"name":"legion","version":"10.20.30-a-much-longer-prerelease-name"}'
+    path = cache_path(tmp_path)
+    assert _update.get_update(plugin, tmp_path, force=True) is not None
+    stop = threading.Event()
+    broken: list[str] = []
+
+    def write(fail: bool) -> None:
+        while not stop.is_set():
+            remote["fail"] = fail
+            with contextlib.suppress(OSError, ValueError):
+                _update.get_update(plugin, tmp_path, force=True)
+
+    def read() -> None:
+        while not stop.is_set():
+            try:
+                text = path.read_text(encoding="utf-8-sig")
+            except OSError:
+                continue  # Windows may refuse an open while the file is being replaced; that is not a partial record.
+            try:
+                _update.UpdateCache.from_json(text)
+            except (ValueError, TypeError):
+                broken.append(text)
+
+    workers = [threading.Thread(target=write, args=(fail,)) for fail in (False, True)] + [threading.Thread(target=read) for _ in range(2)]
+    for worker in workers:
+        worker.start()
+    time.sleep(3)
+    stop.set()
+    for worker in workers:
+        worker.join()
+    assert broken == []
+    assert [item.name for item in path.parent.iterdir()] == [path.name]
+
+
 def test_default_home_and_powershell_timestamp(plugin: Path, remote: dict[str, Any]) -> None:
     path = save_cache(Path.home(), CheckedAt=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") + "0+00:00")
     assert _update.get_update(plugin) is not None
@@ -226,14 +263,17 @@ def stalled(*args, **kwargs):
     return Response()
 urllib.request.urlopen = stalled
 _plugin.PLUGIN_ROOT = Path(sys.argv[1])
+Path(sys.argv[4]).write_text(str(time.monotonic()), encoding='utf-8')
 _cli.main(['--home', sys.argv[2], 'update', '--check', '--force'], prog_name='legion')
 """
-    started = time.monotonic()
-    process = subprocess.run([sys.executable, "-c", script, str(plugin), str(tmp_path), stage], capture_output=True, text=True, timeout=6, check=False)
-    elapsed = time.monotonic() - started
+    marker = tmp_path / "cli-started"
+    process = subprocess.run([sys.executable, "-c", script, str(plugin), str(tmp_path), stage, str(marker)], capture_output=True, text=True, timeout=60, check=False)
+    finished = time.monotonic()
     assert process.returncode == 0, process.stderr
     assert process.stdout == FAILURE
     assert process.stderr == ""
+    # Exclude interpreter startup and imports, but include the CLI call and process exit.
+    elapsed = finished - float(marker.read_text(encoding="utf-8"))
     assert 2.5 <= elapsed < 3.8
     assert json.loads(cache_path(tmp_path).read_text())["Failed"] is True
 
@@ -242,6 +282,7 @@ def test_cached_check_imports_only_stdlib(plugin: Path, tmp_path: Path) -> None:
     save_cache(tmp_path)
     script = """
 import sys
+import threading
 from pathlib import Path
 before = set(sys.modules)
 from legion._update import get_update

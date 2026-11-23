@@ -3,6 +3,7 @@
 import re
 import shutil
 import tempfile
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -51,12 +52,18 @@ def find_executable(name: str) -> str:
 
 
 # A fresh empty folder keeps a ping away from every project's settings, rules and hooks.
+# The git init a Codex ping needs and the ping itself share one deadline.
 def ping(command: str, arguments: Sequence[str], timeout: float, *, git: bool = False) -> Ping:
+    deadline = time.monotonic() + timeout
     work = Path(tempfile.mkdtemp(prefix="legion-limits-"))
     try:
         if git:
-            run_command(find_executable("git"), ["-C", str(work), "init", "-q"], timeout=timeout)
-        result = run_command(command, arguments, timeout=timeout, cwd=work)
+            initialised = run_command(find_executable("git"), ["-C", str(work), "init", "-q"], timeout=timeout)
+            if initialised.timed_out:
+                raise RuntimeError("git init timed out")
+            if initialised.exit_code != 0:
+                raise RuntimeError(f"git init failed (exit code {initialised.exit_code})")
+        result = run_command(command, arguments, timeout=max(0.0, deadline - time.monotonic()), cwd=work)
         return Ping(result.exit_code, result.output, result.error, result.timed_out, work.resolve())
     finally:
         shutil.rmtree(work, ignore_errors=True)

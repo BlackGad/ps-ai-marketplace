@@ -5,7 +5,6 @@ import shutil
 import stat
 import subprocess
 import sys
-from contextlib import suppress
 from pathlib import Path
 from typing import Optional
 
@@ -218,14 +217,23 @@ def channel_warnings(settings: PersonalisationSettings, home: Path, tools: list[
 
 def status_lines(repo: Path, home: Optional[Path] = None) -> list[str]:
     home = home if home is not None else Path.home()
+    file = home / ".legion" / "configuration" / "personalisation.json"
     settings = None
-    with suppress(OSError, ValueError):
-        settings = PersonalisationSettings.model_validate_json(_read_text(home / ".legion" / "configuration" / "personalisation.json"))
+    # The file's contents stay private: a broken file is named, never quoted.
+    settings_line = "no legion settings yet"
+    try:
+        settings = PersonalisationSettings.model_validate_json(_read_text(file))
+    except FileNotFoundError:
+        pass
+    except OSError:
+        settings_line = f"legion settings cannot be read: {file}; run legion setup"
+    except ValueError:
+        settings_line = f"legion settings are not valid: {file}; run legion setup"
     try:
         tools = _load_descriptors(ToolDescriptor, "tool.json")
     except (OSError, ValueError):
         tools = []
-    lines = ["accounts"] if settings is not None else ["no legion settings yet"]
+    lines = ["accounts"] if settings is not None else [settings_line]
     if settings is not None:
         for agent in settings.agents:
             matches = [tool for tool in tools if tool.id == agent.tool]

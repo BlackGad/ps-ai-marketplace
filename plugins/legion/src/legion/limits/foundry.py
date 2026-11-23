@@ -25,7 +25,8 @@ def check_token(timeout: float) -> TokenCheck:
     if result.timed_out:
         return TokenCheck(ok=False, error="az timed out")
     if result.exit_code != 0:
-        return TokenCheck(ok=False, error=result.error or result.output)
+        # Its output can hold the token even on failure, so only the exit code is shown.
+        return TokenCheck(ok=False, error=f"az could not get a token (exit code {result.exit_code})")
     try:
         data = json.loads(result.output)
     except ValueError:
