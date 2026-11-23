@@ -284,4 +284,5 @@ class ToolDescriptor(ToolModel):
 
 
 class PluginManifest(BaseModel):
+    name: str
     version: str

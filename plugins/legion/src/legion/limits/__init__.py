@@ -6,8 +6,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
+from .._home import home_path, settings_path, wrapper_command
 from .._settings_models import Agent, PersonalisationSettings
-from .._validate import _read_text
+from .._validate import read_text
 from . import (
     claude,
     codex,
@@ -33,11 +34,11 @@ class LimitsError(Exception):
 
 # The limits table of every account, or of one.
 def report_lines(home: Path, account: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT) -> list[str]:
-    file = home / ".legion" / "configuration" / "personalisation.json"
+    file = settings_path(home)
     if not file.is_file():
         raise LimitsError("No legion settings yet; run legion setup.")
     try:
-        agents = PersonalisationSettings.model_validate_json(_read_text(file)).agents
+        agents = PersonalisationSettings.model_validate_json(read_text(file)).agents
     except (OSError, ValueError) as error:
         raise LimitsError("legion settings are not valid: " + first_line(str(error))) from None
     if account is not None:
@@ -77,18 +78,6 @@ def account_rows(agent: Agent, home: Path, timeout: float) -> list[LimitRow]:
         return reader(str(command), home_path(agent.config_dir, home), timeout)
     except Exception as error:
         return [LimitRow(status="error: " + first_line(str(error)))]
-
-
-def wrapper_command(account: str, home: Path) -> Path:
-    name = f"{account}.cmd" if sys.platform == "win32" else account
-    return (home / ".legion" / "bin" / name).absolute()
-
-
-# '~/' or '~\' at the start means the legion home root.
-def home_path(path: str, home: Path) -> Path:
-    if path[:2] in ("~/", "~\\"):
-        return home / path[2:]
-    return Path(path)
 
 
 def _is_executable(path: Path) -> bool:

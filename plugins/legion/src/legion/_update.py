@@ -13,6 +13,7 @@ SOURCE = "BlackGad/ps-legion-marketplace"
 MANIFEST_URL = f"https://raw.githubusercontent.com/{SOURCE}/stable/plugins/legion/plugin.json"
 CHECK_SECONDS = 3
 FAILURE = "legion: update check failed; could not read the installed or GitHub plugin manifest."
+UPDATE_COMMAND = "legion update"
 _VERSION = re.compile(r"([0-9]+)(?:\.([0-9]+))?(?:\.([0-9]+))?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?")
 
 
@@ -75,7 +76,6 @@ class Update:
     installed: str
     available: str
     newer: bool
-    command: str = "legion update"
 
 
 def _manifest_version(text: str) -> str:
@@ -159,6 +159,6 @@ def check_lines(plugin_root: Path, home: Optional[Path] = None, *, force: bool =
             return []
         if not result.newer:
             return [f"legion {result.installed} is up to date."]
-        return [f"legion installed: {result.installed}", f"legion available: {result.available}", result.command]
+        return [f"legion installed: {result.installed}", f"legion available: {result.available}", UPDATE_COMMAND]
     except (OSError, ValueError, TypeError):
         return [FAILURE]

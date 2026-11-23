@@ -169,7 +169,7 @@ class _ProcessEntry(ctypes.Structure):
 
 
 _TH32CS_SNAPPROCESS = 0x2
-_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 _STILL_ACTIVE = 259
 _FILETIME_EPOCH = datetime(1601, 1, 1, tzinfo=UTC)
 
@@ -202,7 +202,7 @@ def _windows_lookup() -> Lookup:
     def lookup(pid: int) -> Optional[ProcessInfo]:
         if pid not in snapshot:
             return None
-        process = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not process:
             return None
         try:

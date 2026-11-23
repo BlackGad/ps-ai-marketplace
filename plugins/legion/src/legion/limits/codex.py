@@ -1,10 +1,11 @@
 # Codex prints no limits; its session file in the account folder holds the last rate_limits it saw.
 
-import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
+
+from pydantic import BaseModel, ValidationError
 
 from ._ping import (
     LimitRow,
@@ -17,6 +18,36 @@ from ._ping import (
 
 ARGUMENTS = ["exec", "ping"]
 RETRY = re.compile(r"try again at (.+?)\.?\s*$", re.IGNORECASE)
+
+
+class Window(BaseModel):
+    used_percent: Optional[float] = None
+    window_minutes: Optional[int] = None
+    resets_at: Optional[float] = None
+
+
+class RateLimits(BaseModel):
+    primary: Optional[Window] = None
+    secondary: Optional[Window] = None
+
+
+class RateLimitsPayload(BaseModel):
+    rate_limits: Optional[RateLimits] = None
+
+
+# Newer sessions put rate_limits in the payload, older ones at the top.
+class RateLimitsRecord(BaseModel):
+    payload: Optional[RateLimitsPayload] = None
+    rate_limits: Optional[RateLimits] = None
+
+
+class SessionPayload(BaseModel):
+    cwd: Optional[str] = None
+
+
+class SessionMeta(BaseModel):
+    type: Optional[str] = None
+    payload: Optional[SessionPayload] = None
 
 
 # Codex needs a git folder to run.
@@ -35,15 +66,14 @@ def rows(result: Ping, folder: Path) -> list[LimitRow]:
         return [LimitRow(resets=retry.group(1) if retry else "unknown", status="limit reached")]
     if result.exit_code != 0:
         return [LimitRow(status=ping_failure(result, "usage limit"))]
-    limits = _session_limits(folder / "sessions", result.folder) or {}
+    limits = _session_limits(folder / "sessions", result.folder) or RateLimits()
     found = []
-    for name in ("primary", "secondary"):
-        window = limits.get(name)
+    for name, window in (("primary", limits.primary), ("secondary", limits.secondary)):
         if window is None:
             continue
-        used = format_used_percent(window["used_percent"]) if window.get("used_percent") is not None else "unknown"
-        resets = format_reset_time(window["resets_at"]) if window.get("resets_at") else "unknown"
-        found.append(LimitRow(window=window_name(window.get("window_minutes"), name), used=used, resets=resets))
+        used = format_used_percent(window.used_percent) if window.used_percent is not None else "unknown"
+        resets = format_reset_time(window.resets_at) if window.resets_at else "unknown"
+        found.append(LimitRow(window=window_name(window.window_minutes, name), used=used, resets=resets))
     return found or [LimitRow(status="no limit readout")]
 
 
@@ -59,7 +89,8 @@ def window_name(minutes: Optional[int], fallback: str) -> str:
 
 
 # Only the ping's disposable working folder can identify its session; timestamps cannot.
-def _session_limits(sessions: Path, ping_folder: Path) -> Optional[dict[str, Any]]:
+# A record of another shape is skipped like unreadable JSON.
+def _session_limits(sessions: Path, ping_folder: Path) -> Optional[RateLimits]:
     for file in sorted(sessions.rglob("*.jsonl")):
         if not file.is_file():
             continue
@@ -71,12 +102,10 @@ def _session_limits(sessions: Path, ping_folder: Path) -> Optional[dict[str, Any
                 if '"rate_limits"' not in line:
                     continue
                 try:
-                    record = json.loads(line)
-                except ValueError:
+                    record = RateLimitsRecord.model_validate_json(line)
+                except ValidationError:
                     continue
-                if not isinstance(record, dict):
-                    continue
-                found = (record.get("payload") or {}).get("rate_limits") or record.get("rate_limits")
+                found = (record.payload and record.payload.rate_limits) or record.rate_limits
                 if found:
                     limits = found
             return limits
@@ -85,10 +114,8 @@ def _session_limits(sessions: Path, ping_folder: Path) -> Optional[dict[str, Any
 
 def _is_session_of(first_line: str, ping_folder: Path) -> bool:
     try:
-        metadata = json.loads(first_line)
-    except ValueError:
+        metadata = SessionMeta.model_validate_json(first_line)
+    except ValidationError:
         return False
-    if not isinstance(metadata, dict):
-        return False
-    cwd = (metadata.get("payload") or {}).get("cwd") if metadata.get("type") == "session_meta" else None
+    cwd = metadata.payload.cwd if metadata.type == "session_meta" and metadata.payload else None
     return bool(cwd) and os.path.normcase(Path(cwd).resolve()) == os.path.normcase(ping_folder)

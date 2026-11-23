@@ -10,6 +10,7 @@ from typing import Optional
 from pydantic import TypeAdapter
 
 from . import _inbox
+from ._process import PROCESS_QUERY_LIMITED_INFORMATION
 from ._telegram import (
     Access,
     Message,
@@ -17,8 +18,8 @@ from ._telegram import (
     TelegramError,
     Update,
     User,
-    _post,
     bot_folder,
+    call_bot,
     read_token,
 )
 
@@ -30,7 +31,7 @@ def process_alive(pid: int) -> bool:
     if pid <= 0:
         return False
     if sys.platform == "win32":
-        process = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        process = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not process:
             return False
         code = ctypes.c_ulong()
@@ -100,7 +101,7 @@ def run(
     channel: str,
     repo: Path,
     *,
-    post: Post = _post,
+    post: Post = call_bot,
     alive: Callable[[int], bool] = process_alive,
     deliver: Optional[Callable[[Path, str, str], None]] = None,
     sleep: Callable[[float], None] = time.sleep,

@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 
 from legion import _process
-from legion._process import ProcessInfo, ancestors, owner_process, process_started_at, same_start_time
+from legion._process import (
+    ProcessInfo,
+    ancestors,
+    owner_process,
+    process_started_at,
+    same_start_time,
+)
 
 BASE = datetime(2026, 11, 23, 8, 0, tzinfo=UTC)
 

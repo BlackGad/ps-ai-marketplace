@@ -63,7 +63,7 @@ def save_cache(home: Path, **changes: Any) -> Path:
 def test_check_cache_and_running_manifest(plugin: Path, remote: dict[str, Any], tmp_path: Path) -> None:
     result = _update.get_update(plugin, tmp_path)
     assert result is not None
-    assert (result.installed, result.available, result.newer, result.command) == ("0.3.0", "0.4.0", True, "legion update")
+    assert (result.installed, result.available, result.newer) == ("0.3.0", "0.4.0", True)
     assert remote["calls"] == [URL]
     path = cache_path(tmp_path)
     before = path.read_bytes()

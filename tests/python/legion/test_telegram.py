@@ -125,7 +125,7 @@ def test_real_post_hides_token_in_errors(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setattr(_telegram._opener, "open", refuse)
     with pytest.raises(TelegramError) as caught:
-        _telegram._post(BOT_KEY, "getUpdates", {}, [])
+        _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
     assert (caught.value.code, str(caught.value)) == (409, "Conflict")
 
     def offline(*_arguments: Any, **_options: Any) -> Any:
@@ -133,7 +133,7 @@ def test_real_post_hides_token_in_errors(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setattr(_telegram._opener, "open", offline)
     with pytest.raises(TelegramError) as caught:
-        _telegram._post(BOT_KEY, "getUpdates", {}, [])
+        _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
     assert caught.value.code == 0
     assert BOT_KEY not in str(caught.value)
 
@@ -150,7 +150,7 @@ def test_real_post_sends_multipart(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     monkeypatch.setattr(_telegram._opener, "open", accept)
     attachment = tmp_path / "a b.txt"
     attachment.write_bytes(b"payload")
-    result = _telegram._post(BOT_KEY, "sendDocument", {"chat_id": "42"}, [("document", attachment)])
+    result = _telegram.call_bot(BOT_KEY, "sendDocument", {"chat_id": "42"}, [("document", attachment)])
     assert result == {"message_id": 5, "chat": {"id": 42, "type": "private"}}
     assert seen["url"] == f"https://api.telegram.org/bot{BOT_KEY}/sendDocument"
     assert seen["type"].startswith("multipart/form-data; boundary=")
@@ -162,7 +162,7 @@ def test_real_post_sends_multipart(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
 @pytest.mark.usefixtures("bot_folder")
 def test_cli_send_and_react(monkeypatch: pytest.MonkeyPatch) -> None:
     post = FakePost()
-    monkeypatch.setattr(_telegram, "_post", post)
+    monkeypatch.setattr(_telegram, "call_bot", post)
     assert run(["telegram", "send", "--channel", "main", "--chat", "42", "--text", "hi", "--file", "x.txt", "--reply-to", "3"]) == 0
     assert [call[1] for call in post.calls] == ["sendMessage", "sendDocument"]
     assert run(["telegram", "react", "--channel", "main", "--chat", "42", "--message", "3", "--emoji", "x"]) == 0
@@ -174,7 +174,7 @@ def test_http_layer_errors_never_show_the_token(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(_telegram._opener, "open", invalid)
     with pytest.raises(TelegramError) as caught:
-        _telegram._post(BOT_KEY, "getUpdates", {}, [])
+        _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
     assert BOT_KEY not in str(caught.value)
     assert caught.value.__cause__ is None
     assert caught.value.__suppress_context__

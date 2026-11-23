@@ -4,17 +4,19 @@ import re
 import shutil
 import tempfile
 import time
-from dataclasses import dataclass
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Sequence
+
+from pydantic import BaseModel, ConfigDict
 
 from .._run import run_command
 
 
 # One row of the limits table; every field a tool does not expose stays 'unknown'.
-@dataclass(frozen=True)
-class LimitRow:
+class LimitRow(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     window: str = "-"
     used: str = "unknown"
     resets: str = "unknown"
@@ -22,8 +24,9 @@ class LimitRow:
 
 
 # A finished ping. folder is the resolved ping folder, which a Codex session names as its working folder.
-@dataclass(frozen=True)
-class Ping:
+class Ping(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     exit_code: int
     output: str
     error: str
@@ -64,7 +67,7 @@ def ping(command: str, arguments: Sequence[str], timeout: float, *, git: bool = 
             if initialised.exit_code != 0:
                 raise RuntimeError(f"git init failed (exit code {initialised.exit_code})")
         result = run_command(command, arguments, timeout=max(0.0, deadline - time.monotonic()), cwd=work)
-        return Ping(result.exit_code, result.output, result.error, result.timed_out, work.resolve())
+        return Ping(exit_code=result.exit_code, output=result.output, error=result.error, timed_out=result.timed_out, folder=work.resolve())
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

@@ -13,14 +13,14 @@ from legion import _plugin
 def plugin_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(_plugin, "PLUGIN_ROOT", tmp_path)
     manifest = tmp_path / "plugin.json"
-    manifest.write_text(json.dumps({"version": "9.8.7"}), encoding="utf-8")
+    manifest.write_text(json.dumps({"name": "legion", "version": "9.8.7"}), encoding="utf-8")
     return manifest
 
 
 def test_version_reads_plugin_manifest(plugin_manifest: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert run(["--version"]) == 0
     assert capsys.readouterr().out == "legion 9.8.7\n"
-    plugin_manifest.write_text(json.dumps({"version": "9.8.8"}), encoding="utf-8")
+    plugin_manifest.write_text(json.dumps({"name": "legion", "version": "9.8.8"}), encoding="utf-8")
     assert run(["--version"]) == 0
     assert capsys.readouterr().out == "legion 9.8.8\n"
 

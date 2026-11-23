@@ -21,6 +21,7 @@ from pydantic import (
 )
 
 from . import _lease
+from ._home import wrapper_command
 from ._run import run_command
 
 NUDGE_TIMEOUT_SECONDS = 15
@@ -113,11 +114,12 @@ def _queue_pointer(account: str, session: str, sender: str, home: Path) -> bool:
         return False
     pointer = f"New legion inbox message from {' '.join(sender.split())}; read it as the legion-overseer inbox reference describes (inbox.md)."
     arguments = ["queue", "--thread", session, "--message", pointer]
+    command_path = wrapper_command(account, home)
     try:
         if os.name != "nt":
-            result = run_command(str(home / ".legion" / "bin" / account), arguments, timeout=NUDGE_TIMEOUT_SECONDS)
+            result = run_command(str(command_path), arguments, timeout=NUDGE_TIMEOUT_SECONDS)
         else:
-            launcher = _windows_launcher(home / ".legion" / "bin" / f"{account}.cmd", account)
+            launcher = _windows_launcher(command_path, account)
             if launcher is None:
                 return False
             command, environment = launcher

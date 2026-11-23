@@ -1,7 +1,11 @@
 # A Foundry account has no window: it reports whether az can get a Cognitive Services token. The token never leaves this module.
 
-import json
-from dataclasses import dataclass
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+)
 
 from .._run import run_command
 from ._ping import find_executable
@@ -9,8 +13,14 @@ from ._ping import find_executable
 TOKEN_ARGUMENTS = ["account", "get-access-token", "--resource", "https://cognitiveservices.azure.com", "-o", "json"]
 
 
-@dataclass(frozen=True)
-class TokenCheck:
+# Only the presence of the token is used; az prints more fields, which are ignored.
+class AccessToken(BaseModel):
+    access_token: str = Field(alias="accessToken", min_length=1)
+
+
+class TokenCheck(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     ok: bool
     error: str = ""
 
@@ -28,9 +38,7 @@ def check_token(timeout: float) -> TokenCheck:
         # Its output can hold the token even on failure, so only the exit code is shown.
         return TokenCheck(ok=False, error=f"az could not get a token (exit code {result.exit_code})")
     try:
-        data = json.loads(result.output)
-    except ValueError:
-        data = None
-    if not isinstance(data, dict) or not data.get("accessToken"):
+        AccessToken.model_validate_json(result.output)
+    except ValidationError:
         return TokenCheck(ok=False, error="az returned no access token")
     return TokenCheck(ok=True)
