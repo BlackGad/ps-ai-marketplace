@@ -22,7 +22,7 @@ Check the attachment exists first. Inspect delivery evidence for each resolved t
 
 ## Codex
 
-Owner messages arrive in the inbox (read it as the legion-overseer inbox reference says) as `from: telegram` with an indented body whose first line is `telegram chat_id=<id> message_id=<id> user=<name>`. Reply with the chat id from that line, through `Invoke-LegionPython`; print its `Output` and `Error` as that reference shows:
+On Codex the channel is the bridge: when `TELEGRAM_STATE_DIR` is set, Telegram is connected even though no plugin tools exist. Owner messages arrive in the inbox (read it as the legion-overseer inbox reference says) as `from: telegram` with an indented body whose first line is `telegram chat_id=<id> message_id=<id> user=<name>`. Reply with the chat id from that line, through `Invoke-LegionPython`; print its `Output` and `Error` as that reference shows:
 
 ```text
 telegram send --channel <id> --chat <chat id> --text <text> [--format text|markdownv2] [--reply-to <message id>] [--file <path>]...
