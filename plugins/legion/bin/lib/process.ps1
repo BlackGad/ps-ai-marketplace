@@ -9,7 +9,7 @@ function Invoke-LegionProcess {
     $start.RedirectStandardInput = $true
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    # Children (legion-py, uv) write UTF-8; the default would be the console code page.
+    # Children (legion, uv) write UTF-8; the default would be the console code page.
     $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
     $start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
     if ($WorkingDirectory) { $start.WorkingDirectory = $WorkingDirectory }

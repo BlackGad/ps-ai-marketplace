@@ -24,7 +24,7 @@ try {
     $arguments = @($output[0] | ConvertFrom-Json)
     Assert-Equal 'run|--project' (($arguments | Select-Object -First 2) -join '|') 'uv project invocation'
     Assert-Equal (Resolve-LegionDirectoryPath (Join-Path $repo 'plugins/legion')) $arguments[2] 'Plugin project path'
-    Assert-Equal '--frozen|legion-py|--version|two words' (($arguments | Select-Object -Skip 3) -join '|') 'Arguments stay separate'
+    Assert-Equal '--frozen|legion|--version|two words' (($arguments | Select-Object -Skip 3) -join '|') 'Arguments stay separate'
     Assert-Equal (Get-LegionPythonEnvironment -PluginRoot $arguments[2] -HomeRoot $selectedHome) $output[1] 'Environment under selected legion home'
     Assert-True ($result.Error.Contains('fixture stderr')) 'stderr returned'
     Assert-Equal 'caller environment' $env:UV_PROJECT_ENVIRONMENT 'Caller environment restored'

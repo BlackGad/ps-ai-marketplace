@@ -4,6 +4,7 @@ import os
 import sys
 import time
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any, Optional
 
@@ -96,15 +97,17 @@ def run(
     *,
     post: Post = _post,
     alive: Callable[[int], bool] = process_alive,
-    deliver: Callable[[Path, str, str], None] = _inbox.send,
+    deliver: Optional[Callable[[Path, str, str], None]] = None,
     sleep: Callable[[float], None] = time.sleep,
+    home: Optional[Path] = None,
 ) -> int:
+    send = deliver or partial(_inbox.send, home=home)
     try:
-        token = read_token(channel)
+        token = read_token(channel, home)
     except TelegramError as error:
         print(f"telegram: {error}", file=sys.stderr)
         return 1
-    folder = bot_folder(channel)
+    folder = bot_folder(channel, home)
     for name in ("bridge.pid", "bot.pid"):
         if _live_pid(folder / name, alive):
             print(f"telegram: another program is already polling this bot ({name} in the bot folder)", file=sys.stderr)
@@ -133,7 +136,7 @@ def run(
                 backoff = min(backoff * 2, MAX_BACKOFF)
                 continue
             backoff = 1
-            _deliver_updates(updates, _allow_from(folder), repo, deliver)
+            _deliver_updates(updates, _allow_from(folder), repo, send)
             if updates:
                 offset = updates[-1]["update_id"] + 1
     except KeyboardInterrupt:

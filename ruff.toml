@@ -169,3 +169,7 @@ allow-star-arg-any = true
 mypy-init-return = true
 suppress-dummy-args = true
 suppress-none-returning = true
+
+[lint.per-file-ignores]
+"plugins/legion/src/legion/_cli.py" = ["PLC0415"]
+"tests/python/legion/test_cli.py" = ["S603"]
