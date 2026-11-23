@@ -63,9 +63,7 @@ try {
     $call = Get-LegionCall -Words @('uninstall')
     Assert-True ($call.Installer -and $call.Splat.Uninstall) 'uninstall runs the installer'
 
-    $call = Get-LegionCall -Words @('status')
-    Assert-Equal 'legion-status.ps1' $call.Script 'status script'
-    Assert-Equal $cwd $call.Splat.Repo 'status repo'
+    Assert-Throws { Get-LegionCall -Words @('status') } 'status is served by Python'
 
     Assert-Equal $null (Get-LegionCall -Words @('help')) 'help gives no call'
 
@@ -103,7 +101,7 @@ Get-Content -LiteralPath (Join-Path $scratch 'plan.txt')
 $code = (Get-Content -LiteralPath (Join-Path $scratch 'exit.txt')).Trim()
 if ($code -ne 'none') { exit [int]$code }
 '@
-    foreach ($name in 'legion-setup.ps1', 'legion-account.ps1', 'legion-status.ps1', 'legion-repository.ps1', 'legion-overseer.ps1') {
+    foreach ($name in 'legion-setup.ps1', 'legion-account.ps1', 'legion-repository.ps1', 'legion-overseer.ps1') {
         Set-Content -LiteralPath (Join-Path $standIns $name) -Value $standInText
     }
     $script:LegionBin = $standIns
@@ -136,7 +134,7 @@ if ($code -ne 'none') { exit [int]$code }
     & {
         . $legionScript -HomeRoot $scratch
         $script:LegionBin = $standIns
-        foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'), @('status'), @('remove', 'codex1'), @('--no-channel'))) {
+        foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'), @('pick'), @('remove', 'codex1'), @('--no-channel'))) {
             Reset-StandIns -Exit 'none'
             Invoke-Legion -Words $words | Out-Null
             Assert-Equal $scratch (Get-Records)[0].HomeRoot 'R4 B4 legion carries the bound home through dispatch'
@@ -167,17 +165,17 @@ if ($code -ne 'none') { exit [int]$code }
     Assert-Equal '' "$($record1.Repo)" 'Remove gets no Repo'
 
     Reset-StandIns -Exit '3'
-    Assert-Equal 3 (Invoke-Quiet @('status')) 'A failing script gives its exit code'
+    Assert-Equal 3 (Invoke-Quiet @('setup', '--yes')) 'A failing script gives its exit code'
 
     Reset-StandIns -Exit 'none'
     $global:LASTEXITCODE = 7
-    Assert-Equal 0 (Invoke-Quiet @('status')) 'A stale exit code does not leak into a success'
+    Assert-Equal 0 (Invoke-Quiet @('setup', '--yes')) 'A stale exit code does not leak into a success'
 
-    Remove-Item -LiteralPath (Join-Path $standIns 'legion-status.ps1')
+    Remove-Item -LiteralPath (Join-Path $standIns 'legion-setup.ps1')
     $global:LASTEXITCODE = 0
-    Assert-Equal 1 (Invoke-Quiet @('status')) 'A script that cannot run gives exit 1'
+    Assert-Equal 1 (Invoke-Quiet @('setup', '--yes')) 'A script that cannot run gives exit 1'
     Assert-True ($script:Output.Count -gt 0) 'A script that cannot run prints a message'
-    Set-Content -LiteralPath (Join-Path $standIns 'legion-status.ps1') -Value $standInText
+    Set-Content -LiteralPath (Join-Path $standIns 'legion-setup.ps1') -Value $standInText
 
     # --- Rejections: help text, exit 1, nothing runs ---
     foreach ($words in @(@('frobnicate'), @('remove'), @('add', 'claude', 'x', 'extra'), @('status', '--yes'), @('setup', '--no-channel'), @('remove', 'a', '--yes'), @('start'), @('repo'), @('pick', 'a'), @('update', 'main'), @('add'))) {

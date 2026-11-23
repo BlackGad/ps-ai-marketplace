@@ -2,6 +2,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
+# Setup still uses this PowerShell twin; milestone 3 removes it.
 function Get-LegionCopilotLocalManifest {
     param([string]$ConfigDir)
 
@@ -22,6 +23,7 @@ function Get-LegionCopilotLocalManifest {
     return $null
 }
 
+# Setup still uses this PowerShell twin; milestone 3 removes it.
 function Get-LegionInstalledVersion {
     param([string]$ConfigDir, $Tool)
 

@@ -1,6 +1,6 @@
 # Set up, add or remove accounts
 
-1. Start with status: `pwsh -NoProfile -File <plugin>/bin/legion-status.ps1`. It reads only files and shows settings, accounts, commands and channels. Reuse the owner's earlier answers.
+1. Start with status: `legion status`. It reads settings, accounts, commands and channels, and warns when a bound channel is disconnected from this session. Reuse the owner's earlier answers.
 
 2. Ask which agents to add: the tool, an optional account name, and an existing folder or a new one. Adding no accounts yet is valid. A folder the owner already uses keeps its settings and login.
 

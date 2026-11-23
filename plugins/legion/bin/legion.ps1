@@ -96,10 +96,6 @@ function Get-LegionCall {
             $splat = @{ Action = 'remove'; Id = $arguments[0] }
             return @{ Script = 'legion-account.ps1'; Splat = $splat; AsksToApply = $false }
         }
-        'status' {
-            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags @() -MinArguments 0 -MaxArguments 0
-            return @{ Script = 'legion-status.ps1'; Splat = @{ Repo = $repo }; AsksToApply = $false }
-        }
         'limits' {
             Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags @() -MinArguments 0 -MaxArguments 1
             $splat = @{}

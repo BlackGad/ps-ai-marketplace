@@ -35,16 +35,16 @@ def test_forwarded_verb_keeps_arguments_and_exit_code(app_root: Path) -> None:
 
 def test_home_is_passed_as_one_home_root(app_root: Path, tmp_path: Path) -> None:
     home = tmp_path / "alternate home"
-    assert run(["--home", str(home), "status"]) == 7
+    assert run(["--home", str(home), "setup"]) == 7
     call = read_call(app_root)
-    assert call["words"] == ["status"]
+    assert call["words"] == ["setup"]
     assert call["home"] == str(home)
 
 
 # The Windows command passes its home as <home>/.legion/bin/../..; legion takes it as plain <home>.
 def test_home_with_parent_steps_is_normalised(app_root: Path, tmp_path: Path) -> None:
     home = tmp_path / "alternate home"
-    assert run(["--home", str(home / ".legion" / "bin" / ".." / ".."), "status"]) == 7
+    assert run(["--home", str(home / ".legion" / "bin" / ".." / ".."), "setup"]) == 7
     assert read_call(app_root)["home"] == str(home)
 
 
@@ -58,13 +58,13 @@ def test_working_directory_is_the_callers(app_root: Path, tmp_path: Path, monkey
     repo = tmp_path / "unrelated repo"
     repo.mkdir()
     monkeypatch.chdir(repo)
-    assert run(["--home", str(tmp_path / "home"), "status"]) == 7
+    assert run(["--home", str(tmp_path / "home"), "setup"]) == 7
     assert Path(str(read_call(app_root)["cwd"])).resolve() == repo.resolve()
 
 
 def test_missing_pwsh_is_one_line_and_exit_127(app_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
-    assert run(["status"]) == 127
+    assert run(["setup"]) == 127
     assert capsys.readouterr().err == "pwsh is missing. Ask the owner before installing PowerShell 7, then run the legion installer again.\n"
     assert not (app_root / "bin" / "call.json").exists()
 
