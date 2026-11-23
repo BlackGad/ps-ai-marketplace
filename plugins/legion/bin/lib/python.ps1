@@ -5,7 +5,9 @@
 function Get-LegionPythonEnvironment {
     param([string]$PluginRoot, [string]$HomeRoot = $HOME)
 
-    $key = if ($IsWindows) { $PluginRoot.ToLowerInvariant() } else { $PluginRoot }
+    $absolute = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PluginRoot)
+    $key = (Resolve-LegionDirectoryPath $absolute).TrimEnd('/', '\')
+    if ($IsWindows) { $key = $key.ToLowerInvariant() }
     $hash = [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($key))
     $digest = ([BitConverter]::ToString($hash) -replace '-', '').ToLowerInvariant().Substring(0, 12)
     return Get-LegionHomePath -Path "python/env-$digest" -HomeRoot $HomeRoot
