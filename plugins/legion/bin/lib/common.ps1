@@ -1,7 +1,7 @@
 . (Join-Path $PSScriptRoot 'paths.ps1')
 . (Join-Path $PSScriptRoot 'tools.ps1')
 
-# Get-LegionLease and Get-LegionLeaseOwnerProcess serve status, the hook and the overseer; milestone 2 task 4 removes them.
+# Surviving PowerShell callers still use this twin; milestone 3 removes it.
 function Get-LegionLease {
     param([string]$Repo)
     $path = Get-LegionRepoPath -Repo $Repo -Path 'temp/overseer.lock'
@@ -34,6 +34,7 @@ function Get-LegionLease {
     }
 }
 
+# Surviving PowerShell callers still use this twin; milestone 3 removes it.
 function Get-LegionLeaseOwnerProcess {
     # Prefer the agent CLI over its shell helpers. A terminal session can have
     # only shell ancestors after its launcher exits; keep the oldest live one.
