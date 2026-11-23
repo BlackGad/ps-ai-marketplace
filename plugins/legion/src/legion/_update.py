@@ -3,6 +3,7 @@ import json
 import re
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -128,11 +129,7 @@ def get_update(plugin_root: Path, home: Optional[Path] = None, *, force: bool = 
                 cached = UpdateCache(SOURCE, checked_at, _manifest_version(_download(deadline)), False)
             except (OSError, ValueError, TypeError):
                 cached = UpdateCache(SOURCE, checked_at, None, True)
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(cached.to_json(), encoding="utf-8")
-            except OSError:
-                pass  # A read-only cache must not prevent checks or session starts.
+            _save_cache(path, cached)
         if cached.failed or cached.available is None:
             raise OSError("Marketplace check failed")
         return Update(installed, cached.available, compare_versions(cached.available, installed) > 0)
@@ -140,6 +137,19 @@ def get_update(plugin_root: Path, home: Optional[Path] = None, *, force: bool = 
         if force:
             raise
         return None
+
+
+# Publish the whole record at once, so a session that reads the cache never sees a partial one.
+def _save_cache(path: Path, cached: UpdateCache) -> None:
+    temporary = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(cached.to_json(), encoding="utf-8")
+        temporary.replace(path)
+    except OSError:
+        pass  # A read-only cache must not prevent checks or session starts.
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def check_lines(plugin_root: Path, home: Optional[Path] = None, *, force: bool = False) -> list[str]:

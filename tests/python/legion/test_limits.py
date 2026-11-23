@@ -6,7 +6,11 @@ import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from collections.abc import Sequence
+from typing import (
+    Any,
+    Optional,
+)
 
 import pytest
 from cli_runner import run
@@ -14,13 +18,17 @@ from conftest import REPO, Fence
 
 from legion import _forward
 from legion._process import process_started_at
+from legion._run import RunResult
 from legion._settings_models import Agent
 from legion.limits import (
     LimitRow,
     account_rows,
     home_path,
 )
-from legion.limits import codex
+from legion.limits import (
+    _ping,
+    codex,
+)
 from legion.limits._ping import (
     Ping,
     format_used_percent,
@@ -170,6 +178,34 @@ def test_codex_quota_error_names_the_retry_time(bench: Bench) -> None:
     assert bench.rows("codex-a", "codex") == [LimitRow(resets="2:57 PM", status="limit reached")]
 
 
+@pytest.mark.parametrize(("fake", "status"), [({"GIT_EXIT": "5"}, "error: git init failed (exit code 5)"), ({"GIT_SLEEP": "60"}, "error: git init timed out")])
+def test_codex_ping_stops_when_git_init_fails(bench: Bench, fake: dict[str, str], status: str) -> None:
+    bench.fake(**fake)
+    started = time.monotonic()
+    assert bench.rows("codex-a", "codex", timeout=3) == [LimitRow(status=status)]
+    assert time.monotonic() - started < 30
+    assert len(bench.calls("git")) == 1
+    assert bench.calls("codex") == []
+
+
+def test_codex_init_and_ping_share_one_deadline(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
+    timeouts: list[float] = []
+    real_run = _ping.run_command
+
+    def spy(command: str, arguments: Sequence[str], timeout: Optional[float] = None, cwd: Optional[Path] = None) -> RunResult:
+        assert timeout is not None
+        timeouts.append(timeout)
+        time.sleep(1)
+        return real_run(command, arguments, timeout=timeout, cwd=cwd)
+
+    monkeypatch.setattr(_ping, "run_command", spy)
+    bench.fake(SESSION=str(FIXTURES / "codex-session.jsonl"))
+    bench.rows("codex-a", "codex", timeout=30)
+    assert len(timeouts) == 2
+    assert timeouts[0] <= 30
+    assert timeouts[1] <= 29
+
+
 def test_codex_without_git_is_an_error(bench: Bench) -> None:
     next(bench.path.glob("git*")).unlink()
     assert bench.rows("codex-a", "codex") == [LimitRow(status="error: git is not installed")]
@@ -254,12 +290,23 @@ def test_foundry_token_ok_never_shows_the_token(bench: Bench, tmp_path: Path, ca
     assert bench.calls("claude") == []
 
 
-def test_foundry_failure_shows_the_az_error_without_login(bench: Bench, tmp_path: Path) -> None:
+def test_foundry_failure_gives_a_fixed_error_without_login(bench: Bench, tmp_path: Path) -> None:
     error = tmp_path / "error.txt"
     error.write_text("ERROR: Please run 'az login' to setup account.\nmore detail\n", encoding="utf-8")
     bench.fake(AZ_STDERR=str(error), AZ_EXIT="1")
-    assert bench.rows("foundry-a", "codex", provider=FOUNDRY) == [LimitRow(used="-", resets="-", status="ERROR: Please run 'az login' to setup account.")]
+    assert bench.rows("foundry-a", "codex", provider=FOUNDRY) == [LimitRow(used="-", resets="-", status="az could not get a token (exit code 1)")]
     assert [call["arguments"] for call in bench.calls("az")] == [TOKEN_ARGUMENTS]
+
+
+@pytest.mark.parametrize("stream", ["AZ_STDOUT", "AZ_STDERR"])
+def test_foundry_failure_never_shows_az_output(bench: Bench, tmp_path: Path, capfd: pytest.CaptureFixture[str], stream: str) -> None:
+    answer = tmp_path / "answer.txt"
+    answer.write_text(json.dumps({"accessToken": ACCESS_VALUE}), encoding="utf-8")
+    bench.fake(**{stream: str(answer)}, AZ_EXIT="3")
+    rows = bench.rows("foundry-a", "claude", provider=FOUNDRY)
+    assert rows == [LimitRow(used="-", resets="-", status="az could not get a token (exit code 3)")]
+    captured = capfd.readouterr()
+    assert ACCESS_VALUE not in captured.out + captured.err + repr(rows)
 
 
 def test_foundry_answer_without_a_token_is_not_ok(bench: Bench, tmp_path: Path) -> None:

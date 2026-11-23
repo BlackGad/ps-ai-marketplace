@@ -5,19 +5,23 @@
 import json
 import os
 import socket
+import sys
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO, Any, Literal, Optional
+from typing import Any, Literal, Optional
 
 from ._process import owner_process, process_started_at, same_start_time
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 
 State = Literal["free", "held", "stale", "foreign"]
 # A lock that cannot be read yet was most likely just created by a session that is still writing it.
 WRITE_GRACE_SECONDS = 10
-# A takeover guard older than this was left by a session that died while changing the lease.
-GUARD_STALE_SECONDS = 30
 
 
 class LeaseError(Exception):
@@ -165,7 +169,7 @@ def release(repo: Path, process_id: Optional[int] = None) -> str:
             return "lease released"
         raise LeaseError("lease belongs to another session; cannot release it")
     finally:
-        _close_guard(path, guard)
+        _close_guard(guard)
 
 
 def _owner(process_id: Optional[int]) -> tuple[int, Optional[datetime]]:
@@ -194,22 +198,33 @@ def _remove_stale(repo: Path, seen: Optional[Lease]) -> bool:
             path.unlink(missing_ok=True)
         return True
     finally:
-        _close_guard(path, guard)
+        _close_guard(guard)
 
 
-def _open_guard(path: Path) -> Optional[IO[bytes]]:
-    guard = _guard_path(path)
-    if guard.exists() and _age_seconds(guard) > GUARD_STALE_SECONDS:
-        guard.unlink(missing_ok=True)
+# One session at a time changes the lease. The guard file stays; its OS lock is the guard, so a paused
+# holder keeps it and the OS frees it when the holder exits. Returns the descriptor to pass to _close_guard,
+# or None while another session holds it.
+def _open_guard(path: Path) -> Optional[int]:
     try:
-        return open(guard, "xb")  # held open until _close_guard
-    except (FileExistsError, PermissionError):
+        guard = os.open(_guard_path(path), os.O_RDWR | os.O_CREAT)
+    except OSError:
         return None
+    try:
+        if sys.platform == "win32":
+            msvcrt.locking(guard, msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(guard)
+        return None
+    return guard
 
 
-def _close_guard(path: Path, guard: IO[bytes]) -> None:
-    guard.close()
-    _guard_path(path).unlink(missing_ok=True)
+def _close_guard(guard: int) -> None:
+    if sys.platform == "win32":
+        os.lseek(guard, 0, os.SEEK_SET)
+        msvcrt.locking(guard, msvcrt.LK_UNLCK, 1)
+    os.close(guard)
 
 
 def _guard_path(path: Path) -> Path:

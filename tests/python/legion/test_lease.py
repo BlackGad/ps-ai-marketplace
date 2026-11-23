@@ -215,23 +215,41 @@ def test_only_one_concurrent_take_wins(tmp_path: Path, stale: bool) -> None:
         write_lease(tmp_path, account="dead", pid=DEAD_PID, processStartedAt="2026-11-18T08:00:00Z")
     outcomes = run_racers(tmp_path, 5)
     assert outcomes.count("won") == 1, outcomes
-    assert not Path(f"{lease_path(tmp_path)}.takeover").exists()
     saved = json.loads(lease_path(tmp_path).read_text(encoding="utf-8"))
     assert saved["host"] == socket.gethostname()
     # Every racer has exited, so the lock it left is stale.
     assert state(tmp_path).state == "stale"
 
 
-def test_old_takeover_guard_is_cleared(tmp_path: Path) -> None:
+def hold_guard(repo: str, held: Event) -> None:
+    guard = _lease._open_guard(lease_path(Path(repo)))
+    assert guard is not None
+    held.set()
+    time.sleep(120)  # Paused while changing the lease; the test ends it without any cleanup.
+
+
+# A paused holder keeps the guard however old the file is; the OS frees it when the holder exits.
+def test_paused_guard_holder_blocks_takeover_and_release_until_it_exits(tmp_path: Path) -> None:
     write_lease(tmp_path, pid=DEAD_PID)
-    guard = Path(f"{lease_path(tmp_path)}.takeover")
-    guard.write_text("", encoding="utf-8")
-    with pytest.raises(LeaseError, match="takeover in progress"):
-        take(tmp_path, "codex", "owner", process_id=os.getpid())
-    old = time.time() - 60
-    os.utime(guard, (old, old))
+    context = multiprocessing.get_context("spawn")
+    held = context.Event()
+    holder = context.Process(target=hold_guard, args=(str(tmp_path), held))
+    holder.start()
+    try:
+        assert held.wait(60)
+        guard = Path(f"{lease_path(tmp_path)}.takeover")
+        old = time.time() - 600
+        os.utime(guard, (old, old))
+        with pytest.raises(LeaseError, match="takeover in progress"):
+            take(tmp_path, "codex", "owner", process_id=os.getpid())
+        assert json.loads(lease_path(tmp_path).read_text(encoding="utf-8"))["pid"] == DEAD_PID
+        with pytest.raises(LeaseError, match="change in progress"):
+            release(tmp_path, process_id=DEAD_PID)
+    finally:
+        holder.kill()
+        holder.join(30)
     assert take(tmp_path, "codex", "owner", process_id=os.getpid()) == "lease taken"
-    assert not guard.exists()
+    assert release(tmp_path, process_id=os.getpid()) == "lease released"
 
 
 # LeaseReleaseRace.Tests.ps1
@@ -242,21 +260,18 @@ class Contender:
 
     def __init__(self, repo: Path) -> None:
         self.path = lease_path(repo)
-        self.guard = Path(f"{self.path}.takeover")
         self.events: list[str] = []
 
     def attempt(self, boundary: str) -> None:
-        try:
-            handle = open(self.guard, "x")  # noqa: SIM115
-        except FileExistsError:
+        handle = _lease._open_guard(self.path)
+        if handle is None:
             self.events.append(f"{boundary}:blocked")
             return
         try:
             self.path.write_text('{"account":"successor","pid":99999999,"host":"fixture","startedAt":"replacement"}', encoding="utf-8")
             self.events.append(f"{boundary}:admitted")
         finally:
-            handle.close()
-            self.guard.unlink()
+            _lease._close_guard(handle)
 
 
 @pytest.fixture
@@ -284,17 +299,19 @@ def test_release_guards_its_read_and_removal(tmp_path: Path, contender: Contende
     assert release(tmp_path, process_id=os.getpid()) == "lease released"
     assert contender.events == ["read:blocked", "remove:blocked"]
     assert not contender.path.exists()
-    assert not contender.guard.exists()
 
 
 def test_release_retries_while_another_session_holds_the_guard(tmp_path: Path, contender: Contender) -> None:
     write_lease(tmp_path)
-    contender.guard.write_text("", encoding="utf-8")
-    with pytest.raises(LeaseError, match="change in progress"):
-        release(tmp_path, process_id=os.getpid())
+    held = _lease._open_guard(contender.path)
+    assert held is not None
+    try:
+        with pytest.raises(LeaseError, match="change in progress"):
+            release(tmp_path, process_id=os.getpid())
+    finally:
+        _lease._close_guard(held)
     assert json.loads(contender.path.read_text(encoding="utf-8"))["account"] == "owner"
     assert contender.events == []
-    assert contender.guard.exists()
 
 
 def test_release_rejects_ownership_changed_before_its_read(tmp_path: Path, contender: Contender) -> None:
@@ -302,7 +319,6 @@ def test_release_rejects_ownership_changed_before_its_read(tmp_path: Path, conte
     with pytest.raises(LeaseError, match="belongs to another session"):
         release(tmp_path, process_id=os.getpid())
     assert json.loads(contender.path.read_text(encoding="utf-8"))["pid"] == DEAD_PID
-    assert not contender.guard.exists()
 
 
 # LeaseSession.Tests.ps1

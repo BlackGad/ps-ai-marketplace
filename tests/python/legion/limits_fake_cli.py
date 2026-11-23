@@ -14,10 +14,10 @@ def setting(name: str) -> str:
     return os.environ.get(f"LEGION_FAKE_{name}", "")
 
 
-# az reads only its own AZ_ settings, so a tool's answer is never az's.
+# az and git read only their own AZ_ and GIT_ settings, so a tool's answer is never theirs.
 def own_setting(name: str, key: str) -> str:
     value = setting(f"{name.upper()}_{key}")
-    return value if value or name == "az" else setting(key)
+    return value if value or name in ("az", "git") else setting(key)
 
 
 def write_session(codex_home: Path) -> None:
@@ -42,7 +42,7 @@ def main() -> int:
     }
     with (Path(setting("LOG")) / f"{name}.jsonl").open("a", encoding="utf-8") as log:
         log.write(json.dumps(call) + "\n")
-    if name == "git":
+    if name == "git" and not own_setting(name, "EXIT") and not own_setting(name, "SLEEP"):
         (Path(sys.argv[2]) / ".git").mkdir()
         return 0
     if own_setting(name, "SLEEP"):
