@@ -96,12 +96,6 @@ function Get-LegionCall {
             $splat = @{ Action = 'remove'; Id = $arguments[0] }
             return @{ Script = 'legion-account.ps1'; Splat = $splat; AsksToApply = $false }
         }
-        'limits' {
-            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags @() -MinArguments 0 -MaxArguments 1
-            $splat = @{}
-            if ($arguments.Count) { $splat.Account = $arguments[0] }
-            return @{ Script = 'legion-limits.ps1'; Splat = $splat; AsksToApply = $false }
-        }
         { $_ -in @('', 'pick') } {
             $noChannelFlags = @('--no-channel', '-NoChannel')
             Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags $noChannelFlags -MinArguments 0 -MaxArguments 0

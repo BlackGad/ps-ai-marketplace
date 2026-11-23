@@ -64,6 +64,7 @@ try {
     Assert-True ($call.Installer -and $call.Splat.Uninstall) 'uninstall runs the installer'
 
     Assert-Throws { Get-LegionCall -Words @('status') } 'status is served by Python'
+    Assert-Throws { Get-LegionCall -Words @('limits') } 'limits is served by Python'
 
     Assert-Equal $null (Get-LegionCall -Words @('help')) 'help gives no call'
 
@@ -93,9 +94,9 @@ setup and add show the plan and ask before changing anything; --yes applies with
     $exitFile = Join-Path $scratch 'exit.txt'
     $planFile = Join-Path $scratch 'plan.txt'
     $standInText = @'
-param([string[]]$Add, [string]$Id, [string]$Action, [string]$Repo, [string]$Account, [string]$HomeRoot, [switch]$Yes, [switch]$NoChannel, [switch]$Pick)
+param([string[]]$Add, [string]$Id, [string]$Action, [string]$Repo, [string]$HomeRoot, [switch]$Yes, [switch]$NoChannel, [switch]$Pick)
 $scratch = Split-Path $PSScriptRoot -Parent
-$entry = @{ Add = @($Add); Id = $Id; Action = $Action; Repo = $Repo; Account = $Account; HomeRoot = $HomeRoot; Yes = [bool]$Yes; NoChannel = [bool]$NoChannel; Pick = [bool]$Pick }
+$entry = @{ Add = @($Add); Id = $Id; Action = $Action; Repo = $Repo; HomeRoot = $HomeRoot; Yes = [bool]$Yes; NoChannel = [bool]$NoChannel; Pick = [bool]$Pick }
 Add-Content -LiteralPath (Join-Path $scratch 'record.json') -Value ($entry | ConvertTo-Json -Compress)
 Get-Content -LiteralPath (Join-Path $scratch 'plan.txt')
 $code = (Get-Content -LiteralPath (Join-Path $scratch 'exit.txt')).Trim()
