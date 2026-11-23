@@ -21,7 +21,7 @@ GUARD_STALE_SECONDS = 30
 
 
 class LeaseError(Exception):
-    """The lease cannot be taken or released now; the message says why."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -34,9 +34,9 @@ class Lease:
     started_at: str = ""
     session: Optional[str] = None
 
+    # Reject records that are not leases with ValueError or TypeError.
     @classmethod
     def from_json(cls, text: str) -> "Lease":
-        """Read a lock file; raise ValueError or TypeError when it is not a lease record."""
         data = json.loads(text)
         if not isinstance(data, dict):
             raise TypeError("lease is not a JSON object")
@@ -80,8 +80,8 @@ def lease_path(repo: Path) -> Path:
     return Path(repo) / ".legion" / "temp" / "overseer.lock"
 
 
+# Match .NET's round-trip "o" format in UTC, without the zone suffix.
 def round_trip(value: datetime) -> str:
-    """Format a time as .NET's round-trip "o" format does in UTC, without the zone suffix."""
     return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") + "0"
 
 
@@ -105,8 +105,8 @@ def state(repo: Path) -> LeaseState:
     return LeaseState("stale", lease)
 
 
+# Take the owner's lock; replace only stale or unreadable leases.
 def take(repo: Path, tool: str, account: str, process_id: Optional[int] = None) -> str:
-    """Create the lock for the owner session; replace only a stale or unreadable one."""
     pid, started = _owner(process_id)
     if started is None:
         raise LeaseError("lease owner process is not running")
@@ -146,8 +146,8 @@ def take(repo: Path, tool: str, account: str, process_id: Optional[int] = None) 
     raise LeaseError("lease unavailable; retry takeover")
 
 
+# Release only this owner's lock, checked by pid, host and start time.
 def release(repo: Path, process_id: Optional[int] = None) -> str:
-    """Remove the lock only when it names this owner session, checked by pid, host and start time."""
     path = lease_path(repo)
     if not path.exists():
         return "skip: lease release (already done)"
@@ -178,8 +178,8 @@ def _owner(process_id: Optional[int]) -> tuple[int, Optional[datetime]]:
     return owner.pid, owner.started_at
 
 
+# Replace only the stale lease we saw, with one session acting at a time.
 def _remove_stale(repo: Path, seen: Optional[Lease]) -> bool:
-    """Let one session at a time replace a stale lease, and only the exact stale lease it saw."""
     path = lease_path(repo)
     guard = _open_guard(path)
     if guard is None:

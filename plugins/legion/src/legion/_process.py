@@ -38,8 +38,8 @@ def process_started_at(pid: int) -> Optional[datetime]:
     return process.started_at if process else None
 
 
+# Return live parents, nearest first.
 def ancestors(pid: int, lookup: Optional[Lookup] = None) -> list[ProcessInfo]:
-    """Return the live parents of pid, nearest first."""
     lookup = lookup or process_lookup()
     chain: list[ProcessInfo] = []
     child = lookup(pid)
@@ -55,8 +55,8 @@ def ancestors(pid: int, lookup: Optional[Lookup] = None) -> list[ProcessInfo]:
     return chain
 
 
+# Prefer the nearest non-shell ancestor; fall back to the oldest live shell.
 def owner_process(pid: Optional[int] = None, lookup: Optional[Lookup] = None) -> ProcessInfo:
-    """Return the nearest ancestor that is not a shell; with only shells, the oldest live one."""
     chain = ancestors(os.getpid() if pid is None else pid, lookup)
     for process in chain:
         if not is_skipped(process.name):
@@ -84,8 +84,8 @@ def _as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
+# Fix boot time once so parents and children started in one clock tick keep their order.
 def _linux_lookup() -> Lookup:
-    """Fix the boot time once, so a parent and child started in one clock tick keep their order."""
     assert sys.platform == "linux"
     # .NET takes boot time from CLOCK_BOOTTIME too; /proc/stat's btime is rounded to a whole second.
     boot = time.clock_gettime(time.CLOCK_REALTIME) - time.clock_gettime(time.CLOCK_BOOTTIME)
@@ -174,8 +174,8 @@ _STILL_ACTIVE = 259
 _FILETIME_EPOCH = datetime(1601, 1, 1, tzinfo=UTC)
 
 
+# Snapshot parents and names once; read start times only for requested pids.
 def _windows_lookup() -> Lookup:
-    """Take one snapshot of parents and names; read start times only for the pids asked."""
     assert sys.platform == "win32"
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.CreateToolhelp32Snapshot.restype = ctypes.c_void_p

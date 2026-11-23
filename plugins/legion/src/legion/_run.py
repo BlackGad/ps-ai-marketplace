@@ -1,4 +1,4 @@
-"""Run a command once with stdin closed, capture both streams and kill the whole tree on timeout."""
+# Run a command with stdin closed, capture both streams and kill the whole tree on timeout.
 
 import contextlib
 import ctypes
@@ -20,8 +20,8 @@ class RunResult:
     timed_out: bool
 
 
+# Return exit code -1 and timed_out when the timeout kills the process tree.
 def run_command(command: str, arguments: Sequence[str], timeout: Optional[float] = None, env: Optional[Mapping[str, str]] = None, cwd: Optional[Path] = None) -> RunResult:
-    """Return exit code -1 and timed_out when the timeout kills the process tree."""
     on_windows = sys.platform == "win32"
     line: str | list[str] = [command, *arguments]
     if on_windows and Path(command).suffix.lower() in {".cmd", ".bat"}:
@@ -74,8 +74,8 @@ _PROCESS_SET_QUOTA = 0x0100
 _PROCESS_TERMINATE = 0x0001
 
 
+# Put the process in a job so a timeout can end its children after their parent exits.
 def _windows_job(pid: int) -> Optional[int]:
-    """Put the new process in a job so a timeout can end its children too, even after their parent exits."""
     assert sys.platform == "win32"
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.CreateJobObjectW.restype = ctypes.c_void_p
