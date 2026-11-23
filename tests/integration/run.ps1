@@ -13,6 +13,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $PSStyle.OutputRendering = 'PlainText'
 $env:NO_COLOR = '1'
+Remove-Item -LiteralPath 'Env:LEGION_TEST_USER_PATH_FILE' -ErrorAction SilentlyContinue
 . (Join-Path $PSScriptRoot '../lib/junit.ps1')
 . (Join-Path $PSScriptRoot '../lib/benchmark.ps1')
 . (Join-Path $PSScriptRoot '../../plugins/legion/bin/lib/installed.ps1')
