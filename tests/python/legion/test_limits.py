@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cli_runner import run
 from conftest import REPO, Fence
 
+from legion import _forward
 from legion._process import process_started_at
 from legion._settings_models import Agent
 from legion.limits import (
@@ -101,6 +103,8 @@ def assert_disposable_folder(folder: str) -> None:
 
 
 def test_claude_reads_every_unified_window(bench: Bench) -> None:
+    # A stock claude on PATH is never used: the account launcher is.
+    write_executable(bench.path, "claude", {"LEGION_FAKE_CLAUDE_EXIT": "99"})
     bench.fake(STDOUT=str(FIXTURES / "claude-stream.jsonl"))
     assert bench.rows("claude-a", "claude") == [
         LimitRow("five_hour", "69%", reset_time(1795350000), "allowed"),
@@ -314,3 +318,97 @@ def test_account_folder_starts_at_the_home_root(tmp_path: Path) -> None:
     assert home_path("~/.legion/agents/codex-a", tmp_path) == tmp_path / ".legion/agents/codex-a"
     assert home_path("~\\agents", tmp_path) == tmp_path / "agents"
     assert home_path(str(tmp_path / "elsewhere"), tmp_path) == tmp_path / "elsewhere"
+
+
+def write_settings(home: Path, agents: list[dict[str, Any]]) -> None:
+    file = home / ".legion" / "configuration" / "personalisation.json"
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(json.dumps({"schemaVersion": 1, "agents": agents, "channels": []}), encoding="utf-8")
+
+
+ACCOUNTS = [
+    {"id": "claude-a", "tool": "claude", "configDir": "~/.legion/agents/claude-a"},
+    {"id": "codex-a", "tool": "codex", "configDir": "~/.legion/agents/codex-a"},
+    {"id": "copilot-a", "tool": "copilot", "configDir": "~/.legion/agents/copilot-a"},
+    {"id": "foundry-a", "tool": "claude", "configDir": "~/.legion/agents/foundry-a", "provider": FOUNDRY},
+]
+
+# The table the PowerShell limits command printed for these fakes (Format-Table -AutoSize): a blank line first,
+# one space between columns, the last column not padded.
+EXPECTED_TABLE = """
+Account   Tool    Window    Used    Resets at        Status
+-------   ----    ------    ----    ---------        ------
+claude-a  claude  five_hour 69%     {five_hour} allowed
+claude-a  claude  seven_day 55%     {seven_day} allowed
+codex-a   codex   5h        12%     {five_hour} unknown
+codex-a   codex   7d        40%     {seven_day} unknown
+copilot-a copilot -         unknown unknown          answers; no limit readout
+foundry-a claude  -         -       -                token ok
+"""
+
+
+def test_limits_prints_the_powershell_table_for_every_account(bench: Bench, tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    write_settings(bench.home, ACCOUNTS)
+    answer = tmp_path / "token.json"
+    answer.write_text(json.dumps({"accessToken": ACCESS_VALUE, "expiresOn": "2026-11-18T18:30:00+00:00"}), encoding="utf-8")
+    bench.fake(CLAUDE_STDOUT=str(FIXTURES / "claude-stream.jsonl"), CODEX_SESSION=str(FIXTURES / "codex-session.jsonl"), AZ_STDOUT=str(answer))
+    assert run(["--home", str(bench.home), "limits"]) == 0
+    captured = capfd.readouterr()
+    assert captured.out == EXPECTED_TABLE.format(five_hour=reset_time(1795350000), seven_day=reset_time(1795654800))
+    assert captured.err == ""
+    assert ACCESS_VALUE not in captured.out + captured.err
+    assert [len(bench.calls(name)) for name in ("claude", "codex", "copilot", "az")] == [1, 1, 1, 1]
+
+
+def test_limits_for_one_account_pings_only_that_account(bench: Bench, capsys: pytest.CaptureFixture[str]) -> None:
+    write_settings(bench.home, ACCOUNTS)
+    assert run(["--home", str(bench.home), "limits", "copilot-a"]) == 0
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "Account   Tool    Window Used    Resets at Status",
+        "-------   ----    ------ ----    --------- ------",
+        "copilot-a copilot -      unknown unknown   answers; no limit readout",
+    ]
+    assert [len(bench.calls(name)) for name in ("claude", "codex", "copilot", "az")] == [0, 0, 1, 0]
+
+
+@pytest.mark.parametrize(
+    ("agents", "words", "message"),
+    [
+        (None, [], "No legion settings yet; run legion setup."),
+        (ACCOUNTS, ["nobody"], "unknown account 'nobody'"),
+        (ACCOUNTS, ["Claude-A"], "unknown account 'Claude-A'"),
+    ],
+    ids=["no settings", "unknown account", "account names are exact"],
+)
+def test_limits_errors_exit_one(bench: Bench, capsys: pytest.CaptureFixture[str], agents: list[dict[str, Any]] | None, words: list[str], message: str) -> None:
+    if agents is not None:
+        write_settings(bench.home, agents)
+    assert run(["--home", str(bench.home), "limits", *words]) == 1
+    captured = capsys.readouterr()
+    assert (captured.out, captured.err) == ("", message + "\n")
+    assert bench.calls("claude") == []
+
+
+def test_limits_with_unreadable_settings_exits_one(bench: Bench, capsys: pytest.CaptureFixture[str]) -> None:
+    write_settings(bench.home, [{"id": "claude-a"}])
+    assert run(["--home", str(bench.home), "limits"]) == 1
+    assert capsys.readouterr().err.startswith("legion settings are not valid: ")
+
+
+def test_limits_without_accounts_says_to_add_one(bench: Bench, capsys: pytest.CaptureFixture[str]) -> None:
+    write_settings(bench.home, [])
+    assert run(["--home", str(bench.home), "limits"]) == 0
+    assert capsys.readouterr().out == "No accounts yet; run legion add.\n"
+
+
+@pytest.mark.parametrize("words", [["claude-a", "codex-a"], ["--yes"]], ids=["two accounts", "a flag"])
+def test_limits_takes_at_most_one_account_and_no_flags(bench: Bench, words: list[str]) -> None:
+    write_settings(bench.home, ACCOUNTS)
+    assert run(["--home", str(bench.home), "limits", *words]) == 2
+    assert bench.calls("claude") == []
+
+
+def test_limits_is_served_by_python(capsys: pytest.CaptureFixture[str]) -> None:
+    assert "limits" not in _forward.FORWARDED_VERBS
+    assert run(["limits", "--help"]) == 0
+    assert "Show each account's usage windows and reset times" in capsys.readouterr().out

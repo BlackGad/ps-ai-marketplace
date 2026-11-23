@@ -95,6 +95,21 @@ def status(home: Optional[Path]) -> None:
         click.echo(line)
 
 
+@main.command("limits", help="Show each account's usage windows and reset times (or one account)")
+@click.argument("account", required=False)
+@click.pass_context
+def limits(context: click.Context, account: Optional[str]) -> None:
+    from .limits import LimitsError, report_lines
+
+    try:
+        lines = report_lines(context.obj or Path.home(), account)
+    except LimitsError as error:
+        click.echo(str(error), err=True)
+        context.exit(1)
+    for line in lines:
+        click.echo(line)
+
+
 @main.group(help="Send or read repository overseer messages")
 def inbox() -> None:
     pass

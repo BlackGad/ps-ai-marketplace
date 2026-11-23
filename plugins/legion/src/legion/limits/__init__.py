@@ -4,8 +4,10 @@ import stat
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Optional
 
-from .._settings_models import Agent
+from .._settings_models import Agent, PersonalisationSettings
+from .._validate import _read_text
 from . import (
     claude,
     codex,
@@ -17,10 +19,47 @@ from ._ping import (
     first_line,
 )
 
-__all__ = ["LimitRow", "account_rows"]
+__all__ = ["LimitRow", "LimitsError", "account_rows", "report_lines"]
 
 Reader = Callable[[str, Path, float], list[LimitRow]]
 READERS: dict[str, Reader] = {"claude": claude.read, "codex": codex.read, "copilot": copilot.read}
+COLUMNS = ["Account", "Tool", "Window", "Used", "Resets at", "Status"]
+DEFAULT_TIMEOUT = 120
+
+
+class LimitsError(Exception):
+    pass
+
+
+# The limits table of every account, or of one.
+def report_lines(home: Path, account: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT) -> list[str]:
+    file = home / ".legion" / "configuration" / "personalisation.json"
+    if not file.is_file():
+        raise LimitsError("No legion settings yet; run legion setup.")
+    try:
+        agents = PersonalisationSettings.model_validate_json(_read_text(file)).agents
+    except (OSError, ValueError) as error:
+        raise LimitsError("legion settings are not valid: " + first_line(str(error))) from None
+    if account is not None:
+        agents = [agent for agent in agents if agent.id == account]
+        if not agents:
+            raise LimitsError(f"unknown account '{account}'")
+    rows = [[agent.id, agent.tool, row.window, row.used, row.resets, row.status] for agent in agents for row in account_rows(agent, home, timeout)]
+    if not rows:
+        return ["No accounts yet; run legion add."]
+    return table_lines(rows)
+
+
+# As PowerShell's Format-Table -AutoSize: a blank line, the header, dashes, then the rows;
+# columns as wide as their longest text, one space apart, the last one not padded.
+def table_lines(rows: list[list[str]]) -> list[str]:
+    table = [COLUMNS, ["-" * len(name) for name in COLUMNS], *rows]
+    widths = [max(len(row[column]) for row in table) for column in range(len(COLUMNS))]
+    lines = [""]
+    for row in table:
+        cells = [cell.ljust(width) for cell, width in zip(row, widths, strict=True)]
+        lines.append(" ".join([*cells[:-1], row[-1]]))
+    return lines
 
 
 # The rows of one account; an unexpected failure becomes an 'error:' row instead of stopping the table.
