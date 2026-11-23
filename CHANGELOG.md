@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.14.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.13.1...v0.14.0) (2026-11-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* **python:** rename the CLI to legion and parse arguments with Click ([#45](https://github.com/BlackGad/ps-legion-marketplace/issues/45))
+
+### Features
+
+* **python:** rename the CLI to legion and parse arguments with Click ([#45](https://github.com/BlackGad/ps-legion-marketplace/issues/45)) ([65f8951](https://github.com/BlackGad/ps-legion-marketplace/commit/65f8951383063408bb5ca4575b12631acb8b47e3))
+* **python:** validate settings in Python with typed pydantic models ([#48](https://github.com/BlackGad/ps-legion-marketplace/issues/48)) ([51583c5](https://github.com/BlackGad/ps-legion-marketplace/commit/51583c5fad83705dc7a1a31e7887b4fbc0f2f64f))
+* run the legion command from the Python app in the legion folder ([#47](https://github.com/BlackGad/ps-legion-marketplace/issues/47)) ([ad39f52](https://github.com/BlackGad/ps-legion-marketplace/commit/ad39f520b5978bbd37789ca03481c30c0ed7a219))
+
 ## [0.13.1](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.13.0...v0.13.1) (2026-11-23)
 
 
