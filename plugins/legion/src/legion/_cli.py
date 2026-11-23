@@ -67,6 +67,25 @@ def validate(context: click.Context, kind: str, path: Path) -> None:
     context.exit(1 if issues else 0)
 
 
+@main.command("update", help="Check for updates, or update legion to the newest version of its track")
+@click.option("--check", is_flag=True, help="Check for updates without installing.")
+@click.option("--force", is_flag=True, help="Check again even if today's result is cached; requires --check.")
+@click.option("--yes", "-Yes", is_flag=True, help="Confirm the update without prompting.")
+@click.pass_context
+def update(context: click.Context, check: bool, force: bool, yes: bool) -> None:
+    if force and not check:
+        raise click.UsageError("--force requires --check")
+    if check and yes:
+        raise click.UsageError("--yes cannot be used with --check")
+    if check:
+        from . import _update
+
+        for line in _update.check_lines(_plugin.PLUGIN_ROOT, context.obj, force=force):
+            click.echo(line)
+        return
+    context.exit(_forward.run(["update", *(["--yes"] if yes else [])], context.obj))
+
+
 @main.group(help="Send or read repository overseer messages")
 def inbox() -> None:
     pass

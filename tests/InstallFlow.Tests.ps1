@@ -640,10 +640,6 @@ Invoke-InstallTestCase 'DefaultHomeFollowsHome' {
             . $installerPath -NoRun
             Assert-Equal $fixtureHome (Get-InstallHome) 'The installer defaults to $HOME'
         }
-        & {
-            . (Join-Path $repo 'plugins/legion/bin/legion-update.ps1') -NoRun
-            Assert-Equal $fixtureHome (Get-LegionUpdateHome) 'The update check defaults to $HOME'
-        }
     } finally {
         Set-Variable -Name HOME -Value $savedHome -Force
         Remove-InstallTestFolder $fixtureHome
