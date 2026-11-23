@@ -281,6 +281,20 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     $script:calls = @()
     Invoke-CliInstallScript 'claude' | Out-Null
     Assert-True ((@($calls[0]) -join ' ') -notlike '*-Method*') 'a working winget keeps the default method'
+    # winget runs but its install fails: the installer asks for a method (exit 2), so the runner retries with zip.
+    function Invoke-IntegrationScript {
+        param($Script, $Arguments = @())
+        $script:calls += , @($Arguments | ForEach-Object { $_ })
+        if ($Arguments -notcontains '-Method') { throw "$(Split-Path $Script -Leaf) exited 2`nwinget failed (exit 1)." }
+        return @('ok')
+    }
+    $script:calls = @()
+    $lines = Invoke-CliInstallScript 'uv'
+    Assert-Equal 2 $calls.Count 'a failed winget install is retried once'
+    Assert-True ((@($calls[1]) -join ' ') -like '*-Method zip*') 'the retry uses -Method zip'
+    Assert-Equal 'ok' ($lines -join '|') 'the retry output is returned'
+    function Invoke-IntegrationScript { param($Script, $Arguments = @()) throw "$(Split-Path $Script -Leaf) exited 1" }
+    Assert-ThrowsLike { Invoke-CliInstallScript 'uv' } '*exited 1*' 'other install failures are not retried'
 
     # CLI repeats compare the version token and executable independently of notices.
     foreach ($tool in 'claude', 'codex', 'copilot') {

@@ -351,10 +351,17 @@ function Get-IntegrationSettings {
 # Step 1
 function Invoke-CliInstallScript {
     param([string]$Tool)
+    $installer = Join-Path (Get-IntegrationBin) 'legion-install-tool.ps1'
     $arguments = @('-Tool', $Tool, '-Yes')
+    $windows = (Get-IntegrationOs) -eq 'windows'
     # Without a working winget the installer only asks for a method; zip needs no admin rights.
-    if ((Get-IntegrationOs) -eq 'windows' -and -not (Test-IntegrationWingetWorks)) { $arguments += @('-Method', 'zip') }
-    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-install-tool.ps1') $arguments
+    if ($windows -and -not (Test-IntegrationWingetWorks)) { $arguments += @('-Method', 'zip') }
+    try { return Invoke-IntegrationScript $installer $arguments }
+    catch {
+        # A winget that starts but fails to install also makes the installer ask for a method (exit 2).
+        if (-not $windows -or $arguments -contains '-Method' -or -not $_.Exception.Message.StartsWith('legion-install-tool.ps1 exited 2')) { throw }
+        return Invoke-IntegrationScript $installer ($arguments + @('-Method', 'zip'))
+    }
 }
 
 function Get-IntegrationToolVersion {
