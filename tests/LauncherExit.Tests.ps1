@@ -3,8 +3,9 @@ $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'lib/workspace.ps1')
 $tempBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
 $scratch = Join-Path $tempBase ('launcher-exit-' + [guid]::NewGuid().ToString('N'))
-$plugin = Join-Path $scratch 'plugin'
+# The public command finds the app from its own folder, as in an installed home.
 $fixtureHome = Join-Path $scratch 'home'
+$plugin = Join-Path $fixtureHome '.legion/app/9.9.9'
 $repo = Join-Path $scratch 'repo'
 $savedPath = $env:PATH
 try {
@@ -22,7 +23,8 @@ try {
     [IO.File]::WriteAllText($overseer, $text)
     . (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
     . (Join-Path $root 'plugins/legion/bin/lib/commands.ps1')
-    $public = Join-Path $scratch $(if ($IsWindows) { 'legion.cmd' } else { 'legion' })
+    $public = Join-Path $fixtureHome $(if ($IsWindows) { '.legion/bin/legion.cmd' } else { '.legion/bin/legion' })
+    New-Item -ItemType Directory (Split-Path $public) -Force | Out-Null
     Get-LegionShimText -App $plugin -Windows:$IsWindows | Set-Content $public
     Set-TestExecutable $public
     # The fake uv forwards to the app's PowerShell entry point, as the Python CLI does.

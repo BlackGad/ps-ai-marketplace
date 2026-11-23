@@ -9,10 +9,12 @@ $version = Get-InstallPluginVersion -Root $plugin
 $folder = Join-Path $HOME 'app sync'
 New-Item -ItemType Directory -Path $folder -Force | Out-Null
 $fake = Join-Path $folder 'fake-uv.ps1'
-# The fake uv records each call with the environment it was given; a flag file makes the sync fail.
+# The fake uv records each call with the environment it was given; a flag file makes the sync fail, and
+# FAKE_UV_LINK makes it leave a link in the version folder.
 @'
 Add-Content -LiteralPath $env:FAKE_UV_LOG -Value (($args -join ' ') + ' | ' + $env:UV_PROJECT_ENVIRONMENT)
 if (Test-Path -LiteralPath $env:FAKE_UV_FAIL) { [Console]::Error.WriteLine('fixture sync failure'); exit 3 }
+if ($env:FAKE_UV_LINK) { New-Item -ItemType $(if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }) -Path (Join-Path $args[2] 'linked') -Target $env:FAKE_UV_LINK | Out-Null }
 exit 0
 '@ | Set-Content -LiteralPath $fake
 $null = New-TestCommandStub -Folder (Join-Path $folder 'bin') -Name uv -Script $fake
@@ -73,15 +75,19 @@ try {
     Assert-Equal "sync --project $target --frozen --quiet | $environment" (Get-UvCalls)[-1] 'The repair syncs at the final path'
     Assert-True (Test-Path -LiteralPath (Get-Marker $target) -PathType Leaf) 'The repair marks the version ready'
 
-    # One sync at a time: a second one while the lock is held changes nothing.
-    $lock = [IO.File]::Open((Join-Path $homeA '.legion/app/.sync.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
-    try {
-        Remove-Item -LiteralPath (Get-Marker $target) -Force
-        $calls = (Get-UvCalls).Count
-        $output = @(Publish-LegionApp -HomeRoot $homeA)
-        Assert-Equal 'skip: legion app sync (another sync is running)' ($output -join "`n") 'A second sync reports the running one'
-        Assert-Equal $calls (Get-UvCalls).Count 'A second sync runs no uv'
-    } finally { $lock.Dispose() }
+    # One sync at a time: a second one waits for the first to end, then compares versions again.
+    Remove-Item -LiteralPath (Get-Marker $target) -Force
+    $calls = (Get-UvCalls).Count
+    $held = Join-Path $folder 'lock held'
+    $holdLock = "`$lock = [IO.File]::Open('$(Join-Path $homeA '.legion/app/.sync.lock')', 'OpenOrCreate', 'ReadWrite', 'None'); " +
+        "New-Item -ItemType File -Path '$held' | Out-Null; Start-Sleep -Seconds 2; `$lock.Dispose()"
+    $holder = Start-Process (Get-Process -Id $PID).Path -PassThru -NoNewWindow -ArgumentList '-NoProfile', '-EncodedCommand', ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($holdLock)))
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while (-not (Test-Path -LiteralPath $held) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
+    $output = @(Publish-LegionApp -HomeRoot $homeA)
+    Assert-True $holder.HasExited 'The second sync waits until the first one ends'
+    Assert-True ($output -contains "legion app $version ready") 'The waiting sync then makes the version ready'
+    Assert-Equal ($calls + 1) (Get-UvCalls).Count 'The waiting sync runs uv once'
 
     # A failed sync keeps the old version and its command; the next sync retries.
     Remove-Item -LiteralPath $log
@@ -174,6 +180,44 @@ try {
     Remove-LegionFootprintOwner -HomeRoot $homeL -Owner 'codex:one' -RetryOrphans | Out-Null
     Assert-True ((Test-Path -LiteralPath $linkedEnv.Path) -and @(Get-ChildItem -LiteralPath $elsewhereL -Recurse -File).Count) 'A version whose environment folder is linked is never removed'
     (Get-Item -LiteralPath (Join-Path $homeL '.legion/python') -Force).Delete()
+
+    # A fresh sync refuses a linked environment folder too: uv never writes through it.
+    $homeK = Join-Path $folder 'home k'
+    $elsewhereK = Join-Path $folder 'elsewhere k'
+    New-Item -ItemType Directory -Path (Join-Path $homeK '.legion'), $elsewhereK -Force | Out-Null
+    New-Item -ItemType $linkType -Path (Join-Path $homeK '.legion/python') -Target $elsewhereK | Out-Null
+    $calls = (Get-UvCalls).Count
+    $output = @(Publish-LegionApp -HomeRoot $homeK)
+    Assert-True (@($output | Where-Object { $_ -like '*(linked version or environment)' }).Count -eq 1) 'A fresh sync with a linked environment folder is refused'
+    Assert-Equal $calls (Get-UvCalls).Count 'A linked environment folder gets no uv sync'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $homeK '.legion/bin/legion'))) 'A linked environment folder gets no command'
+    (Get-Item -LiteralPath (Join-Path $homeK '.legion/python') -Force).Delete()
+
+    # A link that appears in the version during the sync stops it before the version is marked or run.
+    $homeJ = Join-Path $folder 'home j'
+    $env:FAKE_UV_LINK = $elsewhereK
+    try { $output = @(Publish-LegionApp -HomeRoot $homeJ) } finally { Remove-Item Env:FAKE_UV_LINK }
+    $linkedJ = Join-Path $homeJ ".legion/app/$version"
+    Assert-True (@($output | Where-Object { $_ -like '*(linked)' }).Count -eq 1) 'A version that holds a link after the sync is refused'
+    Assert-True (-not (Test-Path -LiteralPath (Get-Marker $linkedJ))) 'A version that holds a link is not marked ready'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $homeJ '.legion/bin/legion'))) 'A version that holds a link gets no command'
+    (Get-Item -LiteralPath (Join-Path $linkedJ 'linked') -Force).Delete()
+
+    # A recorded version a failed sync left without the marker is legion's but never run: prune and
+    # uninstall remove it.
+    $homeU = Join-Path $folder 'home u'
+    $unfinished = New-OldApp -HomeRoot $homeU -Version '0.0.1'
+    Remove-Item -LiteralPath (Get-Marker $unfinished.Path) -Force
+    $output = @(Publish-LegionApp -HomeRoot $homeU)
+    Assert-True ($output -contains 'removed legion app 0.0.1') 'Prune removes an unfinished older version'
+    Assert-True (-not (Test-Path -LiteralPath $unfinished.Path) -and -not (Test-Path -LiteralPath $unfinished.Environment)) 'Prune removes the unfinished version and its environment'
+    $homeW = Join-Path $folder 'home w'
+    $unfinished = New-OldApp -HomeRoot $homeW -Version '0.0.1'
+    Remove-Item -LiteralPath (Get-Marker $unfinished.Path) -Force
+    Add-LegionFootprint -HomeRoot $homeW -Kind app -Path (Get-LegionHomePath -Path 'app' -HomeRoot $homeW) -Owner 'codex:one'
+    $output = @(Remove-LegionFootprintOwner -HomeRoot $homeW -Owner 'codex:one' -RetryOrphans)
+    Assert-True ($output -contains "Remove app version: $($unfinished.Path)") 'Uninstall removes an unfinished version'
+    Assert-True (-not (Test-Path -LiteralPath $unfinished.Path) -and -not (Test-Path -LiteralPath $unfinished.Environment)) 'Uninstall removes the unfinished version and its environment'
 
     # A linked app folder is refused before anything is written through it.
     $homeE = Join-Path $folder 'home e'

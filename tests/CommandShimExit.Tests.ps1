@@ -7,7 +7,7 @@ if (-not $IsWindows) { return }
 $scratch = Join-Path ([IO.Path]::GetTempPath()) ('shim-exit-' + [guid]::NewGuid().ToString('N'))
 $savedPath = $env:PATH
 $saved = @{}
-foreach ($name in @('UV_PROJECT_ENVIRONMENT', 'FAKE_UV_LOG', 'FAKE_UV_EXIT', 'FAKE_UV_DELETE', 'FAKE_UV_WAIT', 'ERRORLEVEL')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+foreach ($name in @('UV_PROJECT_ENVIRONMENT', 'FAKE_UV_LOG', 'FAKE_UV_EXIT', 'FAKE_UV_DELETE', 'FAKE_UV_WAIT', 'ERRORLEVEL', 'LEGION_TEST_SHIM')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
 
 # A real executable: a batch fake would never return to the command's (goto) tail.
 function New-FakeUv {
@@ -66,9 +66,12 @@ $bash = if ($git) { @('../bin/bash.exe', '../../bin/bash.exe') | ForEach-Object 
 
 try {
     New-FakeUv -Folder (Join-Path $scratch 'fake')
-    $selectedHome = Join-Path $scratch 'home 100%'
+    # A home name outside the console code page, as an accented or Cyrillic user name gives.
+    $selectedHome = Join-Path $scratch 'Zoë Пользователь 100%'
     $app = Join-Path $selectedHome '.legion/app/1.2.3'
-    $shim = Join-Path $scratch 'legion.cmd'
+    $bin = [IO.Path]::GetFullPath((Join-Path $selectedHome '.legion/bin'))
+    New-Item -ItemType Directory -Path $bin -Force | Out-Null
+    $shim = Join-Path $bin 'legion.cmd'
     $log = Join-Path $scratch 'uv.log'
     $env:PATH = (Join-Path $scratch 'fake') + ';' + (Join-Path $env:SystemRoot 'System32')
     $env:FAKE_UV_LOG = $log
@@ -84,9 +87,11 @@ try {
         Assert-True (-not (Test-Path -LiteralPath $shim)) 'The fake uv deleted the command while it ran'
         Assert-True (-not ($result.Output + $result.Error).Contains('cannot find')) 'No batch file error after the command is deleted'
         Assert-Equal "live output`r`n" $result.Output 'uv output passes through'
-        $expected = @('arg:run', 'arg:--project', "arg:$app", 'arg:--frozen', 'arg:--quiet', 'arg:legion', 'arg:--home', "arg:$selectedHome",
-            'arg:status', 'arg:two words', 'arg:', 'arg:100%', "arg:$unicode", "env:$(Get-LegionPythonEnvironment -PluginRoot $app -HomeRoot $selectedHome)", 'stdin:typed input')
+        $environment = Split-Path (Get-LegionPythonEnvironment -PluginRoot $app -HomeRoot $selectedHome) -Leaf
+        $expected = @('arg:run', 'arg:--project', "arg:$bin\..\app\1.2.3", 'arg:--frozen', 'arg:--quiet', 'arg:legion', 'arg:--home', "arg:$bin\..\..",
+            'arg:status', 'arg:two words', 'arg:', 'arg:100%', "arg:$unicode", "env:$bin\..\python\$environment", 'stdin:typed input')
         Assert-Equal ($expected -join "`n") ([IO.File]::ReadAllLines($log, [Text.Encoding]::UTF8) -join "`n") 'uv receives the app, the home, each argument unchanged, its environment and stdin'
+        Assert-True (-not ((Get-LegionShimText -App $app -HomeRoot $selectedHome -Windows) -match '[^\x00-\x7F]')) 'The batch text is ASCII, so any console code page reads it'
     }
 
     # A caller with its own ERRORLEVEL variable still gets uv's real exit code.
@@ -148,8 +153,10 @@ try {
     [IO.File]::WriteAllText($shim, (Get-LegionShimText -App $app -HomeRoot $selectedHome -Windows))
     $env:FAKE_UV_EXIT = '5'
     $env:FAKE_UV_DELETE = ''
-    # The command reads nul, so the fake uv cannot take the console's next lines.
-    $result = Invoke-TestCmd -Line 'cmd /d /q /k' -Text ('"' + $shim + '" status <nul' + "`r`necho after %errorlevel% %UV_PROJECT_ENVIRONMENT%`r`nexit")
+    # The command reads nul, so the fake uv cannot take the console's next lines. Typed text is in the
+    # console code page, so the path arrives through a variable.
+    $env:LEGION_TEST_SHIM = $shim
+    $result = Invoke-TestCmd -Line 'cmd /d /q /k' -Text ('"%LEGION_TEST_SHIM%" status <nul' + "`r`necho after %errorlevel% %UV_PROJECT_ENVIRONMENT%`r`nexit")
     Assert-True ($result.Output.Contains('after 5 caller value')) "The console continues with uv's exit code and an unchanged environment"
 
     # Without uv: one line and exit 127.

@@ -94,7 +94,8 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
     Assert-True ((Get-Content (Join-Path $bin 'foundry-a') -Raw).Contains('.runtime')) 'Refresh regenerates owned Foundry wrapper'
     foreach ($path in $(if ($IsWindows) { @($shim,$cmdShim) } else { @($shim) })) {
         $text = Get-Content $path -Raw
-        Assert-True ($text.Contains((Join-Path $tempRoot ".legion/app/$version"))) 'Refresh retargets the existing legion shim to the app'
+        $app = if ($path -eq $cmdShim) { "%~dp0..\app\$version" } else { Join-Path $tempRoot ".legion/app/$version" }
+        Assert-True ($text.Contains($app)) 'Refresh retargets the existing legion shim to the app'
         Assert-True (-not $text.Contains('-Account chosen')) 'Refresh replaces hand-added shim arguments'
     }
     if ($IsWindows) { Assert-True (-not (Get-Content $cmdShim -Raw).Contains('-Repo ')) 'Refresh replaces hand-added batch arguments' }

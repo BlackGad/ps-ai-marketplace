@@ -26,16 +26,24 @@ function Open-LegionLockFile {
     catch [IO.IOException] { return $null }
 }
 
+# Waits up to $Seconds for the lock file: the open stream, or $null when another process still holds it.
+function Wait-LegionLockFile {
+    param([string]$Path, [int]$Seconds)
+    $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
+    while (-not ($lock = Open-LegionLockFile -Path $Path)) {
+        if ([DateTime]::UtcNow -gt $deadline) { return $null }
+        Start-Sleep -Milliseconds 100
+    }
+    return $lock
+}
+
 # One writer at a time: hold the returned lock while reading, changing and writing the index.
 function Lock-LegionFootprints {
     param([string]$HomeRoot)
     $index = Get-LegionOwnerPath -Name Index -HomeRoot $HomeRoot
     if (-not (Test-LegionOwnerPathSafe -Path $index -StopRoot $HomeRoot)) { throw 'Footprint index contains a link; resolve it before writing' }
-    $deadline = [DateTime]::UtcNow.AddSeconds(30)
-    while (-not ($lock = Open-LegionLockFile -Path "$index.lock")) {
-        if ([DateTime]::UtcNow -gt $deadline) { throw 'Footprint index is busy; another legion command is still running' }
-        Start-Sleep -Milliseconds 100
-    }
+    $lock = Wait-LegionLockFile -Path "$index.lock" -Seconds 30
+    if (-not $lock) { throw 'Footprint index is busy; another legion command is still running' }
     return $lock
 }
 
@@ -138,8 +146,8 @@ function Remove-LegionFootprintOwner {
 
 # Legion records each app version folder it creates (kind app-version), so only those are ever used or
 # removed. A recorded version is safe when it sits directly in the app folder, has no link on the way to it
-# or to its environment, holds no link inside and, while it exists, keeps the ready marker. Removal deletes
-# the marker last, so a half-removed version stays safe to finish.
+# or to its environment and holds no link inside. Only a safe version with the ready marker runs; an
+# unfinished one, without the marker, is still legion's to remove. Removal deletes the marker last.
 function Get-LegionAppMarker {
     param([string]$Path)
     return Join-Path $Path '.legion-app-ready'
@@ -157,7 +165,6 @@ function Test-LegionAppVersionSafe {
     $environment = Get-LegionPythonEnvironment -PluginRoot $Path -HomeRoot $HomeRoot
     if (-not (Test-LegionOwnerPathSafe -Path $Path -StopRoot $HomeRoot) -or -not (Test-LegionOwnerPathSafe -Path $environment -StopRoot $HomeRoot)) { return $false }
     if (-not (Test-Path -LiteralPath $Path)) { return $true }
-    if (-not (Test-Path -LiteralPath (Get-LegionAppMarker $Path) -PathType Leaf)) { return $false }
     return -not @(Get-ChildItem -LiteralPath $Path -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count
 }
 
@@ -175,7 +182,7 @@ function Remove-LegionAppVersion {
     $environment = Get-LegionPythonEnvironment -PluginRoot $Path -HomeRoot $HomeRoot
     try {
         if (Test-Path -LiteralPath $Path) {
-            Get-ChildItem -LiteralPath $Path -Force | Where-Object Name -CNE '.legion-app-ready' | Remove-Item -Recurse -Force -ErrorAction Stop
+            Get-ChildItem -LiteralPath $Path -Force | Where-Object Name -CNE (Split-Path (Get-LegionAppMarker $Path) -Leaf) | Remove-Item -Recurse -Force -ErrorAction Stop
             Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
         }
         if (Test-Path -LiteralPath $environment) { Remove-Item -LiteralPath $environment -Recurse -Force -ErrorAction Stop }
