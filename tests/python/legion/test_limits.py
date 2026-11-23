@@ -98,7 +98,7 @@ def bench(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Bench:
 
 def assert_disposable_folder(folder: str) -> None:
     assert Path(folder).name.startswith("legion-limits-")
-    assert Path(folder).parent == Path(tempfile.gettempdir())
+    assert Path(folder).parent.resolve() == Path(tempfile.gettempdir()).resolve()
     assert not Path(folder).exists()
 
 
