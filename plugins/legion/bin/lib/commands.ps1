@@ -69,14 +69,28 @@ function Get-LegionCommandState {
     }
 }
 
-# Setup and refresh write the same platform command files for the newest ready app, preserving unrelated files.
+# Setup and refresh write the same platform command files for one ready app version, preserving unrelated files.
 function Write-LegionOwnerCommands {
-    param([string]$HomeRoot, [Collections.Generic.List[string]]$Changes)
-    $app = @(Get-LegionAppVersions -HomeRoot $HomeRoot)[0].Path
-    if (-not $app) { 'skip: command legion (the legion app is not ready)'; return }
+    param([string]$App, [string]$HomeRoot, [Collections.Generic.List[string]]$Changes)
     foreach ($file in (Get-LegionCommandState -Bin (Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin') -HomeRoot $HomeRoot)) {
         if ($file.State -eq 'blocked' -or -not (Test-LegionOwnerPathSafe -Path $file.Path -StopRoot $HomeRoot)) { continue }
-        $text = Get-LegionShimText -App $app -Windows:$file.Windows -HomeRoot $HomeRoot
+        $text = Get-LegionShimText -App $App -Windows:$file.Windows -HomeRoot $HomeRoot
         Write-LegionGeneratedFile -Path $file.Path -Content $text -Executable:(-not $file.Windows) -Changes $Changes
     }
+}
+
+# Setup and refresh: sync the app, point every command at the version sync made ready, and only then prune
+# older versions. One sync runs at a time; another one waiting would only repeat it.
+function Publish-LegionApp {
+    param([string]$HomeRoot = $HOME, [Collections.Generic.List[string]]$Changes)
+    if (-not (Test-LegionOwnerPathSafe -Path (Get-LegionHomePath -Path 'app' -HomeRoot $HomeRoot) -StopRoot $HomeRoot)) { throw 'The legion app folder contains a link; resolve it before refreshing' }
+    $lock = Open-LegionLockFile -Path (Get-LegionHomePath -Path 'app/.sync.lock' -HomeRoot $HomeRoot)
+    if (-not $lock) { 'skip: legion app sync (another sync is running)'; return }
+    try {
+        $ready = $null
+        Sync-LegionApp -HomeRoot $HomeRoot -Changes $Changes -ReadyPath ([ref]$ready)
+        if (-not $ready) { 'skip: command legion (the legion app is not ready)'; return }
+        Write-LegionOwnerCommands -App $ready -HomeRoot $HomeRoot -Changes $Changes
+        Remove-LegionOldAppVersions -Keep $ready -HomeRoot $HomeRoot
+    } finally { $lock.Dispose() }
 }

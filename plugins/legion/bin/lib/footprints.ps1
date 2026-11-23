@@ -18,20 +18,25 @@ function Get-LegionFootprints {
     return $data.entries | Where-Object { -not $Kind -or $_.kind -ceq $Kind }
 }
 
+# An exclusive lock file: the open stream, or $null while another process holds it.
+function Open-LegionLockFile {
+    param([string]$Path)
+    New-Item -ItemType Directory -Path (Split-Path $Path) -Force | Out-Null
+    try { return [IO.File]::Open($Path, 'OpenOrCreate', 'ReadWrite', 'None') }
+    catch [IO.IOException] { return $null }
+}
+
 # One writer at a time: hold the returned lock while reading, changing and writing the index.
 function Lock-LegionFootprints {
     param([string]$HomeRoot)
     $index = Get-LegionOwnerPath -Name Index -HomeRoot $HomeRoot
     if (-not (Test-LegionOwnerPathSafe -Path $index -StopRoot $HomeRoot)) { throw 'Footprint index contains a link; resolve it before writing' }
-    New-Item -ItemType Directory -Path (Split-Path $index) -Force | Out-Null
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
-    while ($true) {
-        try { return [IO.File]::Open("$index.lock", 'OpenOrCreate', 'ReadWrite', 'None') }
-        catch [IO.IOException] {
-            if ([DateTime]::UtcNow -gt $deadline) { throw 'Footprint index is busy; another legion command is still running' }
-            Start-Sleep -Milliseconds 100
-        }
+    while (-not ($lock = Open-LegionLockFile -Path "$index.lock")) {
+        if ([DateTime]::UtcNow -gt $deadline) { throw 'Footprint index is busy; another legion command is still running' }
+        Start-Sleep -Milliseconds 100
     }
+    return $lock
 }
 
 # Replace the index whole, so an interrupted write never leaves half a file.
@@ -46,7 +51,7 @@ function Write-LegionFootprints {
 }
 
 function Add-LegionFootprint {
-    param([string]$HomeRoot = $HOME, [ValidateSet('file', 'folder', 'link', 'path-entry', 'edit', 'app')][string]$Kind,
+    param([string]$HomeRoot = $HOME, [ValidateSet('file', 'folder', 'link', 'path-entry', 'edit', 'app', 'app-version')][string]$Kind,
         [string]$Path, [string]$Key = '', [string]$Value = '', [string]$Owner)
     if ($Path -cne 'user PATH') {
         $Path = [IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $Path -HomeRoot $HomeRoot))
@@ -61,6 +66,17 @@ function Add-LegionFootprint {
             $entry.owners = @($entry.owners) + $Owner
         } else { $entries += [pscustomobject]@{ kind = $Kind; path = $Path; key = $Key; value = $Value; owners = @($Owner) } }
         Write-LegionFootprints -HomeRoot $HomeRoot -Entries $entries
+    } finally { $lock.Dispose() }
+}
+
+# Drops the entries of one kind recorded at one path.
+function Remove-LegionFootprintEntry {
+    param([string]$HomeRoot, [string]$Kind, [string]$Path)
+    $lock = Lock-LegionFootprints -HomeRoot $HomeRoot
+    try {
+        $entries = @(Get-LegionFootprints -HomeRoot $HomeRoot)
+        $kept = @($entries | Where-Object { $_.kind -cne $Kind -or -not (Get-LegionPathComparer).Equals([IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $_.path -HomeRoot $HomeRoot)), [IO.Path]::GetFullPath($Path)) })
+        if ($kept.Count -ne $entries.Count) { Write-LegionFootprints -HomeRoot $HomeRoot -Entries $kept }
     } finally { $lock.Dispose() }
 }
 
@@ -88,7 +104,7 @@ function Remove-LegionFootprintOwner {
     if (-not (Test-Path -LiteralPath (Get-LegionOwnerPath -Name Index -HomeRoot $HomeRoot))) { return }
     $lock = if (-not $WhatIf) { Lock-LegionFootprints -HomeRoot $HomeRoot }
     try {
-        $kept = @(); $changed = $false
+        $kept = @(); $changed = $false; $app = $null
         foreach ($entry in @(Get-LegionFootprints -HomeRoot $HomeRoot)) {
             $remaining = @($entry.owners | Where-Object { $Owner -cnotcontains $_ })
             $ownersChanged = $remaining.Count -ne @($entry.owners).Count
@@ -99,7 +115,7 @@ function Remove-LegionFootprintOwner {
             $path = Resolve-LegionHomePath -Path $entry.path -HomeRoot $HomeRoot
             if ($entry.kind -ceq 'app') {
                 Remove-LegionApp -HomeRoot $HomeRoot -WhatIf:$WhatIf
-                if (-not $WhatIf -and (Test-Path -LiteralPath $path)) { $kept += $entry }
+                $app = $entry
                 $changed = $true
             } elseif ($entry.kind -cin @('file', 'folder')) {
                 if (-not (Test-LegionFootprintSafe -Entry $entry -HomeRoot $HomeRoot)) { "skip: $path (linked or not legion's)"; $kept += $entry; continue }
@@ -111,36 +127,77 @@ function Remove-LegionFootprintOwner {
             } elseif ($entry.kind -cne 'edit' -or -not $RemoveEdit -or -not (& $RemoveEdit -Entry $entry -HomeRoot $HomeRoot -WhatIf:$WhatIf)) { $kept += $entry }
             else { $changed = $true }
         }
+        if ($app) {
+            # A version still in use keeps its record, and the app entry, for the next run.
+            $kept = @($kept | Where-Object { $_.kind -cne 'app-version' -or (Test-LegionAppVersionLeft -Entry $_ -HomeRoot $HomeRoot) })
+            if (@($kept | Where-Object kind -CEQ 'app-version').Count) { $kept += $app }
+        }
         if ($changed -and -not $WhatIf) { Write-LegionFootprints -HomeRoot $HomeRoot -Entries $kept }
     } finally { if ($lock) { $lock.Dispose() } }
 }
 
-# One app version and its environment. Windows refuses to move an environment a process runs from,
-# so a version still in use stays whole: false, and a later run retries.
+# Legion records each app version folder it creates (kind app-version), so only those are ever used or
+# removed. A recorded version is safe when it sits directly in the app folder, has no link on the way to it
+# or to its environment, holds no link inside and, while it exists, keeps the ready marker. Removal deletes
+# the marker last, so a half-removed version stays safe to finish.
+function Get-LegionAppMarker {
+    param([string]$Path)
+    return Join-Path $Path '.legion-app-ready'
+}
+
+function Get-LegionAppVersionPath {
+    param($Entry, [string]$HomeRoot)
+    return [IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $Entry.path -HomeRoot $HomeRoot))
+}
+
+function Test-LegionAppVersionSafe {
+    param([string]$Path, [string]$HomeRoot)
+    $app = [IO.Path]::GetFullPath((Get-LegionHomePath -Path 'app' -HomeRoot $HomeRoot))
+    if (-not (Get-LegionPathComparer).Equals((Split-Path $Path -Parent), $app)) { return $false }
+    $environment = Get-LegionPythonEnvironment -PluginRoot $Path -HomeRoot $HomeRoot
+    if (-not (Test-LegionOwnerPathSafe -Path $Path -StopRoot $HomeRoot) -or -not (Test-LegionOwnerPathSafe -Path $environment -StopRoot $HomeRoot)) { return $false }
+    if (-not (Test-Path -LiteralPath $Path)) { return $true }
+    if (-not (Test-Path -LiteralPath (Get-LegionAppMarker $Path) -PathType Leaf)) { return $false }
+    return -not @(Get-ChildItem -LiteralPath $Path -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count
+}
+
+# True while a recorded version still has its folder or its environment.
+function Test-LegionAppVersionLeft {
+    param($Entry, [string]$HomeRoot)
+    $path = Get-LegionAppVersionPath -Entry $Entry -HomeRoot $HomeRoot
+    return (Test-Path -LiteralPath $path) -or (Test-Path -LiteralPath (Get-LegionPythonEnvironment -PluginRoot $path -HomeRoot $HomeRoot))
+}
+
+# One safe recorded version: its folder (marker last), then its environment, so an app never stays without
+# its environment. A delete that fails, such as on a Windows lock, keeps the rest for a later run: false.
 function Remove-LegionAppVersion {
     param([string]$Path, [string]$HomeRoot)
     $environment = Get-LegionPythonEnvironment -PluginRoot $Path -HomeRoot $HomeRoot
-    $removing = "$environment-removing"
     try {
-        if (Test-Path -LiteralPath $removing) { Remove-Item -LiteralPath $removing -Recurse -Force -ErrorAction Stop }
-        if (Test-Path -LiteralPath $environment) {
-            [IO.Directory]::Move($environment, $removing)
-            Remove-Item -LiteralPath $removing -Recurse -Force -ErrorAction Stop
+        if (Test-Path -LiteralPath $Path) {
+            Get-ChildItem -LiteralPath $Path -Force | Where-Object Name -CNE '.legion-app-ready' | Remove-Item -Recurse -Force -ErrorAction Stop
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
         }
-        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+        if (Test-Path -LiteralPath $environment) { Remove-Item -LiteralPath $environment -Recurse -Force -ErrorAction Stop }
         return $true
     } catch { return $false }
 }
 
-# Uninstall: every app version legion can remove; one line for each version still in use.
+# Uninstall: every recorded app version legion can remove; one line for each version still in use.
+# The caller holds the footprint lock and drops the records of removed versions.
 function Remove-LegionApp {
     param([string]$HomeRoot, [switch]$WhatIf)
-    $app = Get-LegionHomePath -Path 'app' -HomeRoot $HomeRoot
-    if (-not (Test-Path -LiteralPath $app)) { return }
-    foreach ($folder in @(Get-ChildItem -LiteralPath $app -Directory -Force)) {
-        if (-not (Test-LegionFootprintSafe -Entry ([pscustomobject]@{ kind = 'folder'; path = $folder.FullName }) -HomeRoot $HomeRoot)) { "skip: $($folder.FullName) (linked or not legion's)"; continue }
-        "Remove app version: $($folder.FullName)"
-        if (-not $WhatIf -and -not (Remove-LegionAppVersion -Path $folder.FullName -HomeRoot $HomeRoot)) { "Kept app folder in use: $($folder.FullName) (close legion, then run uninstall again)" }
+    foreach ($entry in @(Get-LegionFootprints -HomeRoot $HomeRoot -Kind app-version)) {
+        if (-not (Test-LegionAppVersionLeft -Entry $entry -HomeRoot $HomeRoot)) { continue }
+        $path = Get-LegionAppVersionPath -Entry $entry -HomeRoot $HomeRoot
+        if (-not (Test-LegionAppVersionSafe -Path $path -HomeRoot $HomeRoot)) { "skip: $path (linked or not legion's)"; continue }
+        "Remove app version: $path"
+        if (-not $WhatIf -and -not (Remove-LegionAppVersion -Path $path -HomeRoot $HomeRoot)) { "Kept app version in use: $path (close legion, then run uninstall again)" }
     }
-    if (-not $WhatIf -and -not @(Get-ChildItem -LiteralPath $app -Force).Count) { Remove-Item -LiteralPath $app -Force }
+    # The app folder goes once only the sync lock is left in it.
+    $app = Get-LegionHomePath -Path 'app' -HomeRoot $HomeRoot
+    if ($WhatIf -or -not (Test-Path -LiteralPath $app) -or -not (Test-LegionOwnerPathSafe -Path $app -StopRoot $HomeRoot)) { return }
+    if (@(Get-ChildItem -LiteralPath $app -Force | Where-Object Name -CNE '.sync.lock').Count) { return }
+    Remove-Item -LiteralPath (Join-Path $app '.sync.lock') -Force -ErrorAction SilentlyContinue
+    if (-not @(Get-ChildItem -LiteralPath $app -Force).Count) { Remove-Item -LiteralPath $app -Force }
 }

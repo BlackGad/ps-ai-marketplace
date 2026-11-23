@@ -657,6 +657,7 @@ function Get-InstallPurgePlan {
         ForEach-Object { [IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $_.path -HomeRoot (Get-InstallHome))) } | Where-Object { Get-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue })
     $legion = Get-InstallSafePath -Root (Get-InstallHome) -Relative '.legion' -Except $links 6>$null
     if (-not $legion -and (Test-Path -LiteralPath (Get-InstallLegionPath ''))) { $manualSteps += 'Manual step: legion home contains linked paths; left in place.' }
+    if (@(Get-LegionFootprints -HomeRoot (Get-InstallHome) -Kind app-version).Count) { $manualSteps += "Manual step: $(Get-InstallLegionPath 'app') (an app version is still in use; close legion, then run uninstall with purge again)" }
     return [pscustomobject]@{
         Paths=$paths; Edits=$edits; Links=$links; Legion=$legion; HomeRoot=(Get-InstallHome); ManualSteps=$manualSteps; Index=(Get-InstallIndexText)
         UserPath=[pscustomobject]@{ Before=$userPath; After=($user.Kept -join ';'); Entries=$user.Removed }
@@ -736,7 +737,14 @@ function Invoke-InstallPurgeSteps {
     if ($Plan.Legion) {
         $safe = Get-InstallSafePath -Root $Plan.HomeRoot -Relative '.legion'
         if ($safe -and $safe -ceq $Plan.Legion) {
-            Get-ChildItem -LiteralPath $safe -Force | Where-Object { -not (Get-LegionPathComparer).Equals($_.FullName, $Keep) } | Remove-Item -Recurse -Force -ErrorAction Stop
+            # An app version uninstall had to keep stays with its environment and record for the next run.
+            $app = @(Get-LegionFootprints -HomeRoot $Plan.HomeRoot | Where-Object { $_.kind -cin @('app', 'app-version') })
+            $kept = @($Keep)
+            if (@($app | Where-Object kind -CEQ 'app-version').Count) {
+                $kept += @((Get-LegionHomePath -Path 'app' -HomeRoot $Plan.HomeRoot), (Get-LegionHomePath -Path 'python' -HomeRoot $Plan.HomeRoot), (Get-LegionOwnerPath -Name Index -HomeRoot $Plan.HomeRoot)) | ForEach-Object { [IO.Path]::GetFullPath($_) }
+            }
+            Get-ChildItem -LiteralPath $safe -Force | Where-Object { $item = $_.FullName; -not @($kept | Where-Object { (Get-LegionPathComparer).Equals($_, $item) }).Count } | Remove-Item -Recurse -Force -ErrorAction Stop
+            if ($kept.Count -gt 1) { Write-LegionFootprints -HomeRoot $Plan.HomeRoot -Entries $app }
         }
     }
 }

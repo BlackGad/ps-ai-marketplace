@@ -22,7 +22,6 @@ if (Test-Path -LiteralPath $file) {
     }
 }
 
-Sync-LegionApp -HomeRoot $HomeRoot -Changes $changes
-Write-LegionOwnerCommands -HomeRoot $HomeRoot -Changes $changes
+Publish-LegionApp -HomeRoot $HomeRoot -Changes $changes
 if ($changes.Count) { 'legion generated runtimes and launchers refreshed' }
 else { 'skip: legion generated runtimes and launchers (already done)' }

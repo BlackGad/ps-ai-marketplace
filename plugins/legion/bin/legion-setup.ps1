@@ -323,8 +323,7 @@ function Write-SetupCommands {
         }
         Add-LegionFootprint -HomeRoot $Plan.HomeRoot -Kind app -Path (Get-LegionHomePath -Path 'app' -HomeRoot $Plan.HomeRoot) -Owner $owner
     }
-    Sync-LegionApp -HomeRoot $Plan.HomeRoot
-    Write-LegionOwnerCommands -HomeRoot $Plan.HomeRoot
+    Publish-LegionApp -HomeRoot $Plan.HomeRoot
     if (@($Plan.Commands | Where-Object State -EQ owned).Count) { 'skip: command legion (already done)' }
 }
 

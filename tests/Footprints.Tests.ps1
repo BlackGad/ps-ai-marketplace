@@ -117,6 +117,25 @@ $cases = [ordered]@{
             Assert-Equal $false (Test-Path (Join-Path $sandbox '.legion/footprints.json')) 'Purge deletes the index last with the home'
         } finally { $env:OS = $savedOS; $env:PATH = $savedPath }
     }
+    # Uninstall keeps a version it could not remove; purge in the same run leaves that version, its
+    # environment and its record for the next run instead of deleting them.
+    PurgeKeepsAppInUse = {
+        $version = Join-Path $sandbox '.legion/app/0.0.1'
+        $environment = Get-LegionPythonEnvironment -PluginRoot $version -HomeRoot $sandbox
+        New-Item -ItemType Directory -Path $version, $environment -Force | Out-Null
+        New-Item -ItemType File -Path (Join-Path $version '.legion-app-ready') | Out-Null
+        'python' | Set-Content (Join-Path $environment 'python.txt')
+        Add-LegionFootprint -HomeRoot $sandbox -Kind app -Path (Join-Path $sandbox '.legion/app') -Owner (Get-LegionTargetOwner -Tool $catalog.tools[0] -HomeRoot $sandbox)
+        Add-LegionFootprint -HomeRoot $sandbox -Kind app-version -Path $version -Owner legion
+        'notes' | Set-Content (Join-Path $sandbox '.legion/notes.txt')
+        function Remove-LegionAppVersion { param($Path, $HomeRoot) return $false }
+        $state.Only = 'claude'
+        $output = @(Invoke-LegionInstaller -Catalog $catalog -Tools claude -Uninstall -Purge -Yes)
+        Assert-True ($output -contains "Kept app version in use: $version (close legion, then run uninstall again)") 'Uninstall reports the version in use'
+        Assert-True ((Test-Path (Join-Path $version '.legion-app-ready')) -and (Test-Path (Join-Path $environment 'python.txt'))) 'Purge keeps the version in use and its environment'
+        Assert-Equal 'app-version' (@(Get-LegionFootprints -HomeRoot $sandbox | Where-Object kind -CEQ 'app-version').kind -join '|') 'Purge keeps the record of the version in use'
+        Assert-Equal $false (Test-Path (Join-Path $sandbox '.legion/notes.txt')) 'Purge still removes everything else'
+    }
     ExactHeader = {
         $command = Join-Path $sandbox '.legion/bin/legion'
         New-Item -ItemType Directory -Path (Split-Path $command) -Force | Out-Null
