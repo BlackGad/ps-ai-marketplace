@@ -419,6 +419,7 @@ foreach ($case in @('InstallRunsRefresh', 'InstallQuestionNamesPath', 'InstallUn
                 return @{ExitCode=0;Output=@($listing)}
             }
             if ($Command[2] -eq 'install') { $installed[$folder]=$true }
+            if ($Command[2] -eq 'uninstall') { $installed[$folder]=$false }
             return @{ExitCode=0;Output=@();ErrorOutput=@()}
         }
         $savedPath = $env:PATH
@@ -482,9 +483,10 @@ foreach ($case in @('InstallRunsRefresh', 'InstallQuestionNamesPath', 'InstallUn
                     Assert-Equal 0 @(Get-LegionFootprints -HomeRoot $scratch -Kind path-entry | Where-Object path -CEQ 'user PATH').Count 'InstallLinksPortablePwsh: no Windows PATH record'
                     $repeat = @(Invoke-LegionInstaller @options -Yes)
                     Assert-True ($repeat -contains 'skip: pwsh link (already done)') 'InstallLinksPortablePwsh: repeat skips the link'
-                    $preview = @(Invoke-LegionPurge -DryRun)
+                    # Purge follows uninstall, which first removes the recorded app versions.
+                    $preview = @(Invoke-LegionInstaller @options -Uninstall -Purge -DryRun)
                     Assert-True ($preview -contains "Remove link: $link") 'InstallLinksPortablePwsh: purge lists the link'
-                    $null = Invoke-LegionPurge -Yes
+                    $null = Invoke-LegionInstaller @options -Uninstall -Purge -Yes
                     Assert-Equal $false (Test-Path (Join-Path $scratch '.legion')) 'InstallLinksPortablePwsh: purge removes the link, then the legion folder'
                 }
                 # A linked ~/.legion/bin would put the pwsh link in the link's target, outside legion's home.

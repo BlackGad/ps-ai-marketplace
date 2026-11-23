@@ -66,7 +66,7 @@ try {
     Assert-Equal 1 (Get-UvCalls).Count 'A repeat sync does not run uv again'
 
     # A folder without the marker is unfinished: never chosen, and the next sync repairs it in place.
-    Remove-Item -LiteralPath (Get-Marker $target)
+    Remove-Item -LiteralPath (Get-Marker $target) -Force
     Assert-Equal 0 @(Get-LegionAppVersions -HomeRoot $homeA).Count 'A version without the marker is not ready'
     $output = @(Publish-LegionApp -HomeRoot $homeA)
     Assert-True ($output -contains "legion app $version ready") 'An unfinished version is synced again'
@@ -76,7 +76,7 @@ try {
     # One sync at a time: a second one while the lock is held changes nothing.
     $lock = [IO.File]::Open((Join-Path $homeA '.legion/app/.sync.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
     try {
-        Remove-Item -LiteralPath (Get-Marker $target)
+        Remove-Item -LiteralPath (Get-Marker $target) -Force
         $calls = (Get-UvCalls).Count
         $output = @(Publish-LegionApp -HomeRoot $homeA)
         Assert-Equal 'skip: legion app sync (another sync is running)' ($output -join "`n") 'A second sync reports the running one'
