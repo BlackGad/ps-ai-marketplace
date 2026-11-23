@@ -13,7 +13,7 @@ if (Test-Path -LiteralPath $catalogPath) {
     $configEnvs = (Get-Content $catalogPath -Raw | ConvertFrom-Json).tools.configEnv
 }
 $toolConfigEnvs = @($configEnvs)
-$configEnvs += @('LEGION_TEST_UV_SYNC', 'LEGION_ROLE', 'LEGION_TASK', 'HOME', 'USERPROFILE', 'LEGION_TEST_GUARD', 'LEGION_TEST_USER_PATH_FILE', 'TMPDIR', 'TEMP', 'TMP')
+$configEnvs += @('LEGION_TEST_UV_SYNC', 'LEGION_ROLE', 'LEGION_TASK', 'TELEGRAM_STATE_DIR', 'TELEGRAM_BOT_TOKEN', 'HOME', 'USERPROFILE', 'LEGION_TEST_GUARD', 'LEGION_TEST_USER_PATH_FILE', 'TMPDIR', 'TEMP', 'TMP')
 function Get-TestOutsideSnapshot {
     param([string]$Path)
     return @(Get-ChildItem -LiteralPath $Path -File -Recurse -Force | Sort-Object FullName | ForEach-Object { $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash }) -join '|'

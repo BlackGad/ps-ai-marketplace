@@ -50,7 +50,7 @@ function Resolve-LegionChannel {
     $entry = if ($descriptor.state) { $descriptor.state.PSObject.Properties[$Tool] }
     if ($entry) {
         $folder = Get-LegionHomePath -HomeRoot $HomeRoot -Path "$($entry.Value.folder)/$($channel.id)"
-        $state = [pscustomobject]@{ Variable=$entry.Value.variable; Folder=$folder; Remove=@($entry.Value.remove) }
+        $state = [pscustomobject]@{ Variable=$entry.Value.variable; Folder=$folder; Remove=@($entry.Value.remove); TokenFile=$entry.Value.tokenFile; Setup=$entry.Value.setup }
     }
     [pscustomobject]@{
         Id=$channel.id; Kind=$channel.kind; Target=$channel.target; Accounts=@($channel.accounts); State=$state
