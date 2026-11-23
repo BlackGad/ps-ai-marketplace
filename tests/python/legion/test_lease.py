@@ -191,6 +191,8 @@ def racer(repo: str, account: str, start: Barrier, done: Event, results: "multip
         results.put("won")
     except LeaseError as error:
         results.put(f"lost: {error}")
+    except Exception as error:  # Report it, so the test shows the cause instead of waiting for a dead racer.
+        results.put(f"failed: {error!r}")
     # Stay alive so the winner's lease is held while the others check it.
     done.wait(30)
 
@@ -250,6 +252,37 @@ def test_paused_guard_holder_blocks_takeover_and_release_until_it_exits(tmp_path
         holder.join(30)
     assert take(tmp_path, "codex", "owner", process_id=os.getpid()) == "lease taken"
     assert release(tmp_path, process_id=os.getpid()) == "lease released"
+
+
+# On Windows a lock another process has open cannot be removed; the change fails with a retry message.
+@pytest.fixture
+def lease_in_use(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    path = lease_path(tmp_path)
+    real_unlink = Path.unlink
+
+    def busy_unlink(target: Path, missing_ok: bool = False) -> None:
+        if target == path:
+            raise PermissionError(32, "The process cannot access the file because it is being used by another process")
+        real_unlink(target, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", busy_unlink)
+    monkeypatch.setattr(_lease, "RETRY_PAUSE_SECONDS", 0)
+    return path
+
+
+def test_takeover_of_a_lock_in_use_asks_to_retry(tmp_path: Path, lease_in_use: Path) -> None:
+    write_lease(tmp_path, pid=DEAD_PID)
+    with pytest.raises(LeaseError, match="takeover in progress in another session; retry"):
+        take(tmp_path, "codex", "owner", process_id=os.getpid())
+    assert json.loads(lease_in_use.read_text(encoding="utf-8"))["pid"] == DEAD_PID
+    assert _lease._open_guard(lease_in_use) is not None
+
+
+def test_release_of_a_lock_in_use_asks_to_retry(tmp_path: Path, lease_in_use: Path) -> None:
+    write_lease(tmp_path)
+    with pytest.raises(LeaseError, match="change in progress in another session; retry"):
+        release(tmp_path, process_id=os.getpid())
+    assert lease_in_use.exists()
 
 
 # LeaseReleaseRace.Tests.ps1

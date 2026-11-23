@@ -22,6 +22,8 @@ else:
 State = Literal["free", "held", "stale", "foreign"]
 # A lock that cannot be read yet was most likely just created by a session that is still writing it.
 WRITE_GRACE_SECONDS = 10
+# On Windows another process may have the lock open for a moment; wait this long between the few tries.
+RETRY_PAUSE_SECONDS = 0.025
 
 
 class LeaseError(Exception):
@@ -165,7 +167,8 @@ def release(repo: Path, process_id: Optional[int] = None) -> str:
             return "skip: lease release (already done)"
         found = current.lease
         if found is not None and started is not None and found.process_started_at is not None and _same_host(found.host) and found.pid == pid and same_start_time(found.process_started_at, started):
-            path.unlink()
+            if not _remove(path):
+                raise LeaseError("lease change in progress in another session; retry")
             return "lease released"
         raise LeaseError("lease belongs to another session; cannot release it")
     finally:
@@ -195,7 +198,7 @@ def _remove_stale(repo: Path, seen: Optional[Lease]) -> bool:
         found = current.lease
         unchanged = (seen is None and found is None) or (seen is not None and found is not None and seen.pid == found.pid and seen.started_at == found.started_at)
         if unchanged:
-            path.unlink(missing_ok=True)
+            return _remove(path)
         return True
     finally:
         _close_guard(guard)
@@ -239,8 +242,20 @@ def _read(path: Path) -> str:
         except PermissionError:
             if attempt == 4:
                 raise
-            time.sleep(0.025)
+            time.sleep(RETRY_PAUSE_SECONDS)
     raise AssertionError("unreachable")
+
+
+# Windows cannot remove a lock another session is reading; give up after a few tries so the caller can say retry.
+def _remove(path: Path) -> bool:
+    for attempt in range(5):
+        try:
+            path.unlink(missing_ok=True)
+            return True
+        except PermissionError:
+            if attempt < 4:
+                time.sleep(RETRY_PAUSE_SECONDS)
+    return False
 
 
 def _age_seconds(path: Path) -> float:
