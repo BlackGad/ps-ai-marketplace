@@ -263,14 +263,17 @@ def stalled(*args, **kwargs):
     return Response()
 urllib.request.urlopen = stalled
 _plugin.PLUGIN_ROOT = Path(sys.argv[1])
+Path(sys.argv[4]).write_text(str(time.monotonic()), encoding='utf-8')
 _cli.main(['--home', sys.argv[2], 'update', '--check', '--force'], prog_name='legion')
 """
-    started = time.monotonic()
-    process = subprocess.run([sys.executable, "-c", script, str(plugin), str(tmp_path), stage], capture_output=True, text=True, timeout=6, check=False)
-    elapsed = time.monotonic() - started
+    marker = tmp_path / "cli-started"
+    process = subprocess.run([sys.executable, "-c", script, str(plugin), str(tmp_path), stage, str(marker)], capture_output=True, text=True, timeout=60, check=False)
+    finished = time.monotonic()
     assert process.returncode == 0, process.stderr
     assert process.stdout == FAILURE
     assert process.stderr == ""
+    # Exclude interpreter startup and imports, but include the CLI call and process exit.
+    elapsed = finished - float(marker.read_text(encoding="utf-8"))
     assert 2.5 <= elapsed < 3.8
     assert json.loads(cache_path(tmp_path).read_text())["Failed"] is True
 
