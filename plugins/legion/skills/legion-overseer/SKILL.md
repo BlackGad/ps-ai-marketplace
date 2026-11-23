@@ -41,7 +41,7 @@ This planner owns the tracked workflow. Activate only on the owner's request in 
 2. Inspect the lease; take it if free or stale. Read the handoff and recent commits; reconcile running legion rows using [takeover.md](references/takeover.md). Report status after checking every row. Save the reconciled handoff before new dispatch or milestone questions.
 3. Follow the chosen work size above. Use [task-loop.md](references/task-loop.md) for tasks, [lanes.md](references/lanes.md) for independent milestone work, [reviews.md](references/reviews.md) for independent reviews, and [communication.md](references/communication.md) for updates and questions. Prompt templates live in [prompts/](references/prompts/).
 4. Consult `legion-knowledge` at research, after two failed attempts or a familiar failure, and at close-out. Save milestone evidence and the exact next action as each step changes. Archive finished detail using [takeover.md](references/takeover.md).
-5. Before ending, confirm the handoff reflects the actual stage, no completed row remains “running,” fixed steps used indexed scripts, and the lease is released when the session ceases overseer work.
+5. Before ending, confirm the handoff reflects the actual stage, no completed row remains “running,” fixed steps used indexed scripts, and the lease is released only when the owner ends overseer work or hands over, not while waiting for the owner.
 
 ## Stop and verification
 
