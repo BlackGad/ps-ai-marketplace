@@ -16,7 +16,9 @@ from datetime import (
 from pathlib import Path
 from typing import Optional
 
-COMMON_PATH = Path(__file__).resolve().parents[2] / "bin/lib/common.ps1"
+from ._plugin import PLUGIN_ROOT
+
+COMMON_PATH = PLUGIN_ROOT / "bin/lib/common.ps1"
 
 
 def repo_key(repo: str, cwd: str, *, windows: bool) -> str:

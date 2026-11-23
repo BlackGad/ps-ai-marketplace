@@ -1,18 +1,19 @@
 import io
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
 
 import click
 
-from . import _forward
+from . import _forward, _plugin
 
 
 def _show_version(context: click.Context, _parameter: click.Parameter, value: bool) -> None:
     if not value:
         return
-    manifest_path = Path(__file__).resolve().parents[2] / "plugin.json"
+    manifest_path = _plugin.PLUGIN_ROOT / "plugin.json"
     version = json.loads(manifest_path.read_text(encoding="utf-8"))["version"]
     click.echo(f"{context.find_root().info_name} {version}")
     context.exit()
@@ -44,6 +45,9 @@ def main(context: click.Context, home: Optional[Path]) -> None:
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper):
             stream.reconfigure(encoding="utf-8")
+    # The Windows command passes its home as <home>/.legion/bin/../..
+    if home is not None:
+        home = Path(os.path.normpath(home))
     context.obj = home
     if context.invoked_subcommand is None:
         context.exit(_forward.run([], home))

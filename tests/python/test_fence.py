@@ -16,6 +16,10 @@ def test_fence_points_the_environment_at_the_linked_home(fence: Fence) -> None:
         assert Path(os.environ[name]) == fence.home / name
     assert "LEGION_ROLE" not in os.environ
     assert "LEGION_TASK" not in os.environ
+    # A child interpreter writes its bytecode cache and reads startup and user files only inside the fence.
+    assert Path(os.environ["PYTHONPYCACHEPREFIX"]) == fence.temp / "pycache"
+    assert "PYTHONSTARTUP" not in os.environ
+    assert "PYTHONUSERBASE" not in os.environ
 
 
 def test_fence_catches_a_change_to_the_fake_real_folder(fence: Fence) -> None:

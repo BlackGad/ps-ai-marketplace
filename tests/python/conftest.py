@@ -12,7 +12,7 @@ if sys.platform == "win32":
     import _winapi
 
 REPO = Path(__file__).resolve().parents[2]
-CLEARED_ENVIRONMENT = ("LEGION_ROLE", "LEGION_TASK")
+CLEARED_ENVIRONMENT = ("LEGION_ROLE", "LEGION_TASK", "PYTHONSTARTUP", "PYTHONUSERBASE")
 
 
 # Mirrors the fence in tests/run.ps1: every test runs with a temp home reached through a link, and the
@@ -67,6 +67,8 @@ def fence(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPa
     for name in ("TMPDIR", "TEMP", "TMP"):
         monkeypatch.setenv(name, str(fence.temp))
     monkeypatch.setattr(tempfile, "tempdir", str(fence.temp))
+    # A child interpreter would otherwise write its bytecode cache wherever the developer's setting points.
+    monkeypatch.setenv("PYTHONPYCACHEPREFIX", str(fence.temp / "pycache"))
     for name in fence.config_environments:
         monkeypatch.setenv(name, str(fence.home / name))
     for name in CLEARED_ENVIRONMENT:
