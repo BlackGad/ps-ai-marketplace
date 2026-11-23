@@ -21,10 +21,10 @@ Route channel operations through `skills/legion-<kind>/SKILL.md`; stop if missin
 
 Never save secrets. The validator enforces the required fields, unique lowercase ids, channel bindings, the default deployment and the HTTPS host; fix what it reports. Validate every edit with the bundled schema:
 
-```text
-
-legion validate --kind personalisation --path <home>/.legion/configuration/personalisation.json
-
+```powershell
+. <plugin>/bin/lib/python.ps1
+$result = Invoke-LegionPython -Arguments @('validate', '--kind', 'personalisation', '--path', '<home>/.legion/configuration/personalisation.json')
+$result.Output; $result.Error
 ```
 
 Use the stable editor URL `https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/plugins/legion/schemas/personalisation.schema.json` or omit `$schema`. Unknown fields require setup. Do not invent defaults or copy sample preferences. Use [create.md](create.md) for setup and [notes-template.md](notes-template.md) for headings. Record stated models, exclusions, purposes, careful/paid-use choices, notifications, format, knowledge location and durable lessons. Put unfinished requested work and “Finish my legion setup” under Finish later. Add no consent or status properties. The agent repairs prose references after account/channel changes and reports unresolved wording.
