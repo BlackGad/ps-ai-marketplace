@@ -190,7 +190,11 @@ def test_write_failure_prints_one_stderr_line_and_preserves_settings(home: Path,
     output = capsys.readouterr()
     assert (output.out, output.err) == ("", "disk write failed try again\n")
     assert settings_path(home).read_bytes() == before
-    assert list(settings_path(home).parent.iterdir()) == [settings_path(home)]
+    names = {path.name for path in settings_path(home).parent.iterdir()}
+    assert names <= {"personalisation.json", "personalisation.json.lock"}
+    if sys.platform != "win32":
+        assert "personalisation.json.lock" in names
+    assert not list(settings_path(home).parent.glob(".personalisation.json.*.tmp"))
 
 
 # Any open of the token file fails the test; existence checks only stat it.
