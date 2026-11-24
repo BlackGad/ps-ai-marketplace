@@ -3,6 +3,22 @@ param()
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'python.ps1')
 
+# Until app publishing moves to Python, owner commands still need this generated-file writer.
+function Write-LegionGeneratedFile {
+    param([string]$Path, [string]$Content, [Collections.Generic.List[string]]$Changes, [switch]$Executable)
+    $same = (Test-Path -LiteralPath $Path) -and [IO.File]::ReadAllText($Path) -ceq $Content
+    $changed = -not $same
+    if (-not $same) {
+        New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
+        [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
+    }
+    if ($Executable -and -not $IsWindows -and -not (Test-LegionLauncherExecutable -Path $Path)) {
+        [IO.File]::SetUnixFileMode($Path, [IO.File]::GetUnixFileMode($Path) -bor [IO.UnixFileMode]::UserExecute)
+        $changed = $true
+    }
+    if ($changed -and $null -ne $Changes) { $Changes.Add($Path) }
+}
+
 function ConvertTo-LegionShellLiteral {
     param([string]$Value)
     return "'" + $Value.Replace("'", "'" + '"' + "'" + '"' + "'") + "'"

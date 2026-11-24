@@ -7,12 +7,12 @@ Add and adopt through `legion-setup.ps1`, as [create.md](../../legion-personalis
 
 ## Foundry agent
 
-Use this flow for a Foundry endpoint instead of the subscription login flow above. One agent uses one endpoint. Run these commands in PowerShell 7; use `-HomeRoot <home>` for an alternate home.
+Use this flow for a Foundry endpoint instead of the subscription login flow above. One agent uses one endpoint. Use `legion --home <home>` for an alternate home.
 
 Use these commands for a Foundry provider configuration request. Ordinary setup can adopt an existing folder and keep its provider settings. For Foundry only, ask “Standard mapping or choose deployments yourself?” Reuse choices already supplied. Follow [Foundry model mapping](../../legion-personalisation/references/foundry-models.md) for discovery, `-Standard` and unresolved aliases. These examples show explicit choices:
 
 ```powershell
-& "<plugin>/bin/legion-account.ps1" -Action add -Tool claude -Id '<id>' -Provider foundry -Endpoint "https://<resource>.cognitiveservices.azure.com" -Deployments @('claude-opus-x','claude-sonnet-x') -Default claude-opus-x -Aliases @('claude-opus-x=opus','claude-sonnet-x=sonnet')
+legion account add --id <id> --tool claude --provider foundry --endpoint https://<resource>.cognitiveservices.azure.com --deployment claude-opus-x --deployment claude-sonnet-x --default claude-opus-x --alias claude-opus-x=opus --alias claude-sonnet-x=sonnet
 ```
 
 Aliases are optional: `opus`, `sonnet`, `haiku`, or `fable`, each used once. The default must be a selected deployment name. Add writes the provider entry with the wrappers, and `modelPicker` in the account's `settings.json`. Other settings remain. Invalid JSON stops with `settings.json is not valid JSON; fix or remove it`. Repeating the same id, tool, provider, and endpoint prints `skip: account <id> (already done)`.
@@ -20,10 +20,10 @@ Aliases are optional: `opus`, `sonnet`, `haiku`, or `fable`, each used once. The
 For a requested provider configuration change, reuse the supplied settings and apply the complete replacement with:
 
 ```powershell
-& "<plugin>/bin/legion-account.ps1" -Action models -Id '<id>' -Deployments @('claude-opus-x','claude-sonnet-x') -Default claude-opus-x -Aliases @('claude-opus-x=opus','claude-sonnet-x=sonnet')
+legion account models --id <id> --deployment claude-opus-x --deployment claude-sonnet-x --default claude-opus-x --alias claude-opus-x=opus --alias claude-sonnet-x=sonnet
 ```
 
-`models` replaces the full deployment list. Omit `-Aliases` to keep aliases for retained names; pass `-Aliases @()` to clear them. An unchanged result prints `skip: models <id> (no changes)` and writes nothing. Then run `legion-setup.ps1` and show the owner its plan. It covers every known account, not only this one, so ask for the owner's one yes and run it again with `-Yes` to install legion wherever it is missing.
+`models` replaces the full deployment list. Omit `--alias` to keep aliases for retained names; pass `--alias ''` to clear them. An unchanged result prints `skip: models <id> (no changes)` and writes nothing. Then run `legion-setup.ps1` and show the owner its plan. It covers every known account, not only this one, so ask for the owner's one yes and run it again with `-Yes` to install legion wherever it is missing.
 
 Launch `<id>` in a terminal. The wrapper uses `CLAUDE_CONFIG_DIR`, the Foundry endpoint, default, and alias variables. Claude uses its own Azure token refresh. Pass a model flag only when owner notes name a model or allow a tier for the run; follow [Foundry routing](../../legion-overseer/references/task-loop.md#foundry-runs). Keep the same agent and endpoint when resuming. A missing CLI stops with `claude is not installed; run legion-install-tool.ps1 -Tool claude`.
 

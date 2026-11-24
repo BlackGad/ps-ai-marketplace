@@ -81,27 +81,16 @@ try {
         $owner.agents = @([pscustomobject]@{ id = 'fourth-dev'; tool = 'fourth'; configDir = (Join-Path $homeRoot '.legion/agents/fourth-dev') })
         $owner | ConvertTo-Json -Depth 100 | Set-Content $ownerPath
         Assert-Equal 0 @(Invoke-LegionValidation -Kind personalisation -Path $ownerPath).Count 'Fourth account validates with matching skill'
-        $discovery = @{Source='management';Deployments=@(@{name='model[1]-a';model='model[1]-a'})}
-        $syntheticProvider = New-LegionFoundryProvider -Endpoint 'https://resource.cognitiveservices.azure.com' -Tool fourth -Deployments 'model[1]-a' -Default 'model[1]-a' -Aliases 'model[1]-a=alpha' -Discovery $discovery
+        $syntheticProvider = @{kind='foundry';endpoint='https://resource.cognitiveservices.azure.com';default='model[1]-a';deployments=@(@{name='model[1]-a';model='model[1]-a';alias='alpha'})}
         Assert-Equal 'alpha' $syntheticProvider.deployments[0].alias 'Fourth tool accepts its own alias'
         foreach ($tool in @('claude','codex','copilot')) {
             $issues = @(Get-LegionProviderIssues -Data @{agents=@(@{tool=$tool;provider=$syntheticProvider})})
             Assert-True ($issues -contains "agents[0].provider: alias 'alpha' is not supported by tool '$tool'") 'Alias membership is descriptor-specific'
         }
-        Assert-Throws { New-LegionFoundryProvider -Endpoint $syntheticProvider.endpoint -Tool fourth -Deployments 'model[1]-a' -Default 'model[1]-a' -Aliases 'model[1]-a=opus' -Discovery $discovery } 'Fourth tool rejects built-in aliases'
         $owner = Read-LegionJson $ownerPath
         $owner.agents[0] | Add-Member provider $syntheticProvider
         $owner | ConvertTo-Json -Depth 100 | Set-Content $ownerPath
         Assert-Equal 0 @(Invoke-LegionValidation -Kind personalisation -Path $ownerPath).Count 'Synthetic alias passes schema and semantic validation'
-        $azureCalls = [Collections.Generic.List[string]]::new()
-        function Invoke-FoundryAz {
-            param($Arguments)
-            $azureCalls.Add(($Arguments -join ' '))
-            $json = if ($Arguments -contains 'deployment') { '[{"name":"literal","properties":{"model":{"name":"model[1]-a"}}},{"name":"wildcard","properties":{"model":{"name":"model1-a"}}}]' } else { '[{"name":"resource","resourceGroup":"group"}]' }
-            @{ExitCode=0;Output=$json;Error=''}
-        }
-        $found = Get-FoundryDeployments -Endpoint $syntheticProvider.endpoint -Tool fourth
-        Assert-Equal 'literal' ($found.Deployments.name -join '|') 'Foundry prefix is literal rather than a wildcard'
         . (Join-Path $plugin 'bin/legion-overseer.ps1') -NoRun -HomeRoot $homeRoot
         $launch = Get-OverseerLaunch -Personalisation $owner -AccountId fourth-dev -Tool fourth -Arguments @('--account','account value','','2026-11-19') -HomeRoot $homeRoot
         Assert-Equal '--account|account value||2026-11-19|--interactive|space value|continue as the overseer' ($launch.Args -join '|') 'Descriptor tail follows explicit literal arguments'
@@ -109,17 +98,6 @@ try {
         $descriptor = Get-Content $descriptorPath -Raw | ConvertFrom-Json
         $descriptor.foundry = $null
         $descriptor | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
-        try {
-            & (Join-Path $plugin 'bin/legion-account.ps1') -Action add -Id fourth-dev -Tool fourth -Provider foundry -Endpoint $syntheticProvider.endpoint -HomeRoot $homeRoot | Out-Null
-            throw 'Expected unsupported repeated Foundry add'
-        } catch { Assert-Equal "tool 'fourth' does not support Foundry" $_.Exception.Message 'Repeated Foundry add rejects null capability without writes' }
-        $beforeCalls = $azureCalls.Count
-        Assert-Throws { Get-FoundryDeployments -Endpoint $syntheticProvider.endpoint -Tool fourth } 'Null Foundry rejects discovery'
-        function Test-FoundryToken { throw 'Azure token must not be requested' }
-        try { Get-LegionFoundryDiscovery -Endpoint $syntheticProvider.endpoint -Tool fourth; throw 'Expected unsupported capability' }
-        catch { Assert-Equal "tool 'fourth' does not support Foundry" $_.Exception.Message 'Null Foundry stops before token login' }
-        Assert-Equal $beforeCalls $azureCalls.Count 'Null Foundry makes no Azure calls'
-        Assert-Throws { Write-FoundryToolConfig -Agent $owner.agents[0] -HomeRoot $homeRoot } 'Null Foundry rejects config writes'
         Remove-Item (Join-Path $fourthSkill 'SKILL.md')
         Assert-True (@(Invoke-LegionValidation -Kind personalisation -Path $ownerPath).Count -gt 0) 'Absent matching skill rejects persisted tool'
         # Loading definitions and lease/hook operations must not discover malformed data.

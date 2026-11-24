@@ -7,6 +7,7 @@ try {
     # Account ids must not already be commands; keep the machine PATH out of the fake setup.
     $env:PATH = Split-Path (Get-Process -Id $PID).Path
     . (Join-Path $repo 'plugins/legion/bin/legion-setup.ps1') -NoRun
+    . (Join-Path $PSScriptRoot 'lib/legacy-account-fixture.ps1')
     $bin = Join-Path $sandbox '.legion/bin'
     New-Item -ItemType Directory -Path $bin -Force | Out-Null
     $commandNames = if ($IsWindows) { @('legion', 'legion.cmd') } else { @('legion') }

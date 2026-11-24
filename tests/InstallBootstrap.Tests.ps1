@@ -282,18 +282,6 @@ Invoke-InstallTestCase 'BootstrapShared' {
         function Get-LegionOwnerPath { param($Name,$HomeRoot) $script:askedOwnerPath = $Name; 'shared' }
         $null = Get-UpdateConfigDirs -Tool claude
         Assert-Equal 'Settings' $script:askedOwnerPath 'Installer calls shared owner paths'
-        $files = @(Get-LegionRuntimeFiles)
-        foreach ($relative in @('bin/lib/tools.ps1','bin/lib/foundry.ps1','bin/lib/paths.ps1')) {
-            Assert-True ($files -contains $relative) 'Runtime includes its libraries'
-            $tokens=$null; $errors=$null
-            $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $repo "plugins/legion/$relative"),[ref]$tokens,[ref]$errors)
-            $loads=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.InvocationOperator -eq 'Dot'},$true))
-            foreach ($load in $loads) {
-                $names=@($load.FindAll({param($node) $node -is [Management.Automation.Language.StringConstantExpressionAst]},$true) | ForEach-Object Value)
-                Assert-True ($files -contains ('bin/lib/' + $names[-1])) 'Every runtime dot-source is in the runtime list'
-            }
-        }
-        Assert-True ($files -contains 'bin/legion-foundry.ps1') 'Runtime includes Foundry runner'
         $message=''
         try { & ([scriptblock]::Create((Get-Content $installerPath -Raw))) -NoRun } catch { $message=$_.Exception.Message }
         Assert-True ($message.Contains('expanded archive')) 'Installer clearly refuses script text without PSScriptRoot'

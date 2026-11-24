@@ -2,16 +2,16 @@
 
 Only Foundry agents need a model question during setup: “Standard mapping or choose deployments yourself?” Reuse an answer already given. Subscription agents use their CLI defaults.
 
-Discover deployments with `-Action add -Tool <tool> -Id '<id>' -Provider foundry -Endpoint '<endpoint>' -List`, or `-Action models -Id '<id>' -List` for an existing agent. Run these flags through `<plugin>/bin/legion-account.ps1`. Discovery uses Azure CLI; never print or save its token.
+Discover deployments with `legion account add --id <id> --tool <tool> --provider foundry --endpoint <endpoint> --list`, or `legion account models --id <id> --list` for an existing agent. Discovery uses Azure CLI; never print or save its token.
 
 For standard mapping:
 
 ```powershell
-& "<plugin>/bin/legion-account.ps1" -Action add -Tool <tool> -Id '<id>' -Provider foundry -Endpoint '<endpoint>' -Standard
-& "<plugin>/bin/legion-account.ps1" -Action models -Id '<id>' -Standard
+legion account add --id <id> --tool <tool> --provider foundry --endpoint <endpoint> --standard
+legion account models --id <id> --standard
 ```
 
-`-Standard` uses discovered deployments. Optional `-Deployments` limits it to selected discovered names. Do not combine it with `-Aliases` or `-Default`. Explicit choices still use the commands in the tool's account guide.
+`--standard` uses discovered deployments. Optional `--deployment` limits it to selected discovered names. Do not combine it with `--alias` or `--default`. Explicit choices still use the commands in the tool's account guide.
 
 Claude maps `opus`, `sonnet` and `haiku` from separate tokens in the deployment name or model. Split on hyphens, underscores, dots and spaces, ignoring case. Compare numeric tokens left to right to choose the newest. Use numbers from the deployment name, or from the model when the name has none. Missing trailing numbers count as zero. The default is sonnet, else the first mapped alias. Fable is never chosen automatically.
 

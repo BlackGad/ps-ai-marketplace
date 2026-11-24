@@ -9,7 +9,8 @@ from typing import Any
 
 import pytest
 
-from legion import _settings_io
+from legion import _accounts, _settings_io
+from legion.foundry import _discovery
 from legion import _channel
 from filelock import FileLock
 from legion._home import settings_path
@@ -336,29 +337,13 @@ def test_writer_leaves_fresh_home_untouched_when_settings_are_missing(tmp_path: 
     assert not (tmp_path / ".legion").exists()
 
 
-def test_powershell_models_list_does_not_wait_for_settings_writer(tmp_path: Path, pwsh_path: Path) -> None:
+def test_models_list_does_not_wait_for_settings_writer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     write_settings(tmp_path, {"schemaVersion": 1, "agents": [FOUNDRY], "channels": []})
-    account = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "bin" / "legion-account.ps1"
-    fake_az = Path(__file__).resolve().parents[3] / "tests" / "FakeAz.ps1"
-    launch = tmp_path / "models-list.ps1"
-    launch.write_text(
-        ". $args[0]; Use-FakeAz -Answers @{ "
-        '\'account get-access-token --resource https://cognitiveservices.azure.com\' = @{exit=0; stdout=\'{"accessToken":"fake","expiresOn":"2099-01-01T00:00:00+00:00"}\'}; '
-        "'cognitiveservices account list' = @{exit=0; stdout='[]'}; "
-        "'account list' = @{exit=0; stdout=''} "
-        "}; & $args[1] -Action models -Id claude-f -List -HomeRoot $args[2]",
-        encoding="utf-8",
-    )
+    discovery = _discovery.FoundryDiscovery(source="management", error="", deployments=[])
+    monkeypatch.setattr(_discovery, "discover", lambda *_args: discovery)
     with FileLock(str(settings_path(tmp_path)) + ".lock", timeout=0):
-        result = subprocess.run(
-            [str(pwsh_path), "-NoProfile", "-File", str(launch), str(fake_az), str(account), str(tmp_path)],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-    assert result.returncode == 0, result.stderr
-    assert '"deployments"' in result.stdout
+        lines = _accounts.models(tmp_path, "claude-f", [], None, None, False, True)
+    assert '"deployments"' in lines[0]
 
 
 def test_powershell_setup_plans_under_the_settings_lock_and_runs_the_account_add_without_it(tmp_path: Path, pwsh_path: Path) -> None:

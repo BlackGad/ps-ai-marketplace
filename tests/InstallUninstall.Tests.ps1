@@ -86,13 +86,11 @@ Invoke-InstallTestCase 'Uninstall' {
             }
             '#!/bin/sh
 exec pwsh -NoProfile -File ''/plugin/bin/legion.ps1'' "$@"' | Set-Content (Join-Path $bin 'legion')
-            # Use the actual runtime publisher, with no CLI or network boundary involved.
-            & {
-                . (Join-Path $repo 'plugins/legion/bin/lib/accounts.ps1')
-                $null = Sync-LegionFoundryRuntime -Tool codex -HomeRoot $sandbox
-            }
+            # A pre-migration runtime can remain recorded after its launcher has moved to Python.
             $runtime = Join-Path $bin '.runtime'
-            $published = @(Get-ChildItem -LiteralPath $runtime -Recurse -File -Force | ForEach-Object FullName)
+            New-Item -ItemType Directory -Path (Join-Path $runtime 'bin'), (Join-Path $runtime 'skills/legion-codex/scripts') -Force | Out-Null
+            'old runner' | Set-Content (Join-Path $runtime 'bin/legion-foundry.ps1')
+            $published = @((Join-Path $runtime 'bin/legion-foundry.ps1'))
             'keep' | Set-Content (Join-Path $runtime 'owner.txt')
             'owner script' | Set-Content (Join-Path $runtime 'skills/legion-codex/scripts/foundry-custom.ps1')
             $preview = @(Invoke-LegionInstaller -Source $repo -Catalog $catalog -Uninstall -DryRun)
