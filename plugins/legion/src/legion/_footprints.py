@@ -1,5 +1,6 @@
 import re
 import shutil
+import sys
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -9,7 +10,7 @@ from typing import Literal
 from filelock import FileLock, Timeout
 
 from ._generated import is_owned
-from ._home import footprint_index, full_path, home_path, is_under, owner_path_safe, same_path
+from ._home import footprint_index, full_path, home_path, is_under, owner_path_safe, same_path, tree_has_reparse
 from ._settings_models import SchemaVersion, SettingsModel, Text
 
 FootprintKind = Literal["file", "folder", "link", "path-entry", "edit", "app", "app-version"]
@@ -101,8 +102,17 @@ def is_safe(entry: Footprint, home: Path) -> bool:
     if re.search(r"(^|[/\\])\.\.([/\\]|$)|[?*]", entry.path):
         return False
     path = full_path(home_path(entry.path, home))
-    if not is_under(path, home) or not owner_path_safe(path, home):
+    walked = path.parent if entry.kind == "link" else path
+    if not is_under(path, home / ".legion") or not owner_path_safe(walked, home):
         return False
+    if entry.kind == "link":
+        try:
+            target = str(path.readlink())
+            return target == entry.value or (sys.platform == "win32" and target.removeprefix("\\\\?\\") == entry.value)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
     if not path.exists():
         return True
     if entry.kind == "file":
@@ -110,7 +120,7 @@ def is_safe(entry: Footprint, home: Path) -> bool:
     if not path.is_dir():
         return False
     # A linked child can escape the recorded folder, so inspect without following links.
-    return not any(child.is_symlink() or child.is_junction() for child in path.rglob("*"))
+    return not tree_has_reparse(path)
 
 
 def remove_owner(home: Path, owners: list[str]) -> list[str]:

@@ -25,6 +25,26 @@ if ($Standard -and $Action -ne 'models' -and -not ($Action -eq 'add' -and $Provi
 }
 
 $file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings
+if ($Action -in @('add', 'register')) {
+    Assert-LegionId -Id $Id
+    $null = Get-LegionTool -Tool $Tool
+} elseif (-not (Test-Path -LiteralPath $file)) {
+    throw 'No legion settings yet; add an agent first.'
+}
+if ($Action -eq 'register') {
+    if (-not $Command -or -not $ConfigDir) { throw 'register requires -Command and -ConfigDir' }
+    $target = Resolve-LegionHomePath -Path $Command -HomeRoot $HomeRoot
+    $target = (Get-Command $target -ErrorAction Stop).Source
+    if (-not $target) { throw 'register target must be an executable file' }
+    if ($target -eq (Get-LegionWrapperCommand $Id $HomeRoot)) { throw 'wrapper target would recurse' }
+    & $PSCommandPath -Action add -Id $Id -Tool $Tool -Command $target -ConfigDir $ConfigDir -HomeRoot $HomeRoot
+    return
+}
+$settingsLock = if ($Action -eq 'add' -and $List) { $null } else {
+    Wait-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $file) -Seconds 30
+}
+if (-not $settingsLock -and -not ($Action -eq 'add' -and $List)) { throw 'legion settings are busy; another legion command is still running' }
+try {
 if (-not (Test-Path -LiteralPath $file)) {
     # A fresh machine has no settings; the first agent added creates them.
     if ($Action -notin @('add', 'register')) { throw 'No legion settings yet; add an agent first.' }
@@ -77,15 +97,6 @@ switch ($Action) {
         Write-LegionPersonalisation -Data $data -Path $file
         New-FoundryWrappers -Id $Id -HomeRoot $HomeRoot -Tool $agent.tool
     }
-    register {
-        if (-not $Command -or -not $ConfigDir) { throw 'register requires -Command and -ConfigDir' }
-        $target = $Command
-        $target = Resolve-LegionHomePath -Path $target -HomeRoot $HomeRoot
-        $target = (Get-Command $target -ErrorAction Stop).Source
-        if (-not $target) { throw 'register target must be an executable file' }
-        if ($target -eq (Get-LegionWrapperCommand $Id $HomeRoot)) { throw 'wrapper target would recurse' }
-        & $PSCommandPath -Action add -Id $Id -Tool $Tool -Command $target -ConfigDir $ConfigDir -HomeRoot $HomeRoot
-    }
     rename {
         $old = Get-LegionAgent -Data $data -Id $Id
         $new = Get-LegionAgent -Data $data -Id $NewId
@@ -116,3 +127,4 @@ switch ($Action) {
         "Config folder kept at $($agent.configDir)."
     }
 }
+} finally { if ($settingsLock) { $settingsLock.Dispose() } }

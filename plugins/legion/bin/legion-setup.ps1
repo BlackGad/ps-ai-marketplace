@@ -370,8 +370,18 @@ function Invoke-Setup {
     param([string[]]$Add, [string]$Id, [switch]$Yes, [string]$HomeRoot = $HOME, [string]$Source)
     $script:SetupHomeRoot = $HomeRoot
     $script:SetupSource = $Source
+    if (-not $Yes) {
+        $plan = Get-SetupPlan -Add $Add -Id $Id -HomeRoot $HomeRoot
+        Write-SetupPlan -Plan $plan
+        return
+    }
+    $settings = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings
+    # A fresh home can reject invalid arguments without creating a lock file or settings folder.
+    if (-not (Test-Path -LiteralPath $settings)) { $null = Get-SetupPlan -Add $Add -Id $Id -HomeRoot $HomeRoot }
+    $settingsLock = Wait-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $settings) -Seconds 30
+    if (-not $settingsLock) { throw 'legion settings are busy; another legion command is still running' }
+    try {
     $plan = Get-SetupPlan -Add $Add -Id $Id -HomeRoot $HomeRoot
-    if (-not $Yes) { Write-SetupPlan -Plan $plan; return }
     Initialize-SetupFiles -Plan $plan
     Install-SetupTools -Plan $plan
     Add-SetupAccounts -Plan $plan
@@ -382,6 +392,7 @@ function Invoke-Setup {
     Write-SetupTable -Plan $plan
     # Recoverable installer failures are next-step rows, not a failure of the whole setup run.
     $global:LASTEXITCODE = 0
+    } finally { $settingsLock.Dispose() }
 }
 
 # Main: parse adds and build the plan before any persistent change, then print it or apply and show the table.

@@ -5,7 +5,7 @@ from functools import cmp_to_key
 from pathlib import Path
 
 from ._footprints import read
-from ._home import full_path, home_path, owner_path_safe, resolve_directory, same_path
+from ._home import full_path, home_path, owner_path_safe, resolve_directory, same_path, tree_has_reparse
 from ._update import compare_versions
 
 
@@ -30,7 +30,7 @@ def version_safe(path: Path, home: Path) -> bool:
     environment = python_environment(path, home)
     if not owner_path_safe(path, home) or not owner_path_safe(environment, home):
         return False
-    return not path.exists() or not any(child.is_symlink() or child.is_junction() for child in path.rglob("*"))
+    return not path.exists() or not tree_has_reparse(path)
 
 
 def ready_versions(home: Path) -> list[AppVersion]:

@@ -22,13 +22,15 @@ class SettingsError(Exception):
 
 @contextmanager
 def writer(home: Path) -> Iterator[None]:
-    path = settings_path(home).resolve()
-    path.parent.mkdir(parents=True, exist_ok=True)
     try:
+        path = settings_path(home).resolve()
+        path.parent.mkdir(parents=True, exist_ok=True)
         with FileLock(str(path) + ".lock", timeout=30):
             yield
     except Timeout:
         raise SettingsError("legion settings are busy; another legion command is still running") from None
+    except OSError as error:
+        raise SettingsError(" ".join(str(error).split())) from None
 
 
 def load(home: Path) -> PersonalisationSettings:
@@ -46,7 +48,7 @@ def _load(home: Path, *, references: bool) -> PersonalisationSettings:
         raise SettingsError("No legion settings yet; add an agent first.")
     try:
         text = _validate.read_text(path)
-    except OSError as error:
+    except (OSError, ValueError) as error:
         raise SettingsError(" ".join(str(error).split())) from None
     issues = _validate.validate_text("personalisation", text, references=references)
     if issues:
