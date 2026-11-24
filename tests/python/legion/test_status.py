@@ -345,9 +345,7 @@ def test_channel_account_path_matching(channel_session: tuple[PersonalisationSet
 
 
 # Moved assertions 9-16: connected, unknown, unreadable and ambiguous sessions are silent.
-@pytest.mark.parametrize(
-    "reason", ["connected", "runtime", "case-sensitive-tool", "other-account", "member", "unmatched", "unsupported", "empty", "ambiguous", "no-config", "no-launch", "bad-launch", "bad-channel-id"]
-)
+@pytest.mark.parametrize("reason", ["connected", "runtime", "case-sensitive-tool", "other-account", "member", "unmatched", "unsupported", "empty", "ambiguous", "no-config", "no-launch", "bad-launch"])
 def test_uncertain_or_connected_sessions_are_silent(channel_session: tuple[PersonalisationSettings, Path, list[ToolDescriptor]], monkeypatch: pytest.MonkeyPatch, reason: str) -> None:
     owner, home, tools = channel_session
     if reason == "connected":
@@ -368,11 +366,9 @@ def test_uncertain_or_connected_sessions_are_silent(channel_session: tuple[Perso
     elif reason == "no-config":
         for tool in tools:
             monkeypatch.delenv(tool.config_env, raising=False)
-    elif reason in ("no-launch", "bad-launch"):
+    else:
         descriptor = ChannelDescriptor.model_validate({"schemaVersion": 1, "id": "telegram", "launch": {"claude": [] if reason == "no-launch" else ["some prose"]}})
         monkeypatch.setattr(_status, "load_descriptors", lambda *_args: [descriptor])
-    else:
-        owner.channels[0].id = "bad id\nprose"
     assert _status.channel_warnings(owner, home, tools) == []
 
 

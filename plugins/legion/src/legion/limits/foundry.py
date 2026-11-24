@@ -30,7 +30,7 @@ def check_token(timeout: float) -> TokenCheck:
     try:
         az = find_executable("az")
     except RuntimeError:
-        return TokenCheck(ok=False, error="az is not installed; run legion-install-tool.ps1 -Tool az")
+        return TokenCheck(ok=False, error="az is not installed; ask legion to install the Azure CLI")
     result = run_command(az, TOKEN_ARGUMENTS, timeout=timeout)
     if result.timed_out:
         return TokenCheck(ok=False, error="az timed out")

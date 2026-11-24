@@ -11,7 +11,12 @@ from typing import Optional
 from pydantic import BaseModel, Field, JsonValue
 
 from . import _lease, _process
-from ._home import bin_folder, home_path, settings_path
+from ._home import (
+    bin_folder,
+    home_path,
+    legion_home,
+    settings_path,
+)
 from ._settings_models import (
     ChannelDescriptor,
     PersonalisationSettings,
@@ -61,7 +66,7 @@ def _copilot_manifest(folder: Path) -> Optional[Path]:
         for plugin in marketplace.plugins:
             if plugin.name == "legion" and isinstance(plugin.source, str):
                 return source.path / plugin.source / "plugin.json"
-    except (OSError, ValueError, KeyError):
+    except (OSError, ValueError):
         pass
     return None
 
@@ -151,11 +156,10 @@ class _UnicodeString(ctypes.Structure):
 def _windows_command_line(pid: int) -> str:
     assert sys.platform == "win32"
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel.OpenProcess.restype = ctypes.c_void_p
     kernel.CloseHandle.argtypes = (ctypes.c_void_p,)
     query = ctypes.WinDLL("ntdll").NtQueryInformationProcess
     query.argtypes = (ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p)
-    handle = kernel.OpenProcess(_process.PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    handle = _process.open_query_handle(pid)
     if not handle:
         return ""
     try:
@@ -200,7 +204,7 @@ def channel_warnings(settings: PersonalisationSettings, home: Path, tools: list[
         descriptors = load_descriptors(ChannelDescriptor, "channel.json")
         warnings = []
         for channel in settings.channels:
-            if accounts[0].id not in channel.accounts or re.fullmatch(r"[a-z][a-z0-9-]*", channel.id) is None:
+            if accounts[0].id not in channel.accounts:
                 continue
             kinds = [kind for kind in descriptors if kind.id == channel.kind]
             launch = kinds[0].launch.get(tool.id, []) if len(kinds) == 1 else []
@@ -213,7 +217,7 @@ def channel_warnings(settings: PersonalisationSettings, home: Path, tools: list[
 
 
 def status_lines(repo: Path, home: Optional[Path] = None) -> list[str]:
-    home = home if home is not None else Path.home()
+    home = legion_home(home)
     file = settings_path(home)
     settings = None
     # The file's contents stay private: a broken file is named, never quoted.

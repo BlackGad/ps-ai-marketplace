@@ -76,7 +76,7 @@ def test_help_lists_python_and_forwarded_verbs(capsys: pytest.CaptureFixture[str
         assert f"  {verb} " in output
 
 
-@pytest.mark.parametrize("words", [[], ["--yes"], ["-Yes"]])
+@pytest.mark.parametrize("words", [[], ["--yes"]])
 def test_update_explicitly_forwards_installer_arguments_home_and_exit(app_root: Path, tmp_path: Path, words: list[str]) -> None:
     assert "update" not in _forward.FORWARDED_VERBS
     home = tmp_path / "update home"
@@ -85,7 +85,7 @@ def test_update_explicitly_forwards_installer_arguments_home_and_exit(app_root: 
     assert read_call(app_root)["home"] == str(home)
 
 
-@pytest.mark.parametrize("words", [["--check", "--yes"], ["--check", "-Yes"], ["--force"], ["--check", "extra"], ["--check", "--unknown"], ["--check=yes"], ["--unknown"]])
+@pytest.mark.parametrize("words", [["--check", "--yes"], ["-Yes"], ["--force"], ["--check", "extra"], ["--check", "--unknown"], ["--check=yes"], ["--unknown"]])
 def test_invalid_update_combinations_never_forward(app_root: Path, words: list[str]) -> None:
     assert run(["update", *words]) == 2
     assert not (app_root / "bin" / "call.json").exists()
@@ -97,8 +97,8 @@ def test_invalid_update_combinations_never_forward(app_root: Path, words: list[s
         (["--force"], "--force requires --check"),
         (["--force", "--yes"], "--force requires --check"),
         (["--check", "--yes"], "--yes cannot be used with --check"),
-        (["-Yes", "--check"], "--yes cannot be used with --check"),
-        (["--check", "--force", "-Yes"], "--yes cannot be used with --check"),
+        (["--yes", "--check"], "--yes cannot be used with --check"),
+        (["-Yes"], "No such option '-Y'."),
         (["--unknown"], "No such option '--unknown'."),
         (["extra"], "Got unexpected extra argument (extra)"),
     ],
@@ -113,6 +113,7 @@ def test_update_help_lists_click_options_without_forwarding(app_root: Path, caps
     assert run(["update", "--help"]) == 0
     output = capsys.readouterr().out
     assert "Usage: legion update [OPTIONS]" in output
-    for option in ("--check", "--force", "--yes", "-Yes", "--help"):
+    for option in ("--check", "--force", "--yes", "--help"):
         assert option in output
+    assert "-Yes" not in output
     assert not (app_root / "bin" / "call.json").exists()

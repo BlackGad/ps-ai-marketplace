@@ -117,13 +117,13 @@ def test_bad_cache_shape_refreshes(plugin: Path, remote: dict[str, Any], tmp_pat
 def test_failure_cached_and_force_reports_one_safe_line(remote: dict[str, Any], tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     remote["fail"] = True
     assert run(["--home", str(tmp_path), "update", "--check"]) == 0
-    assert capsys.readouterr().out == ""
+    assert capsys.readouterr().out == FAILURE
     record = json.loads(cache_path(tmp_path).read_text())
     assert record["Failed"] is True
     assert record["Available"] is None
     assert run(["--home", str(tmp_path), "update", "--check"]) == 0
     assert len(remote["calls"]) == 1
-    assert capsys.readouterr().out == ""
+    assert capsys.readouterr().out == FAILURE
     assert run(["--home", str(tmp_path), "update", "--check", "--force"]) == 0
     assert capsys.readouterr().out == FAILURE
     assert len(remote["calls"]) == 2
@@ -151,12 +151,28 @@ def test_check_output(remote: dict[str, Any], tmp_path: Path, capsys: pytest.Cap
     assert capsys.readouterr().out == "legion 0.3.0 is up to date.\n"
 
 
-def test_unwritable_cache_keeps_result(plugin: Path, remote: dict[str, Any], tmp_path: Path) -> None:
-    cache_path(tmp_path).mkdir(parents=True)
-    result = _update.get_update(plugin, tmp_path, force=True)
-    assert result is not None
-    assert result.available == "0.4.0"
+@pytest.mark.parametrize("blocker", ["file as the parent", "folder at the destination", "cleanup refused"])
+@pytest.mark.usefixtures("plugin")
+def test_unsavable_cache_keeps_the_check_result(remote: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], blocker: str) -> None:
+    path = cache_path(tmp_path)
+    if blocker == "file as the parent":
+        path.parent.parent.mkdir(parents=True)
+        path.parent.write_text("not a folder", encoding="utf-8")
+    else:
+        path.mkdir(parents=True)
+    if blocker == "cleanup refused":
+
+        def refuse(_path: Path, **_options: object) -> None:
+            raise PermissionError(13, "Permission denied")
+
+        monkeypatch.setattr(Path, "unlink", refuse)
+    assert run(["--home", str(tmp_path), "update", "--check", "--force"]) == 0
+    assert capsys.readouterr().out == "legion installed: 0.3.0\nlegion available: 0.4.0\nlegion update\n"
     assert remote["calls"] == [URL]
+    monkeypatch.undo()
+    assert [item.name for item in path.parent.parent.iterdir()] == ["temp"]
+    if blocker == "folder at the destination":
+        assert [item.name for item in path.parent.iterdir()] == ["update.json"]
 
 
 def test_concurrent_writers_never_show_a_reader_a_partial_cache(plugin: Path, remote: dict[str, Any], tmp_path: Path) -> None:
