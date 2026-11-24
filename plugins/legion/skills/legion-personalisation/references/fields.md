@@ -7,7 +7,7 @@ Route channel operations through `skills/legion-<kind>/SKILL.md`; stop if missin
 | Field | Operational consumer and purpose |
 | --- | --- |
 | `$schema` | The Python settings writer normalizes the stable editor URL; runtime uses the bundled schema. |
-| `schemaVersion` | `Invoke-LegionValidation` checks the bundled runtime format. |
+| `schemaVersion` | `legion validate` checks the bundled runtime format. |
 | `agents[].id` | Account operations select identity; the launcher derives a canonical wrapper. |
 | `agents[].tool` | Tool discovery chooses account, Foundry and launch adapters. |
 | `agents[].configDir` | Account wrappers, Foundry adapters and root installer select the account folder. Use a concrete folder, never `default`. |
@@ -20,12 +20,10 @@ Route channel operations through `skills/legion-<kind>/SKILL.md`; stop if missin
 | `provider.deployments[].alias` | The alias adapter maps supported aliases. |
 | `channels[].id/kind/target/accounts` | `Resolve-LegionChannel` selects the descriptor, destination and eligible accounts; the launcher validates bindings. |
 
-Never save secrets. The validator enforces the required fields, unique lowercase ids, channel bindings, the default deployment and the HTTPS host; fix what it reports. Validate every edit with the bundled schema:
+Never save secrets. The validator enforces the required fields, unique lowercase ids, channel bindings, the default deployment and the HTTPS host; fix what it reports. Validate every edit with the bundled schema, checking stdout, stderr and the exit code:
 
-```powershell
-. <plugin>/bin/lib/python.ps1
-$result = Invoke-LegionPython -Arguments @('validate', '--kind', 'personalisation', '--path', '<home>/.legion/configuration/personalisation.json')
-$result.Output; $result.Error
+```text
+legion validate --kind personalisation --path <home>/.legion/configuration/personalisation.json
 ```
 
 Use the stable editor URL `https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/plugins/legion/schemas/personalisation.schema.json` or omit `$schema`. Unknown fields require setup. Do not invent defaults or copy sample preferences. Use [create.md](create.md) for setup and [notes-template.md](notes-template.md) for headings. Record stated models, exclusions, purposes, careful/paid-use choices, notifications, format, knowledge location and durable lessons. Put unfinished requested work and “Finish my legion setup” under Finish later. Add no consent or status properties. The agent repairs prose references after account/channel changes and reports unresolved wording.

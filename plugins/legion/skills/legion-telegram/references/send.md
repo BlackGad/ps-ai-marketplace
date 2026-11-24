@@ -22,11 +22,11 @@ Check the attachment exists first. Inspect delivery evidence for each resolved t
 
 ## Codex
 
-On Codex the channel is the bridge: when `TELEGRAM_STATE_DIR` is set, Telegram is connected even though no plugin tools exist. Owner messages arrive in the inbox (read it as the legion-overseer inbox reference says) as `from: telegram` with an indented body whose first line is `telegram chat_id=<id> message_id=<id> user=<name>`. Reply with the chat id from that line, through `Invoke-LegionPython`; print its `Output` and `Error` as that reference shows:
+On Codex the channel is the bridge: when `TELEGRAM_STATE_DIR` is set, Telegram is connected even though no plugin tools exist. Owner messages arrive in the inbox (read it as the legion-overseer inbox reference says) as `from: telegram` with an indented body whose first line is `telegram chat_id=<id> message_id=<id> user=<name>`. Reply with the chat id from that line, using the owner command; check stdout, stderr and the exit code:
 
 ```text
-telegram send --channel <id> --chat <chat id> --text <text> [--format text|markdownv2] [--reply-to <message id>] [--file <path>]...
-telegram react --channel <id> --chat <chat id> --message <message id> --emoji <emoji>
+legion telegram send --channel <id> --chat <chat id> --text <text> [--format text|markdownv2] [--reply-to <message id>] [--file <path>]...
+legion telegram react --channel <id> --chat <chat id> --message <message id> --emoji <emoji>
 ```
 
 `send` prints only the sent message ids and splits text over 4096 characters. A Bot API error prints one plain line and exits non-zero.

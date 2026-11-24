@@ -167,13 +167,6 @@ function Test-LegionPathEntry {
     return $false
 }
 
-# Get-LegionLease still uses this twin; milestone 3 removes it.
-function Test-LegionSameStartTime {
-    # Linux and macOS derive a process start time from the clock, so two reads can differ by a few milliseconds.
-    param([datetime]$First, [datetime]$Second)
-    return [math]::Abs(($First.ToUniversalTime() - $Second.ToUniversalTime()).TotalMilliseconds) -lt 500
-}
-
 function Get-LegionUserPath {
     if ($env:LEGION_TEST_USER_PATH_FILE) { return [IO.File]::ReadAllText($env:LEGION_TEST_USER_PATH_FILE) }
     # Read the raw registry value so entries such as %USERPROFILE%\bin stay unexpanded.

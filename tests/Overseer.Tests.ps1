@@ -251,6 +251,14 @@ New-Item -ItemType Directory (Join-Path $runHome '.legion/configuration'), (Join
 $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/personalisation.json')
 & {
     $state = @{Launch=$null; Fail=$false; NoGit=$false; Interactive=$false; Yes=$true; Answer=''; Events=@(); Asked=@(); ChoiceArgs=$null; LaunchRepo=$null; ExitCode=0; Launches=0; InPlace=$null}
+    $state.ValidationCalls = @()
+    $state.ValidationResult = [pscustomobject]@{ Output = ''; Error = ''; ExitCode = 0 }
+    function Invoke-LegionPython {
+        param([string[]]$Arguments, [string]$HomeRoot)
+        if ($Arguments[0] -ne 'validate') { throw "Unexpected Python command: $($Arguments -join ' ')" }
+        $state.ValidationCalls += ,@($Arguments)
+        return $state.ValidationResult
+    }
     $uuid = '11111111-2222-3333-4444-555555555555'
     function New-OverseerSessionId { return $uuid }
     function Start-OverseerLaunch {
@@ -332,6 +340,20 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
         Assert-True (-not (Test-Path -LiteralPath $botFolder)) 'NoChannel creates no bot folder'
     }
     $run = @{Repo=$runRepo; HomeRoot=$runHome; Arguments=@()}
+    $state.ValidationCalls = @()
+    $null = Invoke-Overseer @run -Account claude1 -DryRun
+    Assert-Equal 2 $state.ValidationCalls.Count 'Overseer validates both files through Python'
+    Assert-Equal 'validate|--kind|personalisation|--path' (($state.ValidationCalls[0] | Select-Object -First 4) -join '|') 'Owner validation uses named Python options'
+    Assert-Equal (Join-Path $runHome '.legion/configuration/personalisation.json') $state.ValidationCalls[0][4] 'Owner validation passes the file path'
+    Assert-Equal 'validate|--kind|project|--path' (($state.ValidationCalls[1] | Select-Object -First 4) -join '|') 'Project validation uses named Python options'
+    Assert-Equal (Join-Path $runRepo '.legion/configuration/project.json') $state.ValidationCalls[1][4] 'Project validation passes the file path'
+    $state.ValidationResult = [pscustomobject]@{ Output = "first issue`nsecond issue"; Error = ''; ExitCode = 1 }
+    try { Invoke-Overseer @run -Account claude1 -DryRun; throw 'Expected validation refusal' }
+    catch { Assert-Equal 'first issue; second issue' $_.Exception.Message 'Validation refusal joins Python issues' }
+    $state.ValidationResult = [pscustomobject]@{ Output = ''; Error = 'Python unavailable'; ExitCode = 127 }
+    try { Invoke-Overseer @run -Account claude1 -DryRun; throw 'Expected Python error' }
+    catch { Assert-Equal 'Python unavailable' $_.Exception.Message 'Other Python failures keep their error text' }
+    $state.ValidationResult = [pscustomobject]@{ Output = ''; Error = ''; ExitCode = 0 }
     $text = @(Invoke-Overseer @run -Account claude1 -Channel @())
     Assert-Equal ('launched claude1 (claude) in ' + $runRepo + ' channel my-telegram') ($text -join '|') 'Launched line names the default channel'
     Assert-True ($state.Launch.Args -contains '--channels') 'One fitting binding adds the channel arguments'
@@ -363,14 +385,20 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     $text = @(Invoke-Overseer @run)
     Assert-Equal ('launched codex1 (codex) in ' + $runRepo) ($text -join '|') 'A removed saved account falls back to the foreign lease account'
     Assert-Equal 'continue as the overseer' ($state.Launch.Args -join '|') 'Removed account channels and arguments are discarded'
-    Remove-Item -LiteralPath $lastFile, $leaseFile
+    Remove-Item -LiteralPath $lastFile, $leaseFile -ErrorAction Ignore
     Assert-Throws { Invoke-Overseer @run } 'Missing saved launch and lease list eligible accounts'
     '{"account":"removed-account"}' | Set-Content $leaseFile
     Assert-Throws { Invoke-Overseer @run } 'A removed lease account falls back to normal selection'
     '{"account":"claude1"}' | Set-Content $leaseFile
     $null = Invoke-Overseer @run
     Assert-Equal (Get-LegionWrapperCommand claude1 $runHome) $state.Launch.Command 'A stale lease can supply the last account'
-    Remove-Item -LiteralPath $lastFile, $leaseFile
+    Remove-Item -LiteralPath $lastFile, $leaseFile -ErrorAction Ignore
+    New-Item -ItemType Directory -Path $leaseFile | Out-Null
+    Assert-Throws { Invoke-Overseer @run } 'An unreadable lease falls back to account selection'
+    Remove-Item -LiteralPath $leaseFile -Recurse
+    '{broken' | Set-Content $leaseFile
+    Assert-Throws { Invoke-Overseer @run } 'A malformed lease falls back to account selection'
+    Remove-Item -LiteralPath $lastFile, $leaseFile -ErrorAction Ignore
     $single = [pscustomobject]@{schemaVersion=1;agents=@($two.agents[1]);channels=@()}
     $single | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/personalisation.json')
     $null = Invoke-Overseer @run

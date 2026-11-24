@@ -18,8 +18,8 @@ try {
     $text = [IO.File]::ReadAllText($overseer)
     $homeLiteral = "'" + $fixtureHome.Replace("'", "''") + "'"
     $text = $text.Replace('[string]$HomeRoot = $HOME', '[string]$HomeRoot = ' + $homeLiteral)
-    # Keep the real overseer entry point; only terminal/agent launch is replaced in the fixture copy.
-    $text = $text.Replace('if (-not $NoRun) {', 'function Start-OverseerLaunch { $global:LASTEXITCODE = 5 }; if (-not $NoRun) {')
+    # Keep the real entry point; the fixture replaces validation and terminal launch so it needs no uv or agent.
+    $text = $text.Replace('if (-not $NoRun) {', 'function Invoke-LegionPython { return @{ ExitCode = 0; Output = ""; Error = "" } }; function Start-OverseerLaunch { $global:LASTEXITCODE = 5 }; if (-not $NoRun) {')
     [IO.File]::WriteAllText($overseer, $text)
     $pwsh = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
     $git = (Get-Command git -CommandType Application | Select-Object -First 1).Source

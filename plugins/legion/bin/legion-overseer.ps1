@@ -320,8 +320,9 @@ function Invoke-Overseer {
         Invoke-OverseerRepositorySetup -Repo $Repo
     }
     foreach ($inputFile in @(@{Kind='personalisation';Path=$ownerFile},@{Kind='project';Path=$projectFile})) {
-        $issues = @(Invoke-LegionValidation $inputFile.Kind $inputFile.Path)
-        if ($issues.Count) { throw ($issues -join '; ') }
+        $result = Invoke-LegionPython -Arguments @('validate', '--kind', $inputFile.Kind, '--path', $inputFile.Path) -HomeRoot $HomeRoot
+        if ($result.ExitCode -eq 1) { throw ((@($result.Output -split "`r?`n" | Where-Object { $_ }) -join '; ')) }
+        if ($result.ExitCode -ne 0) { throw $result.Error }
     }
     $personalisation = Read-LegionJson -Path $ownerFile
     # Bare start reuses the saved account, then the lease account; -Pick asks instead.
@@ -335,7 +336,10 @@ function Invoke-Overseer {
     if ($bare -and -not $Pick) {
         $Account = $savedAccount
         if (-not $Account) {
-            $leaseAccount = (Get-LegionLease -Repo $Repo).Data.account
+            # Only account selection needs this read; Python owns lease state. Milestone 4 removes it.
+            $leaseAccount = try {
+                (Get-Content -LiteralPath (Get-LegionRepoPath -Repo $Repo -Path 'temp/overseer.lock') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop).account
+            } catch { $null }
             if ($leaseAccount -cin $known) { $Account = $leaseAccount }
         }
     }

@@ -21,40 +21,16 @@ function Get-EditedDescriptor {
 
 try {
     . (Join-Path $root 'plugins/legion/bin/lib/settings.ps1')
-    $ownerFile = Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json'
-    # The command moved to Python (tests/python/legion/test_validate.py); both engines must give the verdicts recorded from the old run.
     $recorded = Get-Content (Join-Path $PSScriptRoot 'fixtures/validate/old-behaviour.json') -Raw | ConvertFrom-Json
-    foreach ($case in $recorded.validate) {
-        $issues = @(Invoke-LegionValidation -Kind $case.kind -Path (Join-Path $root $case.path) 2>$null)
-        Assert-Equal ([int]($case.exit -ne 0)) ([int]($issues.Count -gt 0)) "$($case.name) verdict matches the recorded run"
-        if (@($case.output).Count -gt 0 -and -not $case.output[0].StartsWith('$:')) {
-            Assert-Equal (@($case.output) -join '|') ($issues -join '|') "$($case.name) semantic messages match the recorded run"
-        }
-    }
     foreach ($case in $recorded.tool) {
         $json = Get-EditedDescriptor $case | ConvertTo-Json -Depth 100
         $valid = [bool](Test-Json -Json $json -SchemaFile (Join-Path $root 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)
         Assert-Equal $case.valid $valid "Tool schema case $($case.name) matches the recorded run"
     }
-    $raw = Get-Content -Raw $ownerFile
+    $raw = Get-Content -Raw (Join-Path $PSScriptRoot 'fixtures/personalisation/valid-owner.json')
     $bomFile = Join-Path $tempRoot 'bom-crlf.json'
     [System.IO.File]::WriteAllText($bomFile, [char]0xFEFF + ($raw -replace "`r?`n", "`r`n"))
-    Assert-Equal 0 @(Invoke-LegionValidation -Kind personalisation -Path $bomFile).Count 'BOM CRLF owner validates'
     Assert-Equal 1 (Read-LegionJson -Path $bomFile).schemaVersion 'Read-LegionJson accepts BOM CRLF'
-    $foundry = Read-LegionJson -Path (Join-Path $PSScriptRoot 'fixtures/personalisation/valid-foundry.json')
-    foreach ($change in @(
-        { param($p) $p.kind = 'bedrock' },
-        { param($p) $p.endpoint += '/anthropic/' },
-        { param($p) $p.deployments = @() },
-        { param($p) $p | Add-Member extra 'no' },
-        { param($p) $p.deployments[0] | Add-Member extra 'no' },
-        { param($p) $p.deployments[0].alias = 'other' }
-    )) {
-        $copy = $foundry | ConvertTo-Json -Depth 100 | ConvertFrom-Json
-        & $change $copy.agents[5].provider
-        $copy | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $tempRoot 'invalid-shape.json')
-        Assert-True (@(Invoke-LegionValidation -Kind personalisation -Path (Join-Path $tempRoot 'invalid-shape.json')).Count -gt 0) 'Invalid provider shape rejected'
-    }
 } finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force
 }
@@ -80,17 +56,7 @@ try {
         $env:PATH = @($fourthSkill,$env:PATH) -join [IO.Path]::PathSeparator
         $owner.agents = @([pscustomobject]@{ id = 'fourth-dev'; tool = 'fourth'; configDir = (Join-Path $homeRoot '.legion/agents/fourth-dev') })
         $owner | ConvertTo-Json -Depth 100 | Set-Content $ownerPath
-        Assert-Equal 0 @(Invoke-LegionValidation -Kind personalisation -Path $ownerPath).Count 'Fourth account validates with matching skill'
-        $syntheticProvider = @{kind='foundry';endpoint='https://resource.cognitiveservices.azure.com';default='model[1]-a';deployments=@(@{name='model[1]-a';model='model[1]-a';alias='alpha'})}
-        Assert-Equal 'alpha' $syntheticProvider.deployments[0].alias 'Fourth tool accepts its own alias'
-        foreach ($tool in @('claude','codex','copilot')) {
-            $issues = @(Get-LegionProviderIssues -Data @{agents=@(@{tool=$tool;provider=$syntheticProvider})})
-            Assert-True ($issues -contains "agents[0].provider: alias 'alpha' is not supported by tool '$tool'") 'Alias membership is descriptor-specific'
-        }
         $owner = Read-LegionJson $ownerPath
-        $owner.agents[0] | Add-Member provider $syntheticProvider
-        $owner | ConvertTo-Json -Depth 100 | Set-Content $ownerPath
-        Assert-Equal 0 @(Invoke-LegionValidation -Kind personalisation -Path $ownerPath).Count 'Synthetic alias passes schema and semantic validation'
         . (Join-Path $plugin 'bin/legion-overseer.ps1') -NoRun -HomeRoot $homeRoot
         $launch = Get-OverseerLaunch -Personalisation $owner -AccountId fourth-dev -Tool fourth -Arguments @('--account','account value','','2026-11-19') -HomeRoot $homeRoot
         Assert-Equal '--account|account value||2026-11-19|--interactive|space value|continue as the overseer' ($launch.Args -join '|') 'Descriptor tail follows explicit literal arguments'
@@ -99,11 +65,9 @@ try {
         $descriptor.foundry = $null
         $descriptor | ConvertTo-Json -Depth 100 | Set-Content $descriptorPath
         Remove-Item (Join-Path $fourthSkill 'SKILL.md')
-        Assert-True (@(Invoke-LegionValidation -Kind personalisation -Path $ownerPath).Count -gt 0) 'Absent matching skill rejects persisted tool'
         # Loading definitions and lease/hook operations must not discover malformed data.
         '{broken' | Set-Content $descriptorPath
         . (Join-Path $plugin 'bin/lib/common.ps1')
-        Assert-Equal 'free' (Get-LegionLease -Repo $fixture).State 'Lease remains usable with a malformed descriptor'
         Assert-Throws { Get-LegionTool -Tool fourth } 'Tool operations discover malformed descriptor lazily'
     } finally {
         $env:PATH = $savedPath
