@@ -8,7 +8,9 @@
         { "type": "feat", "section": "Features" },
         { "type": "fix", "section": "Fixes" },
         { "type": "perf", "section": "Speed" },
-        { "type": "docs", "section": "Documentation" }
+        { "type": "docs", "section": "Documentation" },
+        { "type": "refactor", "section": "Refactoring" },
+        { "type": "test", "section": "Tests" }
       ],
       "extra-files": [
         { "type": "json", "path": "plugins/legion/plugin.json", "jsonpath": "$.version" },
