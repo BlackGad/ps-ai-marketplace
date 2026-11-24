@@ -143,7 +143,11 @@ def add_foundry(home: Path, account: str, tool_id: str, endpoint: str, names: li
     before = _settings_io.load_or_empty(home)
     existing = _find(before, account)
     if not list_only and existing and existing.tool == tool_id and existing.provider and existing.provider.kind == "foundry" and existing.provider.endpoint == endpoint:
-        return [f"skip: account {account} (already done)"]
+        with _settings_io.writer(home):
+            current = _find(_settings_io.load(home), account)
+            if current and current.tool == tool_id and current.provider and current.provider.kind == "foundry" and current.provider.endpoint == endpoint:
+                written = _launchers.write_foundry(current, home)
+                return [f"wrote: launcher {path}" for path in written] or [f"skip: account {account} (already done)"]
     if not list_only:
         _check_new_id(before, account, home)
         provisional = Agent.model_construct(id=account, tool=tool_id, config_dir=str(home / ".legion" / "agents" / account))
