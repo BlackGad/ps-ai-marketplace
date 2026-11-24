@@ -39,7 +39,9 @@ def _named_command(words: list[str]) -> list[str]:
     return words
 
 
-Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]*$")]
+# Account, tool and channel ids; an id names files under the legion home, so it cannot hold a path.
+NAME_PATTERN = r"[a-z][a-z0-9-]*"
+Name = Annotated[str, Field(pattern=f"^{NAME_PATTERN}$")]
 Text = Annotated[str, Field(min_length=1)]
 # A Literal[1] would accept true; JSON Schema's const 1 does not.
 SchemaVersion = Annotated[int, Field(ge=1, le=1)]

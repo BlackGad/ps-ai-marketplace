@@ -6,7 +6,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
-from .._home import home_path, settings_path, wrapper_command
+from .._home import (
+    home_path,
+    legion_home,
+    settings_path,
+    wrapper_command,
+)
 from .._settings_models import Agent, PersonalisationSettings
 from .._validate import read_text
 from . import (
@@ -33,7 +38,8 @@ class LimitsError(Exception):
 
 
 # The limits table of every account, or of one.
-def report_lines(home: Path, account: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT) -> list[str]:
+def report_lines(home: Optional[Path], account: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT) -> list[str]:
+    home = legion_home(home)
     file = settings_path(home)
     if not file.is_file():
         raise LimitsError("No legion settings yet; run legion setup.")

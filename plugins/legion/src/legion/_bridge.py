@@ -10,7 +10,7 @@ from typing import Optional
 from pydantic import TypeAdapter
 
 from . import _inbox
-from ._process import PROCESS_QUERY_LIMITED_INFORMATION
+from ._process import open_query_handle
 from ._telegram import (
     Access,
     Message,
@@ -31,12 +31,12 @@ def process_alive(pid: int) -> bool:
     if pid <= 0:
         return False
     if sys.platform == "win32":
-        process = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        process = open_query_handle(pid)
         if not process:
             return False
         code = ctypes.c_ulong()
-        ok = ctypes.windll.kernel32.GetExitCodeProcess(process, ctypes.byref(code))
-        ctypes.windll.kernel32.CloseHandle(process)
+        ok = ctypes.windll.kernel32.GetExitCodeProcess(ctypes.c_void_p(process), ctypes.byref(code))
+        ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(process))
         return bool(ok) and code.value == 259  # STILL_ACTIVE
     try:
         os.kill(pid, 0)

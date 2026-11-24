@@ -169,9 +169,17 @@ class _ProcessEntry(ctypes.Structure):
 
 
 _TH32CS_SNAPPROCESS = 0x2
-PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 _STILL_ACTIVE = 259
 _FILETIME_EPOCH = datetime(1601, 1, 1, tzinfo=UTC)
+
+
+# A handle that reads a process's times, exit code and command line, or 0; close it with CloseHandle.
+def open_query_handle(pid: int) -> int:
+    assert sys.platform == "win32"
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    return kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid) or 0
 
 
 # Snapshot parents and names once; read start times only for requested pids.
@@ -202,7 +210,7 @@ def _windows_lookup() -> Lookup:
     def lookup(pid: int) -> Optional[ProcessInfo]:
         if pid not in snapshot:
             return None
-        process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        process = open_query_handle(pid)
         if not process:
             return None
         try:

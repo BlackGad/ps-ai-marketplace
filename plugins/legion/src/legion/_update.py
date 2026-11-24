@@ -1,4 +1,5 @@
 # Shared by the command and session-start hook; cached checks use only the standard library.
+import contextlib
 import json
 import re
 import threading
@@ -8,6 +9,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
+
+from ._home import legion_home, update_cache_path
 
 SOURCE = "BlackGad/ps-legion-marketplace"
 MANIFEST_URL = f"https://raw.githubusercontent.com/{SOURCE}/stable/plugins/legion/plugin.json"
@@ -113,7 +116,7 @@ def get_update(plugin_root: Path, home: Optional[Path] = None, *, force: bool = 
     deadline = time.monotonic() + CHECK_SECONDS
     try:
         installed = _manifest_version((plugin_root / "plugin.json").read_text(encoding="utf-8-sig"))
-        path = (home if home is not None else Path.home()) / ".legion" / "temp" / "update.json"
+        path = update_cache_path(legion_home(home))
         cached = None
         if not force:
             try:
@@ -140,23 +143,28 @@ def get_update(plugin_root: Path, home: Optional[Path] = None, *, force: bool = 
 
 
 # Publish the whole record at once, so a session that reads the cache never sees a partial one.
+# A cache that cannot be saved must not prevent checks or session starts, nor change their result.
 def _save_cache(path: Path, cached: UpdateCache) -> None:
     temporary = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        temporary.write_text(cached.to_json(), encoding="utf-8")
+        file = temporary.open("x", encoding="utf-8")
+    except OSError:
+        return
+    try:
+        with file:
+            file.write(cached.to_json())
         temporary.replace(path)
     except OSError:
-        pass  # A read-only cache must not prevent checks or session starts.
-    finally:
-        temporary.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            temporary.unlink()
 
 
 def check_lines(plugin_root: Path, home: Optional[Path] = None, *, force: bool = False) -> list[str]:
     try:
         result = get_update(plugin_root, home, force=force)
         if result is None:
-            return []
+            return [FAILURE]  # A failure cached today; only the session-start hook stays silent about it.
         if not result.newer:
             return [f"legion {result.installed} is up to date."]
         return [f"legion installed: {result.installed}", f"legion available: {result.available}", UPDATE_COMMAND]

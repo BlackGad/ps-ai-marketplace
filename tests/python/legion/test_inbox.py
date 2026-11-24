@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -20,6 +21,11 @@ from legion._inbox import (
     repo_key,
 )
 from legion._run import RunResult
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+ACCOUNTS_PS1 = REPO_ROOT / "plugins/legion/bin/lib/accounts.ps1"
+PWSH = shutil.which("pwsh")
+windows_only = pytest.mark.skipif(os.name != "nt", reason="account launchers are .cmd files on Windows only")
 
 
 @pytest.fixture
@@ -193,13 +199,27 @@ def test_send_nudges_lease_account_once(inbox_home: Path, repo: Path, fake_wrapp
     assert (inbox_path(inbox_home, repo) / "new" / output.out.strip()).is_file()
 
 
+def write_launcher(inbox_home: Path, run_line: str) -> None:
+    lines = [HEADER, "@setlocal", f'@set "CODEX_HOME={CODEX_HOME}"', run_line, "@exit /b %errorlevel%"]
+    (inbox_home / "bin" / "codex-a.cmd").write_text("\r\n".join(lines) + "\r\n", encoding="utf-8", newline="")
+
+
 # cmd.exe expands %NAME% even inside quotes and its call expands it again, so the text must not pass through either.
 def test_nudge_thread_and_sender_arrive_literally(inbox_home: Path, repo: Path, fake_wrapper: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     assert inbox_home.is_dir()
     thread = 'thread %PATH% %cd% "quoted" back\\"slash & | < > ^ ! %% end\\'
     sender = 'repo %USERNAME% "it\'s" & | < > ^^ ! (x) %'
     take_lease(repo, "codex", monkeypatch, thread, capsys)
-    without_pwsh(tmp_path, monkeypatch)
+    if os.name == "nt":
+        # Only an argument vector keeps every character on Windows, so the account runs a PowerShell script.
+        if PWSH is None:
+            pytest.skip("pwsh is not on PATH")
+        script = tmp_path / "fake-codex.ps1"
+        script.write_text("[IO.File]::AppendAllText($env:LEGION_TEST_ARGV, (ConvertTo-Json -InputObject @($args) -Compress))\n", encoding="utf-8")
+        write_launcher(inbox_home, f'@pwsh -NoProfile -File "{script}" %*')
+        monkeypatch.setenv("PATH", str(Path(PWSH).parent))
+    else:
+        without_pwsh(tmp_path, monkeypatch)
     assert run(["inbox", "send", "--to", str(repo), "--from", sender, "--text", "private body"]) == 0
     assert capsys.readouterr().err == ""
     assert json.loads(fake_wrapper.read_text(encoding="utf-8-sig")) == [
@@ -244,6 +264,85 @@ def test_windows_launcher_gives_the_real_command(tmp_path: Path, body: list[str]
     launcher.write_text("\r\n".join([HEADER, *body]) + "\r\n", encoding="utf-8", newline="")
     assert _inbox._windows_launcher(launcher, "codex-a") == expected
     assert _inbox._windows_launcher(launcher, "codex-b") is None
+
+
+# A second cmd.exe pass in the account's own .cmd chain (a call) would expand %NAME% in the sender,
+# so free-form text that a cmd.exe pass could change is never sent through a .cmd target.
+@windows_only
+def test_nudge_through_a_nested_forwarder_keeps_percent_text_literal(
+    inbox_home: Path, repo: Path, fake_wrapper: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inner = tmp_path / "fake-codex.cmd"
+    outer = tmp_path / "forward-codex.cmd"
+    outer.write_text(f'@call "{inner}" %*\r\n', encoding="utf-8", newline="")
+    write_launcher(inbox_home, f'@call "{outer}" %*')
+    take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
+    monkeypatch.setenv("LEGION_TEST_SENTINEL", "fixture-expanded")
+    assert run(["inbox", "send", "--to", str(repo), "--from", "repo %LEGION_TEST_SENTINEL% end", "--text", "hello"]) == 0
+    output = capsys.readouterr()
+    assert output.err == "warning: inbox message saved; Codex nudge failed.\n"
+    assert (inbox_path(inbox_home, repo) / "new" / output.out.strip()).is_file()
+    assert not fake_wrapper.exists()
+    # Plain text has nothing for another pass to change, so the same chain still gets the nudge.
+    assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
+    assert capsys.readouterr().err == ""
+    assert json.loads(fake_wrapper.read_text(encoding="utf-8-sig"))[2] == "fixture-thread"
+
+
+# Windows looks for a bare program name in the current folder first; the nudge names pwsh by its PATH folder.
+@windows_only
+def test_powershell_launcher_never_runs_pwsh_from_the_current_folder(
+    inbox_home: Path, repo: Path, fake_wrapper: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert fake_wrapper.name == "argv.json"
+    write_launcher(inbox_home, '@pwsh -NoProfile -File "C:\\tools\\codex.ps1" %*')
+    take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
+    planted, installed = tmp_path / "planted", tmp_path / "installed"
+    for folder in (planted, installed):
+        folder.mkdir()
+        (folder / "pwsh.exe").write_bytes(b"")
+    commands: list[str] = []
+
+    def spy(command: str, *_rest: object, **_options: object) -> RunResult:
+        commands.append(command)
+        return RunResult(exit_code=0, output="", error="", timed_out=False)
+
+    monkeypatch.setattr(_inbox, "run_command", spy)
+    monkeypatch.chdir(planted)
+    monkeypatch.setenv("PATH", os.pathsep.join([".", "", str(installed)]))
+    assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
+    assert capsys.readouterr().err == ""
+    assert commands == [str(installed / "pwsh.exe")]
+    monkeypatch.setenv("PATH", ".")
+    assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
+    assert capsys.readouterr().err == "warning: inbox message saved; Codex nudge failed.\n"
+    assert len(commands) == 1
+
+
+# The launchers the PowerShell writers produce are the ones the nudge reads.
+@windows_only
+@pytest.mark.skipif(PWSH is None, reason="pwsh is not on PATH")
+def test_launchers_written_by_powershell_give_the_real_command(tmp_path: Path) -> None:
+    assert PWSH is not None
+    home = tmp_path / "home"
+    targets = {"codex-exe": tmp_path / "codex.exe", "codex-cmd": tmp_path / "codex.cmd", "codex-ps": tmp_path / "codex.ps1"}
+    runner = tmp_path / "legion-foundry.ps1"
+    for file in (*targets.values(), runner):
+        file.write_text("", encoding="utf-8")
+    writes = "; ".join(f"New-LegionWrappers -Id {account} -Tool codex -HomeRoot '{home}' -RealCommand '{target}'" for account, target in targets.items())
+    foundry = f"function Sync-LegionFoundryRuntime {{ return '{runner}' }}; New-FoundryWrappers -Id codex-f -Tool codex -HomeRoot '{home}'"
+    script = f"$ErrorActionPreference = 'Stop'; . '{ACCOUNTS_PS1}'; {writes}; {foundry}"
+    result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True, text=True, timeout=120, check=False)
+    assert result.returncode == 0, result.stderr
+    launchers = home / ".legion" / "bin"
+
+    def account_home(account: str) -> dict[str, str]:
+        return {"CODEX_HOME": str(home / ".legion" / "agents" / account)}
+
+    assert _inbox._windows_launcher(launchers / "codex-exe.cmd", "codex-exe") == ([str(targets["codex-exe"])], account_home("codex-exe"))
+    assert _inbox._windows_launcher(launchers / "codex-cmd.cmd", "codex-cmd") == ([str(targets["codex-cmd"])], account_home("codex-cmd"))
+    assert _inbox._windows_launcher(launchers / "codex-ps.cmd", "codex-ps") == (["pwsh", "-NoProfile", "-File", str(targets["codex-ps"])], account_home("codex-ps"))
+    assert _inbox._windows_launcher(launchers / "codex-f.cmd", "codex-f") == (["pwsh", "-NoProfile", "-File", str(runner), "-Agent", "codex-f"], {})
 
 
 def test_failed_nudge_preserves_message_and_success(inbox_home: Path, repo: Path, fake_wrapper: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
