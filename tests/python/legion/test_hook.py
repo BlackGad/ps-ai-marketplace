@@ -227,7 +227,13 @@ def test_context_json_equals_text(repo: Path) -> None:
 
 
 def test_cached_hook_does_not_import_filelock(repo: Path) -> None:
-    script = "import sys; from legion._hook import mode_text; from pathlib import Path; mode_text(Path(sys.argv[1]), {'LEGION_ROLE': 'member', 'LEGION_TASK': 'x'}); print('filelock' in sys.modules)"
+    cache = Path.home() / ".legion" / "temp" / "update.json"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(
+        json.dumps({"Source": "BlackGad/ps-legion-marketplace", "CheckedAt": datetime.now(UTC).isoformat(), "Available": "0.0.0", "Failed": False}),
+        encoding="utf-8",
+    )
+    script = "import sys; from legion._hook import mode_text; from pathlib import Path; mode_text(Path(sys.argv[1]), {}); print('filelock' in sys.modules)"
     result = subprocess.run([sys.executable, "-c", script, str(repo)], capture_output=True, text=True, check=True)
     assert result.stdout == "False\n"
 
