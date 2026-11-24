@@ -43,14 +43,20 @@ def main() -> int:
     }
     # Keep only the variables asserted by the Foundry tests; the parent may carry credentials.
     names = (
-        "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "COPILOT_PROVIDERS_CONFIG",
-        "CLAUDE_CODE_USE_FOUNDRY", "ANTHROPIC_FOUNDRY_BASE_URL", "ANTHROPIC_MODEL",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL", "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CONFIG_DIR",
+        "CODEX_HOME",
+        "COPILOT_HOME",
+        "COPILOT_PROVIDERS_CONFIG",
+        "CLAUDE_CODE_USE_FOUNDRY",
+        "ANTHROPIC_FOUNDRY_BASE_URL",
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "CLAUDE_CODE_USE_BEDROCK",
     )
     call["environment"] = {name: os.environ[name] for name in names if name in os.environ}
     providers = Path(os.environ.get("COPILOT_PROVIDERS_CONFIG", ""))
-    copilot_home = os.environ.get("COPILOT_HOME")
-    fixture_temp = Path(copilot_home).parents[2] / ".legion" / "temp" if copilot_home else None
+    fake_home = setting("HOME")
+    fixture_temp = Path(fake_home) / ".legion" / "temp" if fake_home else None
     call["providers"] = providers.read_text(encoding="utf-8") if fixture_temp and providers.resolve().parent == fixture_temp.resolve() and providers.is_file() else None
     with (Path(setting("LOG")) / f"{name}.jsonl").open("a", encoding="utf-8") as log:
         log.write(json.dumps(call) + "\n")

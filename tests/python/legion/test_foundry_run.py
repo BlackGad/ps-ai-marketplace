@@ -43,6 +43,7 @@ class Bench:
             monkeypatch.delenv(name)
         monkeypatch.setenv("PATH", os.pathsep.join([str(self.home / ".legion" / "bin"), str(self.bin)]))
         monkeypatch.setenv("LEGION_FAKE_LOG", str(self.logs))
+        monkeypatch.setenv("LEGION_FAKE_HOME", str(self.home))
         if WINDOWS:
             monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
         agents = [

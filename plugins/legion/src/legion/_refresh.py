@@ -57,7 +57,7 @@ def refresh(home: Path, source: Path = PLUGIN_ROOT, lock_timeout: float = 60) ->
             else:
                 changed = bool(_app.write_owner_commands(ready, home)) or changed
             # A failed publish can return the old ready app. Its launchers must keep calling the old runner.
-            published = any(line.endswith(" ready") or line.endswith("(already done)") or line.endswith(" in place)") for line in sync_lines)
+            published = any(line.endswith((" ready", "(already done)", " in place)")) for line in sync_lines)
             with _settings_io.writer(home, require_existing=False):
                 settings = _settings_io.load(home) if settings_path(home).is_file() else None
                 for agent in settings.agents if settings else []:

@@ -77,6 +77,7 @@ class Bench:
         # Only the fakes can be found: the real PATH is gone.
         monkeypatch.setenv("PATH", str(self.path))
         monkeypatch.setenv("LEGION_FAKE_LOG", str(self.logs))
+        monkeypatch.setenv("LEGION_FAKE_HOME", str(self.home))
         monkeypatch.setenv("AZURE_CONFIG_DIR", str(self.azure))
         write_executable(self.path, "git", {})
         write_executable(self.path, "az", {})

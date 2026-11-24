@@ -35,7 +35,7 @@ def claude_agent(folder: Path) -> Agent:
     return Agent.model_validate({"id": "claude-a", "tool": "claude", "configDir": str(folder), "provider": provider.model_dump(by_alias=True, exclude_none=True)})
 
 
-@pytest.mark.parametrize("recipe,filename,original", [(codex, "config.toml", b'theme = "dark"\n'), (claude, "settings.json", b'{"theme":"dark"}\n')])
+@pytest.mark.parametrize(("recipe", "filename", "original"), [(codex, "config.toml", b'theme = "dark"\n'), (claude, "settings.json", b'{"theme":"dark"}\n')])
 def test_failed_config_write_keeps_previous_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recipe: ModuleType, filename: str, original: bytes) -> None:
     folder = tmp_path / "account"
     folder.mkdir()
