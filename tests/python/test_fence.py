@@ -26,8 +26,13 @@ def test_fence_points_the_environment_at_the_linked_home(fence: Fence) -> None:
     assert Path(os.environ["PYTHONPYCACHEPREFIX"]) == fence.temp / "pycache"
     assert "PYTHONSTARTUP" not in os.environ
     assert "PYTHONUSERBASE" not in os.environ
-    assert [name for name in os.environ if name.startswith("GIT_")] == ["GIT_CONFIG_NOSYSTEM"]
+    assert {name for name in os.environ if name.startswith("GIT_")} == {"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL"}
     assert os.environ["GIT_CONFIG_NOSYSTEM"] == "1"
+
+
+def test_fence_keeps_git_config_inside_temporary_home(fence: Fence) -> None:
+    for name in ("XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL"):
+        assert Path(os.environ[name]).resolve().is_relative_to(fence.home.resolve()), name
 
 
 def test_fence_catches_a_change_to_the_fake_real_folder(fence: Fence) -> None:
