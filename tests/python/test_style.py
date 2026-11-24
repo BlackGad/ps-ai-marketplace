@@ -10,8 +10,8 @@ SOURCE = REPO / "plugins/legion/src"
 HOOKS = REPO / "plugins/legion/hooks"
 
 
-def test_tests_have_no_inline_suppressions() -> None:
-    for path in (REPO / "tests/python").rglob("*.py"):
+def test_python_files_have_no_inline_suppressions() -> None:
+    for path in [*SOURCE.rglob("*.py"), *HOOKS.rglob("*.py"), *(REPO / "tests/python").rglob("*.py")]:
         comments = (token for token in tokenize.generate_tokens(io.StringIO(path.read_text(encoding="utf-8-sig")).readline) if token.type == tokenize.COMMENT)
         for token in comments:
             for suppression in ("noqa", "type: ignore", "pyright: ignore"):

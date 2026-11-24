@@ -21,7 +21,7 @@ def footprint_index(home: Path) -> Path:
 
 def full_path(path: Path) -> Path:
     # Link resolution would hide a linked component before the safety walk sees it.
-    return Path(os.path.abspath(path))  # noqa: PTH100
+    return Path(os.path.normpath(Path.cwd() / path))
 
 
 def resolve_directory(path: Path) -> Path:
