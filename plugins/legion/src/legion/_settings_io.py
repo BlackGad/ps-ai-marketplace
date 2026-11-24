@@ -1,8 +1,12 @@
 # The one reader and writer of the owner's personalisation.json for verbs that change it.
 
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
+
+from filelock import FileLock, Timeout
 
 from . import _validate
 from ._home import settings_path
@@ -14,6 +18,21 @@ EMPTY = '{"schemaVersion":1,"agents":[],"channels":[]}'
 
 class SettingsError(Exception):
     pass
+
+
+@contextmanager
+def writer(home: Path, *, require_existing: bool = True) -> Iterator[None]:
+    try:
+        path = settings_path(home).resolve()
+        if require_existing and not path.is_file():
+            raise SettingsError("No legion settings yet; add an agent first.")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with FileLock(str(path) + ".lock", timeout=30):
+            yield
+    except Timeout:
+        raise SettingsError("legion settings are busy; another legion command is still running") from None
+    except OSError as error:
+        raise SettingsError(" ".join(str(error).split())) from None
 
 
 def load(home: Path) -> PersonalisationSettings:
@@ -31,7 +50,7 @@ def _load(home: Path, *, references: bool) -> PersonalisationSettings:
         raise SettingsError("No legion settings yet; add an agent first.")
     try:
         text = _validate.read_text(path)
-    except OSError as error:
+    except (OSError, ValueError) as error:
         raise SettingsError(" ".join(str(error).split())) from None
     issues = _validate.validate_text("personalisation", text, references=references)
     if issues:
@@ -48,6 +67,11 @@ def load_or_empty(home: Path) -> PersonalisationSettings:
 
 # Checks first, then a temp file beside the settings replaces them, so a failed write leaves the old file.
 def save(home: Path, settings: PersonalisationSettings) -> None:
+    with writer(home, require_existing=False):
+        save_locked(home, settings)
+
+
+def save_locked(home: Path, settings: PersonalisationSettings) -> None:
     if settings.schema_uri is not None:
         settings = settings.model_copy(update={"schema_uri": SCHEMA_URL})
     issues = _validate.settings_issues(settings)

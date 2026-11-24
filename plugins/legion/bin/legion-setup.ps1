@@ -370,11 +370,25 @@ function Invoke-Setup {
     param([string[]]$Add, [string]$Id, [switch]$Yes, [string]$HomeRoot = $HOME, [string]$Source)
     $script:SetupHomeRoot = $HomeRoot
     $script:SetupSource = $Source
-    $plan = Get-SetupPlan -Add $Add -Id $Id -HomeRoot $HomeRoot
-    if (-not $Yes) { Write-SetupPlan -Plan $plan; return }
-    Initialize-SetupFiles -Plan $plan
+    if (-not $Yes) {
+        $plan = Get-SetupPlan -Add $Add -Id $Id -HomeRoot $HomeRoot
+        Write-SetupPlan -Plan $plan
+        return
+    }
+    $settings = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings
+    # A fresh home can reject invalid arguments without creating a lock file or settings folder.
+    if (-not (Test-Path -LiteralPath $settings)) { $null = Get-SetupPlan -Add $Add -Id $Id -HomeRoot $HomeRoot }
+    $settingsLock = Wait-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $settings) -Seconds 30
+    if (-not $settingsLock) { throw 'legion settings are busy; another legion command is still running' }
+    try {
+        $plan = Get-SetupPlan -Add $Add -Id $Id -HomeRoot $HomeRoot
+        Initialize-SetupFiles -Plan $plan
+    } finally { $settingsLock.Dispose() }
     Install-SetupTools -Plan $plan
-    Add-SetupAccounts -Plan $plan
+    $settingsLock = Wait-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $settings) -Seconds 30
+    if (-not $settingsLock) { throw 'legion settings are busy; another legion command is still running' }
+    try { Add-SetupAccounts -Plan $plan }
+    finally { $settingsLock.Dispose() }
     Add-SetupAllowRules -Plan $plan
     Set-SetupPath -Plan $plan
     Install-SetupPlugins -Plan $plan

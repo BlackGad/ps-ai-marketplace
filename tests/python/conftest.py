@@ -69,6 +69,17 @@ def fence_git(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 
+@pytest.fixture
+def pwsh_path() -> Path:
+    value = os.environ.get("LEGION_TEST_PWSH")
+    if not value:
+        pytest.fail("set LEGION_TEST_PWSH to the absolute path of pwsh, e.g. (Get-Command pwsh).Source")
+    path = Path(value)
+    assert path.is_absolute(), f"PowerShell interpreter path is not absolute: {path}"
+    assert path.is_file(), f"PowerShell interpreter is missing: {path}"
+    return path
+
+
 @pytest.fixture(autouse=True)
 def fence(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Iterator[Fence]:
     base = tmp_path_factory.getbasetemp()

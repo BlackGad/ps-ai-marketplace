@@ -226,6 +226,18 @@ def test_context_json_equals_text(repo: Path) -> None:
     assert context.stdout == json.dumps({"additionalContext": MEMBER}, separators=(",", ":")) + "\n"
 
 
+def test_cached_hook_does_not_import_filelock(repo: Path) -> None:
+    cache = Path.home() / ".legion" / "temp" / "update.json"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(
+        json.dumps({"Source": "BlackGad/ps-legion-marketplace", "CheckedAt": datetime.now(UTC).isoformat(), "Available": "0.0.0", "Failed": False}),
+        encoding="utf-8",
+    )
+    script = "import sys; from legion._hook import mode_text; from pathlib import Path; mode_text(Path(sys.argv[1]), {}); print('filelock' in sys.modules)"
+    result = subprocess.run([sys.executable, "-c", script, str(repo)], capture_output=True, text=True, check=True)
+    assert result.stdout == "False\n"
+
+
 def test_nothing_to_say_prints_nothing_or_an_empty_object(tmp_path: Path) -> None:
     assert run_hook(stdin="", cwd=tmp_path).stdout == ""
     assert run_hook("--format", "context-json", stdin="", cwd=tmp_path).stdout == "{}\n"

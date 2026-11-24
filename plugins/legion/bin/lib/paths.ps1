@@ -102,6 +102,16 @@ function Resolve-LegionDirectoryPath {
     return $full
 }
 
+function Get-LegionSettingsLockPath {
+    param([string]$Path)
+    $resolved = Resolve-LegionDirectoryPath $Path
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        $resolved = $item.ResolveLinkTarget($true).FullName
+    }
+    return "$resolved.lock"
+}
+
 # Compare resolved paths with OS case rules. Safety walks preserve links so they can refuse them.
 function Test-LegionPathUnder {
     param([string]$Path, [string]$Root, [switch]$AllowEqual, [switch]$PreserveLinks)
