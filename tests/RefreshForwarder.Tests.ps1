@@ -1,6 +1,6 @@
 $repo = Split-Path $PSScriptRoot -Parent
 $refresh = Join-Path $repo 'plugins/legion/bin/legion-refresh.ps1'
-$pwsh = (Get-Command pwsh -CommandType Application).Source
+$pwsh = (Get-Process -Id $PID).Path
 $savedPath = $env:PATH
 $homeRoot = Join-Path $HOME 'refresh-no-uv'
 try {
