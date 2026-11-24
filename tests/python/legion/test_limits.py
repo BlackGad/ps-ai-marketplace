@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import stat
 import sys
 import tempfile
@@ -76,6 +77,7 @@ class Bench:
         # Only the fakes can be found: the real PATH is gone.
         monkeypatch.setenv("PATH", str(self.path))
         monkeypatch.setenv("LEGION_FAKE_LOG", str(self.logs))
+        monkeypatch.setenv("LEGION_FAKE_HOME", str(self.home))
         monkeypatch.setenv("AZURE_CONFIG_DIR", str(self.azure))
         write_executable(self.path, "git", {})
         write_executable(self.path, "az", {})
@@ -125,6 +127,19 @@ def test_claude_reads_every_unified_window(bench: Bench) -> None:
     assert Path(call["config"]["CLAUDE_CONFIG_DIR"]).resolve() == bench.config("claude-a").resolve()
     assert_disposable_folder(call["folder"])
     assert bench.calls("git") == []
+
+
+def test_fake_cli_does_not_log_inherited_secret_or_read_external_provider(bench: Bench, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    external = tmp_path / "external-provider.json"
+    external.write_text("private-provider-content", encoding="utf-8")
+    monkeypatch.setenv("COPILOT_HOME", str(bench.config("copilot-a")))
+    monkeypatch.setenv("COPILOT_PROVIDERS_CONFIG", str(external))
+    monkeypatch.setenv("UNRELATED_SECRET", "private-environment-content")
+    monkeypatch.setenv("LEGION_FAKE_NAME", "copilot")
+    subprocess.run([sys.executable, str(FAKE_CLI)], input="", text=True, check=True)
+    [call] = bench.calls("copilot")
+    assert "private-environment-content" not in json.dumps(call)
+    assert call["providers"] is None
 
 
 def test_claude_without_an_event_has_no_readout(bench: Bench) -> None:

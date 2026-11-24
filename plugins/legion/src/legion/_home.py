@@ -30,7 +30,7 @@ def resolve_directory(path: Path) -> Path:
 
 
 def is_reparse(path: Path) -> bool:
-    # Other reparse types beyond symlinks and junctions must be refused, as PowerShell does.
+    # Hand-built, reason: other reparse types beyond symlinks and junctions must be refused, as PowerShell does.
     try:
         info = path.lstat()
     except FileNotFoundError:
@@ -68,6 +68,7 @@ def is_under(path: Path, root: Path, allow_equal: bool = False) -> bool:
         return False
 
 
+# Hand-built, reason: check every lexical path component with is_reparse before a link can hide it.
 def owner_path_safe(path: Path, stop_root: Path) -> bool:
     current, root = full_path(path), full_path(stop_root)
     if not is_under(current, root, allow_equal=True):

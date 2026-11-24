@@ -77,17 +77,6 @@ function Add-LegionFootprint {
     } finally { $lock.Dispose() }
 }
 
-# Drops the entries of one kind recorded at one path.
-function Remove-LegionFootprintEntry {
-    param([string]$HomeRoot, [string]$Kind, [string]$Path)
-    $lock = Lock-LegionFootprints -HomeRoot $HomeRoot
-    try {
-        $entries = @(Get-LegionFootprints -HomeRoot $HomeRoot)
-        $kept = @($entries | Where-Object { $_.kind -cne $Kind -or -not (Get-LegionPathComparer).Equals([IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $_.path -HomeRoot $HomeRoot)), [IO.Path]::GetFullPath($Path)) })
-        if ($kept.Count -ne $entries.Count) { Write-LegionFootprints -HomeRoot $HomeRoot -Entries $kept }
-    } finally { $lock.Dispose() }
-}
-
 function Test-LegionFootprintSafe {
     param($Entry, [string]$HomeRoot)
     if ($Entry.path -match '(^|[/\\])\.\.([/\\]|$)|[*?]') { return $false }

@@ -16,7 +16,7 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_camel
 
-# The models follow the hand-written schemas in plugins/legion/schemas; PowerShell still checks files with those.
+# The models follow the hand-written schemas in plugins/legion/schemas, used by editors and parity tests.
 
 
 def _unique(items: list[str]) -> list[str]:

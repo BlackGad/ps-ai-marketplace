@@ -104,6 +104,18 @@ def test_add_saves_the_account_writes_the_picker_and_launchers_and_a_repeat_chan
     assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in tracked] == stamps
 
 
+def test_repeat_foundry_add_repairs_missing_launcher_without_discovery(bench: Bench) -> None:
+    ready_app(bench.home)
+    add(bench)
+    for path in launcher_paths("claude-dev", bench.home):
+        path.unlink()
+    calls = az_calls(bench)
+    lines = add(bench)
+    assert all(path.is_file() for path in launcher_paths("claude-dev", bench.home))
+    assert any(line.startswith("wrote: launcher ") for line in lines)
+    assert az_calls(bench) == calls
+
+
 def test_an_account_for_a_tool_with_the_same_id_is_refused_without_az_when_the_launchers_collide(bench: Bench) -> None:
     ready_app(bench.home)
     owner_file = bench.home / ".legion" / "bin" / "claude-dev"

@@ -1,7 +1,15 @@
-# Test stand-in for what `legion refresh` does in Python (app sync, owner commands, prune), so the setup and
-# footprint tests can still see a published app. The real behaviour is proven by tests/python/legion/test_app.py,
-# test_shim.py and test_refresh.py; milestone 4 removes setup and these tests with it.
+# Test fixture; milestone 4 deletes it with setup and Setup.Tests.
 $LegionUvMissing = 'uv is missing. Ask the owner before installing it, then run the legion installer again.'
+
+function Remove-LegionFootprintEntry {
+    param([string]$HomeRoot, [string]$Kind, [string]$Path)
+    $lock = Lock-LegionFootprints -HomeRoot $HomeRoot
+    try {
+        $entries = @(Get-LegionFootprints -HomeRoot $HomeRoot)
+        $kept = @($entries | Where-Object { $_.kind -cne $Kind -or -not (Get-LegionPathComparer).Equals([IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $_.path -HomeRoot $HomeRoot)), [IO.Path]::GetFullPath($Path)) })
+        if ($kept.Count -ne $entries.Count) { Write-LegionFootprints -HomeRoot $HomeRoot -Entries $kept }
+    } finally { $lock.Dispose() }
+}
 
 function Write-LegionGeneratedFile {
     param([string]$Path, [string]$Content, [Collections.Generic.List[string]]$Changes, [switch]$Executable)

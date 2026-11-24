@@ -1,5 +1,4 @@
-# Fixture only: these pre-migration helpers seed and inspect legacy account state in setup tests.
-# They are copied from the previous implementation, never called by shipped scripts.
+# Test fixture; milestone 4 deletes it with setup and Setup.Tests.
 . (Join-Path $PSScriptRoot '../../plugins/legion/bin/lib/accounts.ps1')
 . (Join-Path $PSScriptRoot '../../plugins/legion/bin/lib/commands.ps1')
 . (Join-Path $PSScriptRoot 'legacy-app-fixture.ps1')
@@ -10,8 +9,6 @@ function Get-LegionLauncherHeader {
     return Get-LegionHeader -Name "account $Id" -Windows:$Windows
 }
 
-# task 5 removes this
-
 function Get-LegionLauncherText {
     param([string]$Id, [string[]]$Body, [switch]$Windows)
     $header = Get-LegionLauncherHeader -Id $Id -Windows:$Windows
@@ -19,9 +16,6 @@ function Get-LegionLauncherText {
     $newline = if ($Windows) { "`r`n" } else { "`n" }
     return ($lines -join $newline) + $newline
 }
-
-# True when any launcher file of the account is missing or cannot run (setup and refresh repair these).
-# milestone 4 removes this
 
 function Test-LegionOwnedWrapper {
     param([string]$Path, [string]$Id)
@@ -33,8 +27,6 @@ function Test-LegionOwnedWrapper {
     return Test-LegionHeader -Path $item.FullName -Name "account $Id"
 }
 
-# task 5 removes this
-
 function Assert-LegionWrapperPath {
     param([string]$Path, [string]$Id)
     # A wrapper lives at <home>/.legion/bin/<name>; the link walk stops at <home>.
@@ -42,8 +34,6 @@ function Assert-LegionWrapperPath {
     if (-not (Test-LegionOwnerPathSafe $full -StopRoot (Split-Path (Split-Path (Split-Path $full))))) { throw "linked wrapper path '$Path'" }
     if ((Test-Path -LiteralPath $Path) -and -not (Test-LegionOwnedWrapper $Path $Id)) { throw "wrapper collision '$Path'" }
 }
-
-# task 5 removes this
 
 function Write-LegionPersonalisation {
     param($Data, [string]$Path)
@@ -54,10 +44,6 @@ function Write-LegionPersonalisation {
     New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
     [System.IO.File]::WriteAllText($Path, $json + "`n", [System.Text.UTF8Encoding]::new($false))
 }
-
-# task 5 removes this
-
-# task 5 removes this
 
 function Get-LegionShellWrapperTarget {
     param([string]$Path, [string]$Tool, [string]$ConfigDir)
@@ -73,8 +59,6 @@ function Get-LegionShellWrapperTarget {
     return $null
 }
 
-# task 5 removes this
-
 function Get-LegionWrapperTarget {
     param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$ConfigDir)
     $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
@@ -86,7 +70,6 @@ function Get-LegionWrapperTarget {
     }
     $cmd = Join-Path $bin "$Id.cmd"
     if ($IsWindows -and (Test-LegionOwnedWrapper $cmd $Id)) {
-        # Interim parser: Python's marked batch launcher stores the target in an assignment; task 5 replaces refresh.
         foreach ($line in [IO.File]::ReadAllLines($cmd)) {
             if ($line -cmatch '^@set "LEGION_ACCOUNT_TARGET=(.*)"$') { $candidates.Add($Matches[1].Replace('%%', '%')); break }
             if ($line -cmatch '^@(?:pwsh -NoProfile -File |call )?"([^"]+)" %\*$') { $candidates.Add($Matches[1].Replace('%%', '%')); break }
@@ -106,8 +89,6 @@ function Get-LegionWrapperTarget {
     catch { return $null }
     return $target
 }
-
-# milestone 4 removes this
 
 function New-LegionWrappers {
     param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$RealCommand, [string]$ConfigDir, [switch]$CheckOnly, [Collections.Generic.List[string]]$Changes)
@@ -139,5 +120,3 @@ function New-LegionWrappers {
     if (-not (Test-LegionLauncherExecutable -Path $shFile)) { Write-LegionGeneratedFile -Path $shFile -Content $sh -Executable -Changes $Changes }
     if ($IsWindows -and -not (Test-LegionLauncherExecutable -Path $cmdFile)) { Write-LegionGeneratedFile -Path $cmdFile -Content $cmd -Changes $Changes }
 }
-
-# task 5 removes this

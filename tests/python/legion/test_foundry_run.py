@@ -39,8 +39,11 @@ class Bench:
             folder.mkdir(parents=True)
         for name in [name for name in os.environ if name.startswith("LEGION_FAKE_")]:
             monkeypatch.delenv(name)
+        for name in [name for name in os.environ if name.startswith("ANTHROPIC_FOUNDRY")]:
+            monkeypatch.delenv(name)
         monkeypatch.setenv("PATH", os.pathsep.join([str(self.home / ".legion" / "bin"), str(self.bin)]))
         monkeypatch.setenv("LEGION_FAKE_LOG", str(self.logs))
+        monkeypatch.setenv("LEGION_FAKE_HOME", str(self.home))
         if WINDOWS:
             monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
         agents = [
@@ -101,7 +104,7 @@ def test_codex_child_gets_only_its_config_home_and_arguments_keep_their_boundari
     assert _run.run("codex-dev", ["-p", "hi there", "a&b"], bench.home) == 0
     environment = bench.environment("codex")
     assert Path(environment["CODEX_HOME"]) == bench.home / ".legion" / "agents" / "codex-dev"
-    assert not [name for name in environment if name.startswith("ANTHROPIC_FOUNDRY")]
+    assert bench.calls("codex")[0]["foundry_names"] == []
     assert bench.calls("codex")[0]["arguments"] == ["-p", "hi there", "a&b"]
 
 

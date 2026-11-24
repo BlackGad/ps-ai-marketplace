@@ -3,14 +3,15 @@ import os
 import signal
 import stat
 import sys
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+from typing import Any
 from contextlib import AbstractContextManager
 from pathlib import Path
 
 import pytest
 from cli_runner import run
 
-from legion import _accounts, _settings_io
+from legion import _accounts, _launchers, _settings_io
 from legion._home import settings_path
 from legion._settings_models import Agent, Deployment, Provider, ToolDescriptor
 from legion._settings_io import SettingsError
@@ -20,6 +21,7 @@ from legion.foundry import _run
 from legion.foundry._az import AzAccessToken
 from legion.foundry import _az, copilot
 from legion.foundry._types import Launch, ProviderFile
+from launcher_fakes import ready_app
 from test_limits import write_executable
 from legion.foundry._discovery import DiscoveredDeployment, FoundryDiscovery, listing, standard
 
@@ -32,6 +34,56 @@ def codex_agent(folder: Path) -> Agent:
 def claude_agent(folder: Path) -> Agent:
     provider = Provider(kind="foundry", endpoint="https://example.test", default="m", deployments=[Deployment(name="m")])
     return Agent.model_validate({"id": "claude-a", "tool": "claude", "configDir": str(folder), "provider": provider.model_dump(by_alias=True, exclude_none=True)})
+
+
+@pytest.mark.parametrize(("recipe", "filename", "original"), [(codex, "config.toml", b'theme = "dark"\n'), (claude, "settings.json", b'{"theme":"dark"}\n')])
+def test_failed_config_write_keeps_previous_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recipe: ModuleType, filename: str, original: bytes) -> None:
+    folder = tmp_path / "account"
+    folder.mkdir()
+    path = folder / filename
+    path.write_bytes(original)
+    monkeypatch.setattr(codex, "az", lambda: Path("/fake/az"))
+    real_write = Path.write_text
+
+    def interrupted_write(target: Path, content: str, **keywords: Any) -> int:
+        if target.suffix == ".tmp":
+            real_write(target, content[:4], **keywords)
+            raise OSError("disk full")
+        return real_write(target, content, **keywords)
+
+    monkeypatch.setattr(Path, "write_text", interrupted_write)
+    agent = codex_agent(folder) if recipe is codex else claude_agent(folder)
+    with pytest.raises(OSError, match="disk full"):
+        recipe.configure(agent, tmp_path)
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize(("recipe", "filename", "original"), [(codex, "config.toml", b'theme = "dark"\n'), (claude, "settings.json", b'{"theme":"dark"}\n')])
+def test_config_write_preserves_symlink_and_updates_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recipe: ModuleType, filename: str, original: bytes) -> None:
+    folder = tmp_path / "account"
+    folder.mkdir()
+    target = tmp_path / "owner-config"
+    target.write_bytes(original)
+    link = folder / filename
+    linked = True
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError):
+        linked = False
+        original_resolve = Path.resolve
+
+        def resolve(candidate: Path, *args: Any, **kwargs: Any) -> Path:
+            return target if candidate == link else original_resolve(candidate, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "resolve", resolve)
+    monkeypatch.setattr(codex, "az", lambda: Path("/fake/az"))
+    agent = codex_agent(folder) if recipe is codex else claude_agent(folder)
+    assert recipe.configure(agent, tmp_path)
+    if linked:
+        assert link.is_symlink()
+    assert target.read_bytes() != original
+    if linked:
+        assert link.read_bytes() == target.read_bytes()
 
 
 def test_foundry_add_discovers_before_settings_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -83,6 +135,38 @@ def test_foundry_repeat_add_never_discovers(tmp_path: Path, monkeypatch: pytest.
 
     monkeypatch.setattr(_discovery, "discover", lambda *_args: pytest.fail("repeat add ran discovery"))
     assert _accounts.add_foundry(home, "codex-a", "codex", "https://example.test", ["gpt-4"], "gpt-4", [], False, False) == ["skip: account codex-a (already done)"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows has the partial launcher pair")
+def test_repeat_add_keeps_a_surviving_launcher_during_failed_upgrade(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    path = settings_path(home)
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "agents": [
+                    {
+                        "id": "codex-a",
+                        "tool": "codex",
+                        "configDir": str(home / "config"),
+                        "provider": {"kind": "foundry", "endpoint": "https://example.test", "default": "gpt-4", "deployments": [{"name": "gpt-4"}]},
+                    }
+                ],
+                "channels": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    ready_app(home, "0.15.0")
+    launcher = _launchers.launcher_paths("codex-a", home)[-1]
+    launcher.parent.mkdir(parents=True, exist_ok=True)
+    launcher.write_bytes(b"@rem Generated by legion: account codex-a\r\n@call old-foundry-command\r\n")
+    before = launcher.read_bytes()
+    monkeypatch.setattr(_discovery, "discover", lambda *_args: pytest.fail("repeat add ran discovery"))
+    assert _accounts.add_foundry(home, "codex-a", "codex", "https://example.test", [], None, None, False, False) == ["skip: account codex-a (already done)"]
+    assert launcher.read_bytes() == before
 
 
 def test_foundry_listing_gone_only_with_management() -> None:
@@ -435,7 +519,7 @@ def test_copilot_cleanup_survives_a_file_that_another_launch_just_removed(tmp_pa
 
 def test_tool_with_foundry_descriptor_but_no_recipe_is_refused_in_one_line_before_az(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fourth = next(item for item in load_descriptors(ToolDescriptor, "tool.json") if item.id == "codex").model_copy(update={"id": "fourth"})
-    monkeypatch.setattr(_accounts, "_tool", lambda _tool_id: fourth)
+    monkeypatch.setattr(_accounts, "get_tool", lambda _tool_id: fourth)
     monkeypatch.setattr(_discovery, "discover", lambda *_args: pytest.fail("az ran"))
     with pytest.raises(_accounts.AccountError, match="tool 'fourth' does not support Foundry"):
         _accounts.add_foundry(tmp_path, "fourth-a", "fourth", "https://example.test", ["m"], "m", [], False, False)

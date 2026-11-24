@@ -102,6 +102,7 @@ function Get-SetupMissingAllowRules {
 }
 
 # True when the account's launchers are missing and the owner must name the program again (legion account register).
+# milestone 4 removes this
 function Test-SetupTargetNeeded {
     param($Agent, [string]$HomeRoot)
     if ($Agent.command) { return -not (Test-Path -LiteralPath (Resolve-LegionHomePath -Path $Agent.command -HomeRoot $HomeRoot) -PathType Leaf) }
