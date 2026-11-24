@@ -84,7 +84,7 @@ def stdin(text: str) -> io.TextIOWrapper:
     return io.TextIOWrapper(io.BytesIO(text.encode()), encoding="utf-8")
 
 
-# DetectMode.Tests.ps1
+# Session mode detection
 
 
 def test_member_mode_wins_and_needs_a_task(repo: Path, remote: dict[str, Any]) -> None:
@@ -235,7 +235,7 @@ def test_failure_prints_one_line_and_exits_zero(repo: Path, monkeypatch: pytest.
     assert output.out == (json.dumps({"additionalContext": FAILURE}, separators=(",", ":")) if as_json else FAILURE) + "\n"
 
 
-# UpdateHook.Tests.ps1
+# Update notices
 
 
 def test_update_notice_line_and_daily_cache(repo: Path, remote: dict[str, Any]) -> None:

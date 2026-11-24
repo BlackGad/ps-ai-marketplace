@@ -65,7 +65,7 @@ def scaffold(repo: Path) -> Path:
     return legion
 
 
-# Status.Tests.ps1: full recorded output, no settings, PATH, ownership, tracking, leases and read-only behavior.
+# Status output, settings, PATH, ownership, tracking, leases and read-only behavior.
 def test_status_without_settings_is_native_and_exits_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
@@ -184,7 +184,7 @@ def test_setup_status_path_parity(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert pwsh is not None
     folder = commands(tmp_path)
     monkeypatch.setenv("LEGION_STATUS_BIN", str(folder))
-    # Get-SetupPlan and Python status must agree about percent variables in PATH (old E3 assertion).
+    # Get-SetupPlan and Python status must agree about percent variables in PATH.
     script = """param($Setup, $FixtureHome)
 . $Setup -NoRun
 function Get-LegionUserPath { return '%LEGION_STATUS_BIN%' }
@@ -320,7 +320,7 @@ def channel_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Pe
     return owner, home, _status.load_descriptors(ToolDescriptor, "tool.json")
 
 
-# DetectMode.Tests.ps1 moved assertions 6, 19: binding warnings also work outside a managed repository.
+# Channel binding warnings outside a managed repository.
 def test_bound_channel_without_launch_flag_warns_once(channel_session: tuple[PersonalisationSettings, Path, list[ToolDescriptor]], tmp_path: Path) -> None:
     owner, home, tools = channel_session
     assert _status.channel_warnings(owner, home, tools) == [WARNING]
@@ -376,7 +376,7 @@ def test_uncertain_or_connected_sessions_are_silent(channel_session: tuple[Perso
     assert _status.channel_warnings(owner, home, tools) == []
 
 
-# Moved assertions 17-18 plus Validate.Tests.ps1's malformed-descriptor protection.
+# Settings and tool descriptor validation.
 @pytest.mark.parametrize("broken", ["settings", "process", "tool", "channel"])
 def test_broken_inputs_preserve_the_rest_of_status(channel_session: tuple[PersonalisationSettings, Path, list[ToolDescriptor]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, broken: str) -> None:
     _owner, home, _tools = channel_session

@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from conftest import Fence
+from conftest import GIT_ENVIRONMENT, Fence
 
 
 def test_fence_points_the_environment_at_the_linked_home(fence: Fence) -> None:
@@ -25,6 +25,7 @@ def test_fence_points_the_environment_at_the_linked_home(fence: Fence) -> None:
     assert Path(os.environ["PYTHONPYCACHEPREFIX"]) == fence.temp / "pycache"
     assert "PYTHONSTARTUP" not in os.environ
     assert "PYTHONUSERBASE" not in os.environ
+    assert not any(name in GIT_ENVIRONMENT or name.startswith("GIT_CONFIG") for name in os.environ)
 
 
 def test_fence_catches_a_change_to_the_fake_real_folder(fence: Fence) -> None:
@@ -51,18 +52,63 @@ def test_child_inherits_cache_and_network_fences(fence: Fence) -> None:
     assert not environment["NO_PROXY"]
 
 
-def test_child_requests_fail_at_the_local_proxy() -> None:
+def test_child_socket_denial_records_even_swallowed_requests(fence: Fence) -> None:
     script = """
-import urllib.error, urllib.request
-proxies = urllib.request.getproxies()
-for scheme in ("http", "https"):
-    assert proxies[scheme] == "http://127.0.0.1:1", proxies
+import socket, urllib.error, urllib.request
+assert socket.socket.__module__ == 'sitecustomize', 'child socket denial is missing'
+for scheme in ('http', 'https'):
     try:
         urllib.request.urlopen(f"{scheme}://network-fence.invalid", timeout=1)
-    except urllib.error.URLError as error:
-        assert isinstance(error.reason, (ConnectionRefusedError, TimeoutError)), error
+    except urllib.error.URLError:
+        pass
     else:
-        raise AssertionError("Test request escaped the local proxy")
+        raise AssertionError('request escaped the socket denial')
+for method in ('connect', 'connect_ex'):
+    with socket.socket() as connection:
+        try:
+            getattr(connection, method)(('127.0.0.1', 1))
+        except OSError:
+            pass
 """
     child = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=5, check=False)
     assert child.returncode == 0, child.stderr
+    record = fence.home / "socket-attempts"
+    try:
+        assert len(record.read_text(encoding="utf-8").splitlines()) == 4
+        with pytest.raises(AssertionError, match="socket"):
+            fence.check()
+    finally:
+        record.unlink(missing_ok=True)
+
+
+def test_fixture_git_ignores_inherited_index(fence: Fence, tmp_path: Path) -> None:
+    sentinel = fence.outside / "index"
+    sentinel.write_bytes(b"outside index sentinel")
+    environment = {**os.environ, "GIT_INDEX_FILE": str(sentinel)}
+    repo = Path(__file__).resolve().parents[2]
+    try:
+        child = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "--rootdir=.",
+                "-c",
+                "plugins/legion/pyproject.toml",
+                "-o",
+                "addopts=",
+                "--basetemp",
+                str(tmp_path / "nested-pytest"),
+                "tests/python/legion/test_status.py::test_repository_requires_complete_tracked_scaffold_and_inner_private_history",
+            ],
+            cwd=repo,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert sentinel.read_bytes() == b"outside index sentinel"
+        assert child.returncode == 0, child.stdout + child.stderr
+    finally:
+        sentinel.unlink()

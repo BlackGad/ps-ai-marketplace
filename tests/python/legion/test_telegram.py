@@ -2,6 +2,7 @@ import http.client
 import io
 import json
 import urllib.error
+from email.message import Message
 from pathlib import Path
 from typing import Any, Optional
 
@@ -121,7 +122,7 @@ def test_bad_channel_id_is_refused(capsys: pytest.CaptureFixture[str]) -> None:
 def test_real_post_hides_token_in_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse(request: Any, **_options: Any) -> Any:
         body = io.BytesIO(json.dumps({"ok": False, "error_code": 409, "description": "Conflict"}).encode())
-        raise urllib.error.HTTPError(request.full_url, 409, "Conflict", None, body)  # pyright: ignore[reportArgumentType]
+        raise urllib.error.HTTPError(request.full_url, 409, "Conflict", Message(), body)
 
     monkeypatch.setattr(_telegram._opener, "open", refuse)
     with pytest.raises(TelegramError) as caught:

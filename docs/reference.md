@@ -206,6 +206,7 @@ repo none
 | `legion limits [<id>]` | Show each account's usage windows (used %, reset time, status), or one account's; `unknown` when the tool gives no readout |
 | `legion lease take\|status\|release` | Take, check or release this repository's overseer lease; the overseer skill runs it |
 | `legion update [--yes]` | Update legion along the track it was installed from |
+| `legion update --check [--force]` | Check for a newer release; `--force` refreshes the cached result |
 | `legion uninstall [--purge] [--yes]` | Remove legion; purge also removes settings, notes and legion-made logins |
 | `legion help` | Show this list |
 

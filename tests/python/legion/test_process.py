@@ -19,7 +19,7 @@ BASE = datetime(2026, 11, 23, 8, 0, tzinfo=UTC)
 
 
 def table(*rows: tuple[int, int, str, int]) -> _process.Lookup:
-    """Build a fake process table from (pid, parent pid, name, start offset in seconds)."""
+    # Build a fake process table from (pid, parent pid, name, start offset in seconds).
     processes = {pid: ProcessInfo(pid, parent, name, BASE + timedelta(seconds=offset)) for pid, parent, name, offset in rows}
     return processes.get
 

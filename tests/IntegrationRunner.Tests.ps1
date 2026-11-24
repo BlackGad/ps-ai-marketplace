@@ -17,6 +17,87 @@ try {
     . $runner
     Assert-Equal $inheritedPathStore $env:LEGION_TEST_USER_PATH_FILE 'Dot-sourcing without NoRun keeps the caller user PATH fence'
     Assert-Equal $inheritedPathText ([IO.File]::ReadAllText($inheritedPathStore)) 'Dot-sourcing leaves the fake store unchanged'
+    # Execute the full main block with fake steps: no tool, download or registry call is reachable.
+    $mainProbe = Join-Path $tempRoot 'main-fence.ps1'
+    Set-Content -LiteralPath $mainProbe -Value @'
+param($Runner, $Out, $HomeRoot, $Checkout, [switch]$ClearPathFence)
+$options = @{ Out=$Out; HomeRoot=$HomeRoot; Checkout=$Checkout }
+. $Runner -NoRun
+$NoRun = $false
+$Out = $options.Out
+$HomeRoot = $options.HomeRoot
+$Checkout = $options.Checkout
+if ($ClearPathFence) { Remove-Item Env:LEGION_TEST_USER_PATH_FILE }
+function Get-TestUserPathSnapshot { return [pscustomobject]@{ Value='fixture'; Kind=2 } }
+function Open-IntegrationUserEnvironment { throw 'Fake full runs must never open the registry for writing' }
+function Get-IntegrationProbeChecks { return ([ordered]@{}) }
+function Get-IntegrationSteps {
+    $script:Ctx = @{ Versions=@{}; NotTested=@{} }
+    @{ Name='fake-install'; Action={
+        if (-not $env:LEGION_TEST_USER_PATH_FILE) { throw 'full run dropped the PATH fence' }
+        $before = Get-LegionUserPath
+        Set-LegionUserPath -Path ($before + ';' + (Join-Path $HomeRoot '.legion/bin'))
+        if ((Get-LegionUserPath) -eq $before) { throw 'fake installer did not use the PATH store' }
+    } }
+}
+function Set-IntegrationConfigEnvironment { }
+function Get-IntegrationCoverageProblem { return '' }
+$main = (Get-Content -LiteralPath $Runner -Raw) -split '# ---- Main[^\r\n]*', 2
+& ([scriptblock]::Create($main[1]))
+'@
+    $env:CI = 'true'
+    $mainOutput = @(& pwsh -NoProfile -File $mainProbe $runner (Join-Path $tempRoot 'main-out') (Join-Path $tempRoot 'main-home') $root 2>&1)
+    $mainExit = $LASTEXITCODE
+    $mainReport = Get-Content (Join-Path $tempRoot 'main-out/summary.md') -Raw -ErrorAction SilentlyContinue
+    Assert-Equal 0 $mainExit ('Full fenced run succeeds with fake installers: ' + ($mainOutput -join "`n") + $mainReport)
+    Assert-True (([IO.File]::ReadAllText($inheritedPathStore)).Contains((Join-Path $tempRoot 'main-home/.legion/bin'))) 'Full run writes the inherited store'
+    [IO.File]::WriteAllText($inheritedPathStore, $inheritedPathText)
+    & {
+        function Get-IntegrationOs { return 'windows' }
+        $portableFolder = Join-Path $tempRoot 'portable-bin'
+        try {
+            [IO.File]::WriteAllText($inheritedPathStore, $portableFolder)
+            Assert-True ((Get-IntegrationPersistentFolders) -contains $portableFolder) 'Tool discovery includes the fenced PATH store'
+        } finally { [IO.File]::WriteAllText($inheritedPathStore, $inheritedPathText) }
+    }
+    $mainOutput = @(& pwsh -NoProfile -File $mainProbe $runner (Join-Path $tempRoot 'own-out') (Join-Path $tempRoot 'own-home') $root -ClearPathFence 2>&1)
+    Assert-Equal 0 $LASTEXITCODE ('A full run creates its own PATH fence when none is inherited: ' + ($mainOutput -join "`n"))
+    $ownStore = Join-Path $tempRoot 'legion-work/user-path.txt'
+    Assert-True (([IO.File]::ReadAllText($ownStore)).Contains((Join-Path $tempRoot 'own-home/.legion/bin'))) 'The default PATH store stays inside the fixture'
+    # Raw registry snapshots are exercised through a fake key, never through HKCU writes.
+    & {
+        $script:pathState = [pscustomobject]@{ Value='keep;%FIXTURE%;'; Kind=2; Opens=0; Disposals=0; RestoreFails=$false }
+        function Get-TestUserPathSnapshot { return [pscustomobject]@{ Value=$script:pathState.Value; Kind=$script:pathState.Kind } }
+        function Open-IntegrationUserEnvironment {
+            $script:pathState.Opens++
+            $key = [pscustomobject]@{}
+            $key | Add-Member ScriptMethod SetValue {
+                param($Name, $Value, $Kind)
+                if (-not $script:pathState.RestoreFails) { $script:pathState.Value=$Value; $script:pathState.Kind=$Kind }
+            }
+            $key | Add-Member ScriptMethod DeleteValue { param($Name, $Throw) $script:pathState.Value=$null; $script:pathState.Kind=$null }
+            $key | Add-Member ScriptMethod Dispose { $script:pathState.Disposals++ }
+            return $key
+        }
+        $before = Get-TestUserPathSnapshot
+        Restore-IntegrationUserPath -Before $before
+        Assert-Equal 0 $script:pathState.Opens 'Unchanged raw PATH never opens a writable key'
+        foreach ($change in 'value', 'kind', 'absent') {
+            $before = if ($change -eq 'absent') { [pscustomobject]@{ Value=$null; Kind=$null } } else { [pscustomobject]@{ Value='keep;%FIXTURE%;'; Kind=2 } }
+            $script:pathState.Value = if ($change -eq 'kind') { $before.Value } else { 'changed' }
+            $script:pathState.Kind = 1
+            Restore-IntegrationUserPath -Before $before
+            Assert-Equal $before.Value $script:pathState.Value 'Restore keeps raw placeholders and absence'
+            Assert-Equal $before.Kind $script:pathState.Kind 'Restore keeps the original registry kind'
+        }
+        Assert-Equal 3 $script:pathState.Disposals 'Every writable key is disposed'
+        $script:pathState.RestoreFails=$true
+        $script:pathState.Value='unrestored'
+        $message = ''
+        try { Restore-IntegrationUserPath -Before ([pscustomobject]@{ Value='keep;%FIXTURE%;'; Kind=2 }) }
+        catch { $message=$_.Exception.Message }
+        Assert-Equal 'Tests changed the real user PATH value or registry value kind.' $message 'A change remaining after restoration fails privately'
+    }
     Assert-Equal 'PlainText' ([string]$PSStyle.OutputRendering) 'integration runner captures plain text'
     Assert-Equal '1' $env:NO_COLOR 'integration children inherit NO_COLOR'
     $plainScript = Join-Path $tempRoot 'plain-output.ps1'

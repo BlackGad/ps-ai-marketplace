@@ -56,7 +56,7 @@ def make_old(path: Path) -> None:
     os.utime(path, (old, old))
 
 
-# Lease.Tests.ps1
+# Lease ownership and state
 
 
 def test_free_without_a_lock(tmp_path: Path) -> None:
@@ -153,20 +153,24 @@ def test_written_lock_uses_powershell_field_names_and_formats(tmp_path: Path) ->
 
 @pytest.mark.skipif(sys.platform == "win32", reason="zombie processes exist on Linux and macOS only")
 def test_zombie_owner_is_stale(tmp_path: Path) -> None:
-    child = subprocess.Popen([sys.executable, "-c", "pass"])
-    started = process_started_at(child.pid)
-    assert started is not None
-    write_lease(tmp_path, pid=child.pid, processStartedAt=_lease.round_trip(started) + "Z")
-    deadline = time.monotonic() + 10
-    while process_started_at(child.pid) is not None and time.monotonic() < deadline:
-        time.sleep(0.05)
+    child = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.buffer.read(1)"], stdin=subprocess.PIPE)
     try:
+        started = process_started_at(child.pid)
+        assert started is not None
+        write_lease(tmp_path, pid=child.pid, processStartedAt=_lease.round_trip(started) + "Z")
+        assert child.stdin is not None
+        child.stdin.close()
+        deadline = time.monotonic() + 60
+        while process_started_at(child.pid) is not None and time.monotonic() < deadline:
+            time.sleep(0.05)
         assert state(tmp_path).state == "stale"
     finally:
+        if process_started_at(child.pid) is not None:
+            child.kill()
         child.wait()
 
 
-# LeaseRace.Tests.ps1
+# Concurrent lease acquisition and takeover
 
 
 def test_lock_being_written_is_held_then_stale_when_old(tmp_path: Path) -> None:
@@ -282,7 +286,12 @@ def test_takeover_of_a_lock_in_use_asks_to_retry(tmp_path: Path, lease_in_use: P
     with pytest.raises(LeaseError, match="takeover in progress in another session; retry"):
         take(tmp_path, "codex", "owner", process_id=os.getpid())
     assert json.loads(lease_in_use.read_text(encoding="utf-8"))["pid"] == DEAD_PID
-    assert _lease._open_guard(lease_in_use) is not None
+    guard = _lease._open_guard(lease_in_use)
+    try:
+        assert guard is not None
+    finally:
+        if guard is not None:
+            _lease._close_guard(guard)
 
 
 def test_release_of_a_lock_in_use_asks_to_retry(tmp_path: Path, lease_in_use: Path) -> None:
@@ -292,11 +301,11 @@ def test_release_of_a_lock_in_use_asks_to_retry(tmp_path: Path, lease_in_use: Pa
     assert lease_in_use.exists()
 
 
-# LeaseReleaseRace.Tests.ps1
+# Release boundary races
 
 
 class Contender:
-    """Tries to replace the lock through the takeover guard at the release boundaries."""
+    # Tries to replace the lock through the takeover guard at the release boundaries.
 
     def __init__(self, repo: Path) -> None:
         self.path = lease_path(repo)
@@ -361,7 +370,7 @@ def test_release_rejects_ownership_changed_before_its_read(tmp_path: Path, conte
     assert json.loads(contender.path.read_text(encoding="utf-8"))["pid"] == DEAD_PID
 
 
-# LeaseSession.Tests.ps1
+# Session ownership
 
 
 @pytest.mark.parametrize(
@@ -386,7 +395,7 @@ def test_from_json_rejects_wrong_types() -> None:
             Lease.from_json(text)
 
 
-# Cross-language proof: the PowerShell reader, kept until milestone 2 task 4, agrees with Python.
+# Cross-language proof: the PowerShell reader, kept until milestone 3, agrees with Python.
 
 PWSH = shutil.which("pwsh")
 needs_pwsh = pytest.mark.skipif(PWSH is None, reason="pwsh is not on PATH")
