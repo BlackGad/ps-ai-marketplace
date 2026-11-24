@@ -19,6 +19,7 @@ $env:NO_COLOR = '1'
 . (Join-Path $PSScriptRoot '../../plugins/legion/bin/lib/installed.ps1')
 . (Join-Path $PSScriptRoot '../../plugins/legion/bin/lib/paths.ps1')
 $script:IntegrationScriptLog = $null
+$script:FoundryEndpoint = 'https://example-resource.cognitiveservices.azure.com'
 
 function Get-IntegrationOs {
     if ($IsWindows) { return 'windows' }
@@ -768,7 +769,7 @@ function Assert-IntegrationFoundryLauncher {
 function Invoke-FoundryLauncherFirst {
     if ($script:Ctx.NotTested.Contains('copilot')) { return 'not tested: Copilot was not tested from the checkout' }
     return Invoke-IntegrationFakeAz {
-        $lines = Invoke-IntegrationOwner @('account', 'add', '--id', 'ci-foundry', '--tool', 'copilot', '--provider', 'foundry', '--endpoint', 'https://<resource>.cognitiveservices.azure.com', '--deployment', 'model-a', '--default', 'model-a')
+        $lines = Invoke-IntegrationOwner @('account', 'add', '--id', 'ci-foundry', '--tool', 'copilot', '--provider', 'foundry', '--endpoint', $script:FoundryEndpoint, '--deployment', 'model-a', '--default', 'model-a')
         return $lines + (Assert-IntegrationFoundryLauncher)
     }
 }
@@ -776,7 +777,7 @@ function Invoke-FoundryLauncherFirst {
 function Invoke-FoundryLauncherRepeat {
     if ($script:Ctx.NotTested.Contains('copilot')) { return 'not tested: Copilot was not tested from the checkout' }
     return Invoke-IntegrationFakeAz {
-        $lines = Invoke-IntegrationOwner @('account', 'add', '--id', 'ci-foundry', '--tool', 'copilot', '--provider', 'foundry', '--endpoint', 'https://<resource>.cognitiveservices.azure.com', '--deployment', 'model-a', '--default', 'model-a')
+        $lines = Invoke-IntegrationOwner @('account', 'add', '--id', 'ci-foundry', '--tool', 'copilot', '--provider', 'foundry', '--endpoint', $script:FoundryEndpoint, '--deployment', 'model-a', '--default', 'model-a')
         Assert-IntegrationText $lines 'skip: account ci-foundry (already done)'
         $lines += Assert-IntegrationFoundryLauncher
         $lines += Invoke-IntegrationOwner @('account', 'remove', '--id', 'ci-foundry')
@@ -850,7 +851,7 @@ function Invoke-NoPwshRun {
         Assert-IntegrationTrue ($LASTEXITCODE -eq 0) 'subscription launcher failed without pwsh'
         $lines += Invoke-IntegrationOwner @('account', 'remove', '--id', 'ci-no-pwsh')
         if (-not $script:Ctx.NotTested.Contains('copilot')) {
-            $lines += Invoke-IntegrationOwner @('account', 'add', '--id', 'ci-foundry', '--tool', 'copilot', '--provider', 'foundry', '--endpoint', 'https://<resource>.cognitiveservices.azure.com', '--deployment', 'model-a', '--default', 'model-a')
+            $lines += Invoke-IntegrationOwner @('account', 'add', '--id', 'ci-foundry', '--tool', 'copilot', '--provider', 'foundry', '--endpoint', $script:FoundryEndpoint, '--deployment', 'model-a', '--default', 'model-a')
             $lines += Assert-IntegrationFoundryLauncher
             $lines += Invoke-IntegrationOwner @('account', 'remove', '--id', 'ci-foundry')
         }

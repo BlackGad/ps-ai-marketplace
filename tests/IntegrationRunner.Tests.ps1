@@ -313,6 +313,11 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         Assert-True $script:foundry 'first Foundry action leaves the account for repeat'
         Invoke-FoundryLauncherRepeat | Out-Null
         Assert-True (-not $script:foundry) 'repeat Foundry action removes the account'
+        $foundryAdds = @($script:integrationCalls | Where-Object { $_ -like 'account add * --provider foundry *' })
+        Assert-Equal 2 $foundryAdds.Count 'both Foundry actions add the account'
+        $endpoints = @($foundryAdds | ForEach-Object { ($_ -split ' --endpoint ')[1].Split(' ')[0] })
+        Assert-Equal 1 @($endpoints | Select-Object -Unique).Count 'Foundry actions use one endpoint'
+        Assert-True ($endpoints[0] -notmatch '[<>|&^%]') 'Foundry endpoint is safe for the Windows cmd launcher'
         $script:Ctx.NotTested.copilot = 'fixture skip'
         Assert-True ((Invoke-FoundryLauncherFirst) -like 'not tested:*') 'a skipped Copilot is reported without blocking later steps'
         Assert-True ((Invoke-FoundryLauncherRepeat) -like 'not tested:*') 'a skipped Copilot repeat is reported'
