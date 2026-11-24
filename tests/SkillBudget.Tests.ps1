@@ -16,7 +16,7 @@ $caps = [ordered]@{
     'legion-claude/references/accounts.md'          = 45
     'legion-codex/references/accounts.md'           = 45
     'legion-copilot/references/accounts.md'         = 45
-    'legion-personalisation/references/launcher.md' = 10
+    'legion-personalisation/references/launcher.md' = 12
     'legion-repository/SKILL.md'                    = 35
     'legion-repository/references/setup.md'         = 20
     'legion-telegram/references/connect.md'         = 10
@@ -62,6 +62,11 @@ Assert-True (-not $create.Contains('For `install failed` or `installed: open a n
 Assert-True ($text -notmatch '\birm\b') 'the remote irm installer is gone from the skill text'
 
 $personalisation = Get-SkillText 'legion-personalisation/SKILL.md'
+Assert-True ($personalisation.Contains('[launcher guide](references/launcher.md)')) 'Personalisation links the command guide once'
+Assert-Equal 1 ([regex]::Matches($personalisation, 'references/launcher\.md').Count) 'The command guide has one link'
+$launcher = Get-SkillText 'legion-personalisation/references/launcher.md'
+Assert-True ($launcher.Contains('use `legion <verb>`')) 'Command guide prefers the owner command'
+Assert-True ($launcher.Contains('if that file is missing too, finish setup first')) 'Command guide covers an absent owner command'
 foreach ($rule in @('exactly one question per message', 'Save preferences, rulings and lessons that must persist in shared legion files', 'independent channels with the same priority', 'first acknowledge it there at once')) {
     Assert-True $personalisation.Contains($rule) "personalisation keeps '$rule'"
 }

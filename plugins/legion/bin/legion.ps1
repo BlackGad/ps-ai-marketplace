@@ -145,7 +145,7 @@ function Invoke-LegionScript {
     $global:LASTEXITCODE = 0
     $script:LegionOutput = @()
     $splat = $Call.Splat.Clone()
-    if ($script:LegionHomeRoot -and $Call.Script -ne 'legion-repository.ps1') { $splat.HomeRoot = $script:LegionHomeRoot }
+    if ($script:LegionHomeRoot) { $splat.HomeRoot = $script:LegionHomeRoot }
     $installerFolder = if ($Call.Installer) { Copy-LegionInstaller }
     $scriptPath = if ($Call.Installer) { Join-Path $installerFolder 'install.ps1' } else { Join-Path $script:LegionBin $Call.Script }
     try {

@@ -1,5 +1,8 @@
 $root = Split-Path $PSScriptRoot -Parent
 $skill = Join-Path $root 'plugins/legion/skills/legion-repository'
+$setupText = Get-Content (Join-Path $skill 'references/setup.md') -Raw
+Assert-True ($setupText.Contains('legion repository setup --repo <repo> [--mode shared] [--gate')) 'Setup uses the owner command and named options'
+Assert-True (-not $setupText.Contains('pwsh -NoProfile -File <plugin>')) 'Setup reaches Python through the owner command'
 foreach ($reference in @('references/layout.md', 'references/setup.md')) {
     $text = Get-Content (Join-Path $skill $reference) -Raw
     Assert-True ($text -match '\.legion/\.git` folder or file means Private') "$reference detects both forms of Private history"
