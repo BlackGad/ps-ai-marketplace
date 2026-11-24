@@ -1,10 +1,13 @@
 # CLI tool installs against fakes: no real winget, npm, installer or download, and no real PATH or registry.
 import hashlib
+import io
 import json
 import os
 import sys
+import urllib.request
 import zipfile
 from collections.abc import Callable
+from email.message import Message
 from pathlib import Path
 from typing import Any, Optional
 
@@ -632,6 +635,7 @@ def test_a_failing_check_or_a_missing_command_is_not_installed(tmp_path: Path, m
     monkeypatch.setenv("PATH", str(tmp_path / "bin"))
     assert _tool_install.installed_version(fourth()) is None
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.setattr(_user_path, "persistent_folders", list)
     assert _tool_install.installed_version(fourth()) is None
 
 
@@ -687,3 +691,61 @@ def test_the_verb_exits_with_the_installer_code(bench: Bench, monkeypatch: pytes
     monkeypatch.setattr(_tool_install.ToolInstaller, "install", lambda self, _tool, _method=None: (self.say("choose"), 2)[1])
     assert run(["--home", str(bench.home), "tool", "install", "--tool", "git", "--yes"]) == 2
     assert capsys.readouterr().out == "choose\n"
+
+
+# --- review fixes ---
+
+
+def test_execute_gives_the_child_the_terminal_streams(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    answer = tmp_path / "answer.txt"
+    child = f"answer = input('proceed? '); open({str(answer)!r}, 'w').write(answer); raise SystemExit(3)"
+    typed = tmp_path / "typed.txt"
+    typed.write_text("yes\n", encoding="utf-8")
+    saved = os.dup(0)
+    with typed.open("rb") as stdin:
+        os.dup2(stdin.fileno(), 0)
+        try:
+            code = ToolInstaller(tmp_path, "windows", True, lambda _text: None).execute([sys.executable, "-c", child])
+        finally:
+            os.dup2(saved, 0)
+            os.close(saved)
+    assert code == 3
+    assert answer.read_text(encoding="utf-8") == "yes"
+    assert "proceed?" in capfd.readouterr().out
+
+
+def test_a_redirect_must_stay_on_https() -> None:
+    handler = _tool_install.HttpsRedirectHandler()
+    request = urllib.request.Request("https://vendor.test/install.ps1")
+    followed = handler.redirect_request(request, io.BytesIO(), 302, "Found", Message(), "https://cdn.test/install.ps1")
+    assert followed is not None
+    assert followed.full_url == "https://cdn.test/install.ps1"
+    with pytest.raises(ToolInstallError, match="not https"):
+        handler.redirect_request(request, io.BytesIO(), 302, "Found", Message(), "http://cdn.test/install.ps1")
+
+
+def test_an_interrupted_extraction_publishes_nothing_and_a_retry_succeeds(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
+    digest = bench.serve_zip({"bin/az.cmd": "inert", "lib/dependency.dll": "inert"})
+    bench.serve(digest, "zip")
+    real_extract = zipfile.ZipFile.extractall
+
+    def interrupted(_contents: zipfile.ZipFile, path: Any, *_rest: Any) -> None:
+        (Path(path) / "bin").mkdir(parents=True)
+        (Path(path) / "bin" / "az.cmd").write_text("inert", encoding="utf-8")
+        raise OSError("disk went away")
+
+    monkeypatch.setattr(zipfile.ZipFile, "extractall", interrupted)
+    with pytest.raises(OSError, match="disk went away"):
+        bench.run("az", yes=True, method="zip")
+    assert not (bench.tools / "az").exists()
+    assert bench.path_writes == []
+    monkeypatch.setattr(zipfile.ZipFile, "extractall", real_extract)
+    assert bench.run("az", yes=True, method="zip") == 0
+    assert (bench.tools / "az" / "lib" / "dependency.dll").is_file()
+    assert len(bench.path_writes) == 1
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the saved PATH exists only on Windows")
+def test_the_saved_user_folders_honor_the_test_path_file(bench: Bench) -> None:
+    bench.user_path_file.write_text(r"C:\only-in-the-test-file", encoding="utf-8")
+    assert r"C:\only-in-the-test-file" in _user_path.persistent_folders()

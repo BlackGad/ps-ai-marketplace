@@ -77,7 +77,7 @@ def add(home: Path, folder: Path) -> bool:
 # The folders on the saved user and machine PATH, expanded. A new install shows up here before a new terminal.
 def persistent_folders() -> list[str]:
     folders: list[str] = []
-    for path in (_registry_path(machine=False), _registry_path(machine=True)):
+    for path in (user_path(), _registry_path(machine=True)):
         for entry in path.split(";"):
             folder = ntpath.expandvars(entry.strip().strip('"'))
             if folder:

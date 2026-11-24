@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import urllib.request
@@ -12,7 +13,7 @@ import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Optional, Union
+from typing import IO, Any, Optional, Union
 
 from pydantic import BaseModel
 
@@ -28,8 +29,18 @@ CHOICE_MESSAGE = "choose --method msi (official installer, needs admin) or --met
 # An installer that asks for a restart still installed.
 INSTALLER_SUCCESS_CODES = (0, 3010)
 PACKAGE_MANAGER_PAGES = {"winget": "https://learn.microsoft.com/windows/package-manager/winget/", "brew": "https://brew.sh/"}
+
+
+# The default handler follows a redirect to plain http; a vendor script runs without another check.
+class HttpsRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Optional[urllib.request.Request]:
+        if not newurl.startswith("https://"):
+            raise ToolInstallError(f"refusing a redirect that is not https: {newurl}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 # An opener instead of urlopen: every vendor URL is https, and ruff flags urlopen (S310).
-_opener = urllib.request.build_opener(urllib.request.HTTPSHandler)
+_opener = urllib.request.build_opener(urllib.request.HTTPSHandler, HttpsRedirectHandler)
 DOWNLOAD_TIMEOUT_SECONDS = 120
 
 
@@ -164,13 +175,9 @@ class ToolInstaller:
     def root(self, tool: str) -> Path:
         return self.home / ".legion" / "tools" / tool
 
-    # Run a program with its output shown; returns its exit code. A command that cannot start raises OSError.
+    # Run a program on the owner's terminal, so progress and prompts work; returns its exit code. A command that cannot start raises OSError.
     def execute(self, command: list[str]) -> int:
-        result = run_command(shutil.which(command[0]) or command[0], command[1:])
-        for text in (result.output, result.error):
-            if text.strip():
-                self.say(text.rstrip())
-        return result.exit_code
+        return subprocess.run([shutil.which(command[0]) or command[0], *command[1:]], check=False).returncode
 
     def fetch_text(self, url: str) -> str:
         with _open(url) as response:
@@ -215,9 +222,18 @@ class ToolInstaller:
         folder = inside(root, path_folder)
         command = portable_command(recipe, root)
         if archive is not None and (command is None or not command.is_file()):
+            # Extract beside the final folder and rename it into place, so an interrupted run leaves no half install.
+            staging = root.with_name(root.name + ".staging")
+            shutil.rmtree(staging, ignore_errors=True)
             # extractall drops the parts of a name that would climb out of the folder.
             with zipfile.ZipFile(archive) as contents:
-                contents.extractall(root)
+                contents.extractall(staging)
+            staged = portable_command(recipe, staging)
+            if staged is None or not staged.is_file():
+                shutil.rmtree(staging, ignore_errors=True)
+                raise ToolInstallError(f"{tool} executable missing from download")
+            shutil.rmtree(root, ignore_errors=True)
+            staging.rename(root)
             command = portable_command(recipe, root)
         if command is None or not command.is_file():
             raise ToolInstallError(f"{tool} executable missing from download")

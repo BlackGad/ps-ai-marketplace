@@ -2,7 +2,7 @@
 
 After updating legion, tell the owner to run `legion` in the repository to load the new skills.
 
-When `copilot` is missing, run `legion tool install --tool copilot` to inspect status and the platform-specific official install command internally. Show commands only when requested or when the owner must run them themselves. Ask the owner whether to install Copilot CLI; offer Node.js only where the platform recipe requires it. Only after an explicit yes, run the same command with `-Yes`; it checks installed state before changing anything. If the owner declines, stop the account flow for this session.
+When `copilot` is missing, run `legion tool install --tool copilot` to inspect status and the platform-specific official install command internally. Show commands only when requested or when the owner must run them themselves. Ask the owner whether to install Copilot CLI; offer Node.js only where the platform recipe requires it. Only after an explicit yes, run the same command with `--yes`; it checks installed state before changing anything. If the owner declines, stop the account flow for this session.
 
 If installation reports a new terminal is needed for PATH, ask the owner to open one and recheck status. Then repeat the setup step in [accounts.md](accounts.md): setup installs legion before login, and the owner logs in themselves when its table says `log in`. Never read credentials or tokens.
 
