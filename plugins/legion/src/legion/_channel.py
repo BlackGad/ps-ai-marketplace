@@ -34,6 +34,19 @@ def _agent(settings: PersonalisationSettings, account: str) -> Agent:
     return matches[0]
 
 
+# Hand-built, reason: channel ids must resolve to exactly one owner binding; this is Legion's selection policy.
+def binding(settings: PersonalisationSettings, channel_id: str) -> Channel:
+    matches = [channel for channel in settings.channels if channel.id == channel_id]
+    if len(matches) != 1:
+        raise ChannelError(f"unknown or duplicate channel '{channel_id}'")
+    return matches[0]
+
+
+# Hand-built, reason: check and launch share this user-facing readiness line.
+def bot_folder_line(channel_id: str, ready: bool, setup: str) -> str:
+    return f"{channel_id:<10} bot folder: {'ready' if ready else f'missing token ({setup})'}"
+
+
 def _bindable_agent(settings: PersonalisationSettings, account: str, descriptor: ChannelDescriptor) -> Agent:
     agent = _agent(settings, account)
     if agent.tool not in descriptor.launch:
@@ -99,5 +112,5 @@ def check(home: Path, kind: str, accounts: list[str]) -> list[str]:
             continue
         state = states[tools[0]]
         token = home / ".legion" / state.folder / binding.id / state.token_file
-        lines.append(f"{binding.id:<10} bot folder: {'ready' if token.is_file() else f'missing token ({state.setup})'}")
+        lines.append(bot_folder_line(binding.id, token.is_file(), state.setup))
     return lines

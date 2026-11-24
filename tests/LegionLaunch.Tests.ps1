@@ -1,5 +1,4 @@
 $repo = Split-Path $PSScriptRoot -Parent
-. (Join-Path $repo 'plugins/legion/bin/legion-overseer.ps1') -NoRun
 $expected = @{
     claude = @('-p','--permission-mode','bypassPermissions','--strict-mcp-config')
     codex = @('exec','--dangerously-bypass-approvals-and-sandbox','-C','repo with spaces','-o','report with spaces.last.md','-')
@@ -15,9 +14,4 @@ foreach ($id in @('claude','codex','copilot')) {
     $promptPath = 'task prompt with spaces.md'
     & ([scriptblock]::Create($example.Groups[1].Value)) | Out-Null
     Assert-Equal ($expected[$id] | ConvertTo-Json -Compress) ($state.Args | ConvertTo-Json -Compress) "$id documented worker preserves complete argv"
-    $owner = @{agents=@(@{id='chosen';tool=$id});channels=@()}
-    $launch = Get-OverseerLaunch -Personalisation $owner -AccountId chosen
-    Invoke-OverseerInRepo -Repo $repo -Command Invoke-FakeWorker -Arguments $launch.Args
-    $interactive = if ($id -eq 'copilot') { @('-i','continue as the overseer') } else { @('continue as the overseer') }
-    Assert-Equal ($interactive | ConvertTo-Json -Compress) ($state.Args | ConvertTo-Json -Compress) "$id overseer launches without worker permissions"
 }

@@ -7,10 +7,9 @@ from typing import Optional
 from . import _plugin
 
 # Temporary while legion moves to Python: verbs the PowerShell entry point still serves, with their help line.
-# Each row goes when its verb is ported. Bare `legion` and flags-only calls forward too, with no verb.
+# Each row goes when its verb is ported.
 ENTRY_SCRIPT = "bin/legion.ps1"
 FORWARDED_VERBS = {
-    "pick": "Choose which account leads the overseer",
     "setup": "Finish setup: settings, commands, legion in every account",
     "add": "Add a claude, codex or copilot account",
     "uninstall": "Remove legion; --purge also deletes settings, notes and logins",

@@ -11,7 +11,7 @@ Prefer the current account when it is bound to every selected destination and re
 After approval, handoff order is strict: write accurate handoff to disk; release the lease; launch the chosen account with explicit channels in the same repo; tell the owner where to continue; stop old-session overseer work. Launch through:
 
 ```text
-pwsh -NoProfile -File <plugin>/bin/legion-overseer.ps1 -Account <id> -Tool <tool> -Channel <id[]> -Repo <repo>
+legion --account <id> --tool <tool> --channel <id> [--channel <id> ...] --repo <repo>
 ```
 
 The owner can also run `legion` directly. Follow the [shared launcher guide](../../legion-personalisation/references/launcher.md) for saved launches, account selection and channel defaults.

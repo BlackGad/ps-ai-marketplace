@@ -68,13 +68,12 @@ function Get-LegionCall {
     param([string[]]$Words)
 
     if ($Words.Count -gt 0 -and $Words[0] -eq 'help') { return $null }
-    # A bare legion, or one with only flags, has the empty verb: it launches the overseer.
+    # Python owns overseer launches; only the remaining forwarded verbs reach this parser.
     $verb = if ($Words.Count -eq 0 -or $Words[0].StartsWith('-')) { '' } else { $Words[0] }
     $parts = Split-LegionWords -Words @($Words | Select-Object -Skip $(if ($verb) { 1 } else { 0 }))
     $arguments = $parts.Arguments
     $yesFlags = @('--yes', '-Yes')
     $hasYes = ($parts.Flags | Where-Object { $yesFlags -contains $_ }).Count -gt 0
-    $repo = (Get-Location).Path
 
     switch ($verb) {
         'setup' {
@@ -90,14 +89,6 @@ function Get-LegionCall {
             $splat = @{ Add = @($item) }
             if ($hasYes) { $splat.Yes = $true }
             return @{ Script = 'legion-setup.ps1'; Splat = $splat; AsksToApply = -not $hasYes }
-        }
-        { $_ -in @('', 'pick') } {
-            $noChannelFlags = @('--no-channel', '-NoChannel')
-            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags $noChannelFlags -MinArguments 0 -MaxArguments 0
-            $splat = @{ Repo = $repo }
-            if ($verb -eq 'pick') { $splat.Pick = $true }
-            if ($parts.Flags | Where-Object { $noChannelFlags -contains $_ }) { $splat.NoChannel = $true }
-            return @{ Script = 'legion-overseer.ps1'; Splat = $splat; AsksToApply = $false }
         }
         { $_ -in @('update', 'uninstall') } {
             $allowedFlags = $yesFlags

@@ -18,7 +18,7 @@ Route channel operations through `skills/legion-<kind>/SKILL.md`; stop if missin
 | `provider.deployments[].name` | Foundry picker and adapters use wire deployment IDs. |
 | `provider.deployments[].model` | The model-mapping adapter maps model IDs. |
 | `provider.deployments[].alias` | The alias adapter maps supported aliases. |
-| `channels[].id/kind/target/accounts` | `Resolve-LegionChannel` selects the descriptor, destination and eligible accounts; the launcher validates bindings. |
+| `channels[].id/kind/target/accounts` | The Python launcher selects the descriptor, destination and eligible accounts and validates bindings. |
 
 Never save secrets. The validator enforces the required fields, unique lowercase ids, channel bindings, the default deployment and the HTTPS host; fix what it reports. Validate every edit with the bundled schema, checking stdout, stderr and the exit code:
 

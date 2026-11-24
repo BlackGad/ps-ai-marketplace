@@ -48,7 +48,7 @@ def test_home_with_parent_steps_is_normalised(app_root: Path, tmp_path: Path) ->
     assert read_call(app_root)["home"] == str(home)
 
 
-@pytest.mark.parametrize("arguments", [[], ["--no-channel"], ["pick"], ["help"]])
+@pytest.mark.parametrize("arguments", [["help"], ["add"], ["uninstall"]])
 def test_entry_points_without_a_python_verb_forward_unchanged(app_root: Path, arguments: list[str]) -> None:
     assert run(arguments) == 7
     assert read_call(app_root)["words"] == arguments

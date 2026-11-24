@@ -296,13 +296,12 @@ def test_public_command_preserves_failed_overseer_launch_exit(tmp_path: Path, pw
     (repo / ".legion" / "configuration").mkdir(parents=True)
     (settings / "personalisation.json").write_text(json.dumps({"schemaVersion": 1, "agents": [{"id": "codex-a", "tool": "codex", "configDir": "~/.codex"}], "channels": []}), encoding="utf-8")
     (repo / ".legion" / "configuration" / "project.json").write_text('{"schemaVersion":1}', encoding="utf-8")
-    overseer = app / "bin" / "legion-overseer.ps1"
+    overseer = app / "src" / "legion" / "_overseer.py"
     source = overseer.read_text(encoding="utf-8")
     # The fixture changes only the installed copy's launch, so the public command still crosses both real entry points.
-    source = source.replace("[string]$HomeRoot = $HOME", f"[string]$HomeRoot = '{home}'")
-    source = source.replace("if (-not $NoRun) {", "function Start-OverseerLaunch { $global:LASTEXITCODE = 5 }; if (-not $NoRun) {")
+    source = source.replace("    process = start_bridge(launch, repo)", "    return 5\n    process = start_bridge(launch, repo)")
     overseer.write_text(source, encoding="utf-8")
-    assert "function Start-OverseerLaunch { $global:LASTEXITCODE = 5 }" in overseer.read_text(encoding="utf-8")
+    assert "    return 5\n    process = start_bridge" in overseer.read_text(encoding="utf-8")
 
     bin_folder = home / ".legion" / "bin"
     bin_folder.mkdir(parents=True)

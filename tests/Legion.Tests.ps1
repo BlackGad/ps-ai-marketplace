@@ -9,7 +9,6 @@ New-Item -ItemType Directory -Path $standIns -Force | Out-Null
 $savedExit = $global:LASTEXITCODE
 try {
     . $legionScript
-    $cwd = (Get-Location).Path
 
     # --- Get-LegionCall ---
     $call = Get-LegionCall -Words @('add', 'codex', 'C:\work\a b', '--yes')
@@ -29,19 +28,6 @@ try {
     Assert-Equal $true $call.Splat.Yes 'setup -Yes sets Yes'
     Assert-Equal $true (Get-LegionCall -Words @('setup')).AsksToApply 'setup asks to apply'
 
-    $call = Get-LegionCall -Words @()
-    Assert-Equal 'legion-overseer.ps1' $call.Script 'bare legion calls the overseer script'
-    Assert-Equal $cwd $call.Splat.Repo 'bare legion repo is the current folder'
-    Assert-Equal 1 $call.Splat.Count 'bare legion passes only the repository'
-    $call = Get-LegionCall -Words @('--no-channel')
-    Assert-Equal $true $call.Splat.NoChannel 'bare legion --no-channel'
-    $call = Get-LegionCall -Words @('pick')
-    Assert-Equal $true $call.Splat.Pick 'pick asks'
-    Assert-True (-not $call.Splat.ContainsKey('NoChannel')) 'pick keeps the channel'
-    $call = Get-LegionCall -Words @('pick', '--no-channel')
-    Assert-True ($call.Splat.Pick -and $call.Splat.NoChannel) 'pick --no-channel'
-    Assert-Throws { Get-LegionCall -Words @('--account', 'claude1') } 'bare legion takes no account flag'
-    Assert-Throws { Get-LegionCall -Words @('pick', 'claude1') } 'pick takes no argument'
     foreach ($removed in @('start', 'repo', 'remove')) {
         try { $null = Get-LegionCall -Words @($removed); throw 'Expected unknown command' }
         catch { Assert-Equal "legion: unknown command '$removed'" $_.Exception.Message "$removed is gone" }
@@ -95,7 +81,7 @@ Get-Content -LiteralPath (Join-Path $scratch 'plan.txt')
 $code = (Get-Content -LiteralPath (Join-Path $scratch 'exit.txt')).Trim()
 if ($code -ne 'none') { exit [int]$code }
 '@
-    foreach ($name in 'legion-setup.ps1', 'legion-overseer.ps1') {
+    foreach ($name in 'legion-setup.ps1') {
         Set-Content -LiteralPath (Join-Path $standIns $name) -Value $standInText
     }
     $script:LegionBin = $standIns
@@ -119,7 +105,7 @@ if ($code -ne 'none') { exit [int]$code }
     # --- Dispatch ---
     Copy-Item -LiteralPath $legionScript -Destination (Join-Path $standIns 'legion.ps1')
     $pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
-    foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'), @('--no-channel'), @('pick'))) {
+    foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'))) {
         Reset-StandIns -Exit 'none'
         & $pwsh -NoProfile -File (Join-Path $standIns 'legion.ps1') -HomeRoot $scratch @words | Out-Null
         Assert-Equal 0 $LASTEXITCODE 'R4 B4 public legion entry accepts the bound home and verb flags'
@@ -128,7 +114,7 @@ if ($code -ne 'none') { exit [int]$code }
     & {
         . $legionScript -HomeRoot $scratch
         $script:LegionBin = $standIns
-        foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'), @('pick'), @('--no-channel'))) {
+        foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'))) {
             Reset-StandIns -Exit 'none'
             Invoke-Legion -Words $words | Out-Null
             Assert-Equal $scratch (Get-Records)[0].HomeRoot 'R4 B4 legion carries the bound home through dispatch'
@@ -143,13 +129,6 @@ if ($code -ne 'none') { exit [int]$code }
     Assert-Equal 1 @($records[0].Add).Count 'Add arrives as a one-item array'
     Assert-Equal 'codex:C:\work\a b' $records[0].Add[0] 'Add item arrives intact'
     Assert-Equal $true $records[0].Yes 'Yes switch arrives bound'
-
-    Reset-StandIns -Exit 'none'
-    Invoke-Quiet @('pick', '--no-channel') | Out-Null
-    $record1 = (Get-Records)[0]
-    Assert-Equal $true $record1.Pick 'Pick switch arrives bound'
-    Assert-Equal $true $record1.NoChannel 'NoChannel switch arrives bound'
-    Assert-Equal $cwd $record1.Repo 'Repo arrives'
 
     Reset-StandIns -Exit '3'
     Assert-Equal 3 (Invoke-Quiet @('setup', '--yes')) 'A failing script gives its exit code'
