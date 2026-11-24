@@ -265,12 +265,16 @@ class Windows(ToolModel):
     download: WindowsDownload
 
 
-class Install(ToolModel):
+# How to find and install one program; the helpers in bin/install-tool/helpers.json have no hint.
+class InstallRecipe(ToolModel):
     check: Command
-    hint: str
     windows: Optional[Windows]
     macos: Platform
     linux: Platform
+
+
+class Install(InstallRecipe):
+    hint: str
 
 
 class ToolDescriptor(ToolModel):

@@ -92,7 +92,7 @@ To follow `main` instead of releases, add `-Ref main` to the install line. To sw
 
 ### Prerequisites and CLI guides
 
-For optional prerequisite hints, use `pwsh -NoProfile -File <plugin>/bin/legion-install-tool.ps1 -Tool <helper-id>`, replacing `<plugin>` with the installed legion plugin directory. When working from a clone, that directory is `./plugins/legion`. Add `-Yes` only after choosing to install. See [repository helper sources and approval policy](../plugins/legion/skills/legion-repository/references/tools.md).
+For optional prerequisite hints, use `legion tool install --tool <helper-id>`, replacing `<plugin>` with the installed legion plugin directory. When working from a clone, that directory is `./plugins/legion`. Add `--yes` only after choosing to install. See [repository helper sources and approval policy](../plugins/legion/skills/legion-repository/references/tools.md).
 
 Use the dedicated tool guides for CLI installation, account setup, plugin commands, and provider limitations:
 

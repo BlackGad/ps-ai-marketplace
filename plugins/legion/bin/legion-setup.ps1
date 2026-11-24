@@ -56,10 +56,10 @@ function ConvertTo-SetupOneLine {
 function Invoke-SetupToolInstall {
     param([string]$Tool)
     try {
-        $result = Invoke-SetupProcess -Arguments @('-NoProfile', '-File', (Join-Path $script:SetupBin 'legion-install-tool.ps1'), '-Tool', $Tool, '-Yes')
-        $message = ConvertTo-SetupOneLine $result.Output
-        if (-not $message) { $message = "installer exit $($result.Code)" }
-        return @{ Ok = ($result.Code -eq 0); Message = $message }
+        $result = Invoke-LegionPython -Arguments @('tool', 'install', '--tool', $Tool, '--yes') -HomeRoot $script:SetupHomeRoot -Environment (Get-SetupEnvironment)
+        $message = ConvertTo-SetupOneLine ($result.Output + ' ' + $result.Error)
+        if (-not $message) { $message = "installer exit $($result.ExitCode)" }
+        return @{ Ok = ($result.ExitCode -eq 0); Message = $message }
     } catch { return @{ Ok = $false; Message = (ConvertTo-SetupOneLine $_.Exception.Message) } }
 }
 

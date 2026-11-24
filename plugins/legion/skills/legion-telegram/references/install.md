@@ -7,7 +7,7 @@ Deduplicate setup by kind/account, and installation by normalized config folder.
 Approved missing Bun uses the existing helper:
 
 ```powershell
-pwsh -NoProfile -File <plugin>/bin/legion-install-tool.ps1 -Tool bun -Yes
+legion tool install --tool bun --yes
 ```
 
 Windows offers winget or the official vendor-verified installer. Never install a package manager implicitly.
@@ -22,6 +22,6 @@ The CLI owns plugin updates. Root legion install/update/refresh never sets up ch
 
 ## Codex
 
-Codex uses the same bot folder, already paired on Claude with `/telegram:access`; Codex does no pairing. The Codex overseer launch starts a bridge that needs uv. If uv is missing, ask the owner before installing it (`legion-install-tool.ps1 -Tool uv -Yes`); without uv the launch still works but Telegram messages do not arrive. Only one program may poll a bot: stop the Claude overseer that uses the same channel first.
+Codex uses the same bot folder, already paired on Claude with `/telegram:access`; Codex does no pairing. The Codex overseer launch starts a bridge that needs uv. If uv is missing, ask the owner before installing it (`legion tool install --tool uv --yes`); without uv the launch still works but Telegram messages do not arrive. Only one program may poll a bot: stop the Claude overseer that uses the same channel first.
 
 Sources: [official plugin](https://github.com/anthropics/claude-plugins-official/blob/main/external_plugins/telegram/README.md), [Bun installation](https://bun.com/docs/installation). Inspect the connected session's actual tool definitions before using them. Source review does not prove a live connection.
