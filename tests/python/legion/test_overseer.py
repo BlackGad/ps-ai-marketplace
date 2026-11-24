@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
+import runpy
+import shlex
 import shutil
 import subprocess
 import sys
@@ -412,7 +415,7 @@ def test_terminal_selection_and_literal_transport(repo: Path, monkeypatch: pytes
     assert (command[0] == "wt.exe") == use_tab
     if use_tab:
         assert "pwsh" not in str(command)
-        payload = _overseer.Launch.model_validate_json(command[-1])
+        payload = _overseer.Launch.model_validate_json(base64.urlsafe_b64decode(command[-1]))
         assert payload == launch
         assert command[1:4] == ["new-tab", "-d", str(repo)]
     else:
@@ -439,6 +442,38 @@ def test_in_place_inherits_console_and_cleans_environment(repo: Path, monkeypatc
     assert _overseer.start_launch(repo, launch, in_place=True, dry_run=False) == 7
     assert dict(os.environ) == before
     assert Path.cwd() == cwd
+
+
+def test_terminal_payload_survives_rejoin_and_module_entry(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    launch = _overseer.Launch(
+        command="fixture",
+        arguments=["continue as the overseer", 'double"quote', "quote'value", "", "< > | & ^ %", "Привіт"],
+        environment={"BOT_FOLDER": "bot folder"},
+    )
+    calls = []
+    monkeypatch.setattr(_overseer, "WINDOWS", True)
+    monkeypatch.setattr(_overseer.shutil, "which", lambda _name: "wt.exe")
+    monkeypatch.setattr(_overseer.subprocess, "run", lambda command, **kwargs: calls.append((command, kwargs)) or SimpleNamespace(returncode=5))
+    assert _overseer.start_launch(repo, launch) == 5
+    words = calls.pop()[0][4:]
+    assert not any(character in words[-1] for character in (" ", '"', ";"))
+    # Hand-built, reason: Terminal rejoins words with spaces and wraps words containing spaces,
+    # without escaping embedded quotes. Disable shlex escapes to retain Windows path separators.
+    command_line = " ".join(f'"{word}"' if " " in word else word for word in words)
+    parser = shlex.shlex(command_line, posix=True)
+    parser.whitespace_split = True
+    parser.escape = ""
+    arguments = list(parser)
+    assert arguments == words
+    monkeypatch.setattr(sys, "argv", arguments[2:])
+    monkeypatch.delitem(sys.modules, _overseer.__name__)
+    with pytest.raises(SystemExit) as result:
+        runpy.run_module(_overseer.__name__, run_name="__main__")
+    assert result.value.code == 5
+    command, kwargs = calls.pop()
+    assert command == [launch.command, *launch.arguments]
+    assert kwargs["cwd"] == repo
+    assert kwargs["env"]["BOT_FOLDER"] == "bot folder"
 
 
 @pytest.mark.parametrize("fails", [False, True])
@@ -477,7 +512,8 @@ def test_bridge_stops_only_owned_process_and_preserves_other_pid(home: Path, mon
     assert pid_file.exists() == live
 
 
-def test_bridge_start_uses_direct_python_logs_and_repo(home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("platform", ["win32", "linux"])
+def test_bridge_start_uses_direct_python_logs_and_repo(home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch, platform: str) -> None:
     launch = _overseer.Launch(command="fixture", arguments=[], bridge=[sys.executable, "fake bridge"], bot_folder=str(home))
     calls = []
 
@@ -485,10 +521,16 @@ def test_bridge_start_uses_direct_python_logs_and_repo(home: Path, repo: Path, m
         calls.append((command, kwargs))
         return SimpleNamespace(pid=123)
 
+    monkeypatch.setattr(_overseer.sys, "platform", platform)
+    monkeypatch.setattr(_overseer.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
     monkeypatch.setattr(_overseer.subprocess, "Popen", start)
     assert _overseer.start_bridge(launch, repo) is not None
     assert calls[0][0] == launch.bridge
     assert calls[0][1]["cwd"] == repo
+    assert calls[0][1].get("creationflags", 0) == 0
+    assert calls[0][1]["stdin"] == subprocess.DEVNULL
+    assert calls[0][1]["stdout"].name == str(home / "bridge.log")
+    assert calls[0][1]["stderr"].name == str(home / "bridge.err")
     assert (home / "bridge.log").exists()
     assert (home / "bridge.err").exists()
 

@@ -1,6 +1,7 @@
 # Account choice, saved launches and interactive overseer sessions.
 # Hand-built, reason: Legion's launch/resume policy is application behavior; no library supplies it.
 
+import base64
 import fnmatch
 import os
 import shutil
@@ -189,9 +190,8 @@ def start_bridge(launch: Launch, repo: Path) -> Optional[subprocess.Popen[bytes]
         return None
     folder = Path(launch.bot_folder)
     with (folder / "bridge.log").open("ab") as output, (folder / "bridge.err").open("ab") as error:
-        return subprocess.Popen(
-            launch.bridge, cwd=repo, env=_environment(launch), stdin=subprocess.DEVNULL, stdout=output, stderr=error, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        )
+        # Inherit the tab's console so closing it also ends the bridge, even without parent cleanup.
+        return subprocess.Popen(launch.bridge, cwd=repo, env=_environment(launch), stdin=subprocess.DEVNULL, stdout=output, stderr=error)
 
 
 def stop_bridge(process: Optional[subprocess.Popen[bytes]], folder: Path) -> None:
@@ -209,8 +209,8 @@ def stop_bridge(process: Optional[subprocess.Popen[bytes]], folder: Path) -> Non
 
 
 def start_launch(repo: Path, launch: Launch, *, dry_run: bool = False, in_place: bool = False) -> int:
-    # Hand-built, reason: Windows Terminal treats semicolons as commands; a Python JSON payload keeps
-    # argv/environment literal without introducing a PowerShell transport. Semicolons use the current terminal.
+    # Hand-built, reason: Terminal rejoins arguments without escaping embedded quotes. URL-safe base64
+    # carries the JSON as one word; literal semicolons still use the current terminal.
     terminal = None
     if WINDOWS and not in_place and ";" not in str(repo) + launch.model_dump_json():
         terminal = shutil.which("wt")
@@ -225,7 +225,8 @@ def start_launch(repo: Path, launch: Launch, *, dry_run: bool = False, in_place:
             click.echo("wt")
         return 0
     if terminal:
-        return subprocess.run([terminal, "new-tab", "-d", str(repo), sys.executable, "-m", "legion._overseer", str(repo), launch.model_dump_json()], check=False).returncode
+        payload = base64.urlsafe_b64encode(launch.model_dump_json().encode("utf-8")).decode("ascii")
+        return subprocess.run([terminal, "new-tab", "-d", str(repo), sys.executable, "-m", "legion._overseer", str(repo), payload], check=False).returncode
     process = start_bridge(launch, repo)
     try:
         words = [launch.command, *launch.arguments]
@@ -323,4 +324,4 @@ def run(
 
 # The new terminal runs this already prepared launch; selection and saving happen only in its parent.
 if __name__ == "__main__":
-    raise SystemExit(start_launch(Path(sys.argv[1]), Launch.model_validate_json(sys.argv[2]), in_place=True))
+    raise SystemExit(start_launch(Path(sys.argv[1]), Launch.model_validate_json(base64.urlsafe_b64decode(sys.argv[2])), in_place=True))
