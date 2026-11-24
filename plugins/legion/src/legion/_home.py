@@ -30,7 +30,7 @@ def resolve_directory(path: Path) -> Path:
 
 
 def is_reparse(path: Path) -> bool:
-    # Other reparse types beyond symlinks and junctions must be refused, as PowerShell does.
+    # Hand-built, reason: other reparse types beyond symlinks and junctions must be refused, as PowerShell does.
     try:
         info = path.lstat()
     except FileNotFoundError:

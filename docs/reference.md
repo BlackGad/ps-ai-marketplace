@@ -217,7 +217,7 @@ The owner command also accepts these account, channel and repository verbs:
 | `legion account add --id <id> --tool <tool> [--provider foundry --endpoint <url> --deployment <name> --default <name>]` | Add or repair a subscription or Foundry account and its launcher |
 | `legion account register --id <id> --tool <tool> --command <path> --config-dir <dir>` | Register an existing account folder and its CLI program |
 | `legion account rename --id <id> --new-id <new>` | Rename an account id and its launcher; keep its folder |
-| `legion account models --id <id> [--deployment <name> --default <name>]` | Show or change a Foundry account's deployments |
+| `legion account models --id <id> [--deployment <name> --default <name>] [--alias <a>=<b>] [--standard] [--list]` | Show or change a Foundry account's deployments |
 | `legion account remove --id <id>` | Remove an account and its launcher; keep its folder |
 | `legion channel add --id <id> --kind telegram --target <chat> --account <account>` | Bind a Telegram destination to an account |
 | `legion channel check --kind telegram --account <account>` | Show channel prerequisites without launching a tool |
