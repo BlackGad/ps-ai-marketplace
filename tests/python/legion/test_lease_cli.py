@@ -48,8 +48,7 @@ def test_take_status_release_round_trip(tmp_path: Path, capsys: pytest.CaptureFi
     assert capsys.readouterr().out == "skip: lease take (already done)\n"
     assert run(["lease", "status", *repo]) == 0
     assert capsys.readouterr().out == "held\n"
-    # release keeps take's signature: tool and account are accepted and ignored.
-    assert run(["lease", "release", *repo, "--tool", "codex", "--account", "other", *owner]) == 0
+    assert run(["lease", "release", *repo, *owner]) == 0
     assert capsys.readouterr().out == "lease released\n"
     assert run(["lease", "release", *repo, *owner]) == 0
     assert capsys.readouterr().out == "skip: lease release (already done)\n"
@@ -86,6 +85,8 @@ def test_release_without_a_lock_skips_even_without_an_owner(tmp_path: Path, monk
         ["lease", "status", "--tool", "codex"],
         ["lease", "status", "--process-id", "1"],
         ["lease", "release", "--process-id", "abc"],
+        ["lease", "release", "--tool", "codex"],
+        ["lease", "release", "--account", "codex-a"],
     ],
 )
 def test_invalid_combinations_are_usage_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], arguments: list[str]) -> None:

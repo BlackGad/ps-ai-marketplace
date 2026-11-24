@@ -77,7 +77,7 @@ function Get-ChannelCheck {
         $state = $descriptor.state.$tool
         $folder = Get-LegionHomePath -HomeRoot $HomeRoot -Path "$($state.folder)/$($binding.id)"
         $ready = Test-Path -LiteralPath (Join-Path $folder $state.tokenFile) -PathType Leaf
-        "{0,-10} bot folder: {1}" -f $binding.id, $(if ($ready) { 'ready' } else { "missing token ($($state.setup))" })
+        Format-LegionBotFolderLine -Id $binding.id -Ready $ready -Setup $state.setup
     }
 }
 

@@ -33,6 +33,12 @@ function Test-LegionChannelLaunchesTool {
     return $Tool -cin $Descriptor.launch.PSObject.Properties.Name
 }
 
+# The bot folder line that legion-channel check prints and the overseer launch warns with.
+function Format-LegionBotFolderLine {
+    param([string]$Id, [bool]$Ready, [string]$Setup)
+    return "{0,-10} bot folder: {1}" -f $Id, $(if ($Ready) { 'ready' } else { "missing token ($Setup)" })
+}
+
 function Resolve-LegionChannel {
     param($Personalisation, [string]$Id, [string]$Tool, [string]$SkillsRoot = (Join-Path $PSScriptRoot '../../skills'), [string]$HomeRoot = $HOME)
     $channel = Get-LegionChannelBinding -Personalisation $Personalisation -Id $Id

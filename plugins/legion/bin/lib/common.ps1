@@ -1,7 +1,7 @@
 . (Join-Path $PSScriptRoot 'paths.ps1')
 . (Join-Path $PSScriptRoot 'tools.ps1')
 
-# Surviving PowerShell callers still use this twin; milestone 3 removes it.
+# legion-overseer.ps1 still reads the lease account through this twin of legion lease status; milestone 3 removes it.
 function Get-LegionLease {
     param([string]$Repo)
     $path = Get-LegionRepoPath -Repo $Repo -Path 'temp/overseer.lock'
@@ -34,20 +34,6 @@ function Get-LegionLease {
     }
 }
 
-# Surviving PowerShell callers still use this twin; milestone 3 removes it.
-function Get-LegionLeaseOwnerProcess {
-    # Prefer the agent CLI over its shell helpers. A terminal session can have
-    # only shell ancestors after its launcher exits; keep the oldest live one.
-    $process = (Get-Process -Id $PID).Parent
-    $sessionShell = $null
-    while ($process -and $process.ProcessName -in @('pwsh', 'powershell', 'cmd', 'sh', 'bash', 'zsh')) {
-        $sessionShell = $process
-        $process = $process.Parent
-    }
-    if (-not $process) { $process = $sessionShell }
-    if (-not $process) { throw 'cannot find the agent session process; pass -ProcessId explicitly' }
-    return $process
-}
 function Get-LegionWrapperCommand {
     param([string]$Id, [string]$HomeRoot = $HOME)
     if ($Id -cnotmatch '^[a-z][a-z0-9-]*$') { throw 'invalid account id' }

@@ -12,7 +12,14 @@ from typing import Any
 import pytest
 
 from legion import _hook, _lease, _update
-from legion._hook import FAILURE, MEMBER, MEMBER_WITHOUT_TASK, HookInput, mode_text, session_folder
+from legion._hook import (
+    FAILURE,
+    MEMBER,
+    MEMBER_WITHOUT_TASK,
+    HookInput,
+    mode_text,
+    session_folder,
+)
 
 HOOK = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "hooks" / "session_start.py"
 ORCHESTRATED = "legion: this repo is orchestrated. Say continue to act as the overseer."

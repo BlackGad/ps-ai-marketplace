@@ -12,7 +12,13 @@ from typing import Optional
 import pytest
 from cli_runner import run
 
-from legion import _forward, _lease, _process, _status, _validate
+from legion import (
+    _forward,
+    _lease,
+    _process,
+    _status,
+    _validate,
+)
 from legion._settings_models import ChannelDescriptor, PersonalisationSettings, ToolDescriptor
 
 REPO = Path(__file__).resolve().parents[3]
@@ -275,7 +281,7 @@ def test_repository_without_git_is_none(tmp_path: Path, monkeypatch: pytest.Monk
 
 @pytest.mark.parametrize("tool_id", ["claude", "codex", "copilot"])
 def test_installed_versions_use_descriptor_root_and_semantic_order(tmp_path: Path, tool_id: str) -> None:
-    tool = next(tool for tool in _status._load_descriptors(ToolDescriptor, "tool.json") if tool.id == tool_id)
+    tool = next(tool for tool in _status.load_descriptors(ToolDescriptor, "tool.json") if tool.id == tool_id)
     assert tool.plugin.installed_root is not None
     for index, (name, version) in enumerate([("legion", "0.6.0"), ("legion", "0.10.0-beta.2"), ("legion", "0.10.0-beta.10"), ("legion", "0.10.0"), ("other", "99.0.0"), ("legion", "bad")]):
         write(tmp_path / tool.plugin.installed_root / str(index) / "plugin.json", json.dumps({"name": name, "version": version}))
@@ -285,7 +291,7 @@ def test_installed_versions_use_descriptor_root_and_semantic_order(tmp_path: Pat
 
 @pytest.mark.parametrize("registration", ["directory", "disabled-value", "not-enabled", "remote", "broken", "missing-manifest"])
 def test_copilot_local_marketplace_takes_precedence(tmp_path: Path, registration: str) -> None:
-    tool = next(tool for tool in _status._load_descriptors(ToolDescriptor, "tool.json") if tool.id == "copilot")
+    tool = next(tool for tool in _status.load_descriptors(ToolDescriptor, "tool.json") if tool.id == "copilot")
     assert tool.plugin.installed_root is not None
     write(tmp_path / tool.plugin.installed_root / "cached/plugin.json", '{"name":"legion","version":"9.0.0"}')
     marketplace = tmp_path / "local marketplace"
@@ -311,7 +317,7 @@ def channel_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Pe
     owner = settings(home)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home / ".claude"))
     monkeypatch.setattr(_status, "_session", lambda: ("claude", "claude --resume"))
-    return owner, home, _status._load_descriptors(ToolDescriptor, "tool.json")
+    return owner, home, _status.load_descriptors(ToolDescriptor, "tool.json")
 
 
 # DetectMode.Tests.ps1 moved assertions 6, 19: binding warnings also work outside a managed repository.
@@ -364,7 +370,7 @@ def test_uncertain_or_connected_sessions_are_silent(channel_session: tuple[Perso
             monkeypatch.delenv(tool.config_env, raising=False)
     elif reason in ("no-launch", "bad-launch"):
         descriptor = ChannelDescriptor.model_validate({"schemaVersion": 1, "id": "telegram", "launch": {"claude": [] if reason == "no-launch" else ["some prose"]}})
-        monkeypatch.setattr(_status, "_load_descriptors", lambda *_args: [descriptor])
+        monkeypatch.setattr(_status, "load_descriptors", lambda *_args: [descriptor])
     else:
         owner.channels[0].id = "bad id\nprose"
     assert _status.channel_warnings(owner, home, tools) == []

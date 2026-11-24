@@ -8,16 +8,18 @@ import signal
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
+
+from pydantic import BaseModel, ConfigDict
 
 # After a timeout kill, how long to wait for the pipes to close; a process that left the tree can hold them.
 DRAIN_SECONDS = 5
 
 
-@dataclass(frozen=True)
-class RunResult:
+class RunResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     exit_code: int
     output: str
     error: str
@@ -66,7 +68,7 @@ def run_command(command: str, arguments: Sequence[str], timeout: Optional[float]
     finally:
         if job:
             _close_job(job)
-    return RunResult(-1 if timed_out else process.returncode, _text(output), _text(error), timed_out)
+    return RunResult(exit_code=-1 if timed_out else process.returncode, output=_text(output), error=_text(error), timed_out=timed_out)
 
 
 # cmd.exe reads the whole line: quotes keep & | < > ^ literal, /v:off keeps !, and %cd:~,% (an empty

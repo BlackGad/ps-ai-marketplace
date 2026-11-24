@@ -17,16 +17,17 @@ from cli_runner import run
 from conftest import REPO, Fence
 
 from legion import _forward
+from legion._home import home_path
 from legion._process import process_started_at
 from legion._run import RunResult
 from legion._settings_models import Agent
 from legion.limits import (
     LimitRow,
     account_rows,
-    home_path,
 )
 from legion.limits import (
     _ping,
+    claude,
     codex,
 )
 from legion.limits._ping import (
@@ -115,8 +116,8 @@ def test_claude_reads_every_unified_window(bench: Bench) -> None:
     write_executable(bench.path, "claude", {"LEGION_FAKE_CLAUDE_EXIT": "99"})
     bench.fake(STDOUT=str(FIXTURES / "claude-stream.jsonl"))
     assert bench.rows("claude-a", "claude") == [
-        LimitRow("five_hour", "69%", reset_time(1795350000), "allowed"),
-        LimitRow("seven_day", "55%", reset_time(1795654800), "allowed"),
+        LimitRow(window="five_hour", used="69%", resets=reset_time(1795350000), status="allowed"),
+        LimitRow(window="seven_day", used="55%", resets=reset_time(1795654800), status="allowed"),
     ]
     [call] = bench.calls("claude")
     assert call["arguments"] == ["-p", "--output-format", "stream-json", "--verbose", "ping"]
@@ -136,7 +137,7 @@ def test_claude_event_without_windows_names_its_type(bench: Bench, tmp_path: Pat
     event = {"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "resetsAt": 1795350000, "rateLimitType": "five_hour"}}
     stream.write_text("not json\n" + json.dumps(event) + "\n", encoding="utf-8")
     bench.fake(STDOUT=str(stream), EXIT="1")
-    assert bench.rows("claude-a", "claude") == [LimitRow("five_hour", "unknown", reset_time(1795350000), "rejected")]
+    assert bench.rows("claude-a", "claude") == [LimitRow(window="five_hour", used="unknown", resets=reset_time(1795350000), status="rejected")]
 
 
 def test_claude_failures_tell_the_quota_from_other_errors(bench: Bench, tmp_path: Path) -> None:
@@ -153,8 +154,8 @@ def test_claude_failures_tell_the_quota_from_other_errors(bench: Bench, tmp_path
 def test_codex_reads_only_its_own_session(bench: Bench) -> None:
     bench.fake(SESSION=str(FIXTURES / "codex-session.jsonl"), CONCURRENT="1")
     assert bench.rows("codex-a", "codex") == [
-        LimitRow("5h", "12%", reset_time(1795350000), "unknown"),
-        LimitRow("7d", "40%", reset_time(1795654800), "unknown"),
+        LimitRow(window="5h", used="12%", resets=reset_time(1795350000), status="unknown"),
+        LimitRow(window="7d", used="40%", resets=reset_time(1795654800), status="unknown"),
     ]
     [call] = bench.calls("codex")
     assert call["arguments"] == ["exec", "ping"]
@@ -223,7 +224,7 @@ def test_codex_never_reuses_another_sessions_windows(tmp_path: Path, exit_code: 
     (sessions / "old.jsonl").write_text((FIXTURES / "codex-session.jsonl").read_text(encoding="utf-8"), encoding="utf-8")
     probe = tmp_path / "probe"
     probe.mkdir()
-    ping = Ping(exit_code, "", "probe failed", timed_out, probe.resolve())
+    ping = Ping(exit_code=exit_code, output="", error="probe failed", timed_out=timed_out, folder=probe.resolve())
     assert codex.rows(ping, tmp_path / "codex") == [LimitRow(status=expected)]
 
 
@@ -237,12 +238,12 @@ def test_codex_matches_a_session_named_through_a_link(fence: Fence) -> None:
     metadata = json.dumps({"type": "session_meta", "payload": {"cwd": str(probe)}})
     (sessions / "probe.jsonl").write_text("\n".join([metadata, *records]) + "\n", encoding="utf-8")
     assert probe.resolve() != probe
-    rows = codex.rows(Ping(0, "", "", False, probe.resolve()), fence.temp / "codex")
+    rows = codex.rows(Ping(exit_code=0, output="", error="", timed_out=False, folder=probe.resolve()), fence.temp / "codex")
     assert [(row.window, row.used) for row in rows] == [("5h", "12%"), ("7d", "40%")]
 
 
 @pytest.mark.parametrize(("minutes", "expected"), [(300, "5h"), (10080, "7d"), (90, "90m"), (None, "primary")])
-def test_codex_window_name_from_its_length(minutes: int | None, expected: str) -> None:
+def test_codex_window_name_from_its_length(minutes: Optional[int], expected: str) -> None:
     assert codex.window_name(minutes, "primary") == expected
 
 
@@ -354,7 +355,7 @@ def test_codex_skips_unreadable_session_lines(tmp_path: Path) -> None:
     metadata = json.dumps({"type": "session_meta", "payload": {"cwd": str(probe)}})
     records = (FIXTURES / "codex-session.jsonl").read_text(encoding="utf-8").splitlines()[1:]
     (sessions / "c-probe.jsonl").write_text("\n".join([metadata, *records, '{"rate_limits": broken', '["rate_limits"]']) + "\n", encoding="utf-8")
-    rows = codex.rows(Ping(0, "", "", False, probe.resolve()), tmp_path / "codex")
+    rows = codex.rows(Ping(exit_code=0, output="", error="", timed_out=False, folder=probe.resolve()), tmp_path / "codex")
     assert [(row.window, row.used) for row in rows] == [("5h", "12%"), ("7d", "40%")]
 
 
@@ -461,3 +462,31 @@ def test_limits_is_served_by_python(capsys: pytest.CaptureFixture[str]) -> None:
     assert "limits" not in _forward.FORWARDED_VERBS
     assert run(["limits", "--help"]) == 0
     assert "Show each account's usage windows and reset times" in capsys.readouterr().out
+
+
+# A line whose shape does not match is skipped like unreadable JSON; the last readable event still counts.
+def test_claude_skips_an_event_of_the_wrong_shape(tmp_path: Path) -> None:
+    good = (FIXTURES / "claude-stream.jsonl").read_text(encoding="utf-8")
+    wrong = json.dumps({"type": "rate_limit_event", "rate_limit_info": {"unifiedWindows": {"five_hour": {"utilization": "high", "resetsAt": "tomorrow"}}}})
+    rows = claude.rows(Ping(exit_code=0, output=good + wrong + "\n", error="", timed_out=False, folder=tmp_path))
+    assert [(row.window, row.used) for row in rows] == [("five_hour", "69%"), ("seven_day", "55%")]
+    assert claude.rows(Ping(exit_code=0, output=wrong + "\n", error="", timed_out=False, folder=tmp_path)) == [LimitRow(status="no limit readout")]
+
+
+def test_codex_skips_limits_of_the_wrong_shape(tmp_path: Path) -> None:
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    sessions = tmp_path / "codex" / "sessions"
+    sessions.mkdir(parents=True)
+    metadata = json.dumps({"type": "session_meta", "payload": {"cwd": str(probe)}})
+    wrong = json.dumps({"payload": {"rate_limits": {"primary": {"used_percent": "lots", "resets_at": "soon"}}}})
+    (sessions / "probe.jsonl").write_text(metadata + "\n" + wrong + "\n", encoding="utf-8")
+    assert codex.rows(Ping(exit_code=0, output="", error="", timed_out=False, folder=probe.resolve()), tmp_path / "codex") == [LimitRow(status="no limit readout")]
+
+
+@pytest.mark.parametrize("answer", ['{"accessToken": 42}', '{"accessToken": ""}', "[]"])
+def test_foundry_token_of_the_wrong_shape_is_not_ok(bench: Bench, tmp_path: Path, answer: str) -> None:
+    file = tmp_path / "answer.json"
+    file.write_text(answer, encoding="utf-8")
+    bench.fake(AZ_STDOUT=str(file))
+    assert bench.rows("foundry-a", "claude", provider=FOUNDRY)[0].status == "az returned no access token"

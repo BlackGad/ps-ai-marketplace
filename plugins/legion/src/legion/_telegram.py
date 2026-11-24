@@ -119,7 +119,7 @@ def _multipart(fields: dict[str, str], files: list[tuple[str, Path]]) -> tuple[b
     return body + f"--{boundary}--\r\n".encode(), f"multipart/form-data; boundary={boundary}"
 
 
-def _post(token: str, method: str, fields: dict[str, str], files: list[tuple[str, Path]]) -> JsonValue:
+def call_bot(token: str, method: str, fields: dict[str, str], files: list[tuple[str, Path]]) -> JsonValue:
     if files:
         body, content_type = _multipart(fields, files)
     else:
@@ -174,7 +174,7 @@ def _run(action: Callable[[], None]) -> int:
 
 def send(channel: str, chat: str, text: str, text_format: str, reply_to: Optional[int], files: list[Path], *, post: Optional[Post] = None, home: Optional[Path] = None) -> int:
     def action() -> None:
-        call = post or _post
+        call = post or call_bot
         token = read_token(channel, home)
         reply = {"reply_parameters": ReplyParameters(message_id=reply_to).model_dump_json()} if reply_to else {}
         for part in _split(text) if text else []:
@@ -198,6 +198,6 @@ def send(channel: str, chat: str, text: str, text_format: str, reply_to: Optiona
 def react(channel: str, chat: str, message: str, emoji: str, *, post: Optional[Post] = None, home: Optional[Path] = None) -> int:
     def action() -> None:
         fields = {"chat_id": chat, "message_id": message, "reaction": _REACTIONS.dump_json([EmojiReaction(emoji=emoji)]).decode()}
-        (post or _post)(read_token(channel, home), "setMessageReaction", fields, [])
+        (post or call_bot)(read_token(channel, home), "setMessageReaction", fields, [])
 
     return _run(action)

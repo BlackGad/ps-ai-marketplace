@@ -24,7 +24,7 @@ def _framed(message: str) -> str:
 
 
 # A settings file may be saved as UTF-8 or, with a byte-order mark, as UTF-16.
-def _read_text(path: Path) -> str:
+def read_text(path: Path) -> str:
     data = path.read_bytes()
     encoding = "utf-16" if data[:2] in (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE) else "utf-8-sig"
     return data.decode(encoding)
@@ -45,7 +45,7 @@ def _describe(problem: ErrorDetails) -> str:
     return f"{where}: {problem['msg']}" if where else problem["msg"]
 
 
-def _load_descriptors[Descriptor: BaseModel](model: type[Descriptor], file_name: str) -> list[Descriptor]:
+def load_descriptors[Descriptor: BaseModel](model: type[Descriptor], file_name: str) -> list[Descriptor]:
     paths = sorted((PLUGIN_ROOT / "skills").glob(f"legion-*/{file_name}"))
     return [model.model_validate_json(path.read_text(encoding="utf-8")) for path in paths]
 
@@ -118,7 +118,7 @@ def _provider_issues(settings: PersonalisationSettings, tools: list[ToolDescript
 # Shape problems stop the reference and provider checks, which need a well-formed file.
 def validate(kind: str, path: Path) -> list[str]:
     try:
-        text = _read_text(path)
+        text = read_text(path)
         # This parse only rejects broken JSON and duplicate keys; the model reads the text itself.
         json.loads(text, object_pairs_hook=_unique_keys)
         model = PersonalisationSettings if kind == "personalisation" else ProjectSettings
@@ -128,7 +128,7 @@ def validate(kind: str, path: Path) -> list[str]:
             return [_framed(_describe(problem)) for problem in error.errors()]
         if not isinstance(settings, PersonalisationSettings):
             return []
-        tools = _load_descriptors(ToolDescriptor, "tool.json")
-        return _reference_issues(settings, tools, _load_descriptors(ChannelDescriptor, "channel.json")) + _provider_issues(settings, tools)
+        tools = load_descriptors(ToolDescriptor, "tool.json")
+        return _reference_issues(settings, tools, load_descriptors(ChannelDescriptor, "channel.json")) + _provider_issues(settings, tools)
     except Exception as error:
         return [_framed(str(error))]

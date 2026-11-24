@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional, TextIO
 
 from . import _lease, _update
+from ._plugin import PLUGIN_ROOT
 
 MEMBER = (
     "legion: you are a legion member. Load the legion-member skill to read your task from LEGION_TASK and follow it. "
@@ -22,7 +23,6 @@ LEASE_NOTES = {
     "foreign": " An overseer lease from another host exists; ask the owner before taking over.",
 }
 FAILURE = "legion: mode detection failed; continuing without mode context."
-PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 
 
 @dataclass(frozen=True)

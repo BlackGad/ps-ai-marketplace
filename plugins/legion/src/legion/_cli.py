@@ -70,6 +70,7 @@ def validate(context: click.Context, kind: str, path: Path) -> None:
 @main.command("update", help="Check for updates, or update legion to the newest version of its track")
 @click.option("--check", is_flag=True, help="Check for updates without installing.")
 @click.option("--force", is_flag=True, help="Check again even if today's result is cached; requires --check.")
+# -Yes stays while bin/legion.ps1 still accepts it for the forwarded verbs.
 @click.option("--yes", "-Yes", is_flag=True, help="Confirm the update without prompting.")
 @click.pass_context
 def update(context: click.Context, check: bool, force: bool, yes: bool) -> None:
@@ -223,14 +224,11 @@ def lease_status(repo: Optional[Path]) -> None:
 
 @lease.command("release", help="Release the lease if this session holds it")
 @_repo_option
-@click.option("--tool", help="accepted and ignored, so release takes the same options as take")
-@click.option("--account", help="accepted and ignored, so release takes the same options as take")
 @_process_option
 @click.pass_context
-def lease_release(context: click.Context, repo: Optional[Path], tool: Optional[str], account: Optional[str], process_id: Optional[int]) -> None:
+def lease_release(context: click.Context, repo: Optional[Path], process_id: Optional[int]) -> None:
     from . import _lease
 
-    del tool, account
     _report_lease(context, lambda: _lease.release(repo or Path.cwd(), process_id))
 
 
