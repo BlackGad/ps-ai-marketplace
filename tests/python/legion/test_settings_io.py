@@ -178,21 +178,22 @@ def test_save_preserves_non_windows_permission_error(tmp_path: Path, monkeypatch
         _settings_io.save(tmp_path, model())
 
 
-def test_save_reports_replace_and_cleanup_failures_together(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_save_reports_replace_and_cleanup_failures_together(tmp_path: Path) -> None:
     write_settings(tmp_path, {"schemaVersion": 1, "agents": [], "channels": []})
 
     def held(_source: object, _target: object) -> None:
         error = OSError("replacement denied")
-        monkeypatch.setattr(error, "winerror", 32, raising=False)
+        patch.setattr(error, "winerror", 32, raising=False)
         raise error
 
     def cleanup_denied(_path: Path, **_kwargs: object) -> None:
         raise PermissionError("cleanup denied")
 
-    monkeypatch.setattr(_settings_io.Path, "unlink", cleanup_denied)
-    monkeypatch.setattr(_settings_io.Path, "replace", held)
-    with pytest.raises(SettingsError) as failure:
-        _settings_io.save(tmp_path, model())
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(_settings_io.Path, "unlink", cleanup_denied)
+        patch.setattr(_settings_io.Path, "replace", held)
+        with pytest.raises(SettingsError) as failure:
+            _settings_io.save(tmp_path, model())
     assert "in use by another program" in str(failure.value)
     assert "cleanup denied" in str(failure.value)
     assert "\n" not in str(failure.value)
