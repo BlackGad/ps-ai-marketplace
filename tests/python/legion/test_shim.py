@@ -17,6 +17,8 @@ MISSING = "uv is missing. Ask the owner before installing it, then run the legio
 WINDOWS = sys.platform == "win32"
 CSC = Path(os.environ.get("SYSTEMROOT", "C:\\Windows")) / "Microsoft.NET" / "Framework64" / "v4.0.30319" / "csc.exe"
 UNICODE = "Привіт"
+COMSPEC = os.environ.get("COMSPEC", "")
+TASKKILL = Path(os.environ.get("SYSTEMROOT", "C:\\Windows")) / "System32" / "taskkill.exe"
 
 # A real executable: a batch fake would never return to the command's (goto) tail. It writes its output first,
 # then blocks reading one line of stdin, so a test can see the output arrive while uv still runs.
@@ -60,13 +62,12 @@ def fake_uv_folder(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return folder
 
 
-def child_environment(folder: Path, log: Path, code: int, delete: Path | None = None) -> dict[str, str]:
-    path = f"{folder}{os.pathsep}{os.environ['SYSTEMROOT']}\\System32" if WINDOWS else f"{folder}{os.pathsep}/usr/bin:/bin"
-    environment = {"PATH": path, "FAKE_UV_LOG": str(log), "FAKE_UV_EXIT": str(code), "FAKE_UV_DELETE": str(delete or ""), "UV_PROJECT_ENVIRONMENT": "caller value"}
-    if WINDOWS:
-        environment["SystemRoot"] = os.environ["SYSTEMROOT"]
-        environment["COMSPEC"] = os.environ["COMSPEC"]
-    return environment
+def child_environment(folder: Path, log: Path, code: int, delete: Path | None = None, tools: tuple[Path, ...] = ()) -> dict[str, str]:
+    # The fenced environment stays (home, temp, proxies); only PATH is an allowlist: the fake uv, the folders of
+    # the tools a test names and, on Windows, System32 for cmd. The host PATH never reaches a child.
+    system = [str(Path(os.environ["SYSTEMROOT"]) / "System32")] if WINDOWS else []
+    path = os.pathsep.join([str(folder), *map(str, tools), *system])
+    return {**os.environ, "PATH": path, "FAKE_UV_LOG": str(log), "FAKE_UV_EXIT": str(code), "FAKE_UV_DELETE": str(delete or ""), "UV_PROJECT_ENVIRONMENT": "caller value"}
 
 
 def home_with_shim(root: Path, name: str, windows: bool) -> tuple[Path, Path, Path]:
@@ -82,8 +83,8 @@ def home_with_shim(root: Path, name: str, windows: bool) -> tuple[Path, Path, Pa
 
 
 def cmd(line: str, environment: dict[str, str], text: str = "") -> subprocess.CompletedProcess[bytes]:
-    # cmd /s /c takes the line exactly as written, so the test controls every quote.
-    return subprocess.run(f'cmd.exe /d /s /c "{line}"', input=(text + "\r\n").encode("utf-8"), capture_output=True, env=environment, check=False)
+    # cmd /s /c takes the line exactly as written, so the test controls every quote; the shell is named, not searched.
+    return subprocess.run(f'"{COMSPEC}" /d /s /c "{line}"', input=(text + "\r\n").encode("utf-8"), capture_output=True, env=environment, check=False)
 
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
@@ -98,9 +99,22 @@ def test_a_batch_command_deleted_while_it_runs_exits_with_uvs_status(tmp_path: P
     assert b"cannot find" not in result.stdout + result.stderr
     assert result.stdout == b"live output\r\n"
     expected = [
-        "arg:run", "arg:--project", f"arg:{bin_folder}\\..\\app\\1.2.3", "arg:--frozen", "arg:--quiet", "arg:legion", "arg:--home", f"arg:{bin_folder}\\..\\..",
-        "arg:status", "arg:two words", "arg:", "arg:100%", f"arg:{UNICODE}", f"env:{bin_folder}\\..\\python\\{_app.python_environment(app, home).name}", "stdin:typed input",
-    ]  # fmt: skip
+        "arg:run",
+        "arg:--project",
+        f"arg:{bin_folder}\\..\\app\\1.2.3",
+        "arg:--frozen",
+        "arg:--quiet",
+        "arg:legion",
+        "arg:--home",
+        f"arg:{bin_folder}\\..\\..",
+        "arg:status",
+        "arg:two words",
+        "arg:",
+        "arg:100%",
+        f"arg:{UNICODE}",
+        f"env:{bin_folder}\\..\\python\\{_app.python_environment(app, home).name}",
+        "stdin:typed input",
+    ]
     assert log.read_text(encoding="utf-8").splitlines() == expected
 
 
@@ -123,18 +137,28 @@ def test_powershell_sees_uvs_exact_code_also_after_the_command_is_deleted(tmp_pa
         "    $output = @('' | & $shim status 2>&1)\n    \"$code $LASTEXITCODE $($output -join '|')\"\n}\n",
         encoding="utf-8",
     )
-    environment = os.environ | child_environment(fake_uv_folder, tmp_path / "uv.log", 0) | {"PATH": f"{fake_uv_folder}{os.pathsep}{os.environ['PATH']}"}
+    environment = child_environment(fake_uv_folder, tmp_path / "uv.log", 0, tools=(pwsh_path.parent,))
     result = subprocess.run([str(pwsh_path), "-NoProfile", "-File", str(script), str(template), str(shim)], capture_output=True, text=True, env=environment, check=True)
     assert result.stdout.splitlines() == ["0 0 live output", "3 3 live output", "300 300 live output", "-1 -1 live output"]
+
+
+def kill_tree(process: subprocess.Popen[bytes]) -> None:
+    # cmd.exe starts uv as a child: ending cmd alone leaves uv holding the pipes, so the whole tree goes, then is reaped.
+    subprocess.run([str(TASKKILL), "/PID", str(process.pid), "/T", "/F"], capture_output=True, check=False)
+    process.kill()
+    process.wait()
+
+
+def start_batch_command(shim: Path, environment: dict[str, str]) -> subprocess.Popen[bytes]:
+    return subprocess.Popen(f'"{COMSPEC}" /d /s /c ""{shim}" status"', stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=environment)
 
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
 def test_uv_output_arrives_while_uv_still_runs(tmp_path: Path, fake_uv_folder: Path) -> None:
     _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
-    environment = child_environment(fake_uv_folder, tmp_path / "uv.log", 0)
-    process = subprocess.Popen(f'cmd.exe /d /s /c ""{shim}" status"', stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=environment)
-    # A hung child is ended after a minute; a passing test never waits for this.
-    watchdog = threading.Timer(60, process.kill)
+    process = start_batch_command(shim, child_environment(fake_uv_folder, tmp_path / "uv.log", 0))
+    # A hung tree is ended after a minute, which closes the pipe and ends the blocked read; a passing test never waits for this.
+    watchdog = threading.Timer(60, kill_tree, args=(process,))
     watchdog.start()
     try:
         assert process.stdout is not None
@@ -144,7 +168,19 @@ def test_uv_output_arrives_while_uv_still_runs(tmp_path: Path, fake_uv_folder: P
         assert process.returncode == 0
     finally:
         watchdog.cancel()
-        process.kill()
+        kill_tree(process)
+
+
+@pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
+def test_ending_a_stuck_command_ends_the_fake_uv_and_closes_its_output(tmp_path: Path, fake_uv_folder: Path) -> None:
+    _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
+    process = start_batch_command(shim, child_environment(fake_uv_folder, tmp_path / "uv.log", 0))
+    assert process.stdout is not None
+    assert process.stdout.readline().strip() == b"live output"
+    kill_tree(process)
+    # The read ends only when no process of the tree still holds the pipe; a stuck uv would block here.
+    assert process.stdout.read() == b""
+    process.stdout.close()
 
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
@@ -167,11 +203,9 @@ def test_without_uv_the_batch_command_prints_one_line_and_exits_127(tmp_path: Pa
 
 
 def git_bash() -> Path | None:
-    git = shutil.which("git")
-    if not git:
-        return None
-    candidates = [Path(git).parent / ".." / "bin" / "bash.exe", Path(git).parent / ".." / ".." / "bin" / "bash.exe"]
-    return next((path.resolve() for path in candidates if path.is_file()), None)
+    # Named from the install folders, not searched on PATH, so a lookup regression cannot reach a tool by accident.
+    roots = [os.environ.get(name) for name in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)")]
+    return next((path for path in (Path(root) / "Git" / "bin" / "bash.exe" for root in roots if root) if path.is_file()), None)
 
 
 @pytest.mark.parametrize("code", [0, 3])
@@ -199,6 +233,6 @@ def test_the_shell_command_runs_uv_and_passes_the_status_on(tmp_path: Path, fake
 @pytest.mark.skipif(WINDOWS, reason="the shell command's uv lookup is proven by Git Bash on Windows through the same text")
 def test_without_uv_the_shell_command_prints_one_line_and_exits_127(tmp_path: Path) -> None:
     _, _, shim = home_with_shim(tmp_path, "legion", False)
-    result = subprocess.run(["/usr/bin/env", "PATH=/nonexistent", "/bin/sh", str(shim), "status"], capture_output=True, text=True, check=False)
+    result = subprocess.run(["/bin/sh", str(shim), "status"], capture_output=True, text=True, env={**os.environ, "PATH": "/nonexistent"}, check=False)
     assert result.returncode == 127
     assert result.stderr.strip() == MISSING

@@ -539,6 +539,7 @@ Invoke-InstallTestCase 'RefreshForwarder' {
     & {
         # An installer 0.15 or older calls legion-refresh.ps1 by path with -HomeRoot; it must reach `legion refresh`.
         $sandbox = New-InstallTestFolder 'install-refresh-forwarder'
+        $savedPath = $env:PATH
         try {
             $fake = Join-Path $sandbox 'fake-uv.ps1'
             @'
@@ -552,13 +553,26 @@ exit ([int]$env:FAKE_UV_EXIT)
             $env:PATH = (Join-Path $sandbox 'bin') + [IO.Path]::PathSeparator + $env:PATH
             foreach ($code in @(0, 3)) {
                 $env:FAKE_UV_EXIT = "$code"
-                $output = @(& (Get-InstallTestPwsh) -NoProfile -File $forwarder -HomeRoot $selectedHome 2>&1 | ForEach-Object { "$_" })
+                # Each stream is read on its own: a merged read would pass if the diagnostic went to stdout.
+                $errorFile = Join-Path $sandbox "stderr-$code.txt"
+                $output = @(& (Get-InstallTestPwsh) -NoProfile -File $forwarder -HomeRoot $selectedHome 2>$errorFile | ForEach-Object { "$_" })
                 Assert-Equal $code $LASTEXITCODE "The forwarder passes legion refresh exit code $code on"
+                Assert-Equal 1 $output.Count 'The forwarder prints only the refresh output on stdout'
                 $arguments = @($output[0] | ConvertFrom-Json)
                 Assert-Equal "--frozen|legion|--home|$selectedHome|refresh" (($arguments | Select-Object -Skip 3) -join '|') 'The forwarder runs legion refresh for the given home'
-                Assert-True ($output -contains 'fixture stderr') 'The forwarder passes the error output on'
+                Assert-Equal 'fixture stderr' ((Get-Content -LiteralPath $errorFile -Raw).Trim()) 'The forwarder passes the error output on stderr'
             }
+            # Without uv the forwarder exits 0 with one warning line on stdout and nothing on stderr.
+            $pwsh = Get-InstallTestPwsh
+            $emptyBin = New-Item -ItemType Directory -Path (Join-Path $sandbox 'empty-bin')
+            $env:PATH = $emptyBin.FullName
+            $errorFile = Join-Path $sandbox 'stderr-missing.txt'
+            $output = @(& $pwsh -NoProfile -File $forwarder -HomeRoot $selectedHome 2>$errorFile | ForEach-Object { "$_" })
+            Assert-Equal 0 $LASTEXITCODE 'The forwarder without uv exits 0'
+            Assert-Equal 'uv is missing. Ask the owner before installing it.' ($output -join "`n") 'The forwarder without uv prints one warning line on stdout'
+            Assert-Equal '' ((Get-Content -LiteralPath $errorFile -Raw) ?? '') 'The forwarder without uv prints nothing on stderr'
         } finally {
+            $env:PATH = $savedPath
             Remove-Item Env:FAKE_UV_EXIT -ErrorAction SilentlyContinue
             Remove-InstallTestFolder $sandbox
         }

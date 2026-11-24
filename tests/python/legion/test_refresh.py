@@ -151,14 +151,20 @@ def test_refresh_twice_leaves_the_home_tree_unchanged(tmp_path: Path) -> None:
     assert snapshot(home) == after_first
 
 
-def test_a_busy_sync_lock_skips_the_app_but_still_writes_launchers_for_the_ready_version(tmp_path: Path, uv: FakeUv) -> None:
-    ready_app(tmp_path)
+def test_a_busy_sync_lock_skips_the_app_and_leaves_the_launchers_as_they_are(tmp_path: Path, uv: FakeUv) -> None:
+    ready_app(tmp_path, "1.0.0")
     foundry_settings(tmp_path, ["claude-a"])
+    run(tmp_path)
+    launcher = tmp_path / ".legion" / "bin" / "claude-a"
+    before = launcher.read_text(encoding="utf-8")
+    uv.calls.clear()
+    ready_app(tmp_path, "2.0.0")
     with FileLock(str(tmp_path / ".legion" / "app" / ".sync.lock")):
         lines = run(tmp_path, lock_timeout=0)
     assert "skip: legion app sync (another sync is still running; run legion setup again)" in lines
+    assert not any(line.startswith("wrote:") for line in lines)
     assert uv.calls == []
-    assert (tmp_path / ".legion" / "bin" / "claude-a").is_file()
+    assert launcher.read_text(encoding="utf-8") == before
 
 
 def test_a_failed_sync_leaves_the_commands_and_launchers_as_they_are(tmp_path: Path, uv: FakeUv) -> None:

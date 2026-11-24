@@ -190,6 +190,14 @@ function Get-SetupPlan {
     $tools = [ordered]@{}
     foreach ($tool in Get-LegionTools) { $tools[$tool.id] = $tool }
     $accounts = @(Get-SetupAccounts -Add $Add -Id $Id -Data $data -Tools $tools -HomeRoot $HomeRoot)
+    # Without uv no Python call can run: an account that needs one waits, and the owner is told as its next step.
+    $uvMissing = -not (Get-LegionUv)
+    if ($uvMissing) {
+        foreach ($row in @($accounts | Where-Object { $_.Usable -and ($_.Requested -or $_.MissingWrappers) })) {
+            $row.Usable = $false
+            $row.NextStep = 'uv is missing'
+        }
+    }
     $usable = @($accounts | Where-Object Usable)
     $needsStockCommand = @($usable | Where-Object { -not $_.Command })
     $missing = @()
@@ -200,7 +208,7 @@ function Get-SetupPlan {
     $path = if ($IsWindows) { Get-LegionUserPath } else { $env:PATH }
     $version = (Read-LegionJson (Join-Path $script:SetupPluginRoot 'plugin.json')).version
     return @{
-        HomeRoot = $HomeRoot; Settings = $settings; Data = $data; Accounts = $accounts; MissingTools = $missing
+        HomeRoot = $HomeRoot; Settings = $settings; Data = $data; Accounts = $accounts; UvMissing = $uvMissing; MissingTools = $missing
         Notes = (Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Notes); Bin = $bin
         Commands = @(Get-LegionCommandState -Bin $bin -HomeRoot $HomeRoot)
         NeedsPath = $(if ($IsWindows) { -not (Test-LegionPathEntry -Path $path -Folder $bin) } else { -not (Get-LegionShellProfile -HomeRoot $HomeRoot).HasPath })
@@ -235,6 +243,7 @@ function Write-SetupPlan {
     }
     $repairs = @($Plan.Accounts | Where-Object { -not $_.New -and $_.MissingWrappers -and $_.Usable } | Select-Object -ExpandProperty Id)
     if ($repairs.Count) { $lines.Add("  wrappers repair $($repairs -join ', ')") }
+    if ($Plan.UvMissing) { $lines.Add('  uv       missing; ask the owner before installing it') }
     foreach ($row in $Plan.Accounts) { if ($row.NextStep.StartsWith('target needed:')) { $lines.Add("  wrappers $($row.NextStep)") } }
     $folders = @($Plan.Accounts | Where-Object { $_.Usable -and -not $_.Version } | Select-Object -ExpandProperty Folder -Unique)
     if ($folders.Count) { $lines.Add("  install  legion into $($folders -join ', ')") }
@@ -334,6 +343,7 @@ function Add-SetupAllowRules {
 
 function Write-SetupCommands {
     param($Plan)
+    if ($Plan.UvMissing) { 'uv is missing. Ask the owner before installing it.'; return }
     foreach ($row in @($Plan.Accounts | Where-Object Version)) {
         $owner = Get-LegionTargetOwner -Tool $row.Tool -Folder $row.Folder -HomeRoot $Plan.HomeRoot
         foreach ($file in $Plan.Commands) {

@@ -101,6 +101,10 @@ def app_lock(home: Path, timeout: float = 60) -> Iterator[bool]:
 # older ones. Returns the lines to print and the ready version the commands should run, or None.
 def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> tuple[list[str], Optional[Path]]:
     version = json.loads((source / "plugin.json").read_text(encoding="utf-8-sig"))["version"]
+    try:
+        compare_versions(version, version)
+    except ValueError as error:
+        raise AppError(f"The plugin version '{version}' is not a version") from error
     app = full_path(home / ".legion" / "app")
     target = app / version
     environment = python_environment(target, home)
@@ -120,9 +124,13 @@ def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> tuple[list[str], Optiona
     if not target.exists():
         staging = app / f".staging-{os.urandom(16).hex()}"
         app.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(source, staging, symlinks=True)
+        # The source may itself be a published app: its ready marker says nothing about this home's environment.
+        shutil.copytree(source, staging, symlinks=True, ignore=shutil.ignore_patterns(MARKER))
         add(home, "app-version", target, "legion")
         staging.rename(target)
+    # An unfinished version may hold a link; uv reads the project, so the tree is checked before it runs.
+    if not version_safe(target, home):
+        return [f"skip: {target} (linked)"], ready_path
     result = run_command(uv, ["sync", "--project", str(target), "--frozen", "--quiet"], env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(environment)})
     if result.exit_code != 0:
         lines = [result.error.strip()] if result.error.strip() else []
@@ -185,20 +193,20 @@ def write_owner_commands(app: Path, home: Path) -> list[Path]:
     return changed
 
 
-# One safe recorded version: its folder with the marker last, then its environment, so an app never stays
-# without its environment. Hand-built, reason: shutil.rmtree on the whole folder deletes in no set order, and
-# a failed delete must leave the marker so the version is still known as legion's. A delete that fails, such
-# as on a Windows lock, keeps the rest for a later run: False.
+# One safe recorded version: its environment first, then its folder with the marker last. A running legion
+# holds files in its environment (a Windows lock), so a version in use fails there, before its source goes.
+# Hand-built, reason: shutil.rmtree on the whole folder deletes in no set order, and a failed delete must leave
+# the marker so the version is still known as legion's. A delete that fails keeps the rest for a later run: False.
 def _remove_version(path: Path, home: Path) -> bool:
     environment = python_environment(path, home)
     try:
+        if environment.exists():
+            shutil.rmtree(environment)
         if path.exists():
             for child in path.iterdir():
                 if child.name != MARKER:
                     shutil.rmtree(child) if child.is_dir() else child.unlink()
             shutil.rmtree(path)
-        if environment.exists():
-            shutil.rmtree(environment)
     except OSError:
         return False
     return True

@@ -56,9 +56,10 @@ def refresh(home: Path, source: Path = PLUGIN_ROOT, lock_timeout: float = 60) ->
                 lines.append("skip: command legion (the legion app is not ready)")
             else:
                 changed = bool(_app.write_owner_commands(ready, home)) or changed
-        for agent in agents:
-            if agent.provider is not None and agent.provider.kind == "foundry":
-                lines.extend(_write_foundry(agent, home))
+            # A launcher must follow the version the lock holder publishes, so none is written without the lock.
+            for agent in agents:
+                if agent.provider is not None and agent.provider.kind == "foundry":
+                    lines.extend(_write_foundry(agent, home))
         if ready is not None:
             pruned = _app.prune_old_versions(ready, home)
             lines.extend(pruned)

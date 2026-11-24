@@ -209,6 +209,46 @@ def test_a_failed_sync_shows_the_error_keeps_the_old_version_and_marks_nothing(t
     assert len(uv.calls) == 2
 
 
+def test_a_copy_of_a_published_app_carries_no_ready_marker_into_the_next_home(tmp_path: Path, uv: FakeUv) -> None:
+    first, second = tmp_path / "first", tmp_path / "second"
+    _app.sync_app(first, make_source(tmp_path))
+    published = first / ".legion" / "app" / VERSION
+    assert (published / MARKER).is_file()
+    uv.exit_code = 3
+    lines, ready = _app.sync_app(second, published)
+    target = second / ".legion" / "app" / VERSION
+    assert lines[-1] == f"legion app {VERSION} not ready (uv sync exited 3); run legion setup again"
+    assert ready is None
+    assert not (target / MARKER).exists()
+    assert _app.ready_versions(second) == []
+    uv.exit_code = 0
+    assert _app.sync_app(second, published)[0] == [f"legion app {VERSION} ready"]
+    assert len(uv.calls) == 3
+
+
+def test_a_recorded_unfinished_version_with_a_link_is_refused_before_uv_reads_it(tmp_path: Path, uv: FakeUv) -> None:
+    home, source = tmp_path / "home", make_source(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    unfinished, _ = old_app(home, VERSION, ready=False)
+    make_link(unfinished / "linked", elsewhere)
+    lines, ready = _app.sync_app(home, source)
+    assert lines == [f"skip: {unfinished} (linked)"]
+    assert ready is None
+    assert uv.calls == []
+    assert not (unfinished / MARKER).exists()
+
+
+@pytest.mark.parametrize("version", ["../other", "1.0.0/../x", ""])
+def test_a_manifest_version_that_is_not_a_version_is_refused_before_any_path_is_built(tmp_path: Path, uv: FakeUv, version: str) -> None:
+    home, source = tmp_path / "home", make_source(tmp_path, version)
+    with pytest.raises(_app.AppError, match="version"):
+        _app.sync_app(home, source)
+    assert uv.calls == []
+    assert not (home / ".legion" / "other").exists()
+    assert not (home / ".legion" / "app").exists()
+
+
 def test_missing_uv_is_one_plain_line_and_copies_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home, source = tmp_path / "home", make_source(tmp_path)
     monkeypatch.setattr(_app, "find_uv", lambda: None)
@@ -293,9 +333,31 @@ def test_prune_skips_a_version_whose_environment_a_running_legion_holds(tmp_path
     with (environment / "python.txt").open("rb"):
         assert _app.prune_old_versions(current, tmp_path) == ["skip: legion app 0.0.1 (in use; removed at the next sync)"]
         assert (environment / "python.txt").is_file()
+        assert (held / "plugin.json").is_file()
+        assert (held / MARKER).is_file()
+        assert any(entry.path == "~/.legion/app/0.0.1" for entry in _footprints.read(tmp_path).entries)
     assert _app.prune_old_versions(current, tmp_path) == ["removed legion app 0.0.1"]
     assert not held.exists()
     assert not environment.exists()
+
+
+def test_a_version_whose_environment_cannot_be_removed_keeps_its_source_marker_and_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    held, environment = old_app(tmp_path, "0.0.1")
+    old_app(tmp_path, "0.0.2")
+    current, _ = old_app(tmp_path, "0.0.3")
+    real = shutil.rmtree
+
+    def rmtree(target: Any, *arguments: Any, **keywords: Any) -> None:
+        if Path(target) == environment:
+            raise PermissionError("in use")
+        real(target, *arguments, **keywords)
+
+    monkeypatch.setattr(_app.shutil, "rmtree", rmtree)
+    assert _app.prune_old_versions(current, tmp_path) == ["skip: legion app 0.0.1 (in use; removed at the next sync)"]
+    assert (held / "plugin.json").is_file()
+    assert (held / MARKER).is_file()
+    assert environment.is_dir()
+    assert any(entry.path == "~/.legion/app/0.0.1" for entry in _footprints.read(tmp_path).entries)
 
 
 def test_a_removed_folder_loses_its_marker_last(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

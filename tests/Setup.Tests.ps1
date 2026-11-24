@@ -46,6 +46,11 @@ try {
     [IO.File]::WriteAllText($uvPath, $(if ($IsWindows) { '@exit /b 0' } else { "#!/bin/sh`nexit 0`n" }))
     Set-TestExecutable $uvPath
     $systemBin = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' }
+    # Tests that hide the CLIs keep uv: setup needs it for any account change.
+    $uvBin = Join-Path $tempRoot 'uv-only'
+    New-Item -ItemType Directory -Path $uvBin -Force | Out-Null
+    Copy-Item -LiteralPath $uvPath -Destination $uvBin
+    $cliFreePath = $uvBin + [IO.Path]::PathSeparator + $systemBin
     $fixturePath = @($fakeBin, (Split-Path (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source), $systemBin) -join [IO.Path]::PathSeparator
     $env:PATH = $fixturePath
     $version = (Get-Content (Join-Path $root 'plugins/legion/plugin.json') -Raw | ConvertFrom-Json).version
@@ -203,6 +208,25 @@ try {
             try { Invoke-Setup -HomeRoot $testHome -Add codex -Yes | Out-Null }
             finally { Set-Item -Path function:Invoke-LegionPython -Value $realPython }
             Assert-Equal $false $script:lockHeld 'Setup holds no settings lock while the account add runs'
+        }
+        UvMissing = {
+            Reset-SetupTest 'uv-missing'
+            Initialize-SetupFiles -Plan (Get-SetupPlan -HomeRoot $testHome) | Out-Null
+            $target = Join-Path $fakeBin $(if ($IsWindows) { 'codex.cmd' } else { 'codex' })
+            New-SetupFixtureAccount -Id ready-a -Tool codex -Target $target
+            New-SetupFixtureAccount -Id broken-a -Tool codex -Target $target
+            foreach ($suffix in $(if ($IsWindows) { @('', '.cmd') } else { @('') })) { Remove-Item -LiteralPath (Join-Path $testHome ".legion/bin/broken-a$suffix") }
+            $realUv = ${function:Get-LegionUv}
+            function Get-LegionUv { return $null }
+            try {
+                $plan = @(Invoke-Setup -HomeRoot $testHome)
+                Assert-SetupText $plan 'uv       missing' 'uv missing: the plan says so'
+                $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
+            } finally { Set-Item -Path function:Get-LegionUv -Value $realUv }
+            Assert-SetupText $output 'uv is missing. Ask the owner before installing it.' 'uv missing: setup prints the warning and goes on'
+            Assert-SetupText $output 'broken-a  codex' 'uv missing: setup still prints the table'
+            Assert-True (@($output | Where-Object { $_ -match '^broken-a ' -and $_ -match 'uv is missing$' }).Count -eq 1) 'uv missing: the account that needs Python shows "uv is missing" as its next step'
+            Assert-Equal 0 $script:pythonCalls.Count 'uv missing: no Python call is made'
         }
         R5B4 = {
             Reset-SetupTest "unbound owner's home"
@@ -397,7 +421,7 @@ try {
             Assert-Equal $stock (Get-LegionWrapperTarget -Id custom-a -Tool codex -HomeRoot $testHome -ConfigDir $folder) 'Absent launchers fall back to the stock CLI'
             Remove-Item $sh
             if ($IsWindows) { Remove-Item $cmd }
-            $env:PATH = $systemBin
+            $env:PATH = $cliFreePath
             $script:missingTools = @('codex')
             $plan = @(Invoke-Setup -HomeRoot $testHome)
             Assert-SetupText $plan 'install codex' 'Setup plans the stock CLI install when it is absent'
@@ -517,7 +541,7 @@ try {
             Assert-Equal 0 $assignments.Count 'B3 command probing never assigns process PATH'
             function Get-LegionMachinePath { return '' }
             $script:userPath = $fakeBin
-            $env:PATH = if ($IsWindows) { $systemBin } else { $fixturePath }
+            $env:PATH = if ($IsWindows) { $cliFreePath } else { $fixturePath }
             $before = $env:PATH
             Assert-True (& $realTestCommand -Name codex) 'B3 probe finds a CLI on fixture PATH'
             Assert-Equal $before $env:PATH 'B3 real command probe leaves calling PATH unchanged'
