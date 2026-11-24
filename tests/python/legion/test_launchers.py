@@ -311,14 +311,18 @@ def test_each_launcher_runs_its_target(home: Path, tmp_path: Path, stock: Path, 
 @windows_only
 @pytest.mark.parametrize("delayed", ["off", "on"])
 def test_batch_target_keeps_percent_and_bang_paths(home: Path, tmp_path: Path, delayed: str) -> None:
+    home = tmp_path / "owner! root"
+    home.mkdir()
     command = fake_cli(tmp_path / "%TEMP% ! target", "fake")
     folder = home / "%TEMP% ! config"
     _launchers.write_subscription(agent("codex-a", folder, command=str(command)), codex(), home)
-    # An outer batch enables delayed expansion before entering the generated launcher.
+    # Enter the launcher folder before enabling delayed expansion so ! in the path stays literal.
     driver = tmp_path / "driver.cmd"
-    launcher = _generated.cmd_escape(str(wrapper_command("codex-a", home)))
+    launcher = wrapper_command("codex-a", home).name
     setting = "EnableDelayedExpansion" if delayed == "on" else "DisableDelayedExpansion"
-    driver.write_text(f'@echo off\r\n@setlocal {setting}\r\n@"{launcher}" first "two words"\r\n', encoding="utf-8", newline="")
+    launcher_folder = _generated.cmd_escape(str(wrapper_command("codex-a", home).parent))
+    driver_lines = ["@echo off", "@setlocal DisableDelayedExpansion", f'@cd /d "{launcher_folder}"', f"@setlocal {setting}", f'@call ".\\{launcher}" first "two words"']
+    driver.write_text("\r\n".join(driver_lines) + "\r\n", encoding="utf-8", newline="")
     result = run_command(str(driver), [], timeout=60)
     assert result.exit_code == 3, result.error
     assert [line.strip('"') for line in result.output.splitlines()] == [f"var={folder}", "arg=first", "arg=two words"]

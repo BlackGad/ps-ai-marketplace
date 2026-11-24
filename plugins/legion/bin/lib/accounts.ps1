@@ -126,8 +126,11 @@ function Get-LegionWrapperTarget {
     }
     $cmd = Join-Path $bin "$Id.cmd"
     if ($IsWindows -and (Test-LegionOwnedWrapper $cmd $Id)) {
-        $line = [IO.File]::ReadAllLines($cmd) | Select-Object -Skip 3 -First 1
-        if ($line -cmatch '^@(?:pwsh -NoProfile -File |call )?"([^"]+)" %\*$') { $candidates.Add($Matches[1].Replace('%%', '%')) }
+        # Interim parser: Python's marked batch launcher stores the target in an assignment; task 5 replaces refresh.
+        foreach ($line in [IO.File]::ReadAllLines($cmd)) {
+            if ($line -cmatch '^@set "LEGION_ACCOUNT_TARGET=(.*)"$') { $candidates.Add($Matches[1].Replace('%%', '%')); break }
+            if ($line -cmatch '^@(?:pwsh -NoProfile -File |call )?"([^"]+)" %\*$') { $candidates.Add($Matches[1].Replace('%%', '%')); break }
+        }
     }
     if (-not $candidates.Count) {
         # With no launcher left, recover from the same stock command used for a new account.
@@ -166,7 +169,6 @@ function New-LegionWrappers {
     if ([IO.Path]::GetExtension($RealCommand) -ieq '.ps1') { $target = 'pwsh -NoProfile -File ' + $target }
     $sh = Get-LegionLauncherText -Id $Id -Body ('{0}={1} exec {2} "$@"' -f $envName, (ConvertTo-LegionShellLiteral $folder), $target)
     $shFile = Join-Path $bin $Id
-    if ((Test-Path -LiteralPath $shFile) -and [IO.File]::ReadAllText($shFile) -cne $sh) { throw "wrapper collision '$shFile'" }
     if ($IsWindows) {
         $target = $RealCommand.Replace('%', '%%')
         $invoke = if ([IO.Path]::GetExtension($RealCommand) -ieq '.ps1') {
@@ -176,7 +178,6 @@ function New-LegionWrappers {
         } else { '@"' + $target + '" %*' }
         $cmd = Get-LegionLauncherText -Id $Id -Windows -Body '@setlocal', "@set `"$envName=$($folder.Replace('%', '%%'))`"", $invoke, '@exit /b %errorlevel%'
         $cmdFile = Join-Path $bin "$Id.cmd"
-        if ((Test-Path -LiteralPath $cmdFile) -and [IO.File]::ReadAllText($cmdFile) -cne $cmd) { throw "wrapper collision '$cmdFile'" }
     }
     if ($CheckOnly) { return }
     New-Item -ItemType Directory -Path $bin, $folder -Force | Out-Null

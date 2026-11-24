@@ -368,6 +368,57 @@ def test_failed_account_change_can_be_retried(world: World, monkeypatch: pytest.
         assert not runtime.exists()
 
 
+@pytest.mark.parametrize("point", ["new_only", "both"])
+def test_rename_retries_after_first_launcher_step(world: World, point: str) -> None:
+    assert add(world) == 0
+    old = world.launchers("codex-a")[0]
+    new = world.launchers("codex-new")[0]
+    text = old.read_bytes().decode("utf-8").replace("account codex-a", "account codex-new", 1)
+    _generated.write_generated(new, text, executable=True)
+    if point == "new_only":
+        old.unlink()
+    before = world.settings_bytes()
+    assert account(world, "rename", "--id", "codex-a", "--new-id", "codex-new") == 0
+    assert world.settings_bytes() != before
+    assert [entry["id"] for entry in world.agents()] == ["codex-new"]
+    assert not any(path.exists() for path in world.launchers("codex-a"))
+    assert all(_generated.is_owned(path, "account codex-new") for path in world.launchers("codex-new"))
+
+
+def test_remove_retries_after_runtime_is_gone(world: World) -> None:
+    assert add(world) == 0
+    runtime = world.home / ".legion" / "runtime"
+    runtime.mkdir()
+    _footprints.add(world.home, "folder", runtime, "account:codex-a")
+    runtime.rmdir()
+    world.launchers("codex-a")[0].unlink()
+    assert account(world, "remove", "--id", "codex-a") == 0
+    assert world.agents() == []
+    assert _footprints.read(world.home).entries == []
+    assert not any(path.exists() for path in world.launchers("codex-a"))
+
+
+def test_remove_keeps_runtime_when_launcher_removal_fails(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert add(world) == 0
+    runtime = world.home / ".legion" / "runtime"
+    runtime.mkdir()
+    _footprints.add(world.home, "folder", runtime, "account:codex-a")
+    before = world.settings_bytes()
+    unlink = Path.unlink
+
+    def fail_launcher(path: Path, *args: Any, **kwargs: Any) -> None:
+        if path in world.launchers("codex-a"):
+            raise OSError("fixture launcher removal failed")
+        unlink(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "unlink", fail_launcher)
+        assert account(world, "remove", "--id", "codex-a") == 1
+    assert runtime.is_dir()
+    assert world.settings_bytes() == before
+    assert account(world, "remove", "--id", "codex-a") == 0
+
+
 def test_remove_validates_remaining_settings_before_deleting_footprints(world: World, capsys: pytest.CaptureFixture[str]) -> None:
     assert add(world) == 0
     bind(world, "codex-a")

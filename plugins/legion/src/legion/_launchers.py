@@ -135,13 +135,15 @@ def write_subscription(agent: Agent, tool: ToolDescriptor, home: Path) -> list[P
 
 # The launchers keep their text; only the account named on the header line changes.
 def move(old: str, new: str, home: Path) -> None:
-    moves = [(source, destination) for source, destination in zip(launcher_paths(old, home), launcher_paths(new, home), strict=True) if _owned(source, old, home)]
+    moves = list(zip(launcher_paths(old, home), launcher_paths(new, home), strict=True))
     for _, destination in moves:
         if not owner_path_safe(destination, home):
             raise LauncherError(f"linked wrapper path '{destination}'")
-        if os.path.lexists(destination):
+        if os.path.lexists(destination) and not _owned(destination, new, home):
             raise LauncherError(f"wrapper collision '{destination}'")
     for source, destination in moves:
+        if not _owned(source, old, home):
+            continue
         windows = source.suffix == ".cmd"
         text = source.read_bytes().decode("utf-8").replace(header(_owner_name(old), windows), header(_owner_name(new), windows), 1)
         write_generated(destination, text, executable=not windows)

@@ -3,14 +3,11 @@
 import os
 import re
 import shutil
-import tempfile
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
 from . import _footprints, _generated, _launchers, _settings_io
-from ._home import full_path, home_path, owner_path_safe, same_path
+from ._home import full_path, home_path, same_path
 from ._settings_models import NAME_PATTERN, Agent, PersonalisationSettings, ToolDescriptor
 from ._validate import load_descriptors, settings_issues
 
@@ -153,32 +150,6 @@ def _move_footprints(home: Path, account: str, new_id: str) -> list[str]:
     return _footprints.remove_owner(home, [f"account:{account}"])
 
 
-# shutil backups preserve bytes and modes if a sibling launcher or the final settings write fails.
-# Footprint work runs first and is safe to repeat; settings remain unchanged until all other work succeeds.
-@contextmanager
-def _preserve_launchers(home: Path, *accounts: str) -> Iterator[None]:
-    paths = {path: f"account {account}" for account in accounts for path in _launchers.launcher_paths(account, home)}
-    with tempfile.TemporaryDirectory() as temporary:
-        backups: dict[Path, Path] = {}
-        for path, owner in paths.items():
-            if owner_path_safe(path, home) and _generated.is_owned(path, owner):
-                backup = Path(temporary) / path.name
-                shutil.copy2(path, backup)
-                backups[path] = backup
-        try:
-            yield
-        except Exception:
-            for path, owner in paths.items():
-                if not owner_path_safe(path, home):
-                    continue
-                owned = _generated.is_owned(path, owner)
-                if path in backups and (not path.exists() or owned):
-                    shutil.copy2(backups[path], path)
-                elif path not in backups and owned:
-                    path.unlink()
-            raise
-
-
 def rename(home: Path, account: str, new_id: str) -> list[str]:
     with _settings_io.writer(home):
         settings = _settings_io.load(home)
@@ -191,14 +162,13 @@ def rename(home: Path, account: str, new_id: str) -> list[str]:
         if old.provider is not None:
             raise AccountError(f"account '{account}' runs through Foundry; rename it after this update")
         for path in _launchers.launcher_paths(new_id, home):
-            if path.exists() or path.is_symlink():
+            if (path.exists() or path.is_symlink()) and not _generated.is_owned(path, f"account {new_id}"):
                 raise _launchers.LauncherError(f"wrapper collision '{path}'")
         _rebind(settings, account, new_id)
         old.id = new_id
+        _launchers.move(account, new_id, home)
         lines = _move_footprints(home, account, new_id)
-        with _preserve_launchers(home, account, new_id):
-            _launchers.move(account, new_id, home)
-            _settings_io.save_locked(home, settings)
+        _settings_io.save_locked(home, settings)
     return [*lines, f"Config folder kept at {old.config_dir}; rename it yourself only if you want to."]
 
 
@@ -213,8 +183,7 @@ def remove(home: Path, account: str) -> list[str]:
         issues = settings_issues(settings)
         if issues:
             raise _settings_io.SettingsError("; ".join(issues))
+        _launchers.remove(account, home)
         lines = _footprints.remove_owner(home, [f"account:{account}"])
-        with _preserve_launchers(home, account):
-            _launchers.remove(account, home)
-            _settings_io.save_locked(home, settings)
+        _settings_io.save_locked(home, settings)
     return [*lines, f"Config folder kept at {agent.config_dir}."]
