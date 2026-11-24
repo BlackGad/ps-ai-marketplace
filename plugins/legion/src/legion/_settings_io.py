@@ -21,9 +21,11 @@ class SettingsError(Exception):
 
 
 @contextmanager
-def writer(home: Path) -> Iterator[None]:
+def writer(home: Path, *, require_existing: bool = True) -> Iterator[None]:
     try:
         path = settings_path(home).resolve()
+        if require_existing and not path.is_file():
+            raise SettingsError("No legion settings yet; add an agent first.")
         path.parent.mkdir(parents=True, exist_ok=True)
         with FileLock(str(path) + ".lock", timeout=30):
             yield
@@ -65,7 +67,7 @@ def load_or_empty(home: Path) -> PersonalisationSettings:
 
 # Checks first, then a temp file beside the settings replaces them, so a failed write leaves the old file.
 def save(home: Path, settings: PersonalisationSettings) -> None:
-    with writer(home):
+    with writer(home, require_existing=False):
         save_locked(home, settings)
 
 

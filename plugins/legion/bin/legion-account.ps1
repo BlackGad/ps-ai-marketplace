@@ -40,10 +40,10 @@ if ($Action -eq 'register') {
     & $PSCommandPath -Action add -Id $Id -Tool $Tool -Command $target -ConfigDir $ConfigDir -HomeRoot $HomeRoot
     return
 }
-$settingsLock = if ($Action -eq 'add' -and $List) { $null } else {
+$settingsLock = if ($List) { $null } else {
     Wait-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $file) -Seconds 30
 }
-if (-not $settingsLock -and -not ($Action -eq 'add' -and $List)) { throw 'legion settings are busy; another legion command is still running' }
+if (-not $settingsLock -and -not $List) { throw 'legion settings are busy; another legion command is still running' }
 try {
 if (-not (Test-Path -LiteralPath $file)) {
     # A fresh machine has no settings; the first agent added creates them.

@@ -72,7 +72,8 @@ def fence_git(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def pwsh_path() -> Path:
     value = os.environ.get("LEGION_TEST_PWSH")
-    assert value, "LEGION_TEST_PWSH must name the trusted PowerShell interpreter"
+    if not value:
+        pytest.fail("set LEGION_TEST_PWSH to the absolute path of pwsh, e.g. (Get-Command pwsh).Source")
     path = Path(value)
     assert path.is_absolute(), f"PowerShell interpreter path is not absolute: {path}"
     assert path.is_file(), f"PowerShell interpreter is missing: {path}"

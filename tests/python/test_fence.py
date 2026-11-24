@@ -4,10 +4,17 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from inspect import unwrap
 from pathlib import Path
 
 import pytest
-from conftest import Fence, fence_git
+from conftest import Fence, fence_git, pwsh_path
+
+
+def test_missing_powershell_path_fails_with_setup_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LEGION_TEST_PWSH", raising=False)
+    with pytest.raises(pytest.fail.Exception, match="set LEGION_TEST_PWSH to the absolute path of pwsh"):
+        unwrap(pwsh_path)()
 
 
 def test_fence_points_the_environment_at_the_linked_home(fence: Fence) -> None:

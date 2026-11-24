@@ -63,7 +63,7 @@ jobs:
           enable-cache: false
       - shell: pwsh
         run: |
-          $pwsh = (Get-Command pwsh -CommandType Application -ErrorAction Stop).Source
+          $pwsh = (Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
           "LEGION_TEST_PWSH=$pwsh" >> $env:GITHUB_ENV
       - run: uv run --project plugins/legion --frozen --group dev ruff check plugins/legion/src tests/python
       - run: uv run --project plugins/legion --frozen --group dev ruff format --check plugins/legion/src tests/python

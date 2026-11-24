@@ -381,10 +381,14 @@ function Invoke-Setup {
     $settingsLock = Wait-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $settings) -Seconds 30
     if (-not $settingsLock) { throw 'legion settings are busy; another legion command is still running' }
     try {
-    $plan = Get-SetupPlan -Add $Add -Id $Id -HomeRoot $HomeRoot
-    Initialize-SetupFiles -Plan $plan
+        $plan = Get-SetupPlan -Add $Add -Id $Id -HomeRoot $HomeRoot
+        Initialize-SetupFiles -Plan $plan
+    } finally { $settingsLock.Dispose() }
     Install-SetupTools -Plan $plan
-    Add-SetupAccounts -Plan $plan
+    $settingsLock = Wait-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $settings) -Seconds 30
+    if (-not $settingsLock) { throw 'legion settings are busy; another legion command is still running' }
+    try { Add-SetupAccounts -Plan $plan }
+    finally { $settingsLock.Dispose() }
     Add-SetupAllowRules -Plan $plan
     Set-SetupPath -Plan $plan
     Install-SetupPlugins -Plan $plan
@@ -392,7 +396,6 @@ function Invoke-Setup {
     Write-SetupTable -Plan $plan
     # Recoverable installer failures are next-step rows, not a failure of the whole setup run.
     $global:LASTEXITCODE = 0
-    } finally { $settingsLock.Dispose() }
 }
 
 # Main: parse adds and build the plan before any persistent change, then print it or apply and show the table.

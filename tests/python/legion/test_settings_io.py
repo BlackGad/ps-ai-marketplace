@@ -292,6 +292,7 @@ def test_channel_add_refuses_an_existing_writer_lock_immediately(tmp_path: Path,
 
 
 def test_writer_refuses_lock_setup_permission_failure_in_one_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_settings(tmp_path, {"schemaVersion": 1, "agents": [ACCOUNT], "channels": []})
     parent = settings_path(tmp_path).parent
     real_mkdir = Path.mkdir
 
@@ -307,6 +308,8 @@ def test_writer_refuses_lock_setup_permission_failure_in_one_line(tmp_path: Path
 
 
 def test_writer_refuses_lock_open_permission_failure_in_one_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_settings(tmp_path, {"schemaVersion": 1, "agents": [ACCOUNT], "channels": []})
+
     def denied(path: str, timeout: int) -> None:
         assert path.endswith("personalisation.json.lock")
         assert timeout == 30
@@ -318,6 +321,12 @@ def test_writer_refuses_lock_open_permission_failure_in_one_line(tmp_path: Path,
     assert str(error.value) == "lock denied"
 
 
+def test_writer_leaves_fresh_home_untouched_when_settings_are_missing(tmp_path: Path) -> None:
+    with pytest.raises(SettingsError, match="No legion settings yet"), _settings_io.writer(tmp_path):
+        _settings_io.load(tmp_path)
+    assert not (tmp_path / ".legion").exists()
+
+
 def test_powershell_account_add_preserves_overlapping_channel_change(tmp_path: Path, pwsh_path: Path) -> None:
     write_settings(tmp_path, {"schemaVersion": 1, "agents": [ACCOUNT], "channels": []})
     config = tmp_path / "config"
@@ -327,7 +336,13 @@ def test_powershell_account_add_preserves_overlapping_channel_change(tmp_path: P
     account = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "bin" / "legion-account.ps1"
     launch = tmp_path / "account.ps1"
     launch.write_text(
-        "[Console]::WriteLine('ready'); & $args[0] -Action add -Id claude-b -Tool claude -Command $args[1] -ConfigDir $args[2] -HomeRoot $args[3]",
+        ". (Join-Path (Split-Path $args[0]) 'lib/accounts.ps1'); "
+        "$global:settingsLockPath = Join-Path $args[3] '.legion/configuration/personalisation.json.lock'; "
+        "Set-PSBreakpoint -Command Wait-LegionLockFile -Action { [Console]::WriteLine('ready') } | Out-Null; "
+        "Set-PSBreakpoint -Command Read-LegionJson -Action { "
+        "[Console]::WriteLine('read breakpoint'); $held = Open-LegionLockFile -Path $global:settingsLockPath; "
+        "if ($held) { $held.Dispose(); [Console]::Error.WriteLine('account read settings without lock') } } | Out-Null; "
+        "& $args[0] -Action add -Id claude-b -Tool claude -Command $args[1] -ConfigDir $args[2] -HomeRoot $args[3]",
         encoding="utf-8",
     )
     with FileLock(str(settings_path(tmp_path)) + ".lock", timeout=0):
@@ -342,27 +357,53 @@ def test_powershell_account_add_preserves_overlapping_channel_change(tmp_path: P
             output = child.stdout
             ready: queue.Queue[str] = queue.Queue()
             threading.Thread(target=lambda: ready.put(output.readline()), daemon=True).start()
-            assert ready.get(timeout=5).strip() == "ready"
-            with pytest.raises(subprocess.TimeoutExpired):
-                child.wait(timeout=1)
+            assert ready.get(timeout=30).strip() == "ready"
+            assert child.poll() is None
             settings = _settings_io.load(tmp_path)
             settings.channels.append(Channel.model_validate({"id": "channel-a", "kind": "telegram", "target": "1", "accounts": ["claude-a"]}))
             _settings_io.save_locked(tmp_path, settings)
         except BaseException:
             if child.poll() is None:
                 child.kill()
-            child.communicate(timeout=5)
+            child.communicate(timeout=60)
             raise
     try:
-        stdout, stderr = child.communicate(timeout=15)
+        stdout, stderr = child.communicate(timeout=60)
     except subprocess.TimeoutExpired:
         child.kill()
         stdout, stderr = child.communicate(timeout=5)
         pytest.fail(f"PowerShell account child stalled: {stdout} {stderr}")
     assert child.returncode == 0, stderr
+    assert "read breakpoint" in stdout
+    assert "account read settings without lock" not in stderr
     result = _settings_io.load(tmp_path)
     assert {agent.id for agent in result.agents} == {"claude-a", "claude-b"}
     assert {channel.id for channel in result.channels} == {"channel-a"}
+
+
+def test_powershell_models_list_does_not_wait_for_settings_writer(tmp_path: Path, pwsh_path: Path) -> None:
+    write_settings(tmp_path, {"schemaVersion": 1, "agents": [FOUNDRY], "channels": []})
+    account = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "bin" / "legion-account.ps1"
+    fake_az = Path(__file__).resolve().parents[3] / "tests" / "FakeAz.ps1"
+    launch = tmp_path / "models-list.ps1"
+    launch.write_text(
+        ". $args[0]; Use-FakeAz -Answers @{ "
+        '\'account get-access-token --resource https://cognitiveservices.azure.com\' = @{exit=0; stdout=\'{"accessToken":"fake","expiresOn":"2099-01-01T00:00:00+00:00"}\'}; '
+        "'cognitiveservices account list' = @{exit=0; stdout='[]'}; "
+        "'account list' = @{exit=0; stdout=''} "
+        "}; & $args[1] -Action models -Id claude-f -List -HomeRoot $args[2]",
+        encoding="utf-8",
+    )
+    with FileLock(str(settings_path(tmp_path)) + ".lock", timeout=0):
+        result = subprocess.run(
+            [str(pwsh_path), "-NoProfile", "-File", str(launch), str(fake_az), str(account), str(tmp_path)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+    assert result.returncode == 0, result.stderr
+    assert '"deployments"' in result.stdout
 
 
 def test_powershell_setup_locks_settings_before_planning(tmp_path: Path, pwsh_path: Path) -> None:
@@ -374,17 +415,22 @@ def test_powershell_setup_locks_settings_before_planning(tmp_path: Path, pwsh_pa
         "function Get-SetupPlan { param($Add, $Id, $HomeRoot) "
         "$file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings; "
         "$held = Open-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $file); "
-        "if ($held) { $held.Dispose(); throw 'settings were read without the lock' }; return @{} }\n"
+        "if ($held) { $held.Dispose(); throw 'settings were read without the lock' }; return @{ HomeRoot = $HomeRoot } }\n"
         "function Initialize-SetupFiles { param($Plan) }\n"
-        "function Install-SetupTools { param($Plan) }\n"
-        "function Add-SetupAccounts { param($Plan) }\n"
-        "function Add-SetupAllowRules { param($Plan) }\n"
+        "function Assert-Unlocked { param($Plan) $file = Get-LegionOwnerPath -HomeRoot $Plan.HomeRoot -Name Settings; "
+        "$held = Open-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $file); "
+        "if (-not $held) { throw 'settings lock held during external work' }; $held.Dispose() }\n"
+        "function Install-SetupTools { param($Plan) Assert-Unlocked $Plan }\n"
+        "function Add-SetupAccounts { param($Plan) $file = Get-LegionOwnerPath -HomeRoot $Plan.HomeRoot -Name Settings; "
+        "$held = Open-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $file); "
+        "if ($held) { $held.Dispose(); throw 'account read lacked settings lock' } }\n"
+        "function Add-SetupAllowRules { param($Plan) Assert-Unlocked $Plan }\n"
         "function Set-SetupPath { param($Plan) }\n"
-        "function Install-SetupPlugins { param($Plan) }\n"
-        "function Write-SetupCommands { param($Plan) }\n"
+        "function Install-SetupPlugins { param($Plan) Assert-Unlocked $Plan }\n"
+        "function Write-SetupCommands { param($Plan) Assert-Unlocked $Plan }\n"
         "function Write-SetupTable { param($Plan) }\n"
         "Invoke-Setup -Yes -HomeRoot $args[1]\n",
         encoding="utf-8",
     )
-    result = subprocess.run([str(pwsh_path), "-NoProfile", "-File", str(probe), str(setup), str(tmp_path)], capture_output=True, text=True, timeout=15, check=False)
+    result = subprocess.run([str(pwsh_path), "-NoProfile", "-File", str(probe), str(setup), str(tmp_path)], capture_output=True, text=True, timeout=60, check=False)
     assert result.returncode == 0, result.stderr

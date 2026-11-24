@@ -1,8 +1,6 @@
 # Where legion keeps its files in the owner's home; status, limits and the inbox share this layout.
 
-import ntpath
 import os
-import posixpath
 import stat
 import sys
 from pathlib import Path
@@ -24,8 +22,7 @@ def footprint_index(home: Path) -> Path:
 
 def full_path(path: Path) -> Path:
     # Link resolution would hide a linked component before the safety walk sees it.
-    absolute = ntpath.abspath if os.name == "nt" else posixpath.abspath
-    return Path(absolute(path))
+    return Path(os.path.normpath(path.absolute()))
 
 
 def resolve_directory(path: Path) -> Path:
@@ -33,6 +30,7 @@ def resolve_directory(path: Path) -> Path:
 
 
 def is_reparse(path: Path) -> bool:
+    # Other reparse types beyond symlinks and junctions must be refused, as PowerShell does.
     try:
         info = path.lstat()
     except FileNotFoundError:

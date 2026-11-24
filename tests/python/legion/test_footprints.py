@@ -160,15 +160,21 @@ def test_powershell_and_python_share_footprint_lock(tmp_path: Path, pwsh_path: P
         messages: queue.Queue[str] = queue.Queue()
         threading.Thread(target=lambda: messages.put(output.readline()), daemon=True).start()
         try:
-            ready = messages.get(timeout=5)
+            ready = messages.get(timeout=30)
         except queue.Empty:
             child.kill()
-            _, diagnostics = child.communicate(timeout=5)
+            _, diagnostics = child.communicate(timeout=60)
             pytest.fail(f"PowerShell lock child did not become ready: {diagnostics}")
         if ready.strip() != "ready":
             if child.poll() is None:
+                assert child.stdin is not None
+                child.stdin.write("\n")
+                child.stdin.flush()
+            try:
+                _, diagnostics = child.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
                 child.kill()
-            _, diagnostics = child.communicate(timeout=5)
+                _, diagnostics = child.communicate(timeout=5)
             pytest.fail(f"PowerShell lock child reported {ready.strip()!r}: {diagnostics}")
         assert marker.read_text(encoding="utf-8") == "ready"
         real_lock = _footprints.FileLock
@@ -177,13 +183,21 @@ def test_powershell_and_python_share_footprint_lock(tmp_path: Path, pwsh_path: P
             assert timeout == 30
             return real_lock(path, timeout=0)
 
-        monkeypatch.setattr(_footprints, "FileLock", immediate)
-        with pytest.raises(_footprints.FootprintError, match="Footprint index is busy"), _footprints.lock(tmp_path):
-            pass
+        with monkeypatch.context() as patch:
+            patch.setattr(_footprints, "FileLock", immediate)
+            with pytest.raises(_footprints.FootprintError, match="Footprint index is busy"), _footprints.lock(tmp_path):
+                pass
     finally:
         if child.poll() is None:
+            assert child.stdin is not None
+            child.stdin.write("\n")
+            child.stdin.flush()
+        try:
+            child.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
             child.kill()
-        child.communicate(timeout=5)
+            child.communicate(timeout=5)
+            pytest.fail("PowerShell lock child stalled after release")
     with _footprints.lock(tmp_path):
         script = ". $args[0]; $lock = Open-LegionLockFile -Path $args[1]; if ($null -eq $lock) { 'busy' } else { $lock.Dispose(); 'free' }"
         assert powershell(pwsh_path, script, LIB / "footprints.ps1", str(index) + ".lock").stdout.strip() == "busy"

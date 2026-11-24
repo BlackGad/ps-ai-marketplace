@@ -108,6 +108,7 @@ def is_safe(entry: Footprint, home: Path) -> bool:
     if entry.kind == "link":
         try:
             target = str(path.readlink())
+            # PowerShell's LinkTarget omits the Windows extended-path prefix.
             return target == entry.value or (sys.platform == "win32" and target.removeprefix("\\\\?\\") == entry.value)
         except FileNotFoundError:
             return True
