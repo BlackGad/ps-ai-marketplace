@@ -3,11 +3,14 @@
 # (an update rewriting it) still ends cleanly. Readiness is by blocking reads and a marker line, never by sleeping.
 
 import os
+import queue
 import shutil
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -19,6 +22,40 @@ CSC = Path(os.environ.get("SYSTEMROOT", "C:\\Windows")) / "Microsoft.NET" / "Fra
 UNICODE = "Привіт"
 COMSPEC = os.environ.get("COMSPEC", "")
 TASKKILL = Path(os.environ.get("SYSTEMROOT", "C:\\Windows")) / "System32" / "taskkill.exe"
+
+
+def bounded_read(read: Callable[[], bytes], timeout: float) -> bytes:
+    result: queue.Queue[bytes | BaseException] = queue.Queue(maxsize=1)
+
+    def worker() -> None:
+        try:
+            result.put(read())
+        except BaseException as error:
+            result.put(error)
+
+    threading.Thread(target=worker, daemon=True).start()
+    try:
+        value = result.get(timeout=timeout)
+    except queue.Empty as error:
+        raise TimeoutError("command output did not close") from error
+    if isinstance(value, BaseException):
+        raise value
+    return value
+
+
+def test_bounded_read_times_out_and_can_release_its_reader() -> None:
+    released = threading.Event()
+
+    def blocked_read() -> bytes:
+        released.wait()
+        return b""
+
+    try:
+        with pytest.raises(TimeoutError):
+            bounded_read(blocked_read, 0)
+    finally:
+        released.set()
+
 
 # A real executable: a batch fake would never return to the command's (goto) tail. It writes its output first,
 # then blocks reading one line of stdin, so a test can see the output arrive while uv still runs.
@@ -144,9 +181,10 @@ def test_powershell_sees_uvs_exact_code_also_after_the_command_is_deleted(tmp_pa
 
 def kill_tree(process: subprocess.Popen[bytes]) -> None:
     # cmd.exe starts uv as a child: ending cmd alone leaves uv holding the pipes, so the whole tree goes, then is reaped.
-    subprocess.run([str(TASKKILL), "/PID", str(process.pid), "/T", "/F"], capture_output=True, check=False)
-    process.kill()
-    process.wait()
+    subprocess.run([str(TASKKILL), "/PID", str(process.pid), "/T", "/F"], capture_output=True, check=False, timeout=10)
+    if process.poll() is None:
+        process.kill()
+    process.wait(timeout=10)
 
 
 def start_batch_command(shim: Path, environment: dict[str, str]) -> subprocess.Popen[bytes]:
@@ -157,17 +195,13 @@ def start_batch_command(shim: Path, environment: dict[str, str]) -> subprocess.P
 def test_uv_output_arrives_while_uv_still_runs(tmp_path: Path, fake_uv_folder: Path) -> None:
     _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
     process = start_batch_command(shim, child_environment(fake_uv_folder, tmp_path / "uv.log", 0))
-    # A hung tree is ended after a minute, which closes the pipe and ends the blocked read; a passing test never waits for this.
-    watchdog = threading.Timer(60, kill_tree, args=(process,))
-    watchdog.start()
     try:
         assert process.stdout is not None
-        assert process.stdout.readline().strip() == b"live output"
+        assert bounded_read(process.stdout.readline, 10).strip() == b"live output"
         assert process.poll() is None
-        process.communicate(b"go\r\n")
+        process.communicate(b"go\r\n", timeout=10)
         assert process.returncode == 0
     finally:
-        watchdog.cancel()
         kill_tree(process)
 
 
@@ -175,12 +209,16 @@ def test_uv_output_arrives_while_uv_still_runs(tmp_path: Path, fake_uv_folder: P
 def test_ending_a_stuck_command_ends_the_fake_uv_and_closes_its_output(tmp_path: Path, fake_uv_folder: Path) -> None:
     _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
     process = start_batch_command(shim, child_environment(fake_uv_folder, tmp_path / "uv.log", 0))
-    assert process.stdout is not None
-    assert process.stdout.readline().strip() == b"live output"
-    kill_tree(process)
-    # The read ends only when no process of the tree still holds the pipe; a stuck uv would block here.
-    assert process.stdout.read() == b""
-    process.stdout.close()
+    try:
+        assert process.stdout is not None
+        assert bounded_read(process.stdout.readline, 10).strip() == b"live output"
+        kill_tree(process)
+        # The read ends only when no process of the tree still holds the pipe; a stuck uv would block here.
+        assert bounded_read(process.stdout.read, 10) == b""
+    finally:
+        kill_tree(process)
+        if process.stdout is not None:
+            process.stdout.close()
 
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
@@ -194,9 +232,12 @@ def test_an_interactive_console_stays_open_with_uvs_code_and_its_own_environment
 
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
-def test_without_uv_the_batch_command_prints_one_line_and_exits_127(tmp_path: Path) -> None:
+def test_without_uv_the_batch_command_prints_one_line_and_exits_127(tmp_path: Path, fence: Any) -> None:
     _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
-    environment = {"PATH": f"{os.environ['SYSTEMROOT']}\\System32", "SystemRoot": os.environ["SYSTEMROOT"], "COMSPEC": os.environ["COMSPEC"]}
+    environment = child_environment(tmp_path / "empty", tmp_path / "uv.log", 0)
+    assert environment["HOME"] == str(fence.home)
+    assert environment["TEMP"] == str(fence.temp)
+    assert environment["HTTPS_PROXY"] == os.environ["HTTPS_PROXY"]
     result = cmd(f'"{shim}" status', environment)
     assert result.returncode == 127
     assert result.stderr.decode() == f"{MISSING}\r\n"

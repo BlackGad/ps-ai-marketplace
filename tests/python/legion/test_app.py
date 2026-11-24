@@ -341,6 +341,41 @@ def test_prune_skips_a_version_whose_environment_a_running_legion_holds(tmp_path
     assert not environment.exists()
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="only Windows refuses to rename a folder with an open file")
+def test_prune_skips_a_version_whose_source_a_running_legion_holds(tmp_path: Path) -> None:
+    held, environment = old_app(tmp_path, "0.0.1")
+    old_app(tmp_path, "0.0.2")
+    current, _ = old_app(tmp_path, "0.0.3")
+    with (held / "plugin.json").open("rb"):
+        assert _app.prune_old_versions(current, tmp_path) == ["skip: legion app 0.0.1 (in use; removed at the next sync)"]
+        assert (held / "plugin.json").is_file()
+        assert (held / MARKER).is_file()
+        assert (environment / "python.txt").is_file()
+        assert any(entry.path == "~/.legion/app/0.0.1" for entry in _footprints.read(tmp_path).entries)
+    assert _app.prune_old_versions(current, tmp_path) == ["removed legion app 0.0.1"]
+
+
+@pytest.mark.parametrize("locked_tree", ["source", "environment"])
+def test_failed_prune_rename_keeps_both_trees_and_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, locked_tree: str) -> None:
+    held, environment = old_app(tmp_path, "0.0.1")
+    old_app(tmp_path, "0.0.2")
+    current, _ = old_app(tmp_path, "0.0.3")
+    blocked = held if locked_tree == "source" else environment
+    real = Path.replace
+
+    def replace(source: Path, target: str | Path) -> Path:
+        if source == blocked:
+            raise PermissionError("in use")
+        return real(source, target)
+
+    monkeypatch.setattr(Path, "replace", replace)
+    assert _app.prune_old_versions(current, tmp_path) == ["skip: legion app 0.0.1 (in use; removed at the next sync)"]
+    assert (held / "plugin.json").is_file()
+    assert (held / MARKER).is_file()
+    assert (environment / "python.txt").is_file()
+    assert any(entry.path == "~/.legion/app/0.0.1" for entry in _footprints.read(tmp_path).entries)
+
+
 def test_a_version_whose_environment_cannot_be_removed_keeps_its_source_marker_and_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     held, environment = old_app(tmp_path, "0.0.1")
     old_app(tmp_path, "0.0.2")
@@ -348,7 +383,7 @@ def test_a_version_whose_environment_cannot_be_removed_keeps_its_source_marker_a
     real = shutil.rmtree
 
     def rmtree(target: Any, *arguments: Any, **keywords: Any) -> None:
-        if Path(target) == environment:
+        if Path(target).parent == environment.parent and Path(target).name.startswith(f".pruning-{environment.name}-"):
             raise PermissionError("in use")
         real(target, *arguments, **keywords)
 
@@ -360,7 +395,7 @@ def test_a_version_whose_environment_cannot_be_removed_keeps_its_source_marker_a
     assert any(entry.path == "~/.legion/app/0.0.1" for entry in _footprints.read(tmp_path).entries)
 
 
-def test_a_removed_folder_loses_its_marker_last(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_removed_folder_is_renamed_with_its_marker_before_deletion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path, _ = old_app(tmp_path, "0.0.1")
     old_app(tmp_path, "0.0.2")
     current, _ = old_app(tmp_path, "0.0.3")
@@ -368,8 +403,8 @@ def test_a_removed_folder_loses_its_marker_last(tmp_path: Path, monkeypatch: pyt
     real = shutil.rmtree
 
     def rmtree(target: Any, *arguments: Any, **keywords: Any) -> None:
-        if Path(target) == path:
-            seen.append((path / MARKER).exists())
+        if Path(target).parent == path.parent and Path(target).name.startswith(f".pruning-{path.name}-"):
+            seen.append((Path(target) / MARKER).exists() and not path.exists())
         real(target, *arguments, **keywords)
 
     monkeypatch.setattr(_app.shutil, "rmtree", rmtree)

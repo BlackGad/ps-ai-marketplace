@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import sys
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -193,21 +194,32 @@ def write_owner_commands(app: Path, home: Path) -> list[Path]:
     return changed
 
 
-# One safe recorded version: its environment first, then its folder with the marker last. A running legion
-# holds files in its environment (a Windows lock), so a version in use fails there, before its source goes.
-# Hand-built, reason: shutil.rmtree on the whole folder deletes in no set order, and a failed delete must leave
-# the marker so the version is still known as legion's. A delete that fails keeps the rest for a later run: False.
+# Rename both trees before deleting either. On Windows, an open file blocks the whole folder rename,
+# so a running version remains complete. Hand-built, reason: shutil.rmtree can partially delete a locked tree.
 def _remove_version(path: Path, home: Path) -> bool:
     environment = python_environment(path, home)
+    suffix = uuid.uuid4().hex
+    moved_path = path.with_name(f".pruning-{path.name}-{suffix}")
+    moved_environment = environment.with_name(f".pruning-{environment.name}-{suffix}")
     try:
-        if environment.exists():
-            shutil.rmtree(environment)
         if path.exists():
-            for child in path.iterdir():
-                if child.name != MARKER:
-                    shutil.rmtree(child) if child.is_dir() else child.unlink()
-            shutil.rmtree(path)
+            path.replace(moved_path)
+        if environment.exists():
+            environment.replace(moved_environment)
     except OSError:
+        if moved_path.exists():
+            moved_path.replace(path)
+        return False
+    try:
+        if moved_environment.exists():
+            shutil.rmtree(moved_environment)
+        if moved_path.exists():
+            shutil.rmtree(moved_path)
+    except OSError:
+        if moved_environment.exists():
+            moved_environment.replace(environment)
+        if moved_path.exists():
+            moved_path.replace(path)
         return False
     return True
 
