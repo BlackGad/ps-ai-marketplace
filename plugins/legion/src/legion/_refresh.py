@@ -14,7 +14,7 @@ def _wrote(paths: list[Path]) -> list[str]:
 
 def _repair_subscription(agent: Agent, home: Path) -> list[str]:
     state = _launchers.launcher_state(agent, home)
-    if state == "intact":
+    if state == "intact" and agent.command is None:
         return _wrote(_launchers.restore_execute(agent, home))
     skipped = f"skip: account {agent.id} (CLI target not found or launcher needs repair)"
     if state == "partial" and agent.command is None:
@@ -39,11 +39,11 @@ def _write_foundry(agent: Agent, home: Path) -> list[str]:
 def refresh(home: Path, source: Path = PLUGIN_ROOT, lock_timeout: float = 60) -> list[str]:
     lines: list[str] = []
     changed = False
-    settings = _settings_io.load(home) if settings_path(home).is_file() else None
-    agents = settings.agents if settings else []
-    for agent in agents:
-        if agent.provider is None:
-            lines.extend(_repair_subscription(agent, home))
+    with _settings_io.writer(home, require_existing=False):
+        settings = _settings_io.load(home) if settings_path(home).is_file() else None
+        for agent in settings.agents if settings else []:
+            if agent.provider is None:
+                lines.extend(_repair_subscription(agent, home))
     with _app.app_lock(home, lock_timeout) as held:
         ready = None
         if not held:
@@ -56,10 +56,13 @@ def refresh(home: Path, source: Path = PLUGIN_ROOT, lock_timeout: float = 60) ->
                 lines.append("skip: command legion (the legion app is not ready)")
             else:
                 changed = bool(_app.write_owner_commands(ready, home)) or changed
-            # A launcher must follow the version the lock holder publishes, so none is written without the lock.
-            for agent in agents:
-                if agent.provider is not None and agent.provider.kind == "foundry":
-                    lines.extend(_write_foundry(agent, home))
+            # A failed publish can return the old ready app. Its launchers must keep calling the old runner.
+            published = any(line.endswith(" ready") or line.endswith("(already done)") or line.endswith(" in place)") for line in sync_lines)
+            with _settings_io.writer(home, require_existing=False):
+                settings = _settings_io.load(home) if settings_path(home).is_file() else None
+                for agent in settings.agents if settings else []:
+                    if agent.provider is not None and agent.provider.kind == "foundry":
+                        lines.extend(_write_foundry(agent, home) if published else [f"skip: account {agent.id} ({NOT_READY})"])
         if ready is not None:
             pruned = _app.prune_old_versions(ready, home)
             lines.extend(pruned)
