@@ -16,6 +16,7 @@
           "id": {"type": "string", "description": "Unique lowercase hyphenated account id.", "pattern": "^[a-z][a-z0-9-]*$"},
           "tool": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "CLI provider."},
           "configDir": {"type": "string", "description": "Concrete account configuration folder. New accounts use ~/.legion/agents/<id>/.", "minLength": 1},
+          "command": {"type": "string", "description": "The account's own CLI program, only when it is not the tool's stock command. Subscription accounts only.", "minLength": 1},
           "provider": {
             "type": "object",
             "additionalProperties": false,

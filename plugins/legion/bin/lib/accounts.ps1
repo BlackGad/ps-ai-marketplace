@@ -4,11 +4,13 @@
 . (Join-Path $PSScriptRoot 'settings.ps1')
 . (Join-Path $PSScriptRoot 'footprints.ps1')
 
+# milestone 4 removes this
 function Assert-LegionId {
     param([string]$Id)
     if ($Id -cnotmatch '^[a-z][a-z0-9-]*$') { throw "id '$Id' must match ^[a-z][a-z0-9-]*$" }
 }
 
+# milestone 4 removes this
 function Assert-LegionNewId {
     param([string]$Id, $Data)
     Assert-LegionId -Id $Id
@@ -17,26 +19,14 @@ function Assert-LegionNewId {
     if (Get-Command $Id -CommandType Application -ErrorAction SilentlyContinue) { throw "'$Id' is already a command" }
 }
 
-function Update-LegionChannelAccounts {
-    param($Data, [string]$OldId, [string]$NewId)
-    foreach ($channel in $Data.channels) {
-        if ($OldId -cin $channel.accounts -and -not $NewId -and @($channel.accounts).Count -eq 1) {
-            throw "channel '$($channel.id)' would have no accounts; rebind or remove it first"
-        }
-    }
-    foreach ($channel in $Data.channels) {
-        $channel.accounts = @($channel.accounts | ForEach-Object {
-            if ($_ -cne $OldId) { $_ } elseif ($NewId) { $NewId }
-        })
-    }
-}
-
 # The one owner of launcher text: the header line that marks the file as ours, then the body lines.
+# task 5 removes this
 function Get-LegionLauncherHeader {
     param([string]$Id, [switch]$Windows)
     return Get-LegionHeader -Name "account $Id" -Windows:$Windows
 }
 
+# task 5 removes this
 function Get-LegionLauncherText {
     param([string]$Id, [string[]]$Body, [switch]$Windows)
     $header = Get-LegionLauncherHeader -Id $Id -Windows:$Windows
@@ -46,6 +36,7 @@ function Get-LegionLauncherText {
 }
 
 # True when any launcher file of the account is missing or cannot run (setup and refresh repair these).
+# milestone 4 removes this
 function Test-LegionLauncherMissing {
     param([string]$Id, [string]$HomeRoot)
     $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
@@ -54,6 +45,7 @@ function Test-LegionLauncherMissing {
     }).Count -gt 0
 }
 
+# task 5 removes this
 function Test-LegionOwnedWrapper {
     param([string]$Path, [string]$Id)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
@@ -64,6 +56,7 @@ function Test-LegionOwnedWrapper {
     return Test-LegionHeader -Path $item.FullName -Name "account $Id"
 }
 
+# task 5 removes this
 function Assert-LegionWrapperPath {
     param([string]$Path, [string]$Id)
     # A wrapper lives at <home>/.legion/bin/<name>; the link walk stops at <home>.
@@ -72,6 +65,7 @@ function Assert-LegionWrapperPath {
     if ((Test-Path -LiteralPath $Path) -and -not (Test-LegionOwnedWrapper $Path $Id)) { throw "wrapper collision '$Path'" }
 }
 
+# task 5 removes this
 function Write-LegionPersonalisation {
     param($Data, [string]$Path)
     $original = if (Test-Path -LiteralPath $Path) { [System.IO.File]::ReadAllText($Path) } else { $null }
@@ -89,6 +83,7 @@ function Write-LegionPersonalisation {
     }
 }
 
+# task 5 removes this
 function Write-LegionGeneratedFile {
     param([string]$Path, [string]$Content, [Collections.Generic.List[string]]$Changes, [switch]$Executable)
     $same = (Test-Path -LiteralPath $Path) -and [IO.File]::ReadAllText($Path) -ceq $Content
@@ -104,6 +99,7 @@ function Write-LegionGeneratedFile {
     if ($changed -and $null -ne $Changes) { $Changes.Add($Path) }
 }
 
+# task 5 removes this
 function Get-LegionShellWrapperTarget {
     param([string]$Path, [string]$Tool, [string]$ConfigDir)
     $prefix = (Get-LegionTool $Tool).configEnv + '=' + (ConvertTo-LegionShellLiteral $ConfigDir) + ' exec '
@@ -118,6 +114,7 @@ function Get-LegionShellWrapperTarget {
     return $null
 }
 
+# task 5 removes this
 function Get-LegionWrapperTarget {
     param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$ConfigDir)
     $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
@@ -129,8 +126,11 @@ function Get-LegionWrapperTarget {
     }
     $cmd = Join-Path $bin "$Id.cmd"
     if ($IsWindows -and (Test-LegionOwnedWrapper $cmd $Id)) {
-        $line = [IO.File]::ReadAllLines($cmd) | Select-Object -Skip 3 -First 1
-        if ($line -cmatch '^@(?:pwsh -NoProfile -File |call )?"([^"]+)" %\*$') { $candidates.Add($Matches[1].Replace('%%', '%')) }
+        # Interim parser: Python's marked batch launcher stores the target in an assignment; task 5 replaces refresh.
+        foreach ($line in [IO.File]::ReadAllLines($cmd)) {
+            if ($line -cmatch '^@set "LEGION_ACCOUNT_TARGET=(.*)"$') { $candidates.Add($Matches[1].Replace('%%', '%')); break }
+            if ($line -cmatch '^@(?:pwsh -NoProfile -File |call )?"([^"]+)" %\*$') { $candidates.Add($Matches[1].Replace('%%', '%')); break }
+        }
     }
     if (-not $candidates.Count) {
         # With no launcher left, recover from the same stock command used for a new account.
@@ -147,11 +147,13 @@ function Get-LegionWrapperTarget {
     return $target
 }
 
+# milestone 4 removes this
 function Get-LegionNewAccountDir {
     param([string]$Id, [string]$HomeRoot)
     return Get-LegionHomePath -HomeRoot $HomeRoot -Path "agents/$Id"
 }
 
+# task 5 removes this
 function New-LegionWrappers {
     param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$RealCommand, [string]$ConfigDir, [switch]$CheckOnly, [Collections.Generic.List[string]]$Changes)
     Assert-LegionId $Id
@@ -167,7 +169,6 @@ function New-LegionWrappers {
     if ([IO.Path]::GetExtension($RealCommand) -ieq '.ps1') { $target = 'pwsh -NoProfile -File ' + $target }
     $sh = Get-LegionLauncherText -Id $Id -Body ('{0}={1} exec {2} "$@"' -f $envName, (ConvertTo-LegionShellLiteral $folder), $target)
     $shFile = Join-Path $bin $Id
-    if ((Test-Path -LiteralPath $shFile) -and [IO.File]::ReadAllText($shFile) -cne $sh) { throw "wrapper collision '$shFile'" }
     if ($IsWindows) {
         $target = $RealCommand.Replace('%', '%%')
         $invoke = if ([IO.Path]::GetExtension($RealCommand) -ieq '.ps1') {
@@ -177,14 +178,14 @@ function New-LegionWrappers {
         } else { '@"' + $target + '" %*' }
         $cmd = Get-LegionLauncherText -Id $Id -Windows -Body '@setlocal', "@set `"$envName=$($folder.Replace('%', '%%'))`"", $invoke, '@exit /b %errorlevel%'
         $cmdFile = Join-Path $bin "$Id.cmd"
-        if ((Test-Path -LiteralPath $cmdFile) -and [IO.File]::ReadAllText($cmdFile) -cne $cmd) { throw "wrapper collision '$cmdFile'" }
     }
     if ($CheckOnly) { return }
     New-Item -ItemType Directory -Path $bin, $folder -Force | Out-Null
-    Write-LegionGeneratedFile -Path $shFile -Content $sh -Executable -Changes $Changes
-    if ($IsWindows) { Write-LegionGeneratedFile -Path $cmdFile -Content $cmd -Changes $Changes }
+    if (-not (Test-LegionLauncherExecutable -Path $shFile)) { Write-LegionGeneratedFile -Path $shFile -Content $sh -Executable -Changes $Changes }
+    if ($IsWindows -and -not (Test-LegionLauncherExecutable -Path $cmdFile)) { Write-LegionGeneratedFile -Path $cmdFile -Content $cmd -Changes $Changes }
 }
 
+# task 5 removes this
 function Write-FoundryToolConfig {
     param($Agent, [string]$HomeRoot)
     $tool = Get-LegionTool -Tool $Agent.tool
@@ -193,6 +194,7 @@ function Write-FoundryToolConfig {
     return & $script -Agent $Agent -HomeRoot $HomeRoot
 }
 
+# task 5 removes this
 function Sync-LegionFoundryRuntime {
     param([string]$Tool, [string]$HomeRoot, [Collections.Generic.List[string]]$Changes)
     $descriptor = Get-LegionFoundryTool -Tool $Tool
@@ -224,6 +226,7 @@ function Sync-LegionFoundryRuntime {
     return Join-Path $runtime 'bin/legion-foundry.ps1'
 }
 
+# task 5 removes this
 function New-FoundryWrappers {
     param([string]$Id, [string]$HomeRoot, [string]$Tool, [Collections.Generic.List[string]]$Changes)
     Assert-LegionId $Id
@@ -238,6 +241,7 @@ function New-FoundryWrappers {
     Write-LegionGeneratedFile -Path (Join-Path $bin "$Id.cmd") -Content $cmd -Changes $Changes
 }
 
+# task 5 removes this
 function Get-LegionFoundryDiscovery {
     param([string]$Endpoint, [string]$Tool)
     $descriptor = Get-LegionFoundryTool -Tool $Tool
@@ -246,6 +250,7 @@ function Get-LegionFoundryDiscovery {
     Get-FoundryDeployments -Endpoint $Endpoint -Tool $Tool
 }
 
+# task 5 removes this
 function Write-LegionFoundryList {
     param($Discovery, $Existing)
     $rows = @($Discovery.Deployments | ForEach-Object {
@@ -261,6 +266,7 @@ function Write-LegionFoundryList {
     @{ source = $Discovery.Source; error = $Discovery.Error; deployments = @($rows) } | ConvertTo-Json -Depth 100
 }
 
+# task 5 removes this
 function Select-LegionFoundryStandard {
     param([object[]]$Deployments, $Tool)
     $aliases = @($Tool.foundry.aliases | Where-Object { $_ -ne 'fable' })
@@ -313,6 +319,7 @@ function Select-LegionFoundryStandard {
     return $result
 }
 
+# task 5 removes this
 function New-LegionFoundryProvider {
     param([string]$Endpoint, [string]$Tool, [string[]]$Deployments, [string]$Default, [string[]]$Aliases, [switch]$Standard, $Discovery, $Existing)
     $descriptor = Get-LegionFoundryTool -Tool $Tool
@@ -359,73 +366,4 @@ function New-LegionFoundryProvider {
     $issues = @(Get-LegionProviderIssues -Data ([pscustomobject]@{ agents = @([pscustomobject]@{ tool = $Tool; provider = $provider }) }))
     if ($issues.Count) { throw ($issues -join '; ') }
     return $provider
-}
-
-function Move-LegionWrappers {
-    param([string]$OldId, [string]$NewId, [string]$HomeRoot)
-    foreach ($entry in @(Get-LegionFootprints -HomeRoot $HomeRoot -Kind folder | Where-Object { $_.owners -ccontains "account:$OldId" })) {
-        Add-LegionFootprint -HomeRoot $HomeRoot -Kind folder -Path $entry.path -Owner "account:$NewId"
-    }
-    $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
-    foreach ($suffix in @('', '.cmd')) {
-        $old = Join-Path $bin "$OldId$suffix"
-        if (Test-LegionOwnedWrapper $old $OldId) {
-            $target = Join-Path $bin "$NewId$suffix"
-            if (Test-Path -LiteralPath $target) { throw "wrapper collision '$target'" }
-            $content = [IO.File]::ReadAllText($old).Replace((Get-LegionLauncherHeader -Id $OldId -Windows:($suffix -ne '')), (Get-LegionLauncherHeader -Id $NewId -Windows:($suffix -ne ''))).Replace("-Agent $OldId ", "-Agent $NewId ")
-            Write-LegionGeneratedFile -Path $target -Content $content -Executable:($suffix -eq '')
-            Remove-Item -LiteralPath $old -Force
-        }
-    }
-    Remove-LegionFootprintOwner -HomeRoot $HomeRoot -Owner "account:$OldId"
-}
-
-function Remove-LegionWrappers {
-    param([string]$Id, [string]$HomeRoot)
-    $bin = Get-LegionHomePath -HomeRoot $HomeRoot -Path 'bin'
-    foreach ($suffix in @('', '.cmd')) {
-        $path = Join-Path $bin "$Id$suffix"
-        if (Test-LegionOwnedWrapper $path $Id) { Remove-Item -LiteralPath $path -Force }
-    }
-    Remove-LegionFootprintOwner -HomeRoot $HomeRoot -Owner "account:$Id"
-}
-
-function Add-LegionSubscriptionAccount {
-    param([string]$Id, [string]$Tool, [string]$Command, [string]$ConfigDir, [string]$HomeRoot, $Data, [string]$Path)
-    $existing = Get-LegionAgent -Data $Data -Id $Id
-    $accountDir = if ($ConfigDir) { $ConfigDir } else { Get-LegionNewAccountDir -Id $Id -HomeRoot $HomeRoot }
-    if ($ConfigDir) {
-        $folder = Resolve-LegionHomePath -Path $ConfigDir -HomeRoot $HomeRoot
-        if (-not (Test-Path -LiteralPath $folder -PathType Container)) { throw 'Existing account config folder does not exist.' }
-        $folder = (Resolve-Path -LiteralPath $folder -ErrorAction Stop).ProviderPath
-        if ($ConfigDir -notmatch '^~[/\\]') { $accountDir = $folder }
-    }
-    $accountDir = Resolve-LegionHomePath -Path $accountDir -HomeRoot $HomeRoot
-    $accountDir = [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($accountDir))
-    $existingDir = Resolve-LegionHomePath -Path $existing.configDir -HomeRoot $HomeRoot
-    if ($null -ne $existing -and -not $existing.provider -and $existing.tool -ceq $Tool -and (Get-LegionPathComparer).Equals($existingDir, $accountDir)) {
-        if (-not $Command) { $Command = Get-LegionWrapperTarget -Id $Id -Tool $Tool -HomeRoot $HomeRoot -ConfigDir $accountDir }
-        if (-not $Command) { throw "target needed: $Id; ask the owner for the registered executable" }
-        $changes = [Collections.Generic.List[string]]::new()
-        New-LegionWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $Command -ConfigDir $accountDir -Changes $changes
-        if ($changes.Count) { foreach ($launcher in $changes) { "wrote: launcher $launcher" } }
-        else { "skip: account $Id (already done)" }
-        return
-    }
-    Assert-LegionNewId -Id $Id -Data $Data
-
-    $realCommand = if ($Command) { $Command } else { (Get-Command (Get-LegionTool -Tool $Tool).command -ErrorAction Stop).Source }
-    foreach ($suffix in @('', '.cmd')) {
-        $destination = Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$Id$suffix"
-        if ($realCommand -eq "$Id$suffix" -or ([IO.Path]::IsPathRooted($realCommand) -and [IO.Path]::GetFullPath($realCommand) -eq [IO.Path]::GetFullPath($destination))) { throw 'wrapper target would recurse' }
-    }
-    $entry = [pscustomobject]@{
-        id = $Id; tool = $Tool; configDir = $accountDir
-    }
-    New-LegionWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $realCommand -ConfigDir $accountDir -CheckOnly
-    $Data.agents = @($Data.agents) + @($entry)
-    Write-LegionPersonalisation -Data $Data -Path $Path
-    New-LegionWrappers -Id $Id -Tool $Tool -HomeRoot $HomeRoot -RealCommand $realCommand -ConfigDir $accountDir
-    if ($ConfigDir) { "Existing account folder kept at $ConfigDir; use '$Id' to open it." }
-    else { "Run '$Id' in a terminal and log in once." }
 }

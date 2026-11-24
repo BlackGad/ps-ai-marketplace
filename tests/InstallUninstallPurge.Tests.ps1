@@ -137,6 +137,23 @@ Test-PurgeScenario {
 }
 
 Test-PurgeScenario {
+    if (-not $IsWindows) {
+        $state.Missing = $true
+        $null = New-PurgeFile '.legion/configuration/personalisation.json.lock' ''
+        $bin = Join-Path $fixtureHome '.legion/python/env-012345abcdef/bin'
+        New-Item -ItemType Directory -Path $bin -Force | Out-Null
+        $link = Join-Path $bin 'python3'
+        New-Item -ItemType SymbolicLink -Path $link -Target (Join-Path $outside 'keep.txt') | Out-Null
+        $lib = Join-Path (Split-Path $bin) 'lib'
+        New-Item -ItemType Directory -Path $lib | Out-Null
+        New-Item -ItemType SymbolicLink -Path (Join-Path (Split-Path $bin) 'lib64') -Target $lib | Out-Null
+        $output = @(Invoke-LegionInstaller -Catalog $catalog -Uninstall -Purge -Yes 6>&1) -join "`n"
+        Assert-True (-not (Test-Path (Join-Path $fixtureHome '.legion'))) 'Purge removes Python environment links and the settings lock with the legion home'
+        Assert-True (-not $output.Contains('Manual step: legion home')) 'Python environment links need no manual purge step'
+    }
+}
+
+Test-PurgeScenario {
     $state.Missing=$true
     $null = New-PurgeFile '.legion/configuration/personalisation.json' '{"agents":[{"tool":"claude","configDir":"~/custom-claude"},{"tool":"codex","configDir":"~/custom-codex"}]}'
     $null = New-PurgeFile '.legion/configuration/notes.md' 'current notes'
@@ -397,4 +414,18 @@ Test-PurgeScenario {
     Invoke-InstallPurgePlan -Plan $plan
     Assert-True (-not (Test-Path (Join-Path $fixtureHome '.legion'))) 'Purge removes the recorded link, then the legion folder'
     Assert-True (Test-Path $target) 'The link target stays'
+}
+
+Test-PurgeScenario {
+    $script:installCatalog = $catalog
+    $version = Join-Path $fixtureHome '.legion/app/0.0.1'
+    New-Item -ItemType Directory -Path $version -Force | Out-Null
+    Add-LegionFootprint -HomeRoot $fixtureHome -Kind app-version -Path $version -Owner legion
+    $interpreter = New-PurgeFile '.legion/python/env-0123456789ab/bin/python' 'interpreter link fixture'
+    function Get-InstallPythonLinks { return @($interpreter) }
+    $plan = Get-InstallPurgePlan
+    Assert-Equal 0 @($plan.PythonLinks).Count 'Purge plans no interpreter links while an app version is retained'
+    Assert-Equal 0 @($plan.Links | Where-Object { $_ -ceq $interpreter }).Count 'Purge does not put retained interpreter links in its deletion list'
+    Invoke-InstallPurgePlan -Plan $plan
+    Assert-True (Test-Path -LiteralPath $interpreter) 'Purge leaves the retained interpreter entry intact'
 }

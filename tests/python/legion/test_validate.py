@@ -143,3 +143,13 @@ def test_cli_prints_each_issue_and_exits_one(capsys: pytest.CaptureFixture[str])
 def test_cli_rejects_an_unknown_kind(capsys: pytest.CaptureFixture[str]) -> None:
     assert run(["validate", "--kind", "other", "--path", str(OWNER)]) == 2
     assert "other" in capsys.readouterr().err
+
+
+def test_command_is_accepted_for_a_subscription_account_and_refused_with_a_provider(tmp_path: Path) -> None:
+    data = json.loads(FOUNDRY.read_text(encoding="utf-8"))
+    path = tmp_path / "command.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert _validate.validate("personalisation", path) == []
+    data["agents"][5]["command"] = "~/bin/claude"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert _validate.validate("personalisation", path) == ["agents[5]: command is only for subscription accounts"]

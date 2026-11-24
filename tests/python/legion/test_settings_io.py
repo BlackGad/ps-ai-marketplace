@@ -1,9 +1,7 @@
 import json
 import os
-import queue
 import subprocess
 import sys
-import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -16,7 +14,7 @@ from legion import _channel
 from filelock import FileLock
 from legion._home import settings_path
 from legion._settings_io import SCHEMA_URL, SettingsError
-from legion._settings_models import Channel, PersonalisationSettings
+from legion._settings_models import PersonalisationSettings
 
 ACCOUNT = {"id": "claude-a", "tool": "claude", "configDir": "~/.claude"}
 FOUNDRY = {
@@ -338,60 +336,6 @@ def test_writer_leaves_fresh_home_untouched_when_settings_are_missing(tmp_path: 
     assert not (tmp_path / ".legion").exists()
 
 
-def test_powershell_account_add_preserves_overlapping_channel_change(tmp_path: Path, pwsh_path: Path) -> None:
-    write_settings(tmp_path, {"schemaVersion": 1, "agents": [ACCOUNT], "channels": []})
-    config = tmp_path / "config"
-    config.mkdir()
-    command = tmp_path / "fake-tool"
-    command.write_bytes(b"fake")
-    account = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "bin" / "legion-account.ps1"
-    launch = tmp_path / "account.ps1"
-    launch.write_text(
-        ". (Join-Path (Split-Path $args[0]) 'lib/accounts.ps1'); "
-        "$global:settingsLockPath = Join-Path $args[3] '.legion/configuration/personalisation.json.lock'; "
-        "Set-PSBreakpoint -Command Wait-LegionLockFile -Action { [Console]::WriteLine('ready') } | Out-Null; "
-        "Set-PSBreakpoint -Command Read-LegionJson -Action { "
-        "[Console]::WriteLine('read breakpoint'); $held = Open-LegionLockFile -Path $global:settingsLockPath; "
-        "if ($held) { $held.Dispose(); [Console]::Error.WriteLine('account read settings without lock') } } | Out-Null; "
-        "& $args[0] -Action add -Id claude-b -Tool claude -Command $args[1] -ConfigDir $args[2] -HomeRoot $args[3]",
-        encoding="utf-8",
-    )
-    with FileLock(str(settings_path(tmp_path)) + ".lock", timeout=0):
-        child = subprocess.Popen(
-            [str(pwsh_path), "-NoProfile", "-File", str(launch), str(account), str(command), str(config), str(tmp_path)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        try:
-            assert child.stdout is not None
-            output = child.stdout
-            ready: queue.Queue[str] = queue.Queue()
-            threading.Thread(target=lambda: ready.put(output.readline()), daemon=True).start()
-            assert ready.get(timeout=30).strip() == "ready"
-            assert child.poll() is None
-            settings = _settings_io.load(tmp_path)
-            settings.channels.append(Channel.model_validate({"id": "channel-a", "kind": "telegram", "target": "1", "accounts": ["claude-a"]}))
-            _settings_io.save_locked(tmp_path, settings)
-        except BaseException:
-            if child.poll() is None:
-                child.kill()
-            child.communicate(timeout=60)
-            raise
-    try:
-        stdout, stderr = child.communicate(timeout=60)
-    except subprocess.TimeoutExpired:
-        child.kill()
-        stdout, stderr = child.communicate(timeout=5)
-        pytest.fail(f"PowerShell account child stalled: {stdout} {stderr}")
-    assert child.returncode == 0, stderr
-    assert "read breakpoint" in stdout
-    assert "account read settings without lock" not in stderr
-    result = _settings_io.load(tmp_path)
-    assert {agent.id for agent in result.agents} == {"claude-a", "claude-b"}
-    assert {channel.id for channel in result.channels} == {"channel-a"}
-
-
 def test_powershell_models_list_does_not_wait_for_settings_writer(tmp_path: Path, pwsh_path: Path) -> None:
     write_settings(tmp_path, {"schemaVersion": 1, "agents": [FOUNDRY], "channels": []})
     account = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "bin" / "legion-account.ps1"
@@ -417,7 +361,7 @@ def test_powershell_models_list_does_not_wait_for_settings_writer(tmp_path: Path
     assert '"deployments"' in result.stdout
 
 
-def test_powershell_setup_locks_settings_before_planning(tmp_path: Path, pwsh_path: Path) -> None:
+def test_powershell_setup_plans_under_the_settings_lock_and_runs_the_account_add_without_it(tmp_path: Path, pwsh_path: Path) -> None:
     write_settings(tmp_path, {"schemaVersion": 1, "agents": [ACCOUNT], "channels": []})
     setup = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "bin" / "legion-setup.ps1"
     probe = tmp_path / "setup-lock.ps1"
@@ -432,9 +376,7 @@ def test_powershell_setup_locks_settings_before_planning(tmp_path: Path, pwsh_pa
         "$held = Open-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $file); "
         "if (-not $held) { throw 'settings lock held during external work' }; $held.Dispose() }\n"
         "function Install-SetupTools { param($Plan) Assert-Unlocked $Plan }\n"
-        "function Add-SetupAccounts { param($Plan) $file = Get-LegionOwnerPath -HomeRoot $Plan.HomeRoot -Name Settings; "
-        "$held = Open-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $file); "
-        "if ($held) { $held.Dispose(); throw 'account read lacked settings lock' } }\n"
+        "function Add-SetupAccounts { param($Plan) Assert-Unlocked $Plan }\n"
         "function Add-SetupAllowRules { param($Plan) Assert-Unlocked $Plan }\n"
         "function Set-SetupPath { param($Plan) }\n"
         "function Install-SetupPlugins { param($Plan) Assert-Unlocked $Plan }\n"

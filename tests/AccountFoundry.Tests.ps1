@@ -233,7 +233,7 @@ approval_policy = "never"
         Copy-Item $file $collisionFile
         $preservedCommand = Join-Path $collisionHome 'preserved-cli.ps1'
         '# inert preserved CLI' | Set-Content -LiteralPath $preservedCommand
-        & $accountScript -Action add -Id legion-runtime -Tool claude -Command $preservedCommand -HomeRoot $collisionHome | Out-Null
+        New-LegionWrappers -Id legion-runtime -Tool claude -HomeRoot $collisionHome -ConfigDir (Join-Path $collisionHome 'agents/legion-runtime') -RealCommand $preservedCommand
         $collisionWrapper = Join-Path $collisionHome '.legion/bin/legion-runtime'
         $collisionBytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))
         $runtimeChanges = [Collections.Generic.List[string]]::new()
@@ -241,8 +241,8 @@ approval_policy = "never"
         Assert-Equal $collisionRunner $runtimeChanges[-1] 'Runtime publishes the runner after its dependencies'
         Assert-True (Test-Path $collisionRunner -PathType Leaf) 'A valid account named legion-runtime cannot block runtime sync'
         Assert-Equal $collisionBytes ([Convert]::ToBase64String([IO.File]::ReadAllBytes($collisionWrapper))) 'Runtime sync preserves same-named account wrapper'
-        & $accountScript -Action rename -Id legion-runtime -NewId runtime-renamed -HomeRoot $collisionHome | Out-Null
-        & $accountScript -Action add -Id legion-runtime -Tool claude -Command $preservedCommand -HomeRoot $collisionHome | Out-Null
+        foreach ($suffix in $(if ($IsWindows) { @('', '.cmd') } else { @('') })) { Remove-Item -LiteralPath "$(Join-Path $collisionHome '.legion/bin/legion-runtime')$suffix" }
+        New-LegionWrappers -Id legion-runtime -Tool claude -HomeRoot $collisionHome -ConfigDir (Join-Path $collisionHome 'agents/legion-runtime') -RealCommand $preservedCommand
         Assert-True ((Get-Content $collisionWrapper -Raw).Contains('preserved-cli')) 'Account creation still works after runtime installation'
         $pluginCopy = Join-Path $tempRoot 'source-plugin'
         Copy-Item (Join-Path $root 'plugins/legion') $pluginCopy -Recurse
@@ -263,11 +263,6 @@ approval_policy = "never"
         & $pwshPath -NoProfile -File $syncOutput[0] -Agent codex-dev -HomeRoot $homeRoot -p 'space value' | Out-Null
         Assert-Equal 0 $LASTEXITCODE 'Bundle launches after source plugin removal from a home with spaces'
     }
-    & $accountScript -Action rename -Id claude-dev -NewId claude-renamed -HomeRoot $homeRoot | Out-Null
-    Assert-True ((Get-Content -Raw (Join-Path $homeRoot '.legion/bin/claude-renamed')).Contains('-Agent claude-renamed')) 'Foundry rename retargets wrapper'
-    & $accountScript -Action remove -Id claude-renamed -HomeRoot $homeRoot | Out-Null
-    Assert-True (-not (Test-Path (Join-Path $homeRoot '.legion/bin/claude-renamed'))) 'Remove deletes Foundry wrapper'
-    Assert-True (Test-Path $settings) 'Remove keeps Foundry settings'
 } finally {
     $env:LEGION_FAKE_TOOL_LOG = $savedToolLog
     $env:PATH = $savedPath

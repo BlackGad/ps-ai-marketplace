@@ -49,7 +49,7 @@ try {
     $env:PATH = $fixturePath
     $version = (Get-Content (Join-Path $root 'plugins/legion/plugin.json') -Raw | ConvertFrom-Json).version
 
-    # All machine, CLI and network seams are inert; account creation still runs the real add path.
+    # All machine, CLI and network seams are inert; the Python account call is a stand-in (see Invoke-LegionPython below).
     function Test-SetupCommand { param($Name) return ($Name -cnotin $script:missingTools) }
     function Test-SetupToolInstalled { param($Tool) return ($Tool -cnotin $script:missingTools) }
     function Get-LegionUserPath { return $script:userPath }
@@ -72,6 +72,46 @@ try {
         @{ name = 'legion'; version = $version } | ConvertTo-Json | Set-Content -LiteralPath $manifest
         return 0
     }
+    # The Python call records its arguments and environment and leaves what `legion account add` leaves: a settings
+    # entry, the launchers and the folder. The real verb is covered by the pytest suite.
+    function Invoke-LegionPython {
+        param([string[]]$Arguments = @(), [string]$HomeRoot = $HOME, [hashtable]$Environment = @{})
+        $script:pythonCalls.Add(@{ Arguments = $Arguments; HomeRoot = $HomeRoot; Environment = $Environment })
+        if ($script:pythonFailure) { return @{ ExitCode = 1; Output = ''; Error = $script:pythonFailure } }
+        $words = @{}
+        for ($index = 2; $index -lt $Arguments.Count; $index += 2) { $words[$Arguments[$index]] = $Arguments[$index + 1] }
+        $id = $words['--id']
+        $tool = $words['--tool']
+        $file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings
+        $data = Read-LegionJson -Path $file
+        $agent = @($data.agents | Where-Object { $_.id -ceq $id })[0]
+        $folder = if ($words['--config-dir']) { $words['--config-dir'] } else { Get-LegionNewAccountDir -Id $id -HomeRoot $HomeRoot }
+        $command = if ($agent.command) { Resolve-LegionHomePath -Path $agent.command -HomeRoot $HomeRoot } else { Find-SetupCommand -Name (Get-LegionTool -Tool $tool).command }
+        if (-not $command -or -not (Test-Path -LiteralPath $command -PathType Leaf)) {
+            return @{ ExitCode = 1; Output = ''; Error = "target needed: $id; ask the owner for the registered executable" }
+        }
+        if (-not $agent) {
+            $data.agents = @($data.agents) + @([pscustomobject]@{ id = $id; tool = $tool; configDir = $folder })
+            Write-LegionPersonalisation -Data $data -Path $file
+        }
+        $changes = [Collections.Generic.List[string]]::new()
+        New-LegionWrappers -Id $id -Tool $tool -HomeRoot $HomeRoot -ConfigDir $folder -RealCommand $command -Changes $changes
+        $lines = if (-not $agent) { "Run '$id' in a terminal and log in once." }
+            elseif ($changes.Count) { @($changes | ForEach-Object { "wrote: launcher $_" }) }
+            else { "skip: account $id (already done)" }
+        return @{ ExitCode = 0; Output = (@($lines) -join "`n"); Error = '' }
+    }
+    # An account as the Python verbs leave it: a settings entry (with its command when it has one) and its launchers.
+    function New-SetupFixtureAccount {
+        param([string]$Id, [string]$Tool, [string]$Target, [string]$ConfigDir, [string]$Command)
+        $data = Read-LegionJson $script:settings
+        $folder = if ($ConfigDir) { $ConfigDir } else { Get-LegionNewAccountDir -Id $Id -HomeRoot $script:testHome }
+        $entry = [ordered]@{ id = $Id; tool = $Tool; configDir = $folder }
+        if ($Command) { $entry.command = $Command }
+        $data.agents = @($data.agents) + @([pscustomobject]$entry)
+        Write-LegionPersonalisation -Data $data -Path $script:settings
+        New-LegionWrappers -Id $Id -Tool $Tool -HomeRoot $script:testHome -ConfigDir $folder -RealCommand $Target
+    }
     function Reset-SetupTest {
         param([string]$Name)
         $script:testHome = Join-Path $tempRoot $Name
@@ -85,6 +125,8 @@ try {
         $script:toolFailure = $false
         $script:needsTerminal = $false
         $script:failFolder = ''
+        $script:pythonCalls = [Collections.Generic.List[object]]::new()
+        $script:pythonFailure = ''
         $env:PATH = $fixturePath
     }
 
@@ -118,6 +160,47 @@ try {
             Assert-SetupText $repeat 'skip: permission' 'allow rule: repeat prints a skip'
             Assert-Equal $before (Get-SetupTree $testHome) 'allow rule: repeat changes nothing'
             Assert-Equal 1 @((Read-LegionJson (Join-Path $adopted 'settings.json')).permissions.allow | Where-Object { $_ -ceq $rule }).Count 'allow rule: never duplicated'
+        }
+        PythonAccountAdd = {
+            Reset-SetupTest 'python-account-add'
+            $script:userPath = 'fixture-saved-folder'
+            Invoke-Setup -HomeRoot $testHome -Add codex -Yes | Out-Null
+            $adds = @($script:pythonCalls | Where-Object { $_.Arguments[0] -ceq 'account' })
+            Assert-Equal 1 $adds.Count 'Setup runs one account add per new account'
+            Assert-Equal 'account|add|--id|codex1|--tool|codex' ($adds[0].Arguments -join '|') 'Setup names the id and the tool and passes no folder or command for a new account'
+            Assert-Equal $testHome $adds[0].HomeRoot 'Setup passes the selected home to Python'
+            if ($IsWindows) { Assert-True ($adds[0].Environment.PATH.EndsWith(';fixture-saved-folder')) 'Setup adds the saved PATH folders to the Python call' }
+            else { Assert-Equal 0 $adds[0].Environment.Count 'Setup leaves PATH alone outside Windows' }
+            # An adopted folder is the only extra word.
+            $folder = Join-Path $testHome 'existing'
+            New-Item -ItemType Directory -Path $folder | Out-Null
+            $script:pythonCalls.Clear()
+            Invoke-Setup -HomeRoot $testHome -Add "claude:$folder" -Yes | Out-Null
+            $add = @($script:pythonCalls | Where-Object { $_.Arguments[0] -ceq 'account' })[0]
+            Assert-Equal "--config-dir|$folder" (@($add.Arguments | Select-Object -Skip 6) -join '|') 'Setup passes an adopted folder as --config-dir'
+            Assert-True ($add.Arguments -cnotcontains '--command') 'Setup never passes --command'
+            # A failing call becomes the one-line error.
+            Reset-SetupTest 'python-account-add-failure'
+            $script:pythonFailure = "wrapper collision 'x'`nsecond line"
+            $message = ''
+            try { Invoke-Setup -HomeRoot $testHome -Add codex -Yes | Out-Null } catch { $message = $_.Exception.Message }
+            Assert-Equal "wrapper collision 'x' second line" $message 'A failing Python call is one line'
+        }
+        SettingsLockFreeForPython = {
+            Reset-SetupTest 'python-lock'
+            # The Python child takes the settings lock itself, so setup must not hold it while the child runs.
+            $script:lockHeld = $null
+            $realPython = ${function:Invoke-LegionPython}
+            function Invoke-LegionPython {
+                param($Arguments, $HomeRoot, $Environment)
+                $held = Open-LegionLockFile -Path (Get-LegionSettingsLockPath -Path (Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings))
+                $script:lockHeld = -not $held
+                if ($held) { $held.Dispose() }
+                return & $realPython -Arguments $Arguments -HomeRoot $HomeRoot -Environment $Environment
+            }
+            try { Invoke-Setup -HomeRoot $testHome -Add codex -Yes | Out-Null }
+            finally { Set-Item -Path function:Invoke-LegionPython -Value $realPython }
+            Assert-Equal $false $script:lockHeld 'Setup holds no settings lock while the account add runs'
         }
         R5B4 = {
             Reset-SetupTest "unbound owner's home"
@@ -155,8 +238,8 @@ try {
                 $targetName = if ($kind -eq 'stock') { if ($IsWindows) { 'codex.cmd' } else { 'codex' } } else { 'custom command.ps1' }
                 $target = Join-Path $testHome $targetName
                 '# inert target' | Set-Content -LiteralPath $target
-                $data = Read-LegionJson $settings
-                Add-LegionSubscriptionAccount -Id recover-a -Tool codex -Command $target -HomeRoot $testHome -Data $data -Path $settings | Out-Null
+                if ($kind -eq 'stock') { New-SetupFixtureAccount -Id recover-a -Tool codex -Target $target }
+                else { New-SetupFixtureAccount -Id recover-a -Tool codex -Target $target -Command $target }
                 $wrapper = Join-Path $testHome '.legion/bin/recover-a'
                 $repairPath = $wrapper
                 if ($IsWindows) { $repairPath = "$wrapper.cmd"; Remove-Item -LiteralPath $repairPath }
@@ -192,8 +275,7 @@ try {
                 Initialize-SetupFiles -Plan (Get-SetupPlan -HomeRoot $testHome) | Out-Null
                 $custom = Join-Path $testHome 'custom command.ps1'
                 '# inert custom command' | Set-Content $custom
-                $data = Read-LegionJson $settings
-                Add-LegionSubscriptionAccount -Id custom-a -Tool codex -Command $custom -HomeRoot $testHome -Data $data -Path $settings | Out-Null
+                New-SetupFixtureAccount -Id custom-a -Tool codex -Target $custom -Command $custom
                 $wrapper = Join-Path $testHome '.legion/bin/custom-a'
                 $repairPath = $wrapper
                 if ($IsWindows) { $repairPath = "$wrapper.cmd"; Remove-Item $repairPath }
@@ -261,42 +343,62 @@ try {
             New-Item -ItemType Directory -Path $folder | Out-Null
             $custom = Join-Path $fakeBin "custom'100% command.ps1"
             '# inert custom command' | Set-Content $custom
-            $data = Read-LegionJson $settings
-            Add-LegionSubscriptionAccount -Id custom-a -Tool codex -Command $custom -ConfigDir $folder -HomeRoot $testHome -Data $data -Path $settings | Out-Null
+            New-SetupFixtureAccount -Id custom-a -Tool codex -Target $custom -ConfigDir $folder -Command $custom
+            $script:missingTools = @('codex')
+            $explicit = Get-SetupPlan -HomeRoot $testHome -Add @("codex:$folder") -Id custom-a
+            Assert-Equal $custom $explicit.Accounts[0].Command 'T4-03 explicit repeat retains the stored custom command'
+            Assert-Equal 0 @($explicit.MissingTools).Count 'T4-03 custom repeat needs no stock CLI install'
+            $explicitBytes = [IO.File]::ReadAllText($settings)
+            Invoke-Setup -HomeRoot $testHome -Add @("codex:$folder") -Id custom-a -Yes | Out-Null
+            Assert-Equal $explicitBytes ([IO.File]::ReadAllText($settings)) 'T4-03 explicit repeat preserves settings'
             $sh = Join-Path $testHome '.legion/bin/custom-a'
             $cmd = "$sh.cmd"
+            # The stored command restores any missing launcher, whichever one survived.
             if ($IsWindows) {
                 $original = [IO.File]::ReadAllText($cmd)
                 Remove-Item $cmd
-                Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+                $explicit = Get-SetupPlan -HomeRoot $testHome -Add @("codex:$folder") -Id custom-a
+                Assert-True $explicit.Accounts[0].Usable 'T4-03 stored command repairs a missing sibling on an explicit repeat'
+                Invoke-Setup -HomeRoot $testHome -Add @("codex:$folder") -Id custom-a -Yes | Out-Null
                 Assert-Equal $original ([IO.File]::ReadAllText($cmd)) 'K8 shell survivor restores custom Windows target'
                 $original = [IO.File]::ReadAllText($sh)
                 Remove-Item $sh
                 Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
                 Assert-Equal $original ([IO.File]::ReadAllText($sh)) 'K8 batch survivor restores custom shell target'
                 Remove-Item $cmd
-                [IO.File]::AppendAllText($sh, '# owner customization' + "`n")
-                $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
-                Assert-SetupText $output 'target needed' 'K8 edited survivor is ambiguous and never guessed'
-                Assert-Equal $false (Test-Path $cmd) 'K8 edited survivor is kept without generating a replacement'
-                [IO.File]::WriteAllText($sh, $original)
-                Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
-                Remove-Item $cmd
             }
             Remove-Item $sh
             $plan = @(Invoke-Setup -HomeRoot $testHome)
-            Assert-SetupText $plan 'wrappers repair custom-a' 'Absent wrappers use the stock CLI in the plan'
+            Assert-SetupText $plan 'wrappers repair custom-a' 'Absent wrappers with a stored command are repaired in the plan'
+            Assert-True (-not ($plan -match 'cli +install')) 'A stored command needs no stock CLI'
             $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
             Assert-True (Test-Path $sh) 'Setup restores an account whose launchers are gone'
             Assert-SetupText $output "wrote: launcher $sh" 'Setup reports the launcher it repaired'
             Assert-True (-not ($output -contains 'skip: account custom-a (already done)')) 'Setup does not report a repaired account as unchanged'
+            Assert-Equal $custom (Get-LegionWrapperTarget -Id custom-a -Tool codex -HomeRoot $testHome -ConfigDir $folder) 'The repair keeps the stored command'
+            $script:missingTools = @()
+            # An account with no stored command: both launchers gone means the stock CLI, one left needs the owner.
+            $data = Read-LegionJson $settings
+            $data.agents[0].PSObject.Properties.Remove('command')
+            Write-LegionPersonalisation -Data $data -Path $settings
+            if ($IsWindows) {
+                Remove-Item $cmd
+                $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
+                Assert-SetupText $output 'target needed' 'K8 a survivor without a stored command is ambiguous and never guessed'
+                Assert-Equal $false (Test-Path $cmd) 'K8 the survivor is kept without generating a replacement'
+                Remove-Item $sh
+            } else { Remove-Item $sh }
+            $plan = @(Invoke-Setup -HomeRoot $testHome)
+            Assert-SetupText $plan 'wrappers repair custom-a' 'Absent wrappers use the stock CLI in the plan'
+            $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
             $stock = Join-Path $fakeBin $(if ($IsWindows) { 'codex.cmd' } else { 'codex' })
             Assert-Equal $stock (Get-LegionWrapperTarget -Id custom-a -Tool codex -HomeRoot $testHome -ConfigDir $folder) 'Absent launchers fall back to the stock CLI'
             Remove-Item $sh
             if ($IsWindows) { Remove-Item $cmd }
             $env:PATH = $systemBin
+            $script:missingTools = @('codex')
             $plan = @(Invoke-Setup -HomeRoot $testHome)
-            Assert-SetupText $plan 'target needed: custom-a' 'Setup still asks for a target when the stock CLI is absent'
+            Assert-SetupText $plan 'install codex' 'Setup plans the stock CLI install when it is absent'
         }
         G1 = {
             Reset-SetupTest 'interrupted-chmod'
@@ -388,13 +490,14 @@ try {
             $wrapper = Get-LegionWrapperCommand codex1 $testHome
             $output = @(Invoke-Setup -HomeRoot $testHome -Yes)
             Assert-True (Test-Path -LiteralPath $wrapper) 'B2 setup recovers after interruption before either launcher was written'
-            $data = Read-LegionJson $settings
-            Add-LegionSubscriptionAccount -Id codex1 -Tool codex -Command (Join-Path $fakeBin $(if ($IsWindows) { 'codex.cmd' } else { 'codex' })) -HomeRoot $testHome -Data $data -Path $settings | Out-Null
+            $null = Invoke-LegionPython -Arguments @('account', 'add', '--id', 'codex1', '--tool', 'codex') -HomeRoot $testHome
             Assert-True (Test-Path -LiteralPath $wrapper) 'B2 finish setup repairs interrupted account wrappers'
+            # With no stored command, a launcher that survived alone cannot be repaired, so both go.
             Remove-Item -LiteralPath $wrapper
+            if ($IsWindows) { Remove-Item -LiteralPath (Join-Path $testHome '.legion/bin/codex1') }
             if ($IsWindows) { Invoke-Setup -HomeRoot $testHome -Add codex -Id codex1 -Yes | Out-Null }
             else {
-                Add-LegionSubscriptionAccount -Id codex1 -Tool codex -Command (Join-Path $fakeBin 'codex') -HomeRoot $testHome -Data $data -Path $settings | Out-Null
+                $null = Invoke-LegionPython -Arguments @('account', 'add', '--id', 'codex1', '--tool', 'codex') -HomeRoot $testHome
                 # The Windows run above also installs the plugin for the account; do it here once, so the repeat below has nothing left to do.
                 Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
             }
@@ -497,18 +600,19 @@ try {
             if (-not $IsWindows) { return }
             Reset-SetupTest 'folder-case'
             Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
-            $realAdd = ${function:Add-LegionSubscriptionAccount}
+            $realPython = ${function:Invoke-LegionPython}
             $script:addArguments = $null
-            function Add-LegionSubscriptionAccount {
-                param($Id, $Tool, $HomeRoot, $Data, $Path, $ConfigDir, $Command)
-                $script:addArguments = $PSBoundParameters
+            function Invoke-LegionPython {
+                param($Arguments, $HomeRoot, $Environment)
+                $script:addArguments = $Arguments
+                return @{ ExitCode = 0; Output = ''; Error = '' }
             }
             $managed = Get-LegionNewAccountDir -Id 'codex1' -HomeRoot $testHome
             $row = [pscustomobject]@{ Id = 'codex1'; Tool = @{ id = 'codex'; command = 'codex' }; Folder = $managed.ToUpperInvariant()
                 Requested = $true; New = $false; Adopted = $false; Usable = $true; MissingWrappers = $false; Provider = $null; NextStep = '' }
             try { Add-SetupAccounts -Plan ([pscustomobject]@{ HomeRoot = $testHome; Accounts = @($row) }) | Out-Null }
-            finally { Set-Item -Path function:Add-LegionSubscriptionAccount -Value $realAdd }
-            Assert-True (-not $script:addArguments.ContainsKey('ConfigDir')) 'N4 a folder that differs only by case is the managed folder'
+            finally { Set-Item -Path function:Invoke-LegionPython -Value $realPython }
+            Assert-True ($script:addArguments -cnotcontains '--config-dir') 'N4 a folder that differs only by case is the managed folder'
         }
     }
     foreach ($key in $regressions.Keys) {
@@ -559,7 +663,8 @@ try {
     $apply = @(Invoke-Setup -HomeRoot $testHome -Add @('claude', "codex:$adopt") -Yes)
     $applyWatch.Stop()
     Set-Item -Path function:New-LegionWrappers -Value $realNewWrappers
-    Assert-Equal 'claude1|claude1|codex1|codex1' ($wrapperCalls -join '|') 'Each account validates and creates wrappers in this process'
+    Assert-Equal 'claude1|codex1' ($wrapperCalls -join '|') 'Each account has its wrappers written once, by its own Python call'
+    Assert-Equal 'claude1|codex1' (@($script:pythonCalls | Where-Object { $_.Arguments[0] -ceq 'account' } | ForEach-Object { $_.Arguments[3] }) -join '|') 'Each account is added by one Python call'
     Assert-Equal 0 $LASTEXITCODE 'In-process adds ignore a stale native exit code'
     Assert-True (-not ($apply -join "`n").Contains("Run 'claude1' in a terminal and log in once.")) 'Setup keeps account add guidance out of its output'
     Assert-True (-not ($apply -join "`n").Contains('Existing account folder kept at')) 'Setup keeps adoption guidance out of its output'
@@ -608,19 +713,13 @@ try {
     Assert-Equal 0 $installs.Count 'Bad input does not install'
 
     Reset-SetupTest 'account-error'
-    $script:wrapperCalls.Clear()
-    function New-LegionWrappers {
-        param($Id, $Tool, $HomeRoot, $RealCommand, $ConfigDir, [switch]$CheckOnly)
-        $script:wrapperCalls.Add($Id)
-        throw "fixture add failure`r`nsecond line"
-    }
+    $script:pythonFailure = "fixture add failure`r`nsecond line"
     $addError = $null
     try { Invoke-Setup -HomeRoot $testHome -Add @('claude', 'codex') -Yes | Out-Null }
     catch { $addError = $_.Exception.Message }
-    finally { Set-Item -Path function:New-LegionWrappers -Value $realNewWrappers }
     Assert-Equal 'fixture add failure  second line' $addError 'Account add errors stop setup with the same one-line message'
-    Assert-Equal 'claude1' ($wrapperCalls -join '|') 'Account add failure stops before the next account'
-    Assert-Equal 0 (@((Read-LegionJson $settings).agents).Count) 'Failed wrapper validation records no account'
+    Assert-Equal 1 @($script:pythonCalls | Where-Object { $_.Arguments[0] -ceq 'account' }).Count 'Account add failure stops before the next account'
+    Assert-Equal 0 (@((Read-LegionJson $settings).agents).Count) 'A failed account add records no account'
     Assert-Equal 0 $installs.Count 'Account add failure stops before plugin installs'
     Assert-Equal 0 $pathWrites.Count 'Account add failure stops before PATH writes'
 

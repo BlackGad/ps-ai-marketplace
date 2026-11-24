@@ -3,7 +3,7 @@
 Follow [owner notes](../../legion-personalisation/references/fields.md) before account, model or channel choices.
 Add and adopt through `legion-setup.ps1`, as [create.md](../../legion-personalisation/references/create.md) describes. It suggests `claude<n>`, accepts a valid custom lowercase hyphenated id that is not a command on PATH, installs a missing `claude` CLI, creates the wrapper and config folder, and installs legion, all before login. Setup also adds the allow rules from `allowRules` in `tool.json` to each account's `settings.json`, so the overseer can start members without a prompt. For a new folder only, the owner runs `<id>` in a terminal to log in once; never handle tokens or credential files. Follow the [shared account rules](../../legion-personalisation/references/fields.md#account-setup).
 
-[install.md](install.md) covers a CLI-only install the owner asks for. Register an existing wrapper with `-Action register -Id <id> -Tool claude -Command <wrapper> -ConfigDir <dir> -HomeRoot <home>`; rename with `-Action rename -Id <old> -NewId <new>`; remove with `-Action remove -Id <id>`. These use `bin/legion-account.ps1`; they update channel bindings, keep the config folder and print its location. Ask before changing or deleting that folder.
+[install.md](install.md) covers a CLI-only install the owner asks for. Register an existing account's program with `legion account register --id <id> --tool claude --command <path> --config-dir <dir>`; rename with `legion account rename --id <old> --new-id <new>`; remove with `legion account remove --id <id>`. They update channel bindings, keep the config folder and print its location. Ask before changing or deleting that folder.
 
 ## Foundry agent
 

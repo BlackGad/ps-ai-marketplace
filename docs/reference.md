@@ -199,18 +199,18 @@ repo none
 | --- | --- |
 | `legion setup [--yes]` | Finish setup: settings, commands, legion in every account |
 | `legion add <tool> [<folder>] [--yes]` | Add a claude, codex or copilot account, using a new or existing folder |
-| `legion remove <id>` | Remove an account; keep its folder |
+| `legion remove --id <id>` | Remove an account; keep its folder |
 | `legion status` | Show accounts, commands, channels and this repository |
 | `legion [--no-channel]` | Start the overseer here, set up if needed; resumes the last conversation (see [launcher defaults](../plugins/legion/skills/legion-personalisation/references/launcher.md)) |
 | `legion pick [--no-channel]` | Choose which account leads the overseer |
-| `legion limits [<id>]` | Show each account's usage windows (used %, reset time, status), or one account's; `unknown` when the tool gives no readout |
+| `legion limits [--id <id>]` | Show each account's usage windows (used %, reset time, status), or one account's; `unknown` when the tool gives no readout |
 | `legion lease take\|status\|release` | Take, check or release this repository's overseer lease; the overseer skill runs it |
 | `legion update [--yes]` | Update legion along the track it was installed from |
 | `legion update --check [--force]` | Check for a newer release; `--force` refreshes the cached result |
 | `legion uninstall [--purge] [--yes]` | Remove legion; purge also removes settings, notes and legion-made logins |
 | `legion help` | Show this list |
 
-`setup` and `add` show the plan, then ask `Apply? [Y/n]` in an interactive terminal (Enter accepts). `--yes` applies without asking; redirected input only prints the plan. For example, `legion add claude`, `legion remove claude1` and `legion pick`.
+`setup` and `add` show the plan, then ask `Apply? [Y/n]` in an interactive terminal (Enter accepts). `--yes` applies without asking; redirected input only prints the plan. For example, `legion add claude`, `legion remove --id claude1` and `legion pick`.
 
 Open `my-project` and describe the work. A bare `legion` creates Private orchestration by default; ask the tool for [Private or Shared](../plugins/legion/skills/legion-repository/SKILL.md#choose-where-notes-live) storage and a repository check command when needed. State preferences later; they are saved in notes. Channels are set up only on request, such as “use Telegram”. Each repository's overseer has its own Telegram bot folder, `~/.legion/channels/telegram/<channel id>`; the launcher points the session at it.
 

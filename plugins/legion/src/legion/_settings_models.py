@@ -80,6 +80,7 @@ class Agent(SettingsModel):
     id: Name
     tool: Name
     config_dir: Text
+    command: Optional[Text] = None
     provider: Optional[Provider] = None
 
 

@@ -85,6 +85,8 @@ def _provider_issues(settings: PersonalisationSettings, tools: list[ToolDescript
         provider = agent.provider
         if provider is None:
             continue
+        if agent.command is not None:
+            issues.append(f"agents[{index}]: command is only for subscription accounts")
         prefix = f"agents[{index}].provider:"
         if provider.kind != "foundry":
             issues.append(f"{prefix} unsupported provider '{provider.kind}'")

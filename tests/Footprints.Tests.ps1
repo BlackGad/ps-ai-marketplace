@@ -75,15 +75,12 @@ $cases = [ordered]@{
         Assert-Equal $original ([IO.File]::ReadAllText($command)) 'Headerless command bytes stay'
     }
     RuntimeOwners = {
-        . (Join-Path $repo 'plugins/legion/bin/lib/accounts.ps1')
-        foreach ($id in @('foundry-a', 'foundry-b')) { New-FoundryWrappers -Id $id -Tool claude -HomeRoot $sandbox }
         $runtime = Get-LegionOwnerPath -HomeRoot $sandbox -Name Runtime
-        Move-LegionWrappers -OldId foundry-a -NewId foundry-c -HomeRoot $sandbox
-        $owners = (Get-LegionFootprints -HomeRoot $sandbox -Kind folder).owners
-        Assert-True ($owners -contains 'account:foundry-c' -and $owners -notcontains 'account:foundry-a') 'Rename transfers the runtime owner'
-        Remove-LegionWrappers -Id foundry-c -HomeRoot $sandbox
+        New-Item -ItemType Directory -Path $runtime -Force | Out-Null
+        foreach ($owner in @('account:foundry-a', 'account:foundry-b')) { Add-LegionFootprint -HomeRoot $sandbox -Kind folder -Path $runtime -Owner $owner }
+        $null = Remove-LegionFootprintOwner -HomeRoot $sandbox -Owner 'account:foundry-a'
         Assert-True (Test-Path $runtime) 'One account still needs the runtime'
-        Remove-LegionWrappers -Id foundry-b -HomeRoot $sandbox
+        $null = Remove-LegionFootprintOwner -HomeRoot $sandbox -Owner 'account:foundry-b'
         Assert-Equal $false (Test-Path $runtime) 'Last account removes the runtime'
     }
     PurgeRecordedEdits = {

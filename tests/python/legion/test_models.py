@@ -188,3 +188,22 @@ def patterns(node: JsonValue) -> set[str]:
 def test_model_patterns_match_the_schema_file(name: str, model: type[BaseModel]) -> None:
     schema = json.loads((REPO / "plugins" / "legion" / "schemas" / f"{name}.schema.json").read_text(encoding="utf-8"))
     assert patterns(model.model_json_schema()) == patterns(schema)
+
+
+def test_agent_command_is_a_non_empty_text_and_stays_in_field_order() -> None:
+    data = json.loads((FIXTURES / "personalisation" / "valid-owner.json").read_text(encoding="utf-8"))
+    settings = PersonalisationSettings.model_validate(data)
+    assert [agent.command for agent in settings.agents] == [None] * 5 + ["~/bin/codex-custom"]
+    dumped = json.loads(settings.model_dump_json(by_alias=True, exclude_none=True))
+    assert list(dumped["agents"][5]) == ["id", "tool", "configDir", "command"]
+    data["agents"][5]["command"] = ""
+    with pytest.raises(ValidationError) as error:
+        PersonalisationSettings.model_validate(data)
+    assert problems(error) == ["agents.5.command: String should have at least 1 character"]
+
+
+def test_schema_file_describes_the_agent_command() -> None:
+    schema = json.loads((REPO / "plugins" / "legion" / "schemas" / "personalisation.schema.json").read_text(encoding="utf-8"))
+    agent = schema["properties"]["agents"]["items"]
+    assert agent["properties"]["command"]["minLength"] == 1
+    assert "command" not in agent["required"]
