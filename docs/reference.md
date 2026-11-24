@@ -210,6 +210,17 @@ repo none
 | `legion uninstall [--purge] [--yes]` | Remove legion; purge also removes settings, notes and legion-made logins |
 | `legion help` | Show this list |
 
+The owner command also accepts these account, channel and repository verbs:
+
+| Command | What it does |
+| --- | --- |
+| `legion account add --id <id> --tool <tool> [--provider foundry --endpoint <url> --deployment <name> --default <name>]` | Add or repair a subscription or Foundry account and its launcher |
+| `legion account remove --id <id>` | Remove an account and its launcher; keep its folder |
+| `legion channel add --id <id> --kind telegram --target <chat> --account <account>` | Bind a Telegram destination to an account |
+| `legion channel check --kind telegram --account <account>` | Show channel prerequisites without launching a tool |
+| `legion channel remove --id <id>` | Remove a channel binding |
+| `legion repository setup --repo <path> [--mode shared] [--gate <command>] [--rules-file <file>]` | Set up repository orchestration |
+
 `setup` and `add` show the plan, then ask `Apply? [Y/n]` in an interactive terminal (Enter accepts). `--yes` applies without asking; redirected input only prints the plan. For example, `legion add claude`, `legion remove --id claude1` and `legion pick`.
 
 Open `my-project` and describe the work. A bare `legion` creates Private orchestration by default; ask the tool for [Private or Shared](../plugins/legion/skills/legion-repository/SKILL.md#choose-where-notes-live) storage and a repository check command when needed. State preferences later; they are saved in notes. Channels are set up only on request, such as “use Telegram”. Each repository's overseer has its own Telegram bot folder, `~/.legion/channels/telegram/<channel id>`; the launcher points the session at it.

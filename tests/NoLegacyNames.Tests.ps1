@@ -18,3 +18,6 @@ Assert-Equal 0 $legacyValidation.Count 'PowerShell no longer calls the retired v
 $skillFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'plugins/legion/skills') -Filter '*.md' -Recurse -File)
 $sourcedLibraries = @($skillFiles | Where-Object { [IO.File]::ReadAllText($_.FullName) -match '(?m)^\s*\.\s+.*bin/lib/.*\.ps1' })
 Assert-Equal 0 $sourcedLibraries.Count 'Skills use the owner command instead of dot sourcing a library'
+foreach ($retired in 'legion-repository.ps1', 'legion-channel.ps1', 'legion-account.ps1', 'legion-foundry.ps1', 'legion-app.ps1', 'legion-validate.ps1') {
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $repoRoot "plugins/legion/bin/$retired"))) "$retired stays retired"
+}
