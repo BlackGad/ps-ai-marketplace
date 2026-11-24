@@ -297,6 +297,7 @@ def test_nudge_through_a_nested_forwarder_keeps_percent_text_literal(
 def test_powershell_launcher_never_runs_pwsh_from_the_current_folder(
     inbox_home: Path, repo: Path, fake_wrapper: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    assert sys.platform == "win32"
     assert fake_wrapper.name == "argv.json"
     write_launcher(inbox_home, '@pwsh -NoProfile -File "C:\\tools\\codex.ps1" %*')
     take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
