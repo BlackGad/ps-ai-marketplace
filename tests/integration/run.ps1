@@ -718,6 +718,10 @@ function Invoke-IntegrationOwner {
 
 function Get-IntegrationChannelAccount {
     $account = @((Get-IntegrationSettings).Data.agents | Where-Object { $_.tool -in @('claude', 'codex') -and $_.id -in @('claude1', 'codex1') })[0]
+    if (-not $account) {
+        if ($script:Ctx.NotTested.Contains('claude') -and $script:Ctx.NotTested.Contains('codex')) { return $null }
+        throw 'no claude or codex setup account'
+    }
     return $account.id
 }
 

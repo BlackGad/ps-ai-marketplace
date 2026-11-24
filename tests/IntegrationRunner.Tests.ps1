@@ -323,6 +323,21 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         Assert-True ((Invoke-FoundryLauncherRepeat) -like 'not tested:*') 'a skipped Copilot repeat is reported'
     }
 
+    # Missing setup accounts fail the channel step unless both tools were not tested.
+    & {
+        . $runner -NoRun
+        $script:Ctx = @{ NotTested=[ordered]@{} }
+        function Get-IntegrationSettings { return @{ Data=[pscustomobject]@{ agents=@() } } }
+        $result = Invoke-IntegrationBlock { Invoke-ChannelFirst }
+        Assert-Equal 'failed' $result.Result 'a missing setup account fails the channel step'
+        Assert-Equal 'no claude or codex setup account' $result.Message 'the failure names the missing setup account'
+        $script:Ctx.NotTested.claude = 'fixture skip'
+        $result = Invoke-IntegrationBlock { Invoke-ChannelRepeat }
+        Assert-Equal 'failed' $result.Result 'one skipped tool still leaves a missing setup account failure'
+        $script:Ctx.NotTested.codex = 'fixture skip'
+        Assert-True ((Invoke-ChannelFirst) -like 'not tested:*') 'both tools skipped permit a not tested channel result'
+    }
+
     # ---- Fakes below replace the runner's functions; each block loads the real ones again first. ----
     $fakeHome = Join-Path $tempRoot 'fake-home'
     $fakeWork = Join-Path $tempRoot 'fake-work'
