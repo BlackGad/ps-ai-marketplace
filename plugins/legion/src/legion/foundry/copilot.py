@@ -22,7 +22,7 @@ def cleanup(folder: Path, now: float) -> None:
     for path in folder.glob("copilot-providers-*.json"):
         match = EXPIRED.fullmatch(path.name)
         if match and int(match.group(1)) <= now:
-            path.unlink()
+            path.unlink(missing_ok=True)
 
 
 def write_provider(path: Path, content: ProviderFile) -> None:

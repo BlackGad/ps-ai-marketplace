@@ -15,7 +15,7 @@ from legion._home import settings_path
 from legion._settings_models import Agent, Deployment, Provider, ToolDescriptor
 from legion._settings_io import SettingsError
 from legion._validate import load_descriptors
-from legion.foundry import _discovery, codex
+from legion.foundry import _discovery, claude, codex
 from legion.foundry import _run
 from legion.foundry._az import AzAccessToken
 from legion.foundry import _az, copilot
@@ -27,6 +27,11 @@ from legion.foundry._discovery import DiscoveredDeployment, FoundryDiscovery, li
 def codex_agent(folder: Path) -> Agent:
     provider = Provider(kind="foundry", endpoint="https://example.test", default="gpt-4", deployments=[Deployment(name="gpt-4")])
     return Agent.model_validate({"id": "codex-a", "tool": "codex", "configDir": str(folder), "provider": provider.model_dump(by_alias=True, exclude_none=True)})
+
+
+def claude_agent(folder: Path) -> Agent:
+    provider = Provider(kind="foundry", endpoint="https://example.test", default="m", deployments=[Deployment(name="m")])
+    return Agent.model_validate({"id": "claude-a", "tool": "claude", "configDir": str(folder), "provider": provider.model_dump(by_alias=True, exclude_none=True)})
 
 
 def test_foundry_add_discovers_before_settings_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -420,3 +425,61 @@ def test_models_uses_fresh_settings_after_discovery(tmp_path: Path, monkeypatch:
     monkeypatch.setattr("legion._launchers.write_foundry", lambda *_args: [])
     _accounts.models(home, "claude-a", ["claude-a"], "claude-a", None, False, False)
     assert json.loads(path.read_text(encoding="utf-8"))["agents"][0]["provider"]["deployments"][0]["alias"] == "sonnet"
+
+
+def test_copilot_cleanup_survives_a_file_that_another_launch_just_removed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    gone = tmp_path / "copilot-providers-100-00000000-0000-0000-0000-000000000001.json"
+    monkeypatch.setattr(Path, "glob", lambda _self, _pattern: [gone])
+    copilot.cleanup(tmp_path, now=150)
+
+
+def test_tool_with_foundry_descriptor_but_no_recipe_is_refused_in_one_line_before_az(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fourth = next(item for item in load_descriptors(ToolDescriptor, "tool.json") if item.id == "codex").model_copy(update={"id": "fourth"})
+    monkeypatch.setattr(_accounts, "_tool", lambda _tool_id: fourth)
+    monkeypatch.setattr(_discovery, "discover", lambda *_args: pytest.fail("az ran"))
+    with pytest.raises(_accounts.AccountError, match="tool 'fourth' does not support Foundry"):
+        _accounts.add_foundry(tmp_path, "fourth-a", "fourth", "https://example.test", ["m"], "m", [], False, False)
+
+
+def test_codex_config_that_already_says_the_same_is_left_alone_in_any_quote_style(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    folder = home / "config"
+    folder.mkdir(parents=True)
+    monkeypatch.setattr(codex, "az", lambda: Path("/fake/az"))
+    agent = codex_agent(folder)
+    assert codex.configure(agent, home)
+    config = folder / "config.toml"
+    text = config.read_text(encoding="utf-8")
+    text = text.replace('model = "gpt-4"', "model = 'gpt-4'")
+    start = text.index("args = [")
+    end = text.index("]", start) + 1
+    text = text[:start] + 'args = [\n  "account",\n  "get-access-token",\n  "--resource",\n  "https://cognitiveservices.azure.com",\n  "--query",\n  "accessToken",\n  "-o",\n  "tsv",\n]' + text[end:]
+    config.write_bytes(text.encode("utf-8"))
+    assert not codex.configure(agent, home)
+    assert config.read_bytes() == text.encode("utf-8")
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_claude_settings_with_a_byte_order_mark_keep_it_and_are_not_rewritten_when_unchanged(tmp_path: Path, newline: str) -> None:
+    home = tmp_path / "home"
+    folder = home / "config"
+    folder.mkdir(parents=True)
+    agent = claude_agent(folder)
+    path = folder / "settings.json"
+    path.write_bytes(b"\xef\xbb\xbf" + b'{"theme": "dark"}' + newline.encode())
+    assert claude.configure(agent, home)
+    written = path.read_bytes()
+    assert written.startswith(b"\xef\xbb\xbf")
+    assert (b"\r\n" in written) == (newline == "\r\n")
+    assert not claude.configure(agent, home)
+    assert path.read_bytes() == written
+
+
+def test_claude_settings_that_are_not_json_are_refused_and_left_as_they_are(tmp_path: Path) -> None:
+    folder = tmp_path / "config"
+    folder.mkdir()
+    (folder / "settings.json").write_text("[1]", encoding="utf-8")
+    agent = claude_agent(folder)
+    with pytest.raises(ValueError, match=r"settings\.json is not valid JSON; fix or remove it"):
+        claude.configure(agent, tmp_path)
+    assert (folder / "settings.json").read_text(encoding="utf-8") == "[1]"

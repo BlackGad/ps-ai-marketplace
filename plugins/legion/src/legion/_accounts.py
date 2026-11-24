@@ -10,7 +10,7 @@ from . import _footprints, _generated, _launchers, _settings_io
 from ._home import full_path, home_path, same_path
 from ._settings_models import NAME_PATTERN, Agent, PersonalisationSettings, ToolDescriptor
 from ._validate import load_descriptors, settings_issues
-from .foundry import _discovery, recipe
+from .foundry import RECIPES, _discovery, recipe
 
 POSIX = os.name != "nt"
 
@@ -137,7 +137,7 @@ def add_subscription(home: Path, account: str, tool_id: str, command: Optional[s
 def add_foundry(home: Path, account: str, tool_id: str, endpoint: str, names: list[str], default: Optional[str], aliases: Optional[list[str]], use_standard: bool, list_only: bool) -> list[str]:
     _check_id(account)
     tool = _tool(tool_id)
-    if tool.foundry is None:
+    if tool.foundry is None or tool_id not in RECIPES:
         raise AccountError(f"tool '{tool_id}' does not support Foundry")
     endpoint = _discovery.endpoint_url(endpoint)
     before = _settings_io.load_or_empty(home)

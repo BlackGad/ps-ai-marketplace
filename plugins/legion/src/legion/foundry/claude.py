@@ -10,19 +10,24 @@ from ._types import Launch
 
 def configure(agent: Agent, home: Path) -> bool:
     path = home_path(agent.config_dir, home) / "settings.json"
+    original = path.read_bytes() if path.is_file() else b""
+    bom = original.startswith(b"\xef\xbb\xbf")
+    newline = "\r\n" if b"\r\n" in original else "\n"
     try:
-        settings = json.loads(path.read_text(encoding="utf-8-sig")) if path.exists() else {}
+        settings = json.loads(original.decode("utf-8-sig")) if original else {}
         if not isinstance(settings, dict):
             raise TypeError
     except (ValueError, TypeError, UnicodeError):
         raise ValueError("settings.json is not valid JSON; fix or remove it") from None
     assert agent.provider is not None
     settings["modelPicker"] = {"replaceBuiltInOptions": True, "options": [{"model": item.name, "label": item.name} for item in agent.provider.deployments]}
-    content = json.dumps(settings, ensure_ascii=False, indent=2) + "\n"
-    if path.is_file() and path.read_text(encoding="utf-8") == content:
+    content = (json.dumps(settings, ensure_ascii=False, indent=2) + "\n").replace("\n", newline).encode("utf-8")
+    if bom:
+        content = b"\xef\xbb\xbf" + content
+    if content == original:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8", newline="")
+    path.write_bytes(content)
     return True
 
 

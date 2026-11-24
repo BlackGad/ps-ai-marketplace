@@ -41,6 +41,10 @@ def main() -> int:
         "stdin": sys.stdin.read(),
         "config": {key: os.environ.get(key) for key in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "AZURE_CONFIG_DIR")},
     }
+    # The Foundry runner tests read what the child saw: its whole environment and the provider file it was given.
+    providers = Path(os.environ.get("COPILOT_PROVIDERS_CONFIG", ""))
+    call["environment"] = dict(os.environ)
+    call["providers"] = providers.read_text(encoding="utf-8") if providers.is_file() else None
     with (Path(setting("LOG")) / f"{name}.jsonl").open("a", encoding="utf-8") as log:
         log.write(json.dumps(call) + "\n")
     if name == "az" and setting("AZ_ANSWERS"):

@@ -160,7 +160,8 @@ def remove(account: str, home: Path) -> list[Path]:
 
 def foundry_text(account: str, environment: Path, home: Path, windows: bool) -> str:
     # Hand-built, reason: cmd.exe and POSIX shell launcher files have no standard-library serializer.
-    executable = environment / ("Scripts/legion.exe" if windows else "bin/legion")
+    # The program is the host's (Git Bash on Windows runs the plain file too); the text form follows the file suffix.
+    executable = environment / ("Scripts/legion.exe" if sys.platform == "win32" else "bin/legion")
     if windows:
         run = f'@"{cmd_escape(str(executable))}" --home "{cmd_escape(str(home))}" foundry run --account {account} -- %*'
         return "\r\n".join([header(_owner_name(account), True), "@setlocal DisableDelayedExpansion", run, "@exit /b %errorlevel%", ""])

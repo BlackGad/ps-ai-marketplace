@@ -44,7 +44,9 @@ def run(account: str, arguments: list[str], home: Path) -> int:
         try:
             while True:
                 try:
-                    return child.wait()
+                    code = child.wait()
+                    # A tool killed by a signal gives -signal; a shell reports 128 + signal.
+                    return 128 - code if code < 0 else code
                 except KeyboardInterrupt:
                     if sys.platform != "win32":
                         raise
