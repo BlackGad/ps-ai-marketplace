@@ -26,11 +26,7 @@ def git(repo: Path, *args: str) -> str:
 
 
 @pytest.fixture
-def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    xdg = tmp_path / "xdg"
-    xdg.mkdir()
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
+def repo(tmp_path: Path) -> Path:
     path = tmp_path / "code repo"
     path.mkdir()
     git(path, "init", "--quiet")

@@ -43,10 +43,16 @@ Remove-Item -LiteralPath (Join-Path $tempRoot '.legion') -Recurse -Force
     Assert-Equal 'setup refused' $record.Message 'Repository setup throws the Python error'
     Assert-Equal 0 $errors.Count 'Repository setup reports refusal once'
     function Invoke-LegionPython {
-        return [pscustomobject]@{ Output = ''; Error = 'uv is missing'; ExitCode = 127 }
+        $hint = 'After the owner says yes: pwsh -NoProfile -File "' + (Join-Path $root 'plugins/legion/bin/legion-install-tool.ps1') + '" -Tool uv -Yes'
+        return [pscustomobject]@{ Output = "uv is missing. Ask the owner before installing it.`n$hint"; Error = ''; ExitCode = 127 }
     }
-    try { Invoke-OverseerRepositorySetup -Repo $tempRoot; throw 'Expected missing uv refusal' }
-    catch { Assert-Equal 'uv is missing' $_.Exception.Message 'Missing uv is reported once' }
+    $output = @(& {
+        try { Invoke-OverseerRepositorySetup -Repo $tempRoot; throw 'Expected missing uv refusal' }
+        catch { Assert-Equal 'Repository setup exited 127' $_.Exception.Message 'Missing uv keeps the exit code' }
+    })
+    Assert-Equal 1 $output.Count 'Missing uv output is reported once'
+    Assert-True ($output[0].Contains('uv is missing. Ask the owner before installing it.')) 'Missing uv is reported in output'
+    Assert-True ($output[0].Contains('After the owner says yes:')) 'Missing uv includes the install hint'
 }
 $gatePath = Join-Path $tempRoot 'check-task.ps1'
 @("# Gate for this repository: one command, run after each task.", "`$ErrorActionPreference = 'Stop'", 'Get-Item -LiteralPath ./missing-for-gate', 'exit $LASTEXITCODE') | Set-Content -LiteralPath $gatePath
