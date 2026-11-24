@@ -1,11 +1,14 @@
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from legion import _settings_io
+from legion import _channel
+from filelock import FileLock
 from legion._home import settings_path
 from legion._settings_io import SCHEMA_URL, SettingsError
 from legion._settings_models import PersonalisationSettings
@@ -215,3 +218,32 @@ def test_save_handles_windows_replace_errors(tmp_path: Path, monkeypatch: pytest
         _settings_io.save(tmp_path, model())
     assert settings_path(tmp_path).read_bytes() == before
     assert folder_names(tmp_path) == ["personalisation.json"]
+
+
+def test_overlapping_channel_adds_keep_both_bindings(tmp_path: Path) -> None:
+    write_settings(tmp_path, {"schemaVersion": 1, "agents": [ACCOUNT], "channels": []})
+    writer_lock = FileLock(str(settings_path(tmp_path)) + ".lock", timeout=0)
+    entered = [threading.Event(), threading.Event()]
+    done = [threading.Event(), threading.Event()]
+    failures: list[BaseException] = []
+
+    def add(index: int) -> None:
+        entered[index].set()
+        try:
+            _channel.add(tmp_path, f"channel-{index}", "telegram", "1", ["claude-a"])
+        except BaseException as error:
+            failures.append(error)
+        finally:
+            done[index].set()
+
+    with writer_lock:
+        workers = [threading.Thread(target=add, args=(index,)) for index in range(2)]
+        for worker in workers:
+            worker.start()
+        assert all(marker.wait(5) for marker in entered)
+        assert not any(marker.is_set() for marker in done), "settings changed while another writer held the lock"
+    for worker in workers:
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+    assert not failures
+    assert {channel.id for channel in _settings_io.load(tmp_path).channels} == {"channel-0", "channel-1"}

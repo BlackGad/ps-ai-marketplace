@@ -1,8 +1,12 @@
 # The one reader and writer of the owner's personalisation.json for verbs that change it.
 
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
+
+from filelock import FileLock, Timeout
 
 from . import _validate
 from ._home import settings_path
@@ -14,6 +18,17 @@ EMPTY = '{"schemaVersion":1,"agents":[],"channels":[]}'
 
 class SettingsError(Exception):
     pass
+
+
+@contextmanager
+def writer(home: Path) -> Iterator[None]:
+    path = settings_path(home).resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with FileLock(str(path) + ".lock", timeout=30):
+            yield
+    except Timeout:
+        raise SettingsError("legion settings are busy; another legion command is still running") from None
 
 
 def load(home: Path) -> PersonalisationSettings:
@@ -48,6 +63,11 @@ def load_or_empty(home: Path) -> PersonalisationSettings:
 
 # Checks first, then a temp file beside the settings replaces them, so a failed write leaves the old file.
 def save(home: Path, settings: PersonalisationSettings) -> None:
+    with writer(home):
+        save_locked(home, settings)
+
+
+def save_locked(home: Path, settings: PersonalisationSettings) -> None:
     if settings.schema_uri is not None:
         settings = settings.model_copy(update={"schema_uri": SCHEMA_URL})
     issues = _validate.settings_issues(settings)

@@ -46,28 +46,29 @@ def _bindable_agent(settings: PersonalisationSettings, account: str, descriptor:
 def add(home: Path, channel_id: str, kind: str, target: str, accounts: list[str]) -> str:
     if not re.fullmatch(NAME_PATTERN, channel_id):
         raise ChannelError(f"id '{channel_id}' must match ^{NAME_PATTERN}$")
-    settings = _settings_io.load(home)
-    descriptor = _descriptor(kind)
-    for account in accounts:
-        _bindable_agent(settings, account, descriptor)
-    existing = [channel for channel in settings.channels if channel.id == channel_id]
-    if existing:
-        if (existing[0].kind, existing[0].target, existing[0].accounts) != (kind, target, accounts):
-            raise ChannelError(f"channel {channel_id} exists with other values; remove it first")
-        return f"skip: channel {channel_id} (already done)"
-    # Not validated here: save checks the whole settings, this binding included.
-    settings.channels.append(Channel.model_construct(id=channel_id, kind=kind, target=target, accounts=accounts))
-    _settings_io.save(home, settings)
-    return f"added: channel {channel_id}"
+    with _settings_io.writer(home):
+        settings = _settings_io.load(home)
+        descriptor = _descriptor(kind)
+        for account in accounts:
+            _bindable_agent(settings, account, descriptor)
+        existing = [channel for channel in settings.channels if channel.id == channel_id]
+        if existing:
+            if (existing[0].kind, existing[0].target, existing[0].accounts) != (kind, target, accounts):
+                raise ChannelError(f"channel {channel_id} exists with other values; remove it first")
+            return f"skip: channel {channel_id} (already done)"
+        settings.channels.append(Channel.model_construct(id=channel_id, kind=kind, target=target, accounts=accounts))
+        _settings_io.save_locked(home, settings)
+        return f"added: channel {channel_id}"
 
 
 def remove(home: Path, channel_id: str) -> str:
-    settings = _settings_io.load_unchecked(home)
-    kept = [channel for channel in settings.channels if channel.id != channel_id]
-    if len(kept) == len(settings.channels):
-        return f"skip: channel remove {channel_id} (already done)"
-    _settings_io.save(home, settings.model_copy(update={"channels": kept}))
-    return f"removed: channel {channel_id}"
+    with _settings_io.writer(home):
+        settings = _settings_io.load_unchecked(home)
+        kept = [channel for channel in settings.channels if channel.id != channel_id]
+        if len(kept) == len(settings.channels):
+            return f"skip: channel remove {channel_id} (already done)"
+        _settings_io.save_locked(home, settings.model_copy(update={"channels": kept}))
+        return f"removed: channel {channel_id}"
 
 
 # Reads files only and starts no CLI. A bot folder's token file is looked for, never opened.
