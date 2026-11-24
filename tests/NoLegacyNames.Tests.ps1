@@ -11,3 +11,10 @@ $violations = @(
     }
 )
 if ($violations.Count) { throw "Legacy names remain in $($violations.Count) tracked files: $($violations -join ', ')" }
+
+$powerShellFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'plugins/legion/bin') -Filter '*.ps1' -Recurse -File)
+$legacyValidation = @($powerShellFiles | Where-Object { [IO.File]::ReadAllText($_.FullName) -match 'Invoke-LegionValidation' })
+Assert-Equal 0 $legacyValidation.Count 'PowerShell no longer calls the retired validator'
+$skillFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'plugins/legion/skills') -Filter '*.md' -Recurse -File)
+$sourcedLibraries = @($skillFiles | Where-Object { [IO.File]::ReadAllText($_.FullName) -match '(?m)^\s*\.\s+.*bin/lib/.*\.ps1' })
+Assert-Equal 0 $sourcedLibraries.Count 'Skills use the owner command instead of dot sourcing a library'

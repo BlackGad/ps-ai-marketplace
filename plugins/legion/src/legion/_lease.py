@@ -1,5 +1,5 @@
 # The overseer lease: one lock file per repository that names the session allowed to orchestrate.
-# The lock is shared with PowerShell's Get-LegionLease, so field names and time formats stay the same.
+# Until milestone 4, PowerShell's overseer reads only the account field from this lock.
 # The session-start hook will read it, so this module stays free of third-party packages.
 
 import json

@@ -654,7 +654,7 @@ try {
     }
     Assert-Equal $before (Get-SetupTree $testHome) 'Plan changes no home bytes or timestamps'
     $apply = @(Invoke-Setup -HomeRoot $testHome -Yes)
-    Assert-Equal 0 (@(Invoke-LegionValidation -Kind personalisation -Path $settings).Count) 'Empty settings are valid'
+    Assert-Equal 1 (Read-LegionJson $settings).schemaVersion 'Empty settings have the current version'
     Assert-Equal 0 (@((Read-LegionJson $settings).agents).Count) 'Fresh setup supports no accounts'
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'plugins/legion/skills/legion-personalisation/references/notes-template.md'))) ([IO.File]::ReadAllText((Join-Path (Split-Path $settings) 'notes.md'))) 'Notes use the unchanged template'
     if (-not $IsWindows) { $env:PATH += [IO.Path]::PathSeparator + (Join-Path $testHome '.legion/bin') }

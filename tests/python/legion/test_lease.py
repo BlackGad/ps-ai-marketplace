@@ -1,7 +1,6 @@
 import json
 import multiprocessing
 import os
-import shutil
 import socket
 import subprocess
 import sys
@@ -25,7 +24,6 @@ from legion._lease import (
 from legion._process import process_started_at
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-COMMON_PS1 = REPO_ROOT / "plugins/legion/bin/lib/common.ps1"
 DEAD_PID = 99_999_999
 
 
@@ -461,52 +459,3 @@ def test_from_json_rejects_wrong_types() -> None:
     for text in ("[]", '{"pid": "7"}', '{"pid": true}', '{"host": 3}', '{"processStartedAt": "soon"}', "{"):
         with pytest.raises((ValueError, TypeError)):
             Lease.from_json(text)
-
-
-# Cross-language proof: the PowerShell reader, kept until milestone 3, agrees with Python.
-
-PWSH = shutil.which("pwsh")
-needs_pwsh = pytest.mark.skipif(PWSH is None, reason="pwsh is not on PATH")
-
-
-def powershell(script: str) -> list[str]:
-    assert PWSH is not None
-    environment = {key: value for key, value in os.environ.items() if key != "CODEX_THREAD_ID"}
-    result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True, text=True, timeout=120, env=environment, check=False)
-    assert result.returncode == 0, result.stderr
-    return result.stdout.split()
-
-
-def powershell_states(*repos: Path) -> list[str]:
-    reads = "; ".join(f"(Get-LegionLease -Repo '{repo}').State" for repo in repos)
-    return powershell(f". '{COMMON_PS1}'; {reads}")
-
-
-@needs_pwsh
-def test_cross_language_states_agree(tmp_path: Path) -> None:
-    started = process_started_at(os.getpid())
-    assert started is not None
-    repos = {name: tmp_path / name for name in ("taken", "near", "far", "empty", "partial", "old", "foreign", "dead")}
-    take(repos["taken"], "codex", "owner", process_id=os.getpid())
-    write_lease(repos["near"], processStartedAt=_lease.round_trip(started + timedelta(milliseconds=400)) + "Z")
-    write_lease(repos["far"], processStartedAt=_lease.round_trip(started + timedelta(milliseconds=600)) + "Z")
-    write_lease(repos["empty"])
-    lease_path(repos["empty"]).write_text("", encoding="utf-8")
-    write_lease(repos["partial"])
-    lease_path(repos["partial"]).write_text('{"tool":"codex","pid":', encoding="utf-8")
-    write_lease(repos["old"])
-    lease_path(repos["old"]).write_text("", encoding="utf-8")
-    make_old(lease_path(repos["old"]))
-    write_lease(repos["foreign"], host="fixture-foreign-host")
-    write_lease(repos["dead"], pid=DEAD_PID)
-    expected = ["held", "held", "stale", "held", "held", "stale", "foreign", "stale"]
-    assert [state(repo).state for repo in repos.values()] == expected
-    assert powershell_states(*repos.values()) == expected
-
-
-@needs_pwsh
-def test_python_lock_is_read_by_powershell(tmp_path: Path) -> None:
-    take(tmp_path, "codex", "owner", process_id=os.getpid())
-    assert powershell_states(tmp_path) == ["held"]
-    assert release(tmp_path, process_id=os.getpid()) == "lease released"
-    assert powershell_states(tmp_path) == ["free"]
