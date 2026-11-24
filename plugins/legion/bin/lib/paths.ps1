@@ -5,13 +5,12 @@ function Get-LegionHomePath {
 
 # Owner-file names shared by the installer and bin scripts.
 function Get-LegionOwnerPath {
-    param([ValidateSet('Settings', 'Notes', 'Update', 'Runtime', 'Install', 'Index')][string]$Name,
+    param([ValidateSet('Settings', 'Notes', 'Update', 'Install', 'Index')][string]$Name,
         [string]$HomeRoot = $HOME)
     $names = @{
         Settings = 'configuration/personalisation.json'
         Notes = 'configuration/notes.md'
         Update = 'temp/update.json'
-        Runtime = 'bin/.runtime'
         Install = 'temp/install-'
         Index = 'footprints.json'
     }

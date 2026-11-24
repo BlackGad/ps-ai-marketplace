@@ -21,6 +21,7 @@ def set_value(table: MutableMapping[str, Any], key: str, value: Any) -> None:
 def configure(agent: Agent, home: Path) -> bool:
     path = home_path(agent.config_dir, home) / "config.toml"
     original = path.read_bytes() if path.exists() else b""
+    # Hand-built, reason: preserve the owner's BOM and line endings while tomlkit updates only Foundry settings.
     bom = original.startswith(b"\xef\xbb\xbf")
     newline = "\r\n" if b"\r\n" in original else "\n"
     try:

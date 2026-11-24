@@ -604,11 +604,7 @@ function Invoke-AddRepeat {
 # Step 5
 # Through the installed owner command, as an owner would run it.
 function Invoke-AccountRemove {
-    $legion = @(Get-IntegrationLauncherPaths 'legion')[-1]
-    $lines = @(& $legion account remove --id ci-extra 2>&1 | ForEach-Object { "$_" })
-    if ($null -ne $script:IntegrationScriptLog) { $script:IntegrationScriptLog.AddRange([string[]]$lines) }
-    if ($LASTEXITCODE -ne 0) { throw "legion account remove exited $LASTEXITCODE`n$($lines -join "`n")" }
-    return $lines
+    return Invoke-IntegrationOwner @('account', 'remove', '--id', 'ci-extra')
 }
 
 function Invoke-RemoveFirst {
@@ -645,7 +641,7 @@ function New-IntegrationRepo {
     return $repo
 }
 
-function Invoke-RepositoryScript {
+function Invoke-RepositorySetup {
     param([string]$Repo, [string]$Mode)
     $arguments = @('repository', 'setup', '--repo', $Repo, '--mode', $Mode, '--gate', 'pwsh -NoProfile -Command exit 0')
     if ($Mode -eq 'Shared') { $arguments += @('--rules-file', 'AGENTS.md') }
@@ -668,7 +664,7 @@ function Assert-LegionItems {
 
 function Invoke-RepoPrivateFirst {
     $repo = New-IntegrationRepo 'repo-a'
-    $lines = Invoke-RepositoryScript $repo 'Private'
+    $lines = Invoke-RepositorySetup $repo 'Private'
     Assert-LegionItems $repo
     Assert-IntegrationTrue ((Get-CommitCount (Join-Path $repo '.legion')) -ge 1) 'the inner .legion repository has no commit'
     Assert-IntegrationTrue ((Get-CommitCount $repo) -eq 1) 'the outer repository got a commit'
@@ -679,7 +675,7 @@ function Invoke-RepoPrivateFirst {
 
 function Invoke-RepoPrivateRepeat {
     $repo = Join-Path $script:Ctx.Work 'repo-a'
-    $lines = Invoke-RepositoryScript $repo 'Private'
+    $lines = Invoke-RepositorySetup $repo 'Private'
     Assert-IntegrationText $lines 'skip: Private orchestration (already done)'
     Assert-IntegrationTrue ((Get-CommitCount (Join-Path $repo '.legion')) -eq $script:Ctx.InnerCommits) 'the repeat run made a commit'
     return $lines
@@ -687,7 +683,7 @@ function Invoke-RepoPrivateRepeat {
 
 function Invoke-RepoSharedFirst {
     $repo = New-IntegrationRepo 'repo-b' -WithRules
-    $lines = Invoke-RepositoryScript $repo 'Shared'
+    $lines = Invoke-RepositorySetup $repo 'Shared'
     Assert-LegionItems $repo
     $heading = Get-Content -LiteralPath (Join-Path $script:Ctx.Checkout 'plugins/legion/skills/legion-repository/references/rules-file-lines.md') -TotalCount 1
     $rules = [regex]::Matches((Get-Content -LiteralPath (Join-Path $repo 'AGENTS.md') -Raw), ('(?m)^' + [regex]::Escape($heading) + '\r?$')).Count
@@ -700,7 +696,7 @@ function Invoke-RepoSharedFirst {
 
 function Invoke-RepoSharedRepeat {
     $repo = Join-Path $script:Ctx.Work 'repo-b'
-    $lines = Invoke-RepositoryScript $repo 'Shared'
+    $lines = Invoke-RepositorySetup $repo 'Shared'
     Assert-IntegrationText $lines 'skip:'
     Assert-IntegrationTrue ((Get-CommitCount $repo) -eq 2) 'the repeat run made a commit'
     return $lines

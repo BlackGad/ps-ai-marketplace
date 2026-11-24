@@ -595,10 +595,10 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     # The repository step uses the owner command and named Python options.
     . Reset-Runner
     . Use-CallRecorder
-    Invoke-RepositoryScript 'repo' 'Shared' | Out-Null
+    Invoke-RepositorySetup 'repo' 'Shared' | Out-Null
     Assert-True ((@($calls[0]) -join ' ') -like '*repository setup --repo repo --mode Shared --gate*--rules-file AGENTS.md*') 'Shared uses the owner repository verb'
     $script:calls = @()
-    Invoke-RepositoryScript 'repo' 'Private' | Out-Null
+    Invoke-RepositorySetup 'repo' 'Private' | Out-Null
     Assert-True ((@($calls[0]) -join ' ') -notlike '*--rules-file*') 'Private passes no rules file'
     $repoB = New-IntegrationRepo 'repo-b' -WithRules
     Assert-True (@(git -C $repoB ls-files 'AGENTS.md').Count -eq 1) 'the Shared fixture tracks AGENTS.md'
@@ -613,7 +613,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         $rulesCopies = 1
         function New-IntegrationRepo { return $sharedRepo }
         function Assert-LegionItems { }
-        function Invoke-RepositoryScript {
+        function Invoke-RepositorySetup {
             Set-Content -LiteralPath (Join-Path $sharedRepo 'AGENTS.md') -Value ($rulesBlock * $rulesCopies)
             git -C $sharedRepo add AGENTS.md
             git -C $sharedRepo commit --quiet -m 'Set up legion orchestration'

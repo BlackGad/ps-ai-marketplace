@@ -9,7 +9,7 @@ Add and adopt through `legion-setup.ps1`, as [create.md](../../legion-personalis
 
 Use this flow for a Foundry endpoint instead of the subscription login flow above. One agent uses one endpoint. Use `legion --home <home>` for an alternate home.
 
-Use these commands for a Foundry provider configuration request. Ordinary setup can adopt an existing folder and keep its provider settings. For Foundry only, ask “Standard mapping or choose deployments yourself?” Reuse choices already supplied. Follow [Foundry model mapping](../../legion-personalisation/references/foundry-models.md) for discovery, `-Standard` and unresolved aliases. These examples show explicit choices:
+Use these commands for a Foundry provider configuration request. Ordinary setup can adopt an existing folder and keep its provider settings. For Foundry only, ask “Standard mapping or choose deployments yourself?” Reuse choices already supplied. Follow [Foundry model mapping](../../legion-personalisation/references/foundry-models.md) for discovery, `--standard` and unresolved aliases. These examples show explicit choices:
 
 ```powershell
 legion account add --id <id> --tool claude --provider foundry --endpoint https://<resource>.cognitiveservices.azure.com --deployment claude-opus-x --deployment claude-sonnet-x --default claude-opus-x --alias claude-opus-x=opus --alias claude-sonnet-x=sonnet

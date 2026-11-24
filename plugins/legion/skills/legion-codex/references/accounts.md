@@ -9,7 +9,7 @@ Add and adopt through `legion-setup.ps1`, as [create.md](../../legion-personalis
 
 Codex is **not yet proven against Foundry**. Use this flow when GPT access exists and the owner wants to verify it. It replaces the subscription login flow above. One agent uses one endpoint. Use `legion --home <home>` for an alternate home.
 
-Use these commands for a Foundry provider configuration request. Ordinary setup can adopt an existing folder and keep its provider settings. For Foundry only, ask “Standard mapping or choose deployments yourself?” Reuse choices already supplied. Follow [Foundry model mapping](../../legion-personalisation/references/foundry-models.md) for discovery, `-Standard` and unresolved aliases. These examples show explicit choices:
+Use these commands for a Foundry provider configuration request. Ordinary setup can adopt an existing folder and keep its provider settings. For Foundry only, ask “Standard mapping or choose deployments yourself?” Reuse choices already supplied. Follow [Foundry model mapping](../../legion-personalisation/references/foundry-models.md) for discovery, `--standard` and unresolved aliases. These examples show explicit choices:
 
 ```powershell
 legion account add --id <id> --tool codex --provider foundry --endpoint https://<resource>.cognitiveservices.azure.com --deployment gpt-x --default gpt-x

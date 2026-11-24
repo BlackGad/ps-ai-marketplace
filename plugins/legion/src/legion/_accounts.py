@@ -1,4 +1,4 @@
-# Subscription accounts in the owner's settings: add, register, rename and remove, with their launchers and footprints.
+# Owner accounts: subscription and Foundry add, register, rename, remove and models.
 
 import os
 import re
@@ -19,7 +19,7 @@ class AccountError(Exception):
     pass
 
 
-def _tool(tool_id: str) -> ToolDescriptor:
+def get_tool(tool_id: str) -> ToolDescriptor:
     matches = [descriptor for descriptor in load_descriptors(ToolDescriptor, "tool.json") if descriptor.id == tool_id]
     if not matches:
         raise AccountError(f"unknown tool '{tool_id}'")
@@ -116,7 +116,7 @@ def _repair(settings: PersonalisationSettings, existing: Agent, tool: ToolDescri
 
 def add_subscription(home: Path, account: str, tool_id: str, command: Optional[str], config_dir: Optional[str]) -> list[str]:
     _check_id(account)
-    tool = _tool(tool_id)
+    tool = get_tool(tool_id)
     real = _resolve_command(command, account, home) if command is not None else None
     folder = _config_folder(account, config_dir, home)
     with _settings_io.writer(home, require_existing=False):
@@ -136,7 +136,7 @@ def add_subscription(home: Path, account: str, tool_id: str, command: Optional[s
 
 def add_foundry(home: Path, account: str, tool_id: str, endpoint: str, names: list[str], default: Optional[str], aliases: Optional[list[str]], use_standard: bool, list_only: bool) -> list[str]:
     _check_id(account)
-    tool = _tool(tool_id)
+    tool = get_tool(tool_id)
     if tool.foundry is None or tool_id not in RECIPES:
         raise AccountError(f"tool '{tool_id}' does not support Foundry")
     endpoint = _discovery.endpoint_url(endpoint)
@@ -180,7 +180,7 @@ def models(home: Path, account: str, names: list[str], default: Optional[str], a
         raise AccountError(f"unknown account '{account}'")
     if agent.provider is None or agent.provider.kind != "foundry":
         raise AccountError(f"account '{account}' is not a Foundry agent")
-    tool = _tool(agent.tool)
+    tool = get_tool(agent.tool)
     discovery = _discovery.discover(agent.provider.endpoint, tool)
     if list_only:
         return [_discovery.listing(discovery, agent.provider.deployments).model_dump_json(indent=2)]

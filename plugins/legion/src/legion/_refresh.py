@@ -20,7 +20,7 @@ def _repair_subscription(agent: Agent, home: Path) -> list[str]:
     if state == "partial" and agent.command is None:
         return [skipped]
     try:
-        return _wrote(_launchers.write_subscription(agent, _accounts._tool(agent.tool), home))
+        return _wrote(_launchers.write_subscription(agent, _accounts.get_tool(agent.tool), home))
     except _launchers.LauncherError:
         return [skipped]
 

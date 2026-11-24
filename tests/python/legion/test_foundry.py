@@ -458,7 +458,7 @@ def test_copilot_cleanup_survives_a_file_that_another_launch_just_removed(tmp_pa
 
 def test_tool_with_foundry_descriptor_but_no_recipe_is_refused_in_one_line_before_az(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fourth = next(item for item in load_descriptors(ToolDescriptor, "tool.json") if item.id == "codex").model_copy(update={"id": "fourth"})
-    monkeypatch.setattr(_accounts, "_tool", lambda _tool_id: fourth)
+    monkeypatch.setattr(_accounts, "get_tool", lambda _tool_id: fourth)
     monkeypatch.setattr(_discovery, "discover", lambda *_args: pytest.fail("az ran"))
     with pytest.raises(_accounts.AccountError, match="tool 'fourth' does not support Foundry"):
         _accounts.add_foundry(tmp_path, "fourth-a", "fourth", "https://example.test", ["m"], "m", [], False, False)

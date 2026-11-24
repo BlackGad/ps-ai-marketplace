@@ -75,7 +75,7 @@ $cases = [ordered]@{
         Assert-Equal $original ([IO.File]::ReadAllText($command)) 'Headerless command bytes stay'
     }
     RuntimeOwners = {
-        $runtime = Get-LegionOwnerPath -HomeRoot $sandbox -Name Runtime
+        $runtime = Join-Path $sandbox '.legion/bin/.runtime'
         New-Item -ItemType Directory -Path $runtime -Force | Out-Null
         foreach ($owner in @('account:foundry-a', 'account:foundry-b')) { Add-LegionFootprint -HomeRoot $sandbox -Kind folder -Path $runtime -Owner $owner }
         $null = Remove-LegionFootprintOwner -HomeRoot $sandbox -Owner 'account:foundry-a'
