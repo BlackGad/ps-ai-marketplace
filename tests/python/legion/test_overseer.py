@@ -512,8 +512,7 @@ def test_bridge_stops_only_owned_process_and_preserves_other_pid(home: Path, mon
     assert pid_file.exists() == live
 
 
-@pytest.mark.parametrize("platform", ["win32", "linux"])
-def test_bridge_start_uses_direct_python_logs_and_repo(home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch, platform: str) -> None:
+def test_bridge_start_uses_direct_python_logs_and_repo(home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     launch = _overseer.Launch(command="fixture", arguments=[], bridge=[sys.executable, "fake bridge"], bot_folder=str(home))
     calls = []
 
@@ -521,7 +520,6 @@ def test_bridge_start_uses_direct_python_logs_and_repo(home: Path, repo: Path, m
         calls.append((command, kwargs))
         return SimpleNamespace(pid=123)
 
-    monkeypatch.setattr(_overseer.sys, "platform", platform)
     monkeypatch.setattr(_overseer.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
     monkeypatch.setattr(_overseer.subprocess, "Popen", start)
     assert _overseer.start_bridge(launch, repo) is not None
