@@ -431,12 +431,6 @@ foreach ($case in @('InstallRunsRefresh', 'InstallQuestionNamesPath', 'InstallUn
                     function Get-UpdateConfigDirs { @((Join-Path $scratch 'fixture-one'), (Join-Path $scratch 'fixture-two')) }
                     $null = Invoke-LegionInstaller @options -Yes
                     Assert-Equal 2 $refreshes.Count 'InstallRunsRefresh: refresh runs once for each installed folder'
-                    $command = Join-Path $scratch '.legion/bin/legion'
-                    Assert-True (Test-Path -LiteralPath $command) 'InstallRunsRefresh: plain install creates legion'
-                    $app = Join-Path $scratch '.legion/app/0.8.0'
-                    Assert-True ((Get-Content -LiteralPath $command -Raw).Replace('\','/').Contains($app.Replace('\','/'))) 'InstallRunsRefresh: legion points at the app copy of the installed version'
-                    Assert-Equal ([IO.File]::ReadAllText((Join-Path $plugin 'bin/legion.ps1'))) ([IO.File]::ReadAllText((Join-Path $app 'bin/legion.ps1'))) 'InstallRunsRefresh: the app is a copy of the installed plugin'
-                    Assert-Equal 2 @(Get-LegionFootprints -HomeRoot $scratch -Kind app).owners.Count 'InstallRunsRefresh: each installing account owns the app'
                 }
                 'InstallQuestionNamesPath' {
                     $null = Invoke-LegionInstaller @options

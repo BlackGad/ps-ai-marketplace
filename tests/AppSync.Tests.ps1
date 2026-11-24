@@ -1,7 +1,6 @@
 . (Join-Path $PSScriptRoot 'lib/workspace.ps1')
 $repo = Split-Path $PSScriptRoot -Parent
 $plugin = Join-Path $repo 'plugins/legion'
-. (Join-Path $plugin 'bin/lib/accounts.ps1')
 . (Join-Path $plugin 'bin/lib/commands.ps1')
 . (Join-Path $plugin 'bin/lib/footprints.ps1')
 

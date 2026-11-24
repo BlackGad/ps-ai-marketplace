@@ -319,10 +319,11 @@ def _report_account(context: click.Context, change: Callable[[], list[str]]) -> 
     from ._footprints import FootprintError
     from ._launchers import LauncherError
     from ._settings_io import SettingsError
+    from pydantic import ValidationError
 
     try:
         lines = change()
-    except (AccountError, FootprintError, LauncherError, SettingsError) as error:
+    except (AccountError, FootprintError, LauncherError, SettingsError, ValidationError, ValueError, OSError) as error:
         click.echo(" ".join(str(error).split()), err=True)
         context.exit(1)
     for line in lines:
@@ -338,11 +339,87 @@ _account_tool_option = click.option("--tool", "tool_id", required=True, help="th
 @_account_tool_option
 @click.option("--command", help="the account's own CLI program, when it is not the tool's stock command")
 @click.option("--config-dir", help="an existing account folder to adopt")
+@click.option("--provider", type=click.Choice(["foundry"]))
+@click.option("--endpoint")
+@click.option("--deployment", "deployments", multiple=True)
+@click.option("--default", "default_model")
+@click.option("--alias", "aliases", multiple=True)
+@click.option("--standard", is_flag=True)
+@click.option("--list", "list_only", is_flag=True)
 @click.pass_context
-def account_add(context: click.Context, account_id: str, tool_id: str, command: Optional[str], config_dir: Optional[str]) -> None:
+def account_add(
+    context: click.Context,
+    account_id: str,
+    tool_id: str,
+    command: Optional[str],
+    config_dir: Optional[str],
+    provider: Optional[str],
+    endpoint: Optional[str],
+    deployments: tuple[str, ...],
+    default_model: Optional[str],
+    aliases: tuple[str, ...],
+    standard: bool,
+    list_only: bool,
+) -> None:
     from . import _accounts
 
+    if standard and (aliases or default_model):
+        raise click.UsageError("--standard cannot be combined with --alias or --default")
+    if standard and provider != "foundry":
+        raise click.UsageError("--standard is only for Foundry add or models")
+    if provider == "foundry":
+        if config_dir:
+            raise click.UsageError("--config-dir is for existing subscription accounts; omit it for Foundry.")
+        if not endpoint:
+            raise click.UsageError("--endpoint is required for Foundry")
+        _report_account(context, lambda: _accounts.add_foundry(_home.legion_home(context.obj), account_id, tool_id, endpoint, list(deployments), default_model, list(aliases), standard, list_only))
+        return
     _report_account(context, lambda: _accounts.add_subscription(_home.legion_home(context.obj), account_id, tool_id, command, config_dir))
+
+
+@account.command("models", help="Show or change a Foundry account's deployments")
+@_account_id_option
+@click.option("--deployment", "deployments", multiple=True)
+@click.option("--default", "default_model")
+@click.option("--alias", "aliases", multiple=True)
+@click.option("--standard", is_flag=True)
+@click.option("--list", "list_only", is_flag=True)
+@click.pass_context
+def account_models(context: click.Context, account_id: str, deployments: tuple[str, ...], default_model: Optional[str], aliases: tuple[str, ...], standard: bool, list_only: bool) -> None:
+    from . import _accounts
+
+    if standard and (aliases or default_model):
+        raise click.UsageError("--standard cannot be combined with --alias or --default")
+    selected_aliases = [] if aliases == ("",) else list(aliases) if aliases else None
+    _report_account(context, lambda: _accounts.models(_home.legion_home(context.obj), account_id, list(deployments), default_model, selected_aliases, standard, list_only))
+
+
+@main.group("foundry", hidden=True)
+def foundry() -> None:
+    pass
+
+
+@foundry.command("run", add_help_option=False, context_settings={"ignore_unknown_options": True, "allow_interspersed_args": False})
+@click.option("--account", required=True)
+@click.argument("arguments", nargs=-1, type=click.UNPROCESSED)
+@click.pass_context
+def foundry_run(context: click.Context, account: str, arguments: tuple[str, ...]) -> None:
+    from .foundry._run import run
+    from ._settings_io import SettingsError
+
+    try:
+        context.exit(run(account, list(arguments), _home.legion_home(context.obj)))
+    except (ValueError, OSError, SettingsError) as error:
+        click.echo(" ".join(str(error).split()), err=True)
+        context.exit(1)
+
+
+@main.command("refresh", hidden=True)
+@click.pass_context
+def refresh(context: click.Context) -> None:
+    from ._refresh import refresh as change
+
+    _report_account(context, lambda: change(_home.legion_home(context.obj)))
 
 
 @account.command("register", help="Register an existing account folder and the program that runs it")

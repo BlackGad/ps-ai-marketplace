@@ -563,12 +563,12 @@ def test_rename_refusals_change_nothing(world: World, capsys: pytest.CaptureFixt
     assert blocked.read_text(encoding="utf-8") == "owner file\n"
 
 
-def test_a_foundry_account_is_not_renamed_yet(world: World, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_foundry_account_rename_requires_a_ready_app(world: World, capsys: pytest.CaptureFixture[str]) -> None:
     provider = {"kind": "foundry", "endpoint": "https://example.cognitiveservices.azure.com", "default": "a", "deployments": [{"name": "a"}]}
     write_settings(world.home, {"schemaVersion": 1, "agents": [{"id": "claude-f", "tool": "claude", "configDir": "~/f", "provider": provider}], "channels": []})
     before = world.settings_bytes()
     assert account(world, "rename", "--id", "claude-f", "--new-id", "claude-g") == 1
-    assert says(capsys) == ("", "account 'claude-f' runs through Foundry; rename it after this update\n")
+    assert says(capsys) == ("", "the legion app is not ready; run legion setup\n")
     assert world.settings_bytes() == before
 
 

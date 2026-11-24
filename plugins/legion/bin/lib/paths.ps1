@@ -280,9 +280,6 @@ function Find-LegionPersistentCommand {
     return $null
 }
 
-function Get-LegionRuntimeFiles {
-    return @('bin/lib/tools.ps1', 'bin/lib/foundry.ps1', 'bin/lib/paths.ps1', 'bin/legion-foundry.ps1', 'schemas/tool.schema.json')
-}
 
 function Get-InstallPluginVersion {
     param([string]$Root)

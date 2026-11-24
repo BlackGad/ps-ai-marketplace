@@ -41,8 +41,19 @@ def main() -> int:
         "stdin": sys.stdin.read(),
         "config": {key: os.environ.get(key) for key in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "AZURE_CONFIG_DIR")},
     }
+    # The Foundry runner tests read what the child saw: its whole environment and the provider file it was given.
+    providers = Path(os.environ.get("COPILOT_PROVIDERS_CONFIG", ""))
+    call["environment"] = dict(os.environ)
+    call["providers"] = providers.read_text(encoding="utf-8") if providers.is_file() else None
     with (Path(setting("LOG")) / f"{name}.jsonl").open("a", encoding="utf-8") as log:
         log.write(json.dumps(call) + "\n")
+    if name == "az" and setting("AZ_ANSWERS"):
+        # Foundry tests choose one fake response per az argument list; no Azure command or network runs.
+        answers = json.loads(Path(setting("AZ_ANSWERS")).read_text(encoding="utf-8"))
+        answer = answers.get(" ".join(sys.argv[1:]), {"exit": 1, "stderr": "unexpected fake az call"})
+        sys.stdout.write(answer.get("stdout", ""))
+        sys.stderr.write(answer.get("stderr", ""))
+        return int(answer.get("exit", 0))
     if name == "git" and not own_setting(name, "EXIT") and not own_setting(name, "SLEEP"):
         (Path(sys.argv[2]) / ".git").mkdir()
         return 0

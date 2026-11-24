@@ -61,7 +61,6 @@ function Get-ToolsIndexTools {
         if (-not (Test-Path -LiteralPath (Join-Path $tool.SkillRoot 'SKILL.md') -PathType Leaf)) {
             throw "tool '$($tool.id)' requires SKILL.md"
         }
-        if ($null -ne $tool.foundry) { $null = Get-LegionToolScript -Tool $tool -Name foundry-launch }
     }
     $tools.Sort([Comparison[object]]{ param($left, $right) [StringComparer]::Ordinal.Compare($left.id, $right.id) })
     $tools

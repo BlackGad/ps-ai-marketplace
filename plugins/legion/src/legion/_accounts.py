@@ -10,6 +10,7 @@ from . import _footprints, _generated, _launchers, _settings_io
 from ._home import full_path, home_path, same_path
 from ._settings_models import NAME_PATTERN, Agent, PersonalisationSettings, ToolDescriptor
 from ._validate import load_descriptors, settings_issues
+from .foundry import RECIPES, _discovery, recipe
 
 POSIX = os.name != "nt"
 
@@ -133,6 +134,72 @@ def add_subscription(home: Path, account: str, tool_id: str, command: Optional[s
     return [f"Existing account folder kept at {config_dir}; use '{account}' to open it."] if config_dir is not None else [f"Run '{account}' in a terminal and log in once."]
 
 
+def add_foundry(home: Path, account: str, tool_id: str, endpoint: str, names: list[str], default: Optional[str], aliases: Optional[list[str]], use_standard: bool, list_only: bool) -> list[str]:
+    _check_id(account)
+    tool = _tool(tool_id)
+    if tool.foundry is None or tool_id not in RECIPES:
+        raise AccountError(f"tool '{tool_id}' does not support Foundry")
+    endpoint = _discovery.endpoint_url(endpoint)
+    before = _settings_io.load_or_empty(home)
+    existing = _find(before, account)
+    if not list_only and existing and existing.tool == tool_id and existing.provider and existing.provider.kind == "foundry" and existing.provider.endpoint == endpoint:
+        return [f"skip: account {account} (already done)"]
+    if not list_only:
+        _check_new_id(before, account, home)
+        provisional = Agent.model_construct(id=account, tool=tool_id, config_dir=str(home / ".legion" / "agents" / account))
+        _launchers.plan_foundry(provisional, home)
+    discovery = _discovery.discover(endpoint, tool)
+    if list_only:
+        return [_discovery.listing(discovery, []).model_dump_json(indent=2)]
+    provider = _discovery.provider_block(endpoint, tool, names, default, aliases, discovery, use_standard=use_standard)
+    with _settings_io.writer(home, require_existing=False):
+        settings = _settings_io.load_or_empty(home)
+        _check_new_id(settings, account, home)
+        agent = Agent.model_validate({"id": account, "tool": tool_id, "configDir": str(home / ".legion" / "agents" / account), "provider": provider.model_dump(by_alias=True, exclude_none=True)})
+        _launchers.plan_foundry(agent, home)
+        settings.agents.append(agent)
+        issues = settings_issues(settings)
+        if issues:
+            raise _settings_io.SettingsError("; ".join(issues))
+        recipe(agent).configure(agent, home)
+        _settings_io.save_locked(home, settings)
+        _launchers.write_foundry(agent, home)
+    return [f"Run '{account}' in a terminal; it signs in to Azure through az when needed."]
+
+
+def models(home: Path, account: str, names: list[str], default: Optional[str], aliases: Optional[list[str]], use_standard: bool, list_only: bool) -> list[str]:
+    settings = _settings_io.load(home)
+    agent = _find(settings, account)
+    if agent is None:
+        raise AccountError(f"unknown account '{account}'")
+    if agent.provider is None or agent.provider.kind != "foundry":
+        raise AccountError(f"account '{account}' is not a Foundry agent")
+    tool = _tool(agent.tool)
+    discovery = _discovery.discover(agent.provider.endpoint, tool)
+    if list_only:
+        return [_discovery.listing(discovery, agent.provider.deployments).model_dump_json(indent=2)]
+    discovered_endpoint = agent.provider.endpoint
+    discovered_tool = agent.tool
+    with _settings_io.writer(home):
+        settings = _settings_io.load(home)
+        agent = _find(settings, account)
+        if agent is None or agent.provider is None or agent.provider.kind != "foundry":
+            raise AccountError(f"unknown account '{account}'")
+        if agent.provider.endpoint != discovered_endpoint or agent.tool != discovered_tool:
+            raise AccountError(f"account '{account}' changed during discovery; run the command again")
+        provider = _discovery.provider_block(agent.provider.endpoint, tool, names, default, aliases, discovery, agent.provider, use_standard)
+        if agent.provider == provider:
+            return [f"skip: models {account} (no changes)"]
+        agent.provider = provider
+        issues = settings_issues(settings)
+        if issues:
+            raise _settings_io.SettingsError("; ".join(issues))
+        recipe(agent).configure(agent, home)
+        _settings_io.save_locked(home, settings)
+        _launchers.write_foundry(agent, home)
+    return []
+
+
 # Bindings follow a renamed account; removing an account cannot leave a channel without accounts.
 def _rebind(settings: PersonalisationSettings, account: str, new_id: Optional[str]) -> None:
     for channel in settings.channels:
@@ -161,14 +228,16 @@ def rename(home: Path, account: str, new_id: str) -> list[str]:
         _check_new_id(settings, new_id, home)
         if old is None:
             raise AccountError(f"unknown account '{account}'")
-        if old.provider is not None:
-            raise AccountError(f"account '{account}' runs through Foundry; rename it after this update")
         for path in _launchers.launcher_paths(new_id, home):
             if (path.exists() or path.is_symlink()) and not _generated.is_owned(path, f"account {new_id}"):
                 raise _launchers.LauncherError(f"wrapper collision '{path}'")
         _rebind(settings, account, new_id)
         old.id = new_id
-        _launchers.move(account, new_id, home)
+        if old.provider is not None:
+            _launchers.write_foundry(old, home)
+            _launchers.remove(account, home)
+        else:
+            _launchers.move(account, new_id, home)
         lines = _move_footprints(home, account, new_id)
         _settings_io.save_locked(home, settings)
     return [*lines, f"Config folder kept at {old.config_dir}; rename it yourself only if you want to."]

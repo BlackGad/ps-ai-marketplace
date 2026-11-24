@@ -19,7 +19,6 @@ $builtIns = @(Get-LegionTools)
 Assert-Equal 'claude|codex|copilot' ($builtIns.id -join '|') 'Default discovery is sorted by id'
 foreach ($discoveredTool in $builtIns) {
     Assert-True ([IO.Path]::IsPathFullyQualified($discoveredTool.SkillRoot)) 'Runtime SkillRoot is absolute'
-    Assert-Equal (Join-Path $discoveredTool.SkillRoot 'scripts/foundry-launch.ps1') (Get-LegionToolScript -Tool $discoveredTool -Name foundry-launch) 'Launch lookup follows the skill convention'
     Assert-True (-not (Get-Content -LiteralPath (Join-Path $discoveredTool.SkillRoot 'tool.json') -Raw).Contains('SkillRoot')) 'Runtime data is not written into descriptors'
 }
 $scratchRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '.agents/temp/restructure'))
@@ -41,7 +40,6 @@ try {
     Copy-Item -LiteralPath $folder -Destination (Join-Path $discoveryRoot 'unrelated') -Recurse
     Assert-Equal 'fourth' (@(Get-LegionTools -SkillsRoot $discoveryRoot).id -join '|') 'Only direct legion descriptors are discovered'
     $fourth = Get-LegionTool -Tool fourth -SkillsRoot $discoveryRoot
-    Assert-Equal $null (Get-LegionToolScript -Tool $fourth -Name foundry-config) 'Missing optional config adapter returns null'
     Assert-Equal 'fourth-cli' $fourth.command 'Tool id does not dictate executable'
     Assert-Equal 'model[1]' $fourth.foundry.deploymentPrefix 'Deployment prefix remains literal data'
     Assert-Equal '--interactive|space value' ($fourth.overseerArgs -join '|') 'Argument boundaries are preserved'
@@ -69,12 +67,9 @@ try {
     $data = $original | ConvertFrom-Json -AsHashtable
     $data.foundry = $null
     $data | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $folder 'tool.json')
-    Move-Item -LiteralPath (Join-Path $folder 'scripts/foundry-launch.ps1') -Destination (Join-Path $folder 'scripts/foundry-launch.held')
     $fourth = Get-LegionTool -Tool fourth -SkillsRoot $discoveryRoot
-    Assert-Throws { Get-LegionToolScript -Tool $fourth -Name foundry-launch | Out-Null } 'Null capability rejects launch resolution'
-    Assert-Throws { Get-LegionToolScript -Tool $fourth -Name foundry-config | Out-Null } 'Null capability rejects config resolution'
+    Assert-Equal $null $fourth.foundry 'Null Foundry capability remains descriptor data'
     Set-Content -LiteralPath (Join-Path $folder 'tool.json') -Value $original
-    Move-Item -LiteralPath (Join-Path $folder 'scripts/foundry-launch.held') -Destination (Join-Path $folder 'scripts/foundry-launch.ps1')
     $recipes = Get-LegionInstallRecipes -SkillsRoot $discoveryRoot
     Assert-True ($recipes -is [hashtable]) 'Install recipes return one hashtable'
     Assert-Equal 'az|bun|fourth|git|node|uv' (($recipes.Keys | Sort-Object) -join '|') 'Recipes combine helper and agent installs'

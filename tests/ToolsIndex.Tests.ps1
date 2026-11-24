@@ -344,7 +344,7 @@
         '{invalid' | Set-Content -LiteralPath (Join-Path $folder 'tool.json')
         Assert-Throws { Get-ToolsIndexTools -SkillsRoot $discoveryRoot | Out-Null } 'Malformed descriptors stop generation'
         Set-Content -LiteralPath (Join-Path $folder 'tool.json') -Value $original
-        foreach ($requiredFile in @('SKILL.md', 'scripts/foundry-launch.ps1')) {
+        foreach ($requiredFile in @('SKILL.md')) {
             $path = Join-Path $folder $requiredFile
             Move-Item -LiteralPath $path -Destination ($path + '.held')
             Assert-Throws { Get-ToolsIndexTools -SkillsRoot $discoveryRoot | Out-Null } 'Missing skill/capability script stops discovery'

@@ -60,24 +60,6 @@ function Get-LegionTool {
     return $selected
 }
 
-# The one Foundry capability check: the tool descriptor, or an error when the tool has no Foundry support.
-function Get-LegionFoundryTool {
-    param([string]$Tool)
-    $descriptor = Get-LegionTool -Tool $Tool
-    if ($null -eq $descriptor.foundry) { throw "tool '$Tool' does not support Foundry" }
-    return $descriptor
-}
-
-function Get-LegionToolScript {
-    param($Tool, [ValidateSet('foundry-launch', 'foundry-config')][string]$Name)
-
-    if ($null -eq $Tool.foundry) { throw "tool '$($Tool.id)' does not support Foundry" }
-    $path = Join-Path $Tool.SkillRoot "scripts/$Name.ps1"
-    if (Test-Path -LiteralPath $path -PathType Leaf) { return $path }
-    if ($Name -eq 'foundry-launch') { throw "tool '$($Tool.id)' requires scripts/foundry-launch.ps1" }
-    return $null
-}
-
 function Get-LegionInstallRecipes {
     param(
         [string]$SkillsRoot = (Join-Path $PSScriptRoot '../../skills'),

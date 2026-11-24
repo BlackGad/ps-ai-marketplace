@@ -11,6 +11,7 @@ from typing import Literal, Optional
 from ._generated import cmd_escape, header, is_owned, shell_literal, write_generated
 from ._home import bin_folder, full_path, home_path, owner_path_safe, resolve_directory, same_path
 from ._settings_models import Agent, ToolDescriptor
+from ._app import ready_versions, python_environment
 
 # intact: every launcher is there and ours; none: no launcher file at all; partial: anything between.
 LauncherState = Literal["intact", "none", "partial"]
@@ -155,3 +156,33 @@ def remove(account: str, home: Path) -> list[Path]:
     for path in removed:
         path.unlink()
     return removed
+
+
+def foundry_text(account: str, environment: Path, home: Path, windows: bool) -> str:
+    # Hand-built, reason: cmd.exe and POSIX shell launcher files have no standard-library serializer.
+    # The program is the host's (Git Bash on Windows runs the plain file too); the text form follows the file suffix.
+    executable = environment / ("Scripts/legion.exe" if sys.platform == "win32" else "bin/legion")
+    if windows:
+        run = f'@"{cmd_escape(str(executable))}" --home "{cmd_escape(str(home))}" foundry run --account {account} -- %*'
+        return "\r\n".join([header(_owner_name(account), True), "@setlocal DisableDelayedExpansion", run, "@exit /b %errorlevel%", ""])
+    return "\n".join(
+        ["#!/bin/sh", header(_owner_name(account), False), f'exec {shell_literal(str(executable))} --home {shell_literal(str(home))} foundry run --account {shell_literal(account)} -- "$@"', ""]
+    )
+
+
+def plan_foundry(agent: Agent, home: Path) -> dict[Path, str]:
+    versions = ready_versions(home)
+    if not versions:
+        raise LauncherError("the legion app is not ready; run legion setup")
+    environment = python_environment(versions[0].path, home)
+    paths = launcher_paths(agent.id, home)
+    for path in paths:
+        if not owner_path_safe(path, home):
+            raise LauncherError(f"linked wrapper path '{path}'")
+        if os.path.lexists(path) and not is_owned(path, _owner_name(agent.id)):
+            raise LauncherError(f"wrapper collision '{path}'")
+    return {path: foundry_text(agent.id, environment, home, path.suffix == ".cmd") for path in paths}
+
+
+def write_foundry(agent: Agent, home: Path) -> list[Path]:
+    return [path for path, content in plan_foundry(agent, home).items() if write_generated(path, content, executable=path.suffix != ".cmd")]

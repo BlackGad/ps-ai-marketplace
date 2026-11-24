@@ -95,7 +95,7 @@ Get-Content -LiteralPath (Join-Path $scratch 'plan.txt')
 $code = (Get-Content -LiteralPath (Join-Path $scratch 'exit.txt')).Trim()
 if ($code -ne 'none') { exit [int]$code }
 '@
-    foreach ($name in 'legion-setup.ps1', 'legion-account.ps1', 'legion-overseer.ps1') {
+    foreach ($name in 'legion-setup.ps1', 'legion-overseer.ps1') {
         Set-Content -LiteralPath (Join-Path $standIns $name) -Value $standInText
     }
     $script:LegionBin = $standIns

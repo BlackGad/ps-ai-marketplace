@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from legion import _footprints
+from legion._app import python_environment
 from legion._settings_models import Agent, ToolDescriptor
 from legion._validate import load_descriptors
 
@@ -54,3 +56,15 @@ def only_on_path(monkeypatch: pytest.MonkeyPatch, *folders: Path) -> None:
     monkeypatch.setenv("PATH", os.pathsep.join(str(folder) for folder in folders))
     if WINDOWS:
         monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+
+
+# A home with one ready app version, and the legion program its Foundry launchers must name.
+def ready_app(home: Path, version: str = "1.0.0") -> Path:
+    app = home / ".legion" / "app" / version
+    app.mkdir(parents=True)
+    (app / ".legion-app-ready").touch()
+    _footprints.add(home, "app-version", app, "legion")
+    program = python_environment(app, home) / ("Scripts/legion.exe" if WINDOWS else "bin/legion")
+    program.parent.mkdir(parents=True, exist_ok=True)
+    program.touch()
+    return program

@@ -6,7 +6,7 @@ Route channel operations through `skills/legion-<kind>/SKILL.md`; stop if missin
 
 | Field | Operational consumer and purpose |
 | --- | --- |
-| `$schema` | `Write-LegionPersonalisation` normalizes the stable editor URL; runtime uses the bundled schema. |
+| `$schema` | The Python settings writer normalizes the stable editor URL; runtime uses the bundled schema. |
 | `schemaVersion` | `Invoke-LegionValidation` checks the bundled runtime format. |
 | `agents[].id` | Account operations select identity; the launcher derives a canonical wrapper. |
 | `agents[].tool` | Tool discovery chooses account, Foundry and launch adapters. |

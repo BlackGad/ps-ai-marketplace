@@ -294,7 +294,6 @@ function Add-SetupAccounts {
     foreach ($row in $Plan.Accounts) {
         if (-not $row.Usable) { continue }
         if ($row.Provider -and $row.MissingWrappers) {
-            New-FoundryWrappers -Id $row.Id -HomeRoot $Plan.HomeRoot -Tool $row.Tool.id
             "skip: account $($row.Id) (already done)"
             continue
         }
@@ -343,6 +342,9 @@ function Write-SetupCommands {
         Add-LegionFootprint -HomeRoot $Plan.HomeRoot -Kind app -Path (Get-LegionHomePath -Path 'app' -HomeRoot $Plan.HomeRoot) -Owner $owner
     }
     Publish-LegionApp -HomeRoot $Plan.HomeRoot
+    $result = Invoke-LegionPython -Arguments @('refresh') -HomeRoot $Plan.HomeRoot
+    if ($result.ExitCode -ne 0) { throw (ConvertTo-SetupOneLine ($result.Error + ' ' + $result.Output)) }
+    @($result.Output -split '\r?\n' | Where-Object { $_ })
     if (@($Plan.Commands | Where-Object State -EQ owned).Count) { 'skip: command legion (already done)' }
 }
 

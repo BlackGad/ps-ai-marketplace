@@ -7,12 +7,12 @@ Add and adopt through `legion-setup.ps1`, as [create.md](../../legion-personalis
 
 ## Foundry agent
 
-Codex is **not yet proven against Foundry**. Use this flow when GPT access exists and the owner wants to verify it. It replaces the subscription login flow above. One agent uses one endpoint. Run the commands in PowerShell 7; pass `-HomeRoot <home>` for an alternate home.
+Codex is **not yet proven against Foundry**. Use this flow when GPT access exists and the owner wants to verify it. It replaces the subscription login flow above. One agent uses one endpoint. Use `legion --home <home>` for an alternate home.
 
 Use these commands for a Foundry provider configuration request. Ordinary setup can adopt an existing folder and keep its provider settings. For Foundry only, ask “Standard mapping or choose deployments yourself?” Reuse choices already supplied. Follow [Foundry model mapping](../../legion-personalisation/references/foundry-models.md) for discovery, `-Standard` and unresolved aliases. These examples show explicit choices:
 
 ```powershell
-& "<plugin>/bin/legion-account.ps1" -Action add -Tool codex -Id '<id>' -Provider foundry -Endpoint "https://<resource>.cognitiveservices.azure.com" -Deployments @('gpt-x') -Default gpt-x
+legion account add --id <id> --tool codex --provider foundry --endpoint https://<resource>.cognitiveservices.azure.com --deployment gpt-x --default gpt-x
 ```
 
 Add writes the provider entry with wrappers, and the account's `config.toml`. It sets `model`, `model_provider = "legion-foundry"`, `/openai/v1` as the endpoint path, and `wire_api = "responses"`. The auth command uses the full `az` path and the cognitive-services token resource, with `refresh_interval_ms = 1800000`. Other config keys remain. Repeating the same id, tool, provider, and endpoint prints `skip: account <id> (already done)`.
@@ -20,7 +20,7 @@ Add writes the provider entry with wrappers, and the account's `config.toml`. It
 For a requested provider configuration change, reuse the supplied settings and apply the complete replacement with:
 
 ```powershell
-& "<plugin>/bin/legion-account.ps1" -Action models -Id '<id>' -Deployments @('gpt-x') -Default gpt-x
+legion account models --id <id> --deployment gpt-x --default gpt-x
 ```
 
 The default must be selected. An identical result prints `skip: models <id> (no changes)` and writes nothing. Then run `legion-setup.ps1` and show the owner its plan. It covers every known account, not only this one, so ask for the owner's one yes and run it again with `-Yes` to install legion wherever it is missing.
