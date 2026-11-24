@@ -21,9 +21,9 @@ function Get-LegionHelp {
         '  legion pick [--no-channel]           choose which account leads the overseer'
         '  legion setup [--yes]                 finish setup: settings, commands, legion in every account'
         '  legion add <tool> [<folder>] [--yes] add a claude, codex or copilot account (new or existing folder)'
-        '  legion remove <id>                   remove an account (its folder is kept)'
+        '  legion remove --id <id>              remove an account (its folder is kept)'
         '  legion status                        show accounts, commands, channels and this repository'
-        '  legion limits [<id>]                 show each account''s usage windows and reset times (or one account)'
+        '  legion limits [--id <id>]            show each account''s usage windows and reset times (or one account)'
         '  legion lease take|status|release     take, check or release this repository''s overseer lease'
         '  legion update [--yes]                update legion to the newest version of the track it was installed from'
         '  legion update --check [--force]      check for a newer version; --force bypasses the daily cache'
@@ -90,11 +90,6 @@ function Get-LegionCall {
             $splat = @{ Add = @($item) }
             if ($hasYes) { $splat.Yes = $true }
             return @{ Script = 'legion-setup.ps1'; Splat = $splat; AsksToApply = -not $hasYes }
-        }
-        'remove' {
-            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags @() -MinArguments 1 -MaxArguments 1
-            $splat = @{ Action = 'remove'; Id = $arguments[0] }
-            return @{ Script = 'legion-account.ps1'; Splat = $splat; AsksToApply = $false }
         }
         { $_ -in @('', 'pick') } {
             $noChannelFlags = @('--no-channel', '-NoChannel')

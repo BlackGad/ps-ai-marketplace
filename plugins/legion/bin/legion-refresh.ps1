@@ -10,8 +10,9 @@ if (Test-Path -LiteralPath $file) {
         if (-not $agent.provider) {
             if (-not (Test-LegionLauncherMissing -Id $agent.id -HomeRoot $HomeRoot)) { continue }
             $folder = Resolve-LegionHomePath -Path $agent.configDir -HomeRoot $HomeRoot
-            $target = Get-LegionWrapperTarget -Id $agent.id -Tool $agent.tool -HomeRoot $HomeRoot -ConfigDir $folder
-            if (-not $target) { "skip: account $($agent.id) (CLI target not found or launcher needs repair)"; continue }
+            # Interim until task 5 moves refresh to Python: a stored command is never replaced by the stock one.
+            $target = if ($agent.command) { Resolve-LegionHomePath -Path $agent.command -HomeRoot $HomeRoot } else { Get-LegionWrapperTarget -Id $agent.id -Tool $agent.tool -HomeRoot $HomeRoot -ConfigDir $folder }
+            if (-not $target -or -not (Test-Path -LiteralPath $target -PathType Leaf)) { "skip: account $($agent.id) (CLI target not found or launcher needs repair)"; continue }
             New-LegionWrappers -Id $agent.id -Tool $agent.tool -HomeRoot $HomeRoot -ConfigDir $folder -RealCommand $target -Changes $changes
             continue
         }

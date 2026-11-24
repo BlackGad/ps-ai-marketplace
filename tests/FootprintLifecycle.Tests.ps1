@@ -55,9 +55,12 @@ try {
         Install-FixtureTarget -Tool $tool
     }
     $accounts = [ordered]@{ claude1 = 'claude'; codex1 = 'codex'; copilot1 = 'copilot'; 'ci-extra' = 'claude' }
+    $settingsFile = Get-LegionOwnerPath -HomeRoot $sandbox -Name Settings
+    $agents = @($accounts.Keys | ForEach-Object { @{ id = $_; tool = $accounts[$_]; configDir = (Join-Path $sandbox ".legion/agents/$_") } })
+    Write-LegionPersonalisation -Data ([pscustomobject]@{ schemaVersion = 1; agents = $agents; channels = @() }) -Path $settingsFile
     foreach ($id in $accounts.Keys) {
-        $null = & (Join-Path $repo 'plugins/legion/bin/legion-account.ps1') -Action add -Id $id -Tool $accounts[$id] -Command (Get-Process -Id $PID).Path -HomeRoot $sandbox
         $folder = Join-Path $sandbox ".legion/agents/$id"
+        New-LegionWrappers -Id $id -Tool $accounts[$id] -HomeRoot $sandbox -ConfigDir $folder -RealCommand (Get-Process -Id $PID).Path
         Install-FixtureTarget -Tool ($catalog.tools | Where-Object id -CEQ $accounts[$id]) -Folder $folder
         $null = Add-SetupAllowRules -Plan @{ HomeRoot = $sandbox; Accounts = @(@{ Usable = $true; Tool = (Get-LegionTool -Tool $accounts[$id]); Folder = $folder }) }
     }
@@ -66,7 +69,9 @@ try {
     foreach ($id in 'codex1', 'copilot1') { Assert-Equal $false (Test-Path (Join-Path $sandbox ".legion/agents/$id/settings.json")) "No Claude settings are written for $id" }
 
     $extra = Join-Path $sandbox '.legion/agents/ci-extra'
-    $null = & (Join-Path $repo 'plugins/legion/bin/legion-account.ps1') -Action remove -Id ci-extra -HomeRoot $sandbox
+    $current = Read-LegionJson $settingsFile
+    $current.agents = @($current.agents | Where-Object { $_.id -cne 'ci-extra' })
+    Write-LegionPersonalisation -Data $current -Path $settingsFile
     Assert-True (Test-Path (Join-Path $extra 'settings.json')) 'Account removal keeps the folder and its settings'
 
     $null = Invoke-LegionInstaller -Catalog $catalog -Uninstall -Yes

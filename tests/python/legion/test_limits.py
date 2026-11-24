@@ -472,7 +472,7 @@ def test_limits_prints_the_powershell_table_for_every_account(bench: Bench, tmp_
 
 def test_limits_for_one_account_pings_only_that_account(bench: Bench, capsys: pytest.CaptureFixture[str]) -> None:
     write_settings(bench.home, ACCOUNTS)
-    assert run(["--home", str(bench.home), "limits", "copilot-a"]) == 0
+    assert run(["--home", str(bench.home), "limits", "--id", "copilot-a"]) == 0
     assert capsys.readouterr().out.splitlines()[1:] == [
         "Account   Tool    Window Used    Resets at Status",
         "-------   ----    ------ ----    --------- ------",
@@ -485,8 +485,8 @@ def test_limits_for_one_account_pings_only_that_account(bench: Bench, capsys: py
     ("agents", "words", "message"),
     [
         (None, [], "No legion settings yet; run legion setup."),
-        (ACCOUNTS, ["nobody"], "unknown account 'nobody'"),
-        (ACCOUNTS, ["Claude-A"], "unknown account 'Claude-A'"),
+        (ACCOUNTS, ["--id", "nobody"], "unknown account 'nobody'"),
+        (ACCOUNTS, ["--id", "Claude-A"], "unknown account 'Claude-A'"),
     ],
     ids=["no settings", "unknown account", "account names are exact"],
 )
@@ -511,8 +511,8 @@ def test_limits_without_accounts_says_to_add_one(bench: Bench, capsys: pytest.Ca
     assert capsys.readouterr().out == "No accounts yet; run legion add.\n"
 
 
-@pytest.mark.parametrize("words", [["claude-a", "codex-a"], ["--yes"]], ids=["two accounts", "a flag"])
-def test_limits_takes_at_most_one_account_and_no_flags(bench: Bench, words: list[str]) -> None:
+@pytest.mark.parametrize("words", [["claude-a"], ["--id", "claude-a", "codex-a"], ["--yes"]], ids=["positional id", "extra positional", "a flag"])
+def test_limits_takes_at_most_one_named_account_and_no_other_flags(bench: Bench, words: list[str]) -> None:
     write_settings(bench.home, ACCOUNTS)
     assert run(["--home", str(bench.home), "limits", *words]) == 2
     assert bench.calls("claude") == []

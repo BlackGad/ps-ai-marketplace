@@ -1,9 +1,7 @@
 param(
-    [ValidateSet('add', 'rename', 'remove', 'register', 'models')][string]$Action,
+    [ValidateSet('add', 'models')][string]$Action,
     [string]$Id,
     [string]$Tool,
-    [string]$NewId,
-    [string]$Command,
     [string]$ConfigDir,
     [ValidateSet('foundry')][string]$Provider,
     [string]$Endpoint,
@@ -25,20 +23,12 @@ if ($Standard -and $Action -ne 'models' -and -not ($Action -eq 'add' -and $Provi
 }
 
 $file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings
-if ($Action -in @('add', 'register')) {
+if ($Action -eq 'add') {
+    if (-not $Provider) { throw 'subscription accounts are added with: legion account add --id <id> --tool <tool>' }
     Assert-LegionId -Id $Id
     $null = Get-LegionTool -Tool $Tool
 } elseif (-not (Test-Path -LiteralPath $file)) {
     throw 'No legion settings yet; add an agent first.'
-}
-if ($Action -eq 'register') {
-    if (-not $Command -or -not $ConfigDir) { throw 'register requires -Command and -ConfigDir' }
-    $target = Resolve-LegionHomePath -Path $Command -HomeRoot $HomeRoot
-    $target = (Get-Command $target -ErrorAction Stop).Source
-    if (-not $target) { throw 'register target must be an executable file' }
-    if ($target -eq (Get-LegionWrapperCommand $Id $HomeRoot)) { throw 'wrapper target would recurse' }
-    & $PSCommandPath -Action add -Id $Id -Tool $Tool -Command $target -ConfigDir $ConfigDir -HomeRoot $HomeRoot
-    return
 }
 $settingsLock = if ($List) { $null } else {
     Wait-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $file) -Seconds 30
@@ -47,7 +37,7 @@ if (-not $settingsLock -and -not $List) { throw 'legion settings are busy; anoth
 try {
 if (-not (Test-Path -LiteralPath $file)) {
     # A fresh machine has no settings; the first agent added creates them.
-    if ($Action -notin @('add', 'register')) { throw 'No legion settings yet; add an agent first.' }
+    if ($Action -ne 'add') { throw 'No legion settings yet; add an agent first.' }
     $data = '{"schemaVersion":1,"agents":[],"channels":[]}' | ConvertFrom-Json
 } else { $data = Read-LegionJson -Path $file }
 switch ($Action) {
@@ -79,7 +69,6 @@ switch ($Action) {
             "Run '$Id' in a terminal; it signs in to Azure through az when needed."
             break
         }
-        Add-LegionSubscriptionAccount -Id $Id -Tool $Tool -Command $Command -ConfigDir $ConfigDir -HomeRoot $HomeRoot -Data $data -Path $file
     }
     models {
         $agent = Get-LegionAgent -Data $data -Id $Id
@@ -96,35 +85,6 @@ switch ($Action) {
         $null = Write-FoundryToolConfig -Agent $agent -HomeRoot $HomeRoot
         Write-LegionPersonalisation -Data $data -Path $file
         New-FoundryWrappers -Id $Id -HomeRoot $HomeRoot -Tool $agent.tool
-    }
-    rename {
-        $old = Get-LegionAgent -Data $data -Id $Id
-        $new = Get-LegionAgent -Data $data -Id $NewId
-        if ($null -eq $old -and $null -ne $new) {
-            "skip: account rename $Id to $NewId (already done)"
-            break
-        }
-        Assert-LegionNewId -Id $NewId -Data $data
-        if ($null -eq $old) { throw "unknown account '$Id'" }
-        $agent = $old
-        foreach ($suffix in @('', '.cmd')) {
-            $destination = Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$NewId$suffix"
-            if (Test-Path -LiteralPath $destination) { throw "wrapper collision '$destination'" }
-        }
-        Update-LegionChannelAccounts -Data $data -OldId $Id -NewId $NewId
-        $agent.id = $NewId
-        Write-LegionPersonalisation -Data $data -Path $file
-        Move-LegionWrappers -OldId $Id -NewId $NewId -HomeRoot $HomeRoot
-        "Config folder kept at $($agent.configDir); rename it yourself only if you want to."
-    }
-    remove {
-        $agent = Get-LegionAgent -Data $data -Id $Id
-        if ($null -eq $agent) { "skip: account remove $Id (already done)"; break }
-        Update-LegionChannelAccounts -Data $data -OldId $Id -NewId ''
-        $data.agents = @($data.agents | Where-Object { $_.id -cne $Id })
-        Write-LegionPersonalisation -Data $data -Path $file
-        Remove-LegionWrappers -Id $Id -HomeRoot $HomeRoot
-        "Config folder kept at $($agent.configDir)."
     }
 }
 } finally { if ($settingsLock) { $settingsLock.Dispose() } }

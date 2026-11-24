@@ -13,7 +13,6 @@ FORWARDED_VERBS = {
     "pick": "Choose which account leads the overseer",
     "setup": "Finish setup: settings, commands, legion in every account",
     "add": "Add a claude, codex or copilot account",
-    "remove": "Remove an account (its folder is kept)",
     "uninstall": "Remove legion; --purge also deletes settings, notes and logins",
     "help": "Show the legion commands",
 }

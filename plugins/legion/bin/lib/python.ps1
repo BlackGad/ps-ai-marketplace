@@ -35,7 +35,7 @@ function Get-LegionPythonCommand {
 }
 
 function Invoke-LegionPython {
-    param([string[]]$Arguments = @(), [string]$HomeRoot = $HOME)
+    param([string[]]$Arguments = @(), [string]$HomeRoot = $HOME, [hashtable]$Environment = @{})
 
     $python = Get-LegionPythonCommand -Arguments $Arguments -HomeRoot $HomeRoot
     if (-not $python) {
@@ -46,7 +46,9 @@ function Invoke-LegionPython {
         )
         return @{ ExitCode = 127; Output = ($output -join "`n"); Error = '' }
     }
-    return Invoke-LegionProcess -Command $python.Command -Arguments $python.Arguments -Environment $python.Environment
+    $merged = $python.Environment.Clone()
+    foreach ($name in $Environment.Keys) { $merged[$name] = $Environment[$name] }
+    return Invoke-LegionProcess -Command $python.Command -Arguments $python.Arguments -Environment $merged
 }
 
 # Ready app versions, newest first: recorded, safe (see Test-LegionAppVersionSafe) and marked.

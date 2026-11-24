@@ -29,13 +29,6 @@ try {
     Assert-Equal $true $call.Splat.Yes 'setup -Yes sets Yes'
     Assert-Equal $true (Get-LegionCall -Words @('setup')).AsksToApply 'setup asks to apply'
 
-    $call = Get-LegionCall -Words @('remove', 'claude1')
-    Assert-Equal 'legion-account.ps1' $call.Script 'remove calls the account script'
-    Assert-Equal 'remove' $call.Splat.Action 'remove action'
-    Assert-Equal 'claude1' $call.Splat.Id 'remove id'
-    Assert-True (-not $call.Splat.ContainsKey('Repo')) 'remove has no Repo'
-    Assert-Equal $false $call.AsksToApply 'remove does not ask'
-
     $call = Get-LegionCall -Words @()
     Assert-Equal 'legion-overseer.ps1' $call.Script 'bare legion calls the overseer script'
     Assert-Equal $cwd $call.Splat.Repo 'bare legion repo is the current folder'
@@ -49,7 +42,7 @@ try {
     Assert-True ($call.Splat.Pick -and $call.Splat.NoChannel) 'pick --no-channel'
     Assert-Throws { Get-LegionCall -Words @('--account', 'claude1') } 'bare legion takes no account flag'
     Assert-Throws { Get-LegionCall -Words @('pick', 'claude1') } 'pick takes no argument'
-    foreach ($removed in @('start', 'repo')) {
+    foreach ($removed in @('start', 'repo', 'remove')) {
         try { $null = Get-LegionCall -Words @($removed); throw 'Expected unknown command' }
         catch { Assert-Equal "legion: unknown command '$removed'" $_.Exception.Message "$removed is gone" }
     }
@@ -76,9 +69,9 @@ legion - legion commands
   legion pick [--no-channel]           choose which account leads the overseer
   legion setup [--yes]                 finish setup: settings, commands, legion in every account
   legion add <tool> [<folder>] [--yes] add a claude, codex or copilot account (new or existing folder)
-  legion remove <id>                   remove an account (its folder is kept)
+  legion remove --id <id>              remove an account (its folder is kept)
   legion status                        show accounts, commands, channels and this repository
-  legion limits [<id>]                 show each account's usage windows and reset times (or one account)
+  legion limits [--id <id>]            show each account's usage windows and reset times (or one account)
   legion lease take|status|release     take, check or release this repository's overseer lease
   legion update [--yes]                update legion to the newest version of the track it was installed from
   legion update --check [--force]      check for a newer version; --force bypasses the daily cache
@@ -135,7 +128,7 @@ if ($code -ne 'none') { exit [int]$code }
     & {
         . $legionScript -HomeRoot $scratch
         $script:LegionBin = $standIns
-        foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'), @('pick'), @('remove', 'codex1'), @('--no-channel'))) {
+        foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'), @('pick'), @('--no-channel'))) {
             Reset-StandIns -Exit 'none'
             Invoke-Legion -Words $words | Out-Null
             Assert-Equal $scratch (Get-Records)[0].HomeRoot 'R4 B4 legion carries the bound home through dispatch'
@@ -157,13 +150,6 @@ if ($code -ne 'none') { exit [int]$code }
     Assert-Equal $true $record1.Pick 'Pick switch arrives bound'
     Assert-Equal $true $record1.NoChannel 'NoChannel switch arrives bound'
     Assert-Equal $cwd $record1.Repo 'Repo arrives'
-
-    Reset-StandIns -Exit 'none'
-    Invoke-Quiet @('remove', 'claude1') | Out-Null
-    $record1 = (Get-Records)[0]
-    Assert-Equal 'remove' $record1.Action 'Remove action arrives'
-    Assert-Equal 'claude1' $record1.Id 'Remove id arrives'
-    Assert-Equal '' "$($record1.Repo)" 'Remove gets no Repo'
 
     Reset-StandIns -Exit '3'
     Assert-Equal 3 (Invoke-Quiet @('setup', '--yes')) 'A failing script gives its exit code'

@@ -96,7 +96,7 @@ def status(home: Optional[Path]) -> None:
 
 
 @main.command("limits", help="Show each account's usage windows and reset times (or one account)")
-@click.argument("account", required=False)
+@click.option("--id", "account", help="one account instead of every account")
 @click.pass_context
 def limits(context: click.Context, account: Optional[str]) -> None:
     from .limits import LimitsError, report_lines
@@ -306,6 +306,86 @@ def channel_check(context: click.Context, kind: str, accounts: tuple[str, ...]) 
     from . import _channel
 
     _report_channel(context, lambda: _channel.check(_home.legion_home(context.obj), kind, list(accounts)))
+
+
+@main.group(help="Add, register, rename or remove accounts")
+def account() -> None:
+    pass
+
+
+# Runs one account change and prints its lines, or its refusal on stderr with exit code 1.
+def _report_account(context: click.Context, change: Callable[[], list[str]]) -> None:
+    from ._accounts import AccountError
+    from ._footprints import FootprintError
+    from ._launchers import LauncherError
+    from ._settings_io import SettingsError
+
+    try:
+        lines = change()
+    except (AccountError, FootprintError, LauncherError, SettingsError) as error:
+        click.echo(" ".join(str(error).split()), err=True)
+        context.exit(1)
+    for line in lines:
+        click.echo(line)
+
+
+_account_id_option = click.option("--id", "account_id", required=True, help="the account id")
+_account_tool_option = click.option("--tool", "tool_id", required=True, help="the tool, such as claude, codex or copilot")
+
+
+@account.command("add", help="Add a subscription account, or repair the launchers of an existing one")
+@_account_id_option
+@_account_tool_option
+@click.option("--command", help="the account's own CLI program, when it is not the tool's stock command")
+@click.option("--config-dir", help="an existing account folder to adopt")
+@click.pass_context
+def account_add(context: click.Context, account_id: str, tool_id: str, command: Optional[str], config_dir: Optional[str]) -> None:
+    from . import _accounts
+
+    _report_account(context, lambda: _accounts.add_subscription(_home.legion_home(context.obj), account_id, tool_id, command, config_dir))
+
+
+@account.command("register", help="Register an existing account folder and the program that runs it")
+@_account_id_option
+@_account_tool_option
+@click.option("--command", required=True, help="the program that runs the account")
+@click.option("--config-dir", required=True, help="the account's existing folder")
+@click.pass_context
+def account_register(context: click.Context, account_id: str, tool_id: str, command: str, config_dir: str) -> None:
+    from . import _accounts
+
+    _report_account(context, lambda: _accounts.add_subscription(_home.legion_home(context.obj), account_id, tool_id, command, config_dir))
+
+
+@account.command("rename", help="Give an account a new id; its folder stays")
+@_account_id_option
+@click.option("--new-id", required=True, help="the new account id")
+@click.pass_context
+def account_rename(context: click.Context, account_id: str, new_id: str) -> None:
+    from . import _accounts
+
+    _report_account(context, lambda: _accounts.rename(_home.legion_home(context.obj), account_id, new_id))
+
+
+# `legion remove` and `legion account remove` are the same command under two names.
+def _remove_account(context: click.Context, account_id: str) -> None:
+    from . import _accounts
+
+    _report_account(context, lambda: _accounts.remove(_home.legion_home(context.obj), account_id))
+
+
+@account.command("remove", help="Remove an account (its folder is kept)")
+@_account_id_option
+@click.pass_context
+def account_remove(context: click.Context, account_id: str) -> None:
+    _remove_account(context, account_id)
+
+
+@main.command("remove", help="Remove an account (its folder is kept)")
+@_account_id_option
+@click.pass_context
+def remove(context: click.Context, account_id: str) -> None:
+    _remove_account(context, account_id)
 
 
 for _verb, _help in _forward.FORWARDED_VERBS.items():

@@ -123,6 +123,65 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
     & $refresh -HomeRoot $tempRoot | Out-Null
     $fixed = [IO.File]::ReadAllText((Join-Path $bin 'legion'))
     Assert-True ($fixed.Contains((Join-Path $tempRoot ".legion/app/$version")) -and -not $fixed.Contains('-OwnerFlag keep')) 'Refresh rewrites a marked command and discards hand-added flags'
+    # Interim until task 5 ports refresh to Python: missing subscription launchers are rebuilt from the settings,
+    # from the stored command when there is one and from the stock CLI on PATH when there is not.
+    & {
+        $scratch = Join-Path $tempRoot 'accounts'
+        $savedPath = $env:PATH
+        try {
+            . (Join-Path $root 'plugins/legion/bin/lib/accounts.ps1')
+            . (Join-Path $root 'tests/lib/workspace.ps1')
+            $fakeBin = Join-Path $scratch 'fake tools'
+            New-Item -ItemType Directory -Path $fakeBin -Force | Out-Null
+            $systemBin = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' }
+            $env:PATH = @($fakeBin, $systemBin) -join [IO.Path]::PathSeparator
+            $agents = @()
+            foreach ($descriptor in Get-LegionTools) {
+                $cli = Join-Path $fakeBin $(if ($IsWindows) { "$($descriptor.command).cmd" } else { $descriptor.command })
+                $text = if ($IsWindows) { '@echo %' + $descriptor.configEnv + '%' + "`r`n@exit /b 0`r`n" }
+                    else { '#!/bin/sh' + "`n" + 'printenv ' + $descriptor.configEnv + "`n" }
+                [IO.File]::WriteAllText($cli, $text)
+                Set-TestExecutable $cli
+                $agents += @{ id = "$($descriptor.id)-a"; tool = $descriptor.id; configDir = "~/.legion/agents/$($descriptor.id)-a" }
+            }
+            $custom = Join-Path $scratch $(if ($IsWindows) { 'custom.cmd' } else { 'custom' })
+            [IO.File]::WriteAllText($custom, $(if ($IsWindows) { "@echo custom`r`n@exit /b 0`r`n" } else { "#!/bin/sh`necho custom`n" }))
+            Set-TestExecutable $custom
+            $agents += @{ id = 'custom-a'; tool = 'codex'; configDir = '~/.legion/agents/custom-a'; command = $custom }
+            $settings = Join-Path $scratch '.legion/configuration/personalisation.json'
+            Write-LegionPersonalisation -Data ([pscustomobject]@{ schemaVersion = 1; agents = $agents; channels = @() }) -Path $settings
+            $original = [IO.File]::ReadAllText($settings)
+            $null = @(& $refresh -HomeRoot $scratch)
+            foreach ($agent in $agents) {
+                $wrapper = Join-Path $scratch ".legion/bin/$($agent.id)"
+                Assert-True (Test-Path $wrapper) 'Refresh recreates missing account launchers from settings'
+                Assert-True (Test-LegionLauncherExecutable $wrapper) 'Refreshed launcher is executable'
+                $folder = Get-LegionNewAccountDir -Id $agent.id -HomeRoot $scratch
+                $launched = if ($IsWindows) { & "$wrapper.cmd" } else { & $wrapper }
+                if ($agent.id -eq 'custom-a') { Assert-Equal 'custom' "$launched" 'A stored command is never replaced by the stock CLI' }
+                else { Assert-Equal $folder "$launched" 'Recovered launcher runs the fake CLI with its account config folder' }
+            }
+            Assert-Equal $original ([IO.File]::ReadAllText($settings)) 'Refresh leaves settings unchanged'
+            $accountBin = Join-Path $scratch '.legion/bin'
+            $accountBefore = @(Get-ChildItem $accountBin -File | Sort-Object Name | ForEach-Object { $_.LastWriteTimeUtc.Ticks }) -join '|'
+            $accountRepeat = @(& $refresh -HomeRoot $scratch)
+            Assert-True ($accountRepeat -contains 'skip: legion generated runtimes and launchers (already done)') 'Repeated refresh reports skip'
+            Assert-Equal $accountBefore (@(Get-ChildItem $accountBin -File | Sort-Object Name | ForEach-Object { $_.LastWriteTimeUtc.Ticks }) -join '|') 'Repeated refresh changes no launcher timestamps'
+            # An unavailable CLI blocks only its account; the stored command's file gone blocks its own.
+            $env:PATH = $systemBin
+            Remove-Item -LiteralPath (Join-Path $accountBin 'codex-a')
+            if ($IsWindows) { Remove-Item -LiteralPath (Join-Path $accountBin 'codex-a.cmd') }
+            Remove-Item -LiteralPath (Join-Path $accountBin 'custom-a')
+            if ($IsWindows) { Remove-Item -LiteralPath (Join-Path $accountBin 'custom-a.cmd') }
+            Remove-Item -LiteralPath $custom
+            $missing = @(& $refresh -HomeRoot $scratch)
+            Assert-Equal 1 @($missing -match '^skip: account codex-a .*CLI.*not found').Count 'Missing CLI has one account-specific skip line'
+            Assert-Equal 1 @($missing -match '^skip: account custom-a .*CLI.*not found').Count 'A stored command that is gone has one account-specific skip line'
+            Assert-Equal $false (Test-Path (Join-Path $accountBin 'codex-a')) 'Missing CLI creates no launcher'
+            Assert-Equal $false (Test-Path (Join-Path $accountBin 'custom-a')) 'A gone stored command creates no launcher'
+            Assert-True (Test-Path (Join-Path $accountBin 'claude-a')) 'Other account launchers are retained'
+        } finally { $env:PATH = $savedPath }
+    }
 } finally {
     if ([IO.Path]::GetFullPath($tempRoot).StartsWith([IO.Path]::GetFullPath((Join-Path $root '.agents/temp/')))) {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force

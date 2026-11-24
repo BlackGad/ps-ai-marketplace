@@ -29,8 +29,8 @@ function Test-SetupCommand {
     return [bool](Find-SetupCommand -Name $Name)
 }
 
-function Invoke-SetupProcess {
-    param([string[]]$Arguments)
+# The process PATH plus the saved PATH folders: a command installed a moment ago may be only in those.
+function Get-SetupEnvironment {
     $environment = @{}
     if ($IsWindows) {
         $path = $env:PATH
@@ -39,7 +39,12 @@ function Invoke-SetupProcess {
         }
         $environment.PATH = $path
     }
-    $result = Invoke-LegionProcess -Command pwsh -Arguments $Arguments -Environment $environment
+    return $environment
+}
+
+function Invoke-SetupProcess {
+    param([string[]]$Arguments)
+    $result = Invoke-LegionProcess -Command pwsh -Arguments $Arguments -Environment (Get-SetupEnvironment)
     return @{ Code = $result.ExitCode; Output = $result.Output + $result.Error }
 }
 
@@ -96,6 +101,17 @@ function Get-SetupMissingAllowRules {
     return @($rules | Where-Object { $_ -cnotin $current })
 }
 
+# True when the account's launchers are missing and the owner must name the program again (legion account register).
+function Test-SetupTargetNeeded {
+    param($Agent, [string]$HomeRoot)
+    if ($Agent.command) { return -not (Test-Path -LiteralPath (Resolve-LegionHomePath -Path $Agent.command -HomeRoot $HomeRoot) -PathType Leaf) }
+    # Without a command, a launcher that survived alone cannot say which program it ran; none left means the stock one,
+    # and launchers that are all there only lack their execute permission, which Python gives back.
+    $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
+    $present = @($suffixes | Where-Object { Test-Path -LiteralPath (Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$($Agent.id)$_") }).Count
+    return $present -gt 0 -and $present -lt $suffixes.Count
+}
+
 function New-SetupAccountRow {
     param($Agent, $Tool, [string]$HomeRoot, [switch]$Requested, [switch]$New, [switch]$Adopted)
     $folder = Resolve-SetupFolder $Agent.configDir $HomeRoot
@@ -103,15 +119,15 @@ function New-SetupAccountRow {
     $managed = Get-LegionNewAccountDir -Id $Agent.id -HomeRoot $HomeRoot
     $nextStep = if (-not $Adopted -and -not $Agent.provider -and $folder -ceq $managed) { "log in: run $($Agent.id)" } else { 'ready' }
     $missingWrappers = Test-LegionLauncherMissing -Id $Agent.id -HomeRoot $HomeRoot
-    $target = $null
-    if ($missingWrappers -and -not $New -and -not $Agent.provider) { $target = Get-LegionWrapperTarget -Id $Agent.id -Tool $Tool.id -HomeRoot $HomeRoot -ConfigDir $folder }
-    if ($missingWrappers -and -not $New -and -not $Agent.provider -and -not $target) { $nextStep = "target needed: $($Agent.id); ask the owner for the registered executable" }
+    if ($missingWrappers -and -not $New -and -not $Agent.provider -and (Test-SetupTargetNeeded -Agent $Agent -HomeRoot $HomeRoot)) {
+        $nextStep = "target needed: $($Agent.id); ask the owner for the registered executable"
+    }
     return [pscustomobject]@{
         Id = $Agent.id; Tool = $Tool; Folder = $folder
         Requested = [bool]$Requested; New = [bool]$New; Adopted = [bool]$Adopted
         Version = (Get-LegionInstalledVersion -ConfigDir $folder -Tool $Tool)
         NextStep = $nextStep; Usable = (-not $nextStep.StartsWith('target needed:'))
-        MissingWrappers = $missingWrappers; WrapperTarget = $target; Provider = $Agent.provider
+        MissingWrappers = $missingWrappers; Command = $Agent.command; Provider = $Agent.provider
         MissingAllowRules = @(Get-SetupMissingAllowRules -Tool $Tool -Folder $folder)
     }
 }
@@ -174,7 +190,7 @@ function Get-SetupPlan {
     foreach ($tool in Get-LegionTools) { $tools[$tool.id] = $tool }
     $accounts = @(Get-SetupAccounts -Add $Add -Id $Id -Data $data -Tools $tools -HomeRoot $HomeRoot)
     $usable = @($accounts | Where-Object Usable)
-    $needsStockCommand = @($usable | Where-Object { -not $_.WrapperTarget })
+    $needsStockCommand = @($usable | Where-Object { -not $_.Command })
     $missing = @()
     foreach ($tool in $tools.Values) {
         if ($tool.id -cin @($needsStockCommand.Tool.id) -and -not (Test-SetupCommand -Name $tool.command)) { $missing += $tool }
@@ -242,12 +258,17 @@ function Write-SetupPlan {
 
 function Initialize-SetupFiles {
     param($Plan)
+    $utf8 = [Text.UTF8Encoding]::new($false)
     if (Test-Path -LiteralPath $Plan.Settings) { 'skip: settings (already done)' }
-    else { Write-LegionPersonalisation -Data $Plan.Data -Path $Plan.Settings }
+    else {
+        New-Item -ItemType Directory -Path (Split-Path $Plan.Settings -Parent) -Force | Out-Null
+        [IO.File]::WriteAllText($Plan.Settings, '{"schemaVersion":1,"agents":[],"channels":[]}' + "`n", $utf8)
+    }
     if (Test-Path -LiteralPath $Plan.Notes) { 'skip: notes (already done)' }
     else {
         $template = Join-Path $script:SetupPluginRoot 'skills/legion-personalisation/references/notes-template.md'
-        Write-LegionGeneratedFile -Path $Plan.Notes -Content ([IO.File]::ReadAllText($template))
+        New-Item -ItemType Directory -Path (Split-Path $Plan.Notes -Parent) -Force | Out-Null
+        [IO.File]::WriteAllText($Plan.Notes, [IO.File]::ReadAllText($template), $utf8)
     }
 }
 
@@ -260,7 +281,7 @@ function Install-SetupTools {
             else { '' }
         if (-not $reason) { continue }
         foreach ($row in $Plan.Accounts) {
-            if ($row.Tool.id -cne $tool.id -or $row.WrapperTarget) { continue }
+            if ($row.Tool.id -cne $tool.id -or $row.Command) { continue }
             $row.Usable = $false
             $row.NextStep = $reason
         }
@@ -269,8 +290,6 @@ function Install-SetupTools {
 
 function Add-SetupAccounts {
     param($Plan)
-    $file = Get-LegionOwnerPath -HomeRoot $Plan.HomeRoot -Name Settings
-    $data = Read-LegionJson -Path $file
     foreach ($row in $Plan.Accounts) {
         if (-not $row.Usable) { continue }
         if ($row.Provider -and $row.MissingWrappers) {
@@ -279,14 +298,13 @@ function Add-SetupAccounts {
             continue
         }
         if ($row.Requested -or $row.MissingWrappers) {
-            $arguments = @{ Id = $row.Id; Tool = $row.Tool.id; HomeRoot = $Plan.HomeRoot; Data = $data; Path = $file }
+            $arguments = @('account', 'add', '--id', $row.Id, '--tool', $row.Tool.id)
             $managed = Get-LegionNewAccountDir -Id $row.Id -HomeRoot $Plan.HomeRoot
-            if ($row.Adopted -or -not (Get-LegionPathComparer).Equals($row.Folder, $managed)) { $arguments.ConfigDir = $row.Folder }
-            if ($row.New) { $arguments.Command = Find-SetupCommand -Name $row.Tool.command }
-            elseif ($row.MissingWrappers) { $arguments.Command = $row.WrapperTarget }
-            try { $result = @(Add-LegionSubscriptionAccount @arguments) }
-            catch { throw (ConvertTo-SetupOneLine $_.Exception.Message) }
-            if (-not $row.New) { $result }
+            if ($row.Adopted -or -not (Get-LegionPathComparer).Equals($row.Folder, $managed)) { $arguments += @('--config-dir', $row.Folder) }
+            # The Python child takes the settings lock itself, so this function must not hold it.
+            $result = Invoke-LegionPython -Arguments $arguments -HomeRoot $Plan.HomeRoot -Environment (Get-SetupEnvironment)
+            if ($result.ExitCode -ne 0) { throw (ConvertTo-SetupOneLine ($result.Error + ' ' + $result.Output)) }
+            if (-not $row.New) { @($result.Output -split '\r?\n' | Where-Object { $_ }) }
         } else { "skip: account $($row.Id) (already done)" }
         if ($row.New -and -not $row.Adopted) { $row.NextStep = "log in: run $($row.Id)" }
     }
@@ -385,10 +403,7 @@ function Invoke-Setup {
         Initialize-SetupFiles -Plan $plan
     } finally { $settingsLock.Dispose() }
     Install-SetupTools -Plan $plan
-    $settingsLock = Wait-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $settings) -Seconds 30
-    if (-not $settingsLock) { throw 'legion settings are busy; another legion command is still running' }
-    try { Add-SetupAccounts -Plan $plan }
-    finally { $settingsLock.Dispose() }
+    Add-SetupAccounts -Plan $plan
     Add-SetupAllowRules -Plan $plan
     Set-SetupPath -Plan $plan
     Install-SetupPlugins -Plan $plan

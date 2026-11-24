@@ -26,6 +26,12 @@
       "id": "copilot",
       "tool": "copilot",
       "configDir": "~/.legion/agents/copilot"
+    },
+    {
+      "id": "codex-custom",
+      "tool": "codex",
+      "configDir": "~/.legion/agents/codex-custom",
+      "command": "~/bin/codex-custom"
     }
   ],
   "channels": []

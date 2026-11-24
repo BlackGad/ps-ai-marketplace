@@ -601,8 +601,13 @@ function Invoke-AddRepeat {
 }
 
 # Step 5
+# Through the installed owner command, as an owner would run it.
 function Invoke-AccountRemove {
-    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-account.ps1') @('-Action', 'remove', '-Id', 'ci-extra', '-HomeRoot', $script:Ctx.HomeRoot)
+    $legion = @(Get-IntegrationLauncherPaths 'legion')[-1]
+    $lines = @(& $legion account remove --id ci-extra 2>&1 | ForEach-Object { "$_" })
+    if ($null -ne $script:IntegrationScriptLog) { $script:IntegrationScriptLog.AddRange([string[]]$lines) }
+    if ($LASTEXITCODE -ne 0) { throw "legion account remove exited $LASTEXITCODE`n$($lines -join "`n")" }
+    return $lines
 }
 
 function Invoke-RemoveFirst {
