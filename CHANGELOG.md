@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.15.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.14.0...v0.15.0) (2026-11-24)
+
+
+### Features
+
+* **hooks:** start sessions without PowerShell ([#53](https://github.com/BlackGad/ps-legion-marketplace/issues/53)) ([082253b](https://github.com/BlackGad/ps-legion-marketplace/commit/082253b8ac9799fe0efbdf60299c68fcaec8f2c3))
+* **python:** check for legion updates in Python ([#52](https://github.com/BlackGad/ps-legion-marketplace/issues/52)) ([45041dc](https://github.com/BlackGad/ps-legion-marketplace/commit/45041dccc56525bf25244b2e758f7fb5eabf9a48))
+* **python:** read account limits in Python ([#56](https://github.com/BlackGad/ps-legion-marketplace/issues/56)) ([6b6be55](https://github.com/BlackGad/ps-legion-marketplace/commit/6b6be5558cb3471981e7626b844aa7d227412189))
+* **python:** show legion status in Python ([#55](https://github.com/BlackGad/ps-legion-marketplace/issues/55)) ([f00157b](https://github.com/BlackGad/ps-legion-marketplace/commit/f00157b2c4e740dba57fc5a502bd8dfd3c1edd96))
+* **python:** take and release the overseer lease in Python ([#51](https://github.com/BlackGad/ps-legion-marketplace/issues/51)) ([bc2cc84](https://github.com/BlackGad/ps-legion-marketplace/commit/bc2cc84b698bb1511b4e0202e3812643ca904381))
+
+
+### Fixes
+
+* close milestone 2 review findings on test fences and wording ([#57](https://github.com/BlackGad/ps-legion-marketplace/issues/57)) ([8858f83](https://github.com/BlackGad/ps-legion-marketplace/commit/8858f83a25329686cd02c059c3fbc6ed9cdc4fbd))
+* close milestone 2 third review findings ([#62](https://github.com/BlackGad/ps-legion-marketplace/issues/62)) ([e5e68dd](https://github.com/BlackGad/ps-legion-marketplace/commit/e5e68ddf5a84a8170bfe56a944c589fcce1bed3e))
+* **overseer:** say when a channel's bot folder or token is missing ([#54](https://github.com/BlackGad/ps-legion-marketplace/issues/54)) ([9505b2a](https://github.com/BlackGad/ps-legion-marketplace/commit/9505b2a9a48f3c3fa17510847f1fbb96bc0b4dbc))
+* **python:** close milestone 2 review findings on process, lease and cache robustness ([#58](https://github.com/BlackGad/ps-legion-marketplace/issues/58)) ([2945179](https://github.com/BlackGad/ps-legion-marketplace/commit/2945179cef347ed7f6026816f7edd5fb6565875b))
+* **python:** close milestone 2 second review findings on lease, nudge and update ([#60](https://github.com/BlackGad/ps-legion-marketplace/issues/60)) ([bdf312c](https://github.com/BlackGad/ps-legion-marketplace/commit/bdf312c5969c900a3c871da4a850a17d6067f52b))
+* **tests:** keep tests out of the real user PATH ([#49](https://github.com/BlackGad/ps-legion-marketplace/issues/49)) ([ba7af00](https://github.com/BlackGad/ps-legion-marketplace/commit/ba7af007ca8cd66c41f69b4d705a8abad2571be3))
+
 ## [0.14.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.13.1...v0.14.0) (2026-11-23)
 
 
