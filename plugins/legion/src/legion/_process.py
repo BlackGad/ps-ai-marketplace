@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 # Shells and launchers between an agent CLI and this process; matched without case and without ".exe".
-SKIPPED_NAMES = frozenset({"pwsh", "powershell", "cmd", "sh", "bash", "zsh", "uv"})
+SKIPPED_NAMES = frozenset({"pwsh", "powershell", "cmd", "sh", "bash", "zsh", "uv", "legion"})
 PYTHON_NAME = re.compile(r"python[0-9.]*")
 # Linux and macOS derive a start time from the clock, so two reads can differ by a few milliseconds.
 SAME_START_TOLERANCE = timedelta(milliseconds=500)
