@@ -20,6 +20,38 @@ Assert-True ($LASTEXITCODE -ne 0) 'Bare launcher in an unset-up repository fails
 Assert-True (($lines -join "`n").Contains('This repository is not set up. Set it up (private)? [Y/n]')) 'Redirected not-set-up launcher prints the question'
 Remove-Item -LiteralPath (Join-Path $tempRoot '.legion') -Recurse -Force
 . $script -NoRun -HomeRoot $tempRoot
+& {
+    $record = @{}
+    function Invoke-LegionPython {
+        param([string[]]$Arguments, [string]$HomeRoot)
+        $record.Arguments = $Arguments
+        $record.HomeRoot = $HomeRoot
+        return [pscustomobject]@{ Output = 'prepared: Private orchestration'; Error = ''; ExitCode = 0 }
+    }
+    $output = @(Invoke-OverseerRepositorySetup -Repo $tempRoot)
+    Assert-Equal 'repository|setup|--repo' (($record.Arguments | Select-Object -First 3) -join '|') 'Repository setup uses the Python verb'
+    Assert-Equal $tempRoot $record.Arguments[3] 'Repository setup passes the repository'
+    Assert-Equal $tempRoot $record.HomeRoot 'Repository setup passes the selected home'
+    Assert-Equal 'prepared: Private orchestration' ($output -join '|') 'Repository setup prints Python output'
+    function Invoke-LegionPython {
+        return [pscustomobject]@{ Output = ''; Error = 'setup refused'; ExitCode = 1 }
+    }
+    $errors = @(& {
+        try { Invoke-OverseerRepositorySetup -Repo $tempRoot }
+        catch { $record.Message = $_.Exception.Message }
+    } 2>&1)
+    Assert-Equal 'setup refused' $record.Message 'Repository setup throws the Python error'
+    Assert-Equal 0 $errors.Count 'Repository setup reports refusal once'
+    function Invoke-LegionPython {
+        return [pscustomobject]@{ Output = ''; Error = 'uv is missing'; ExitCode = 127 }
+    }
+    try { Invoke-OverseerRepositorySetup -Repo $tempRoot; throw 'Expected missing uv refusal' }
+    catch { Assert-Equal 'uv is missing' $_.Exception.Message 'Missing uv is reported once' }
+}
+$gatePath = Join-Path $tempRoot 'check-task.ps1'
+@("# Gate for this repository: one command, run after each task.", "`$ErrorActionPreference = 'Stop'", 'Get-Item -LiteralPath ./missing-for-gate', 'exit $LASTEXITCODE') | Set-Content -LiteralPath $gatePath
+& pwsh -NoProfile -File $gatePath *> $null
+Assert-True ($LASTEXITCODE -ne 0) 'A failing gate cmdlet exits nonzero'
 function Test-OverseerInteractive { return $false }
 foreach ($case in @(@('',$true),@('y',$true),@(' YES ',$true),@('Yes',$true),@('n',$false),@('no',$false),@('yep',$false),@('maybe',$false),@('ok',$false))) {
     $script:answer = $case[0]

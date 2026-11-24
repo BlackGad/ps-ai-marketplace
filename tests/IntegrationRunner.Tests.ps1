@@ -521,14 +521,14 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
         Assert-True (@($firstCalls | Where-Object { $_ -like "*-Add $tool -Id ${tool}1 *" }).Count -eq 1) "$tool has an explicit stable id"
     }
 
-    # The Shared fixture commits AGENTS.md and passes -RulesFile; Private passes none.
+    # The repository step uses the owner command and named Python options.
     . Reset-Runner
     . Use-CallRecorder
     Invoke-RepositoryScript 'repo' 'Shared' | Out-Null
-    Assert-True ((@($calls[0]) -join ' ') -like '*-RulesFile AGENTS.md*') 'Shared passes -RulesFile'
+    Assert-True ((@($calls[0]) -join ' ') -like '*repository setup --repo repo --mode Shared --gate*--rules-file AGENTS.md*') 'Shared uses the owner repository verb'
     $script:calls = @()
     Invoke-RepositoryScript 'repo' 'Private' | Out-Null
-    Assert-True ((@($calls[0]) -join ' ') -notlike '*-RulesFile*') 'Private passes no rules file'
+    Assert-True ((@($calls[0]) -join ' ') -notlike '*--rules-file*') 'Private passes no rules file'
     $repoB = New-IntegrationRepo 'repo-b' -WithRules
     Assert-True (@(git -C $repoB ls-files 'AGENTS.md').Count -eq 1) 'the Shared fixture tracks AGENTS.md'
     $repoA = New-IntegrationRepo 'repo-a'

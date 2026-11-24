@@ -3,7 +3,7 @@ import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import click
 
@@ -229,6 +229,29 @@ def lease_release(context: click.Context, repo: Optional[Path], process_id: Opti
     from . import _lease
 
     _report_lease(context, lambda: _lease.release(repo or Path.cwd(), process_id))
+
+
+@main.group(help="Set up this repository for legion orchestration")
+def repository() -> None:
+    pass
+
+
+@repository.command("setup", help="Create and commit Private or Shared orchestration files")
+@_repo_option
+@click.option("--mode", type=click.Choice(["private", "shared"], case_sensitive=False), default="private")
+@click.option("--gate")
+@click.option("--rules-file")
+@click.pass_context
+def repository_setup(context: click.Context, repo: Optional[Path], mode: Literal["private", "shared"], gate: Optional[str], rules_file: Optional[str]) -> None:
+    from . import _repository
+
+    try:
+        lines = _repository.setup(repo or Path.cwd(), mode, gate, rules_file)
+    except _repository.RepositoryError as error:
+        click.echo(" ".join(str(error).split()), err=True)
+        context.exit(1)
+    for line in lines:
+        click.echo(line)
 
 
 @main.group(help="Add, remove or check the owner's channel bindings")

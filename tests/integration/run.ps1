@@ -641,9 +641,10 @@ function New-IntegrationRepo {
 
 function Invoke-RepositoryScript {
     param([string]$Repo, [string]$Mode)
-    $arguments = @('-Repo', $Repo, '-Mode', $Mode, '-Gate', 'pwsh -NoProfile -Command exit 0')
-    if ($Mode -eq 'Shared') { $arguments += @('-RulesFile', 'AGENTS.md') }
-    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-repository.ps1') $arguments
+    $arguments = @('repository', 'setup', '--repo', $Repo, '--mode', $Mode, '--gate', 'pwsh -NoProfile -Command exit 0')
+    if ($Mode -eq 'Shared') { $arguments += @('--rules-file', 'AGENTS.md') }
+    $legion = @(Get-IntegrationLauncherPaths 'legion')[-1]
+    return Invoke-IntegrationScript $legion $arguments
 }
 
 function Get-CommitCount {
