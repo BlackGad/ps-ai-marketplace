@@ -403,10 +403,7 @@ function Invoke-Setup {
         Initialize-SetupFiles -Plan $plan
     } finally { $settingsLock.Dispose() }
     Install-SetupTools -Plan $plan
-    $settingsLock = Wait-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $settings) -Seconds 30
-    if (-not $settingsLock) { throw 'legion settings are busy; another legion command is still running' }
-    try { Add-SetupAccounts -Plan $plan }
-    finally { $settingsLock.Dispose() }
+    Add-SetupAccounts -Plan $plan
     Add-SetupAllowRules -Plan $plan
     Set-SetupPath -Plan $plan
     Install-SetupPlugins -Plan $plan
