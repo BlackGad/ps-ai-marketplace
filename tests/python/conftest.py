@@ -77,7 +77,7 @@ def fence(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPa
         monkeypatch.setenv(name, str(fence.home))
     for name in ("TMPDIR", "TEMP", "TMP"):
         monkeypatch.setenv(name, str(fence.temp))
-    for name in ("UV_CACHE_DIR", "LOCALAPPDATA", "APPDATA", "XDG_CACHE_HOME"):
+    for name in ("UV_CACHE_DIR", "LOCALAPPDATA", "APPDATA", "XDG_CACHE_HOME", "XDG_CONFIG_HOME"):
         folder = fence.home / name
         folder.mkdir()
         monkeypatch.setenv(name, str(folder))
@@ -96,6 +96,7 @@ def fence(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPa
     for name in CLEARED_ENVIRONMENT:
         monkeypatch.delenv(name, raising=False)
     fence_git(monkeypatch)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(fence.home / "gitconfig"))
     # sitecustomize is loaded by child Python interpreters, including hooks started through uv.
     socket_fence = str(REPO / "tests/python/socket_fence")
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join(filter(None, (socket_fence, os.environ.get("PYTHONPATH")))))
