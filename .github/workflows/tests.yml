@@ -28,12 +28,20 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    env:
+      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/.legion/temp/python/env
+      UV_CACHE_DIR: ${{ github.workspace }}/.legion/temp/python/cache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.sha || github.sha }}
+      # LauncherExit runs the production Python CLI through fake uv; it needs the project's dependencies.
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          python-version: '3.12'
+          enable-cache: false
       - shell: pwsh
-        run: pwsh -NoProfile -File tests/run.ps1 -JUnitPath results/unit-${{ runner.os }}.xml
+        run: uv run --project plugins/legion --frozen --group dev pwsh -NoProfile -File tests/run.ps1 -JUnitPath results/unit-${{ runner.os }}.xml
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
