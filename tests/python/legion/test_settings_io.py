@@ -201,24 +201,35 @@ def test_save_preserves_non_windows_permission_error(tmp_path: Path, monkeypatch
 
 
 def test_save_reports_replace_and_cleanup_failures_together(tmp_path: Path) -> None:
-    write_settings(tmp_path, {"schemaVersion": 1, "agents": [], "channels": []})
+    before = write_settings(tmp_path, {"schemaVersion": 1, "agents": [], "channels": []})
+    real_unlink = Path.unlink
+    temp: Path | None = None
 
-    def held(_source: object, _target: object) -> None:
+    def held(source: Path, target: Path) -> None:
+        nonlocal temp
+        assert target == settings_path(tmp_path)
+        temp = source
         error = OSError("replacement denied")
         patch.setattr(error, "winerror", 32, raising=False)
         raise error
 
-    def cleanup_denied(_path: Path, **_kwargs: object) -> None:
-        raise PermissionError("cleanup denied")
+    def cleanup_denied(path: Path, *, missing_ok: bool = False) -> None:
+        # Only the failed replacement's temp file is denied; filelock may unlink its own probes.
+        if path == temp:
+            raise PermissionError("cleanup denied")
+        real_unlink(path, missing_ok=missing_ok)
 
     with pytest.MonkeyPatch.context() as patch:
+        # Exercise named lock probes on Linux too; macOS has no O_TMPFILE.
+        patch.delattr(os, "O_TMPFILE", raising=False)
         patch.setattr(_settings_io.Path, "unlink", cleanup_denied)
         patch.setattr(_settings_io.Path, "replace", held)
         with pytest.raises(SettingsError) as failure:
             _settings_io.save(tmp_path, model())
-    assert "in use by another program" in str(failure.value)
-    assert "cleanup denied" in str(failure.value)
-    assert "\n" not in str(failure.value)
+    assert str(failure.value) == "legion settings are in use by another program; close it and run the command again; cleanup failed: cleanup denied"
+    assert settings_path(tmp_path).read_bytes() == before
+    assert temp is not None
+    assert temp.is_file()
 
 
 @pytest.mark.parametrize("winerror", [5, 32])
