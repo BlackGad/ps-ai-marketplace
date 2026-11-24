@@ -79,7 +79,7 @@ try {
         param([string[]]$Arguments = @(), [string]$HomeRoot = $HOME, [hashtable]$Environment = @{})
         $script:pythonCalls.Add(@{ Arguments = $Arguments; HomeRoot = $HomeRoot; Environment = $Environment })
         if ($script:pythonFailure) { return @{ ExitCode = 1; Output = ''; Error = $script:pythonFailure } }
-        if ($Arguments[0] -eq 'refresh') { return @{ ExitCode = 0; Output = 'skip: legion generated runtimes and launchers (already done)'; Error = '' } }
+        if ($Arguments[0] -eq 'refresh') { return @{ ExitCode = 0; Output = ((@(Publish-LegionApp -HomeRoot $HomeRoot) + 'skip: legion generated runtimes and launchers (already done)') -join "`n"); Error = '' } }
         $words = @{}
         for ($index = 2; $index -lt $Arguments.Count; $index += 2) { $words[$Arguments[$index]] = $Arguments[$index + 1] }
         $id = $words['--id']

@@ -534,3 +534,33 @@ Invoke-InstallTestCase 'RefreshDescriptor' {
         }
     }
 }
+
+Invoke-InstallTestCase 'RefreshForwarder' {
+    & {
+        # An installer 0.15 or older calls legion-refresh.ps1 by path with -HomeRoot; it must reach `legion refresh`.
+        $sandbox = New-InstallTestFolder 'install-refresh-forwarder'
+        try {
+            $fake = Join-Path $sandbox 'fake-uv.ps1'
+            @'
+$args | ConvertTo-Json -Compress
+[Console]::Error.WriteLine('fixture stderr')
+exit ([int]$env:FAKE_UV_EXIT)
+'@ | Set-Content -LiteralPath $fake
+            $null = New-TestCommandStub -Folder (Join-Path $sandbox 'bin') -Name uv -Script $fake
+            $selectedHome = Join-Path $sandbox 'selected home'
+            $forwarder = Join-Path $repo 'plugins/legion/bin/legion-refresh.ps1'
+            $env:PATH = (Join-Path $sandbox 'bin') + [IO.Path]::PathSeparator + $env:PATH
+            foreach ($code in @(0, 3)) {
+                $env:FAKE_UV_EXIT = "$code"
+                $output = @(& (Get-InstallTestPwsh) -NoProfile -File $forwarder -HomeRoot $selectedHome 2>&1 | ForEach-Object { "$_" })
+                Assert-Equal $code $LASTEXITCODE "The forwarder passes legion refresh exit code $code on"
+                $arguments = @($output[0] | ConvertFrom-Json)
+                Assert-Equal "--frozen|legion|--home|$selectedHome|refresh" (($arguments | Select-Object -Skip 3) -join '|') 'The forwarder runs legion refresh for the given home'
+                Assert-True ($output -contains 'fixture stderr') 'The forwarder passes the error output on'
+            }
+        } finally {
+            Remove-Item Env:FAKE_UV_EXIT -ErrorAction SilentlyContinue
+            Remove-InstallTestFolder $sandbox
+        }
+    }
+}

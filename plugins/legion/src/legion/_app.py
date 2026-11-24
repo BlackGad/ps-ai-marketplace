@@ -1,12 +1,30 @@
 import hashlib
+import json
+import os
+import shutil
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cmp_to_key
 from pathlib import Path
+from typing import Optional
 
-from ._footprints import read
-from ._home import full_path, home_path, owner_path_safe, resolve_directory, same_path, tree_has_reparse
+from filelock import FileLock, Timeout
+
+from ._footprints import add, read, remove_entry
+from ._generated import header, is_owned, shell_literal, write_generated
+from ._home import bin_folder, full_path, home_path, owner_path_safe, resolve_directory, same_path, tree_has_reparse
+from ._plugin import PLUGIN_ROOT
+from ._run import run_command
 from ._update import compare_versions
+
+UV_MISSING = "uv is missing. Ask the owner before installing it, then run the legion installer again."
+MARKER = ".legion-app-ready"
+
+
+class AppError(ValueError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -43,6 +61,171 @@ def ready_versions(home: Path) -> list[AppVersion]:
             compare_versions(path.name, path.name)
         except ValueError:
             continue
-        if (path / ".legion-app-ready").is_file() and version_safe(path, home):
+        if (path / MARKER).is_file() and version_safe(path, home):
             ready.append(AppVersion(path.name, path))
     return sorted(ready, key=cmp_to_key(lambda left, right: -compare_versions(left.version, right.version)))
+
+
+def find_uv() -> Optional[str]:
+    return shutil.which("uv")
+
+
+def _recorded(path: Path, home: Path) -> bool:
+    return any(entry.kind == "app-version" and same_path(full_path(home_path(entry.path, home)), path) for entry in read(home).entries)
+
+
+# One sync, command write and prune at a time; the next one waits, then compares versions again.
+# Yields False when another one still holds the lock after `timeout` seconds.
+@contextmanager
+def app_lock(home: Path, timeout: float = 60) -> Iterator[bool]:
+    app = home / ".legion" / "app"
+    if not owner_path_safe(app, home):
+        raise AppError("The legion app folder contains a link; resolve it before refreshing")
+    app.mkdir(parents=True, exist_ok=True)
+    lock = FileLock(str(app / ".sync.lock"), timeout=timeout)
+    try:
+        lock.acquire()
+    except Timeout:
+        yield False
+        return
+    try:
+        yield True
+    finally:
+        lock.release()
+
+
+# The owner command runs a copy of this plugin in ~/.legion/app/<version>, with that version's own environment.
+# The copy is staged, recorded, renamed into place and then synced there (the project installs as editable);
+# the marker is written only after uv sync succeeds and the version still holds no link. A recorded folder
+# without the marker is unfinished: never run, repaired by the next sync of its version or removed with the
+# older ones. Returns the lines to print and the ready version the commands should run, or None.
+def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> tuple[list[str], Optional[Path]]:
+    version = json.loads((source / "plugin.json").read_text(encoding="utf-8-sig"))["version"]
+    app = full_path(home / ".legion" / "app")
+    target = app / version
+    environment = python_environment(target, home)
+    ready = ready_versions(home)
+    ready_path = ready[0].path if ready else None
+    if ready and compare_versions(ready[0].version, version) > 0:
+        return [f"skip: legion app {version} (newer {ready[0].version} in place)"], ready_path
+    if ready and same_path(ready[0].path, target):
+        return [f"skip: legion app {version} (already done)"], ready_path
+    if os.path.lexists(target) and not _recorded(target, home):
+        return [f"skip: {target} (not legion's)"], ready_path
+    if not owner_path_safe(target, home) or not owner_path_safe(environment, home):
+        return [f"skip: {target} (linked version or environment)"], ready_path
+    uv = find_uv()
+    if uv is None:
+        return [UV_MISSING], ready_path
+    if not target.exists():
+        staging = app / f".staging-{os.urandom(16).hex()}"
+        app.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source, staging, symlinks=True)
+        add(home, "app-version", target, "legion")
+        staging.rename(target)
+    result = run_command(uv, ["sync", "--project", str(target), "--frozen", "--quiet"], env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(environment)})
+    if result.exit_code != 0:
+        lines = [result.error.strip()] if result.error.strip() else []
+        return [*lines, f"legion app {version} not ready (uv sync exited {result.exit_code}); run legion setup again"], ready_path
+    if not version_safe(target, home):
+        return [f"skip: {target} (linked)"], ready_path
+    (target / MARKER).write_text("", encoding="utf-8")
+    return [f"legion app {version} ready"], target
+
+
+def shim_home_argument(home: Path, windows: bool) -> str:
+    if same_path(full_path(home), full_path(Path.home())):
+        return ""
+    return ' --home "%~dp0..\\.."' if windows else f" --home {shell_literal(str(full_path(home)))}"
+
+
+# The owner command runs the app version in `app` through uv, with that version's environment.
+# Hand-built, reason: batch and shell files have no standard-library serializer, and these lines are behaviour.
+# Windows: cmd reads a batch file in the console code page, so the text stays ASCII: the command lives in
+# <home>/.legion/bin and finds the app, its environment and the home from its own folder (%~dp0).
+# One line sets the environment, runs uv and ends the batch with (goto), so a command that an
+# update rewrites while it runs still ends cleanly. Then, in the caller's context, it restores the caller's
+# value and a child cmd exits with uv's code. `exit /b` there would close an interactive console, and
+# %errorlevel% can be a caller's variable; the hidden %=ExitCode% (uv's code in hex) is neither. No
+# setlocal: its end would reset %=ExitCode%.
+def shim_text(app: Path, home: Path, windows: bool) -> str:
+    environment = python_environment(app, home)
+    home_argument = shim_home_argument(home, windows)
+    if windows:
+        lines = [
+            header("owner command", True),
+            f"@where /q uv || (>&2 echo {UV_MISSING}& exit /b 127)",
+            (
+                f'@set "UV_PROJECT_ENVIRONMENT=%~dp0..\\python\\{environment.name}" & uv run --project "%~dp0..\\app\\{app.name}" --frozen --quiet legion{home_argument} %* & (goto) 2>nul & '
+                'set "UV_PROJECT_ENVIRONMENT=%UV_PROJECT_ENVIRONMENT%" & "%COMSPEC%" /d /c "set /a LEGION_EXIT=0x%%=ExitCode%% >nul & call exit %%^LEGION_EXIT%%"'
+            ),
+        ]
+        return "\r\n".join(lines) + "\r\n"
+    lines = [
+        "#!/bin/sh",
+        header("owner command", False),
+        f"command -v uv >/dev/null 2>&1 || {{ echo '{UV_MISSING}' >&2; exit 127; }}",
+        f"export UV_PROJECT_ENVIRONMENT={shell_literal(str(environment))}",
+        f'exec uv run --project {shell_literal(str(app))} --frozen --quiet legion{home_argument} "$@"',
+    ]
+    return "\n".join(lines) + "\n"
+
+
+# Setup and refresh write the same platform command files for one ready app version, preserving unrelated files.
+def write_owner_commands(app: Path, home: Path) -> list[Path]:
+    changed: list[Path] = []
+    for windows in [False, True] if sys.platform == "win32" else [False]:
+        path = bin_folder(home) / ("legion.cmd" if windows else "legion")
+        if os.path.lexists(path) and not is_owned(path, "owner command"):
+            continue
+        if not owner_path_safe(path, home):
+            continue
+        if write_generated(path, shim_text(app, home, windows), executable=not windows):
+            changed.append(path)
+    return changed
+
+
+# One safe recorded version: its folder with the marker last, then its environment, so an app never stays
+# without its environment. Hand-built, reason: shutil.rmtree on the whole folder deletes in no set order, and
+# a failed delete must leave the marker so the version is still known as legion's. A delete that fails, such
+# as on a Windows lock, keeps the rest for a later run: False.
+def _remove_version(path: Path, home: Path) -> bool:
+    environment = python_environment(path, home)
+    try:
+        if path.exists():
+            for child in path.iterdir():
+                if child.name != MARKER:
+                    shutil.rmtree(child) if child.is_dir() else child.unlink()
+            shutil.rmtree(path)
+        if environment.exists():
+            shutil.rmtree(environment)
+    except OSError:
+        return False
+    return True
+
+
+# After the commands run `keep`: removes recorded versions older than it, except the previous ready one, which
+# a running legion may still use. A version that cannot go yet stays recorded for the next sync.
+def prune_old_versions(keep: Path, home: Path) -> list[str]:
+    keep_version = keep.name
+    previous = next((item for item in ready_versions(home) if compare_versions(item.version, keep_version) < 0), None)
+    lines: list[str] = []
+    for entry in read(home).entries:
+        if entry.kind != "app-version":
+            continue
+        path = full_path(home_path(entry.path, home))
+        try:
+            if compare_versions(path.name, keep_version) >= 0:
+                continue
+        except ValueError:
+            continue
+        if previous and same_path(path, previous.path):
+            continue
+        if not version_safe(path, home):
+            lines.append(f"skip: {path} (linked or not legion's)")
+        elif not _remove_version(path, home):
+            lines.append(f"skip: legion app {path.name} (in use; removed at the next sync)")
+        else:
+            remove_entry(home, "app-version", path)
+            lines.append(f"removed legion app {path.name}")
+    return lines

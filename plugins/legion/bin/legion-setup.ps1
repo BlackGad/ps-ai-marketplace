@@ -341,7 +341,6 @@ function Write-SetupCommands {
         }
         Add-LegionFootprint -HomeRoot $Plan.HomeRoot -Kind app -Path (Get-LegionHomePath -Path 'app' -HomeRoot $Plan.HomeRoot) -Owner $owner
     }
-    Publish-LegionApp -HomeRoot $Plan.HomeRoot
     $result = Invoke-LegionPython -Arguments @('refresh') -HomeRoot $Plan.HomeRoot
     if ($result.ExitCode -ne 0) { throw (ConvertTo-SetupOneLine ($result.Error + ' ' + $result.Output)) }
     @($result.Output -split '\r?\n' | Where-Object { $_ })
