@@ -1,3 +1,4 @@
+import os
 import shutil
 import stat
 import sys
@@ -25,7 +26,11 @@ def git(repo: Path, *args: str) -> str:
 
 
 @pytest.fixture
-def repo(tmp_path: Path) -> Path:
+def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    xdg = tmp_path / "xdg"
+    xdg.mkdir()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
     path = tmp_path / "code repo"
     path.mkdir()
     git(path, "init", "--quiet")
@@ -80,6 +85,7 @@ def test_fresh_and_repeat(repo: Path, mode: Literal["private", "shared"]) -> Non
         assert run_command("git", ["-C", str(owner), "config", "--local", "--get", "user.name"]).exit_code == 1
     else:
         assert not (legion / ".git").exists()
+        assert all(f".legion/{name}" in git(repo, "ls-files", ".legion") for name in FILES)
         assert (repo / "AGENTS.md").read_text(encoding="utf-8").count("## legion orchestration") == 1
         assert (repo / ".gitignore").read_text(encoding="utf-8") == "existing/\n.legion/temp/\n.legion/docs/\n"
     head = git(owner, "rev-parse", "HEAD")
@@ -209,7 +215,7 @@ def test_partial_setup_and_unrelated_files(repo: Path, mode: Literal["private", 
     assert "scripts/mine.ps1" not in git(owner, "ls-files")
 
 
-@pytest.mark.parametrize("gate", [None, "echo first"])
+@pytest.mark.parametrize("gate", [None, "echo first", "Get-Item -LiteralPath ./missing-for-gate"])
 def test_gate_index_and_workflow(repo: Path, gate: Optional[str]) -> None:
     lines = setup(repo, gate=gate)
     legion = repo / ".legion"
@@ -221,7 +227,7 @@ def test_gate_index_and_workflow(repo: Path, gate: Optional[str]) -> None:
         assert f"Runs `{gate}`" in index
         assert f"created .legion/scripts/check-task.ps1 (gate: {gate})" in lines
         script = (legion / "scripts/check-task.ps1").read_text(encoding="utf-8")
-        assert script == "# Gate for this repository: one command, run after each task.\n$ErrorActionPreference = 'Stop'\necho first\nexit $LASTEXITCODE\n"
+        assert script == f"# Gate for this repository: one command, run after each task.\n$ErrorActionPreference = 'Stop'\n{gate}\nexit $LASTEXITCODE\n"
 
 
 @pytest.mark.parametrize(("edited", "requested", "quoted"), [(False, None, False), (False, "echo first", True), (True, "echo second", False), (True, None, False)])
@@ -253,14 +259,6 @@ def test_changed_gate_repeat(repo: Path) -> None:
     assert "--gate not applied" in lines[0]
     assert lines[-1] == "skip: Private orchestration (already done)"
     assert snapshot(repo) == tree
-
-
-def test_gate_failing_cmdlet(repo: Path) -> None:
-    pwsh = shutil.which("pwsh")
-    if not pwsh:
-        pytest.skip("pwsh unavailable")
-    setup(repo, gate="Get-Item -LiteralPath ./missing-for-gate")
-    assert run_command(pwsh, ["-NoProfile", "-File", str(repo / ".legion/scripts/check-task.ps1")], cwd=repo).exit_code != 0
 
 
 @pytest.mark.parametrize("pointer", [False, True])
@@ -422,3 +420,110 @@ def test_git_calls_use_literal_status(repo: Path, monkeypatch: pytest.MonkeyPatc
     assert statuses
     assert all("--literal-pathspecs" in args and "-z" in args and "--untracked-files=all" in args for args in statuses)
     assert not any("--path-format" in arg for args in calls for arg in args)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Git root trailing spaces require a case-sensitive filesystem")
+def test_repository_name_trailing_space_keeps_sibling_heads(tmp_path: Path) -> None:
+    plain = tmp_path / "project"
+    spaced = tmp_path / "project "
+    for path in (plain, spaced):
+        path.mkdir()
+        git(path, "init", "--quiet")
+        git(path, "config", "user.name", "Fixture Owner")
+        git(path, "config", "user.email", "fixture@example.invalid")
+        (path / "AGENTS.md").write_text("rules\n", encoding="utf-8")
+        git(path, "add", ".")
+        git(path, "commit", "--quiet", "-m", "Fixture")
+    plain_head = git(plain, "rev-parse", "HEAD")
+    spaced_head = git(spaced, "rev-parse", "HEAD")
+    setup(spaced, "shared")
+    assert git(plain, "rev-parse", "HEAD") == plain_head
+    assert git(spaced, "rev-parse", "HEAD") != spaced_head
+
+
+def test_shared_refuses_ignored_scaffold_before_writing(repo: Path) -> None:
+    (repo / ".gitignore").write_text("existing/\n.legion/\n", encoding="utf-8")
+    git(repo, "add", ".gitignore")
+    git(repo, "commit", "--quiet", "-m", "Ignore legion")
+    head = git(repo, "rev-parse", "HEAD")
+    with pytest.raises(RuntimeError, match="ignored"):
+        setup(repo, "shared")
+    assert git(repo, "rev-parse", "HEAD") == head
+    assert not (repo / ".legion").exists()
+
+
+def test_existing_directory_at_file_destination_is_refused(repo: Path) -> None:
+    handoff = repo / ".legion/state/handoff.md"
+    handoff.mkdir(parents=True)
+    (handoff / "notes.txt").write_text("owner notes", encoding="utf-8")
+    head = git(repo, "rev-parse", "HEAD")
+    with pytest.raises(RuntimeError, match="not a regular file"):
+        setup(repo, "shared")
+    assert git(repo, "rev-parse", "HEAD") == head
+    assert git(repo, "ls-files", ".legion") == ""
+    assert (handoff / "notes.txt").read_text(encoding="utf-8") == "owner notes"
+
+
+def test_private_refuses_linked_git_directory(repo: Path, tmp_path: Path) -> None:
+    other = tmp_path / "other"
+    other.mkdir()
+    git(other, "init", "--quiet")
+    git(other, "config", "user.name", "Fixture Owner")
+    git(other, "config", "user.email", "fixture@example.invalid")
+    (other / "sentinel").write_text("keep", encoding="utf-8")
+    git(other, "add", ".")
+    git(other, "commit", "--quiet", "-m", "Other")
+    other_head = git(other, "rev-parse", "HEAD")
+    legion = repo / ".legion"
+    legion.mkdir()
+    link = legion / ".git"
+    if sys.platform == "win32":
+        _winapi.CreateJunction(str(other / ".git"), str(link))
+    else:
+        link.symlink_to(other / ".git", target_is_directory=True)
+    try:
+        with pytest.raises(RuntimeError, match="is a link"):
+            setup(repo)
+        assert git(other, "rev-parse", "HEAD") == other_head
+        assert git(other, "status", "--porcelain") == ""
+    finally:
+        link.rmdir() if sys.platform == "win32" else link.unlink()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows repository names are case insensitive")
+def test_uppercase_private_root_finds_code_repository(repo: Path) -> None:
+    setup(repo)
+    inner = repo / ".legion"
+    upper = repo / ".LEGION"
+    inner.rename(repo / "legion-intermediate")
+    (repo / "legion-intermediate").rename(upper)
+    head = git(repo, "rev-parse", "HEAD")
+    setup(upper)
+    assert git(repo, "rev-parse", "HEAD") == head
+    assert not (upper / ".legion").exists()
+
+
+@pytest.mark.parametrize("name", ["handoff-template.md", "scripts-index-template.md"])
+def test_missing_required_template_refuses_before_writes(repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, name: str) -> None:
+    references = tmp_path / "skills/legion-repository/references"
+    references.mkdir(parents=True)
+    source = _repository.PLUGIN_ROOT / "skills/legion-repository/references"
+    for item in source.iterdir():
+        if item.is_file() and item.name != name:
+            shutil.copy2(item, references / item.name)
+    monkeypatch.setattr(_repository, "PLUGIN_ROOT", tmp_path)
+    head = git(repo, "rev-parse", "HEAD")
+    with pytest.raises(RuntimeError, match=name):
+        setup(repo)
+    assert git(repo, "rev-parse", "HEAD") == head
+    assert not (repo / ".legion").exists()
+
+
+def test_malformed_index_template_refuses_before_writes(repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    references = tmp_path / "skills/legion-repository/references"
+    shutil.copytree(_repository.PLUGIN_ROOT / "skills/legion-repository/references", references)
+    (references / "scripts-index-template.md").write_text("# Missing gate row\n", encoding="utf-8")
+    monkeypatch.setattr(_repository, "PLUGIN_ROOT", tmp_path)
+    with pytest.raises(RuntimeError, match=r"scripts-index-template\.md"):
+        setup(repo)
+    assert not (repo / ".legion").exists()

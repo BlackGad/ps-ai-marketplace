@@ -34,7 +34,13 @@ def _read(path: Path) -> str:
 
 
 def _reference(name: str) -> str:
-    return _read(PLUGIN_ROOT / "skills/legion-repository/references" / name)
+    path = PLUGIN_ROOT / "skills/legion-repository/references" / name
+    if not path.is_file():
+        raise RepositoryError(f"Required repository template is missing: {name}")
+    text = _validate.read_text(path)
+    if not text.strip():
+        raise RepositoryError(f"Required repository template is empty: {name}")
+    return text
 
 
 def _write(path: Path, text: str) -> None:
@@ -63,7 +69,7 @@ def _check_links(repo: Path, destinations: list[Path], exclude: Optional[Path]) 
 
 def _rules_name(repo: Path, requested: Optional[str]) -> Optional[str]:
     if requested:
-        path = Path(os.path.abspath(repo / requested))  # noqa: PTH100 -- keep links visible for the refusal walk
+        path = Path(os.path.normpath(repo / requested))
         if not path.is_relative_to(repo):
             raise RepositoryError("--rules-file must be inside the repository")
         return requested
@@ -150,7 +156,9 @@ def _workflow(rules: Optional[str], has_gate: bool, private: bool) -> str:
 
 def _index(has_gate: bool, command: Optional[str]) -> str:
     text = _reference("scripts-index-template.md")
-    example = next(line for line in text.splitlines() if line.startswith("| `check-task.ps1` |"))
+    example = next((line for line in text.splitlines() if line.startswith("| `check-task.ps1` |")), None)
+    if example is None:
+        raise RepositoryError("Required repository template is malformed: scripts-index-template.md")
     if not has_gate:
         return "\n".join(line for line in text.split("\n") if line.rstrip("\r") != example)
     runs = f"Runs `{command}`" if command else "Runs the gate script"
@@ -219,12 +227,39 @@ def _commit(repo: Path, identity_repo: Path, paths: list[Path]) -> None:
     _git(repo, *identity, "commit", "--quiet", "-m", "Set up legion orchestration", "--", *names, failure="Cannot commit setup files")
 
 
-def _setup(repo: Path, mode: Literal["private", "shared"], gate: Optional[str], rules_file: Optional[str]) -> list[str]:
-    root = _git(repo, "rev-parse", "--show-toplevel", failure="Repository setup needs a Git working tree").strip()
+def _check_file_destinations(repo: Path, paths: list[Path]) -> None:
+    for path in paths:
+        if path.exists() and not path.is_file():
+            raise RepositoryError(f"{path.relative_to(repo)} is not a regular file")
+
+
+def _check_templates() -> None:
+    for name in ("project-template.json", "workflow-template.md", "scripts-index-template.md", "handoff-template.md", "rules-file-lines.md"):
+        _reference(name)
+    _index(False, None)
+
+
+def _check_shared_ignore(repo: Path, paths: list[Path]) -> None:
+    for path in paths:
+        tracked = _git(repo, "ls-files", "--", str(path), failure="Cannot check tracked orchestration files")
+        if tracked:
+            continue
+        ignored = run_command("git", ["-C", str(repo), "check-ignore", "-v", "--", str(path)])
+        if ignored.exit_code == 0:
+            raise RepositoryError(f"{path.relative_to(repo)} is ignored by {ignored.output.strip()}; remove the conflicting ignore rule before setup")
+
+
+def _code_root(repo: Path) -> Path:
+    root = _git(repo, "rev-parse", "--show-toplevel", failure="Repository setup needs a Git working tree").removesuffix("\n").removesuffix("\r")
     repo = Path(root).resolve()
-    if repo.name == ".legion":
-        root = _git(repo.parent, "rev-parse", "--show-toplevel", failure="Repository setup needs a Git working tree").strip()
+    if os.path.normcase(repo.name) == os.path.normcase(".legion"):
+        root = _git(repo.parent, "rev-parse", "--show-toplevel", failure="Repository setup needs a Git working tree").removesuffix("\n").removesuffix("\r")
         repo = Path(root).resolve()
+    return repo
+
+
+def _setup(repo: Path, mode: Literal["private", "shared"], gate: Optional[str], rules_file: Optional[str]) -> list[str]:
+    repo = _code_root(repo)
     legion = repo / ".legion"
     inner = legion / ".git"
     shared = mode == "shared"
@@ -242,11 +277,15 @@ def _setup(repo: Path, mode: Literal["private", "shared"], gate: Optional[str], 
     exclude = None
     if not shared:
         name = _git(repo, "rev-parse", "--git-path", "info/exclude", failure="Cannot find the repository exclude file").strip()
-        exclude = Path(os.path.abspath(repo / name))  # noqa: PTH100 -- resolving would hide linked exclude paths
-    destinations = [legion, ignore, *generated, *(legion / folder for folder in SCAFFOLD_FOLDERS)]
+        exclude = Path(os.path.normpath(repo / name))
+    destinations = [legion, inner, ignore, *generated, *(legion / folder for folder in SCAFFOLD_FOLDERS)]
     if rules_path:
         destinations.append(rules_path)
     _check_links(repo, destinations, exclude)
+    _check_file_destinations(repo, [ignore, *generated, *([rules_path] if rules_path else [])])
+    _check_templates()
+    if shared:
+        _check_shared_ignore(repo, [*generated, ignore])
     owner = repo if shared else legion
     if shared or inner.exists():
         _check_pending(owner, generated, ignore, ignore_lines, rules_path if shared else None)
