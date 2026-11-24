@@ -705,6 +705,163 @@ function Invoke-RepoSharedRepeat {
     return $lines
 }
 
+# These checks call the installed owner command directly; the integration runner itself still uses pwsh.
+function Invoke-IntegrationOwner {
+    param([string[]]$Arguments)
+    $legion = @(Get-IntegrationLauncherPaths 'legion')[-1]
+    $lines = @(& $legion @Arguments 2>&1 | ForEach-Object { "$_" })
+    if ($null -ne $script:IntegrationScriptLog) { $script:IntegrationScriptLog.AddRange([string[]]$lines) }
+    if ($LASTEXITCODE -ne 0) { throw "legion $($Arguments -join ' ') exited $LASTEXITCODE`n$($lines -join "`n")" }
+    return $lines
+}
+
+function Get-IntegrationChannelAccount {
+    $account = @((Get-IntegrationSettings).Data.agents | Where-Object { $_.tool -in @('claude', 'codex') -and $_.id -in @('claude1', 'codex1') })[0]
+    return $account.id
+}
+
+function Invoke-ChannelFirst {
+    $id = Get-IntegrationChannelAccount
+    if (-not $id) { return 'not tested: no claude or codex setup account' }
+    $lines = Invoke-IntegrationOwner @('channel', 'add', '--id', 'ci-bot', '--kind', 'telegram', '--target', '1', '--account', $id)
+    $lines += Invoke-IntegrationOwner @('channel', 'check', '--kind', 'telegram', '--account', $id)
+    Assert-IntegrationTrue ((Get-IntegrationSettings).Data.channels.id -contains 'ci-bot') 'ci-bot binding is missing'
+    $lines += Invoke-IntegrationOwner @('channel', 'remove', '--id', 'ci-bot')
+    Assert-IntegrationTrue ((Get-IntegrationSettings).Data.channels.id -notcontains 'ci-bot') 'ci-bot binding remains'
+    return $lines
+}
+
+function Invoke-ChannelRepeat {
+    $id = Get-IntegrationChannelAccount
+    if (-not $id) { return 'not tested: no claude or codex setup account' }
+    $lines = Invoke-IntegrationOwner @('channel', 'add', '--id', 'ci-bot', '--kind', 'telegram', '--target', '1', '--account', $id)
+    $lines += Invoke-IntegrationOwner @('channel', 'check', '--kind', 'telegram', '--account', $id)
+    $again = Invoke-IntegrationOwner @('channel', 'add', '--id', 'ci-bot', '--kind', 'telegram', '--target', '1', '--account', $id)
+    Assert-IntegrationText $again 'skip:'
+    $lines += $again
+    $lines += Invoke-IntegrationOwner @('channel', 'remove', '--id', 'ci-bot')
+    $removed = Invoke-IntegrationOwner @('channel', 'remove', '--id', 'ci-bot')
+    Assert-IntegrationText $removed 'skip:'
+    Assert-IntegrationTrue ((Get-IntegrationSettings).Data.channels.id -notcontains 'ci-bot') 'ci-bot binding remains'
+    return $lines + $removed
+}
+
+function Invoke-IntegrationFakeAz {
+    param([scriptblock]$Action)
+    $fixture = Join-Path $script:Ctx.Checkout 'tests/fixtures/integration-az'
+    $oldPath = $env:PATH
+    try {
+        $env:PATH = $fixture + [IO.Path]::PathSeparator + $oldPath
+        return & $Action
+    } finally { $env:PATH = $oldPath }
+}
+
+function Assert-IntegrationFoundryLauncher {
+    $launcher = @(Get-IntegrationLauncherPaths 'ci-foundry')[-1]
+    $lines = @(& $launcher --version 2>&1 | ForEach-Object { "$_" })
+    if ($LASTEXITCODE -ne 0) { throw "ci-foundry --version exited $LASTEXITCODE`n$($lines -join "`n")" }
+    $left = @(Get-ChildItem -LiteralPath (Join-Path $script:Ctx.HomeRoot '.legion/temp') -Filter 'copilot-providers-*.json' -File -ErrorAction SilentlyContinue)
+    Assert-IntegrationTrue ($left.Count -eq 0) 'Copilot provider file remains after launcher exit'
+    return $lines
+}
+
+function Invoke-FoundryLauncherFirst {
+    if ($script:Ctx.NotTested.Contains('copilot')) { return 'not tested: Copilot was not tested from the checkout' }
+    return Invoke-IntegrationFakeAz {
+        $lines = Invoke-IntegrationOwner @('account', 'add', '--id', 'ci-foundry', '--tool', 'copilot', '--provider', 'foundry', '--endpoint', 'https://<resource>.cognitiveservices.azure.com', '--deployment', 'model-a', '--default', 'model-a')
+        return $lines + (Assert-IntegrationFoundryLauncher)
+    }
+}
+
+function Invoke-FoundryLauncherRepeat {
+    if ($script:Ctx.NotTested.Contains('copilot')) { return 'not tested: Copilot was not tested from the checkout' }
+    return Invoke-IntegrationFakeAz {
+        $lines = Invoke-IntegrationOwner @('account', 'add', '--id', 'ci-foundry', '--tool', 'copilot', '--provider', 'foundry', '--endpoint', 'https://<resource>.cognitiveservices.azure.com', '--deployment', 'model-a', '--default', 'model-a')
+        Assert-IntegrationText $lines 'skip: account ci-foundry (already done)'
+        $lines += Assert-IntegrationFoundryLauncher
+        $lines += Invoke-IntegrationOwner @('account', 'remove', '--id', 'ci-foundry')
+        return $lines
+    }
+}
+
+# Hand-built for this integration probe: the standard command lookup cannot assert that no child
+# invoked pwsh, so a tiny executable trap records the attempt while PATH keeps required tools.
+function Invoke-IntegrationWithoutPwsh {
+    param([scriptblock]$Action)
+    $trap = Join-Path $script:Ctx.Work 'pwsh-trap'
+    $marker = Join-Path $trap 'called'
+    New-Item -ItemType Directory -Path $trap -Force | Out-Null
+    $oldPath = $env:PATH
+    $oldMarker = $env:LEGION_PWSH_TRAP_MARKER
+    try {
+        if (Test-Path -LiteralPath $marker) { Remove-Item -LiteralPath $marker }
+        $env:LEGION_PWSH_TRAP_MARKER = $marker
+        if ($IsWindows) {
+            Set-Content -LiteralPath (Join-Path $trap 'pwsh.cmd') -Value '@echo off', 'echo called>"%LEGION_PWSH_TRAP_MARKER%"', 'exit /b 97'
+        } else {
+            Set-Content -LiteralPath (Join-Path $trap 'pwsh') -Value '#!/bin/sh', 'echo called > "$LEGION_PWSH_TRAP_MARKER"', 'exit 97'
+            chmod +x (Join-Path $trap 'pwsh')
+        }
+        $kept = foreach ($folder in ($oldPath -split [IO.Path]::PathSeparator)) {
+            if (-not $folder) { continue }
+            $pwsh = if ($IsWindows) { Join-Path $folder 'pwsh.exe' } else { Join-Path $folder 'pwsh' }
+            if (-not (Test-Path -LiteralPath $pwsh)) { $folder; continue }
+            $needed = @('uv', 'git', 'sh', 'claude', 'codex', 'copilot', 'legion') | Where-Object {
+                (Test-Path -LiteralPath (Join-Path $folder $_)) -or (Test-Path -LiteralPath (Join-Path $folder "$_.exe")) -or (Test-Path -LiteralPath (Join-Path $folder "$_.cmd"))
+            }
+            if ($needed.Count) { $folder }
+        }
+        $env:PATH = (@($trap, (Join-Path $script:Ctx.Checkout 'tests/fixtures/integration-az')) + @($kept)) -join [IO.Path]::PathSeparator
+        $result = & $Action
+        return $result
+    } finally {
+        $env:PATH = $oldPath
+        [Environment]::SetEnvironmentVariable('LEGION_PWSH_TRAP_MARKER', $oldMarker)
+        Assert-IntegrationTrue (-not (Test-Path -LiteralPath $marker)) 'a command called pwsh'
+    }
+}
+
+function Invoke-NoPwshRun {
+    param([switch]$Repeat)
+    return Invoke-IntegrationWithoutPwsh {
+        $repo = if ($Repeat) { Join-Path $script:Ctx.Work 'no-pwsh-repo' } else { New-IntegrationRepo 'no-pwsh-repo' }
+        $lines = Invoke-IntegrationOwner @('repository', 'setup', '--repo', $repo, '--gate', 'git status --porcelain')
+        if ($Repeat) { Assert-IntegrationText $lines 'skip:' }
+        $account = Get-IntegrationChannelAccount
+        if ($account) {
+            $lines += Invoke-IntegrationOwner @('channel', 'add', '--id', 'ci-no-pwsh', '--kind', 'telegram', '--target', '1', '--account', $account)
+            if ($Repeat) {
+                $again = Invoke-IntegrationOwner @('channel', 'add', '--id', 'ci-no-pwsh', '--kind', 'telegram', '--target', '1', '--account', $account)
+                Assert-IntegrationText $again 'skip:'
+                $lines += $again
+            }
+            $lines += Invoke-IntegrationOwner @('channel', 'check', '--kind', 'telegram', '--account', $account)
+            $lines += Invoke-IntegrationOwner @('channel', 'remove', '--id', 'ci-no-pwsh')
+        }
+        $tool = @(Get-IntegrationActiveTools)[0]
+        $lines += Invoke-IntegrationOwner @('account', 'add', '--id', 'ci-no-pwsh', '--tool', $tool)
+        if ($Repeat) {
+            $again = Invoke-IntegrationOwner @('account', 'add', '--id', 'ci-no-pwsh', '--tool', $tool)
+            Assert-IntegrationText $again 'skip:'
+            $lines += $again
+        }
+        $launcher = @(Get-IntegrationLauncherPaths 'ci-no-pwsh')[-1]
+        & $launcher --version 2>&1 | Out-Null
+        Assert-IntegrationTrue ($LASTEXITCODE -eq 0) 'subscription launcher failed without pwsh'
+        $lines += Invoke-IntegrationOwner @('account', 'remove', '--id', 'ci-no-pwsh')
+        if (-not $script:Ctx.NotTested.Contains('copilot')) {
+            $lines += Invoke-IntegrationOwner @('account', 'add', '--id', 'ci-foundry', '--tool', 'copilot', '--provider', 'foundry', '--endpoint', 'https://<resource>.cognitiveservices.azure.com', '--deployment', 'model-a', '--default', 'model-a')
+            $lines += Assert-IntegrationFoundryLauncher
+            $lines += Invoke-IntegrationOwner @('account', 'remove', '--id', 'ci-foundry')
+        }
+        $lines += Invoke-IntegrationOwner @('refresh')
+        return $lines
+    }
+}
+
+function Invoke-NoPwshFirst { return Invoke-NoPwshRun }
+function Invoke-NoPwshRepeat { return Invoke-NoPwshRun -Repeat }
+
 # Step 8: the default folders and the registered account folders, captured before the uninstall removes anything.
 function Get-IntegrationUninstallTargets {
     param([switch]$AllTools)
@@ -914,6 +1071,9 @@ function Get-IntegrationSteps {
         remove = 'Remove'
         'repo-private' = 'RepoPrivate'
         'repo-shared' = 'RepoShared'
+        channel = 'Channel'
+        'foundry-launcher' = 'FoundryLauncher'
+        'no-pwsh' = 'NoPwsh'
         uninstall = 'Uninstall'
         reinstall = 'Reinstall'
         'restore-launchers' = 'RestoreLaunchers'

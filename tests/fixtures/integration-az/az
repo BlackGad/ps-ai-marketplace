@@ -1,0 +1,7 @@
+#!/bin/sh
+# Hand-built fixture: only shell builtins can serve an offline token for this probe.
+case "$*" in
+  *get-access-token*) printf '%s\n' '{"accessToken":"fixture-token","expires_on":4102444800}' ;;
+  *-o\ tsv*) printf '\n' ;;
+  *) printf '%s\n' '[]' ;;
+esac

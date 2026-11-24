@@ -251,21 +251,72 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
 
     # Dry listing: building the complete real-CLI sequence invokes no action.
     $steps = @(Get-IntegrationSteps -HomeRoot (Join-Path $tempRoot 'home') -Checkout $root -Work (Join-Path $tempRoot 'work') -Os 'linux')
-    $expected = 'install-cli-claude,install-cli-codex,install-cli-copilot,install-uv,install-legion,setup,add,remove,repo-private,repo-shared,uninstall,reinstall,restore-launchers,purge'
+    $expected = 'install-cli-claude,install-cli-codex,install-cli-copilot,install-uv,install-legion,setup,add,remove,repo-private,repo-shared,channel,foundry-launcher,no-pwsh,uninstall,reinstall,restore-launchers,purge'
     Assert-Equal $expected (($steps | Where-Object { -not $_.Repeat }).Name -join ',') 'first-run step order unchanged'
     Assert-Equal $expected (($steps | Where-Object Repeat).Name -join ',') 'repeat step order unchanged'
-    Assert-Equal 28 $steps.Count 'all fourteen first/repeat pairs retained'
+    Assert-Equal 34 $steps.Count 'all seventeen first/repeat pairs retained'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $tempRoot 'home'))) 'building the steps touches nothing'
+    $beforePath = $env:PATH
+    Assert-Equal 'clean' (Invoke-IntegrationWithoutPwsh { 'clean' }) 'the pwsh trap permits commands that do not invoke pwsh'
+    $trapMessage = ''
+    try { Invoke-IntegrationWithoutPwsh { & pwsh -NoProfile -Command 'exit 0' | Out-Null } | Out-Null } catch { $trapMessage = $_.Exception.Message }
+    Assert-True ($trapMessage -like '*a command called pwsh*') 'the trap detects a PowerShell child'
+    Assert-Equal $beforePath $env:PATH 'the PATH is restored after the trap fails'
+    $fakeAz = Join-Path $root 'tests/fixtures/integration-az'
+    Assert-True (Test-Path -LiteralPath (Join-Path $fakeAz 'az.cmd')) 'the Windows fake az exists'
+    Assert-True (Test-Path -LiteralPath (Join-Path $fakeAz 'az')) 'the POSIX fake az exists'
+    foreach ($name in 'az.cmd', 'az') {
+        $fixtureText = Get-Content -LiteralPath (Join-Path $fakeAz $name) -Raw
+        Assert-True ($fixtureText -notmatch '(?i)python|pwsh') "$name does not depend on Python or PowerShell"
+        Assert-True ($fixtureText -match 'expires_on') "$name returns a token expiry"
+    }
     # Replace every real entry point with a recorder to verify action wiring, not just labels.
     $script:listedCalls = @()
-    foreach ($functionName in @('Invoke-CliInstallFirst', 'Invoke-CliInstallRepeat', 'Invoke-UvInstallFirst', 'Invoke-UvInstallRepeat', 'Invoke-LegionInstallFirst', 'Invoke-LegionInstallRepeat', 'Invoke-SetupFirst', 'Invoke-SetupRepeat', 'Invoke-AddFirst', 'Invoke-AddRepeat', 'Invoke-RemoveFirst', 'Invoke-RemoveRepeat', 'Invoke-RepoPrivateFirst', 'Invoke-RepoPrivateRepeat', 'Invoke-RepoSharedFirst', 'Invoke-RepoSharedRepeat', 'Invoke-UninstallFirst', 'Invoke-UninstallRepeat', 'Invoke-ReinstallFirst', 'Invoke-ReinstallRepeat', 'Invoke-RestoreLaunchersFirst', 'Invoke-RestoreLaunchersRepeat', 'Invoke-PurgeFirst', 'Invoke-PurgeRepeat')) {
+    foreach ($functionName in @('Invoke-CliInstallFirst', 'Invoke-CliInstallRepeat', 'Invoke-UvInstallFirst', 'Invoke-UvInstallRepeat', 'Invoke-LegionInstallFirst', 'Invoke-LegionInstallRepeat', 'Invoke-SetupFirst', 'Invoke-SetupRepeat', 'Invoke-AddFirst', 'Invoke-AddRepeat', 'Invoke-RemoveFirst', 'Invoke-RemoveRepeat', 'Invoke-RepoPrivateFirst', 'Invoke-RepoPrivateRepeat', 'Invoke-RepoSharedFirst', 'Invoke-RepoSharedRepeat', 'Invoke-ChannelFirst', 'Invoke-ChannelRepeat', 'Invoke-FoundryLauncherFirst', 'Invoke-FoundryLauncherRepeat', 'Invoke-NoPwshFirst', 'Invoke-NoPwshRepeat', 'Invoke-UninstallFirst', 'Invoke-UninstallRepeat', 'Invoke-ReinstallFirst', 'Invoke-ReinstallRepeat', 'Invoke-RestoreLaunchersFirst', 'Invoke-RestoreLaunchersRepeat', 'Invoke-PurgeFirst', 'Invoke-PurgeRepeat')) {
         Set-Item "Function:$functionName" ([scriptblock]::Create("`$script:listedCalls += '$functionName ' + (`$args -join ' ')"))
     }
     $listed = @(Invoke-IntegrationSteps $steps)
-    Assert-Equal 28 $script:listedCalls.Count 'every listed action is wired to a real entry point'
+    Assert-Equal 34 $script:listedCalls.Count 'every listed action is wired to a real entry point'
     Assert-Equal 0 @($listed | Where-Object Result -ne 'passed').Count 'dry sequence passes with fakes'
     Assert-Equal 'Invoke-CliInstallFirst claude,Invoke-CliInstallRepeat claude,Invoke-CliInstallFirst codex,Invoke-CliInstallRepeat codex,Invoke-CliInstallFirst copilot,Invoke-CliInstallRepeat copilot' ($script:listedCalls[0..5] -join ',') 'each CLI first/repeat receives the right tool'
-    Assert-Equal 'Invoke-UvInstallFirst ,Invoke-UvInstallRepeat ,Invoke-LegionInstallFirst ,Invoke-LegionInstallRepeat ,Invoke-SetupFirst ,Invoke-SetupRepeat ,Invoke-AddFirst ,Invoke-AddRepeat ,Invoke-RemoveFirst ,Invoke-RemoveRepeat ,Invoke-RepoPrivateFirst ,Invoke-RepoPrivateRepeat ,Invoke-RepoSharedFirst ,Invoke-RepoSharedRepeat ,Invoke-UninstallFirst ,Invoke-UninstallRepeat ,Invoke-ReinstallFirst ,Invoke-ReinstallRepeat ,Invoke-RestoreLaunchersFirst ,Invoke-RestoreLaunchersRepeat ,Invoke-PurgeFirst ,Invoke-PurgeRepeat ' ($script:listedCalls[6..27] -join ',') 'remaining entry points run in order'
+    Assert-Equal 'Invoke-UvInstallFirst ,Invoke-UvInstallRepeat ,Invoke-LegionInstallFirst ,Invoke-LegionInstallRepeat ,Invoke-SetupFirst ,Invoke-SetupRepeat ,Invoke-AddFirst ,Invoke-AddRepeat ,Invoke-RemoveFirst ,Invoke-RemoveRepeat ,Invoke-RepoPrivateFirst ,Invoke-RepoPrivateRepeat ,Invoke-RepoSharedFirst ,Invoke-RepoSharedRepeat ,Invoke-ChannelFirst ,Invoke-ChannelRepeat ,Invoke-FoundryLauncherFirst ,Invoke-FoundryLauncherRepeat ,Invoke-NoPwshFirst ,Invoke-NoPwshRepeat ,Invoke-UninstallFirst ,Invoke-UninstallRepeat ,Invoke-ReinstallFirst ,Invoke-ReinstallRepeat ,Invoke-RestoreLaunchersFirst ,Invoke-RestoreLaunchersRepeat ,Invoke-PurgeFirst ,Invoke-PurgeRepeat ' ($script:listedCalls[6..33] -join ',') 'remaining entry points run in order'
+
+    # Fake owner commands exercise first/repeat state transitions without a CLI or login.
+    & {
+        . $runner -NoRun
+        $script:Ctx = @{ Checkout=$root; NotTested=[ordered]@{} }
+        $script:binding = $false
+        $script:foundry = $false
+        $script:integrationCalls = @()
+        function Get-IntegrationSettings {
+            $channels = if ($script:binding) { @([pscustomobject]@{ id='ci-bot' }) } else { @() }
+            return @{ Data=[pscustomobject]@{ agents=@([pscustomobject]@{ id='codex1'; tool='codex' }); channels=$channels } }
+        }
+        function Invoke-IntegrationOwner {
+            param([string[]]$Arguments)
+            $script:integrationCalls += ($Arguments -join ' ')
+            switch ($Arguments[0..1] -join ' ') {
+                'channel add' { if ($script:binding) { return 'skip: channel ci-bot (already done)' }; $script:binding=$true; return 'added: channel ci-bot' }
+                'channel check' { return 'ci-bot bot folder: missing token' }
+                'channel remove' { if (-not $script:binding) { return 'skip: channel remove ci-bot (already done)' }; $script:binding=$false; return 'removed: channel ci-bot' }
+                'account add' { if ($script:foundry) { return 'skip: account ci-foundry (already done)' }; $script:foundry=$true; return 'added: account ci-foundry' }
+                'account remove' { $script:foundry=$false; return 'removed: account ci-foundry' }
+            }
+        }
+        function Assert-IntegrationFoundryLauncher { Assert-True $script:foundry 'the launcher runs after account add'; return 'fixture version' }
+        Invoke-ChannelFirst | Out-Null
+        Assert-True (-not $script:binding) 'first channel action removes its binding'
+        Invoke-ChannelRepeat | Out-Null
+        Assert-True (-not $script:binding) 'repeat channel action removes its binding'
+        Assert-Equal 3 @($script:integrationCalls | Where-Object { $_ -like 'channel add *' }).Count 'channel add is repeated to prove skip'
+        Invoke-FoundryLauncherFirst | Out-Null
+        Assert-True $script:foundry 'first Foundry action leaves the account for repeat'
+        Invoke-FoundryLauncherRepeat | Out-Null
+        Assert-True (-not $script:foundry) 'repeat Foundry action removes the account'
+        $script:Ctx.NotTested.copilot = 'fixture skip'
+        Assert-True ((Invoke-FoundryLauncherFirst) -like 'not tested:*') 'a skipped Copilot is reported without blocking later steps'
+        Assert-True ((Invoke-FoundryLauncherRepeat) -like 'not tested:*') 'a skipped Copilot repeat is reported'
+    }
 
     # ---- Fakes below replace the runner's functions; each block loads the real ones again first. ----
     $fakeHome = Join-Path $tempRoot 'fake-home'
