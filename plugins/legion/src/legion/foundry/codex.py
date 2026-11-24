@@ -5,6 +5,7 @@ from typing import Any
 import tomlkit
 from tomlkit.exceptions import TOMLKitError
 
+from .._generated import write_generated
 from .._home import home_path
 from .._settings_models import Agent
 from ._az import AzAccessToken, RESOURCE, az
@@ -48,9 +49,7 @@ def configure(agent: Agent, home: Path) -> bool:
         content = b"\xef\xbb\xbf" + content
     if content == original:
         return False
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-    return True
+    return write_generated(path, content.decode("utf-8"), executable=False)
 
 
 def launch(agent: Agent, home: Path, _token: AzAccessToken) -> Launch:

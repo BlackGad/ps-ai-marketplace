@@ -3,7 +3,8 @@ import os
 import signal
 import stat
 import sys
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+from typing import Any
 from contextlib import AbstractContextManager
 from pathlib import Path
 
@@ -32,6 +33,28 @@ def codex_agent(folder: Path) -> Agent:
 def claude_agent(folder: Path) -> Agent:
     provider = Provider(kind="foundry", endpoint="https://example.test", default="m", deployments=[Deployment(name="m")])
     return Agent.model_validate({"id": "claude-a", "tool": "claude", "configDir": str(folder), "provider": provider.model_dump(by_alias=True, exclude_none=True)})
+
+
+@pytest.mark.parametrize("recipe,filename,original", [(codex, "config.toml", b'theme = "dark"\n'), (claude, "settings.json", b'{"theme":"dark"}\n')])
+def test_failed_config_write_keeps_previous_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recipe: ModuleType, filename: str, original: bytes) -> None:
+    folder = tmp_path / "account"
+    folder.mkdir()
+    path = folder / filename
+    path.write_bytes(original)
+    monkeypatch.setattr(codex, "az", lambda: Path("/fake/az"))
+    real_write = Path.write_text
+
+    def interrupted_write(target: Path, content: str, **keywords: Any) -> int:
+        if target.suffix == ".tmp":
+            real_write(target, content[:4], **keywords)
+            raise OSError("disk full")
+        return real_write(target, content, **keywords)
+
+    monkeypatch.setattr(Path, "write_text", interrupted_write)
+    agent = codex_agent(folder) if recipe is codex else claude_agent(folder)
+    with pytest.raises(OSError, match="disk full"):
+        recipe.configure(agent, tmp_path)
+    assert path.read_bytes() == original
 
 
 def test_foundry_add_discovers_before_settings_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

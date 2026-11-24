@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from .._generated import write_generated
 from .._home import home_path
 from .._settings_models import Agent, ToolDescriptor
 from .._validate import load_descriptors
@@ -26,9 +27,7 @@ def configure(agent: Agent, home: Path) -> bool:
         content = b"\xef\xbb\xbf" + content
     if content == original:
         return False
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-    return True
+    return write_generated(path, content.decode("utf-8"), executable=False)
 
 
 def launch(agent: Agent, home: Path, _token: AzAccessToken) -> Launch:
