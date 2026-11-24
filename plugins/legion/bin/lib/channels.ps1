@@ -33,7 +33,7 @@ function Test-LegionChannelLaunchesTool {
     return $Tool -cin $Descriptor.launch.PSObject.Properties.Name
 }
 
-# The bot folder line that legion-channel check prints and the overseer launch warns with.
+# The bot folder line that `legion channel check` prints and the overseer launch warns with.
 function Format-LegionBotFolderLine {
     param([string]$Id, [bool]$Ready, [string]$Setup)
     return "{0,-10} bot folder: {1}" -f $Id, $(if ($Ready) { 'ready' } else { "missing token ($Setup)" })

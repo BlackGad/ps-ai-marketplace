@@ -7,7 +7,7 @@ from typing import Literal, Optional
 
 import click
 
-from . import _forward, _plugin
+from . import _forward, _home, _plugin
 
 
 def _show_version(context: click.Context, _parameter: click.Parameter, value: bool) -> None:
@@ -252,6 +252,60 @@ def repository_setup(context: click.Context, repo: Optional[Path], mode: Literal
         context.exit(1)
     for line in lines:
         click.echo(line)
+
+
+@main.group(help="Add, remove or check the owner's channel bindings")
+def channel() -> None:
+    pass
+
+
+# Runs one channel change and prints its line, or its refusal on stderr with exit code 1.
+def _report_channel(context: click.Context, change: Callable[[], list[str]]) -> None:
+    from ._channel import ChannelError
+    from ._settings_io import SettingsError
+
+    try:
+        lines = change()
+    except (ChannelError, SettingsError) as error:
+        click.echo(" ".join(str(error).split()), err=True)
+        context.exit(1)
+    for line in lines:
+        click.echo(line)
+
+
+_channel_kind_option = click.option("--kind", required=True, help="the channel kind, such as telegram")
+_channel_accounts_option = click.option("--account", "accounts", required=True, multiple=True, help="an account id; repeat for each account")
+
+
+@channel.command("add", help="Bind a channel to accounts")
+@click.option("--id", "channel_id", required=True)
+@_channel_kind_option
+@click.option("--target", required=True, help="the destination, such as a Telegram chat id")
+@_channel_accounts_option
+@click.pass_context
+def channel_add(context: click.Context, channel_id: str, kind: str, target: str, accounts: tuple[str, ...]) -> None:
+    from . import _channel
+
+    _report_channel(context, lambda: [_channel.add(_home.legion_home(context.obj), channel_id, kind, target, list(accounts))])
+
+
+@channel.command("remove", help="Remove a channel binding")
+@click.option("--id", "channel_id", required=True)
+@click.pass_context
+def channel_remove(context: click.Context, channel_id: str) -> None:
+    from . import _channel
+
+    _report_channel(context, lambda: [_channel.remove(_home.legion_home(context.obj), channel_id)])
+
+
+@channel.command("check", help="Show what a channel needs for each account, without starting any CLI")
+@_channel_kind_option
+@_channel_accounts_option
+@click.pass_context
+def channel_check(context: click.Context, kind: str, accounts: tuple[str, ...]) -> None:
+    from . import _channel
+
+    _report_channel(context, lambda: _channel.check(_home.legion_home(context.obj), kind, list(accounts)))
 
 
 for _verb, _help in _forward.FORWARDED_VERBS.items():

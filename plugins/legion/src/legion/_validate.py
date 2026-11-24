@@ -115,10 +115,23 @@ def _provider_issues(settings: PersonalisationSettings, tools: list[ToolDescript
     return issues
 
 
-# Shape problems stop the reference and provider checks, which need a well-formed file.
-def validate(kind: str, path: Path) -> list[str]:
+# The checks a settings model must pass before legion writes it: the schema, then references and providers.
+def settings_issues(settings: PersonalisationSettings) -> list[str]:
     try:
-        text = read_text(path)
+        settings = PersonalisationSettings.model_validate(settings.model_dump(by_alias=True, exclude_none=True))
+    except ValidationError as error:
+        return [_describe(problem) for problem in error.errors()]
+    return _semantic_issues(settings)
+
+
+def _semantic_issues(settings: PersonalisationSettings) -> list[str]:
+    tools = load_descriptors(ToolDescriptor, "tool.json")
+    return _reference_issues(settings, tools, load_descriptors(ChannelDescriptor, "channel.json")) + _provider_issues(settings, tools)
+
+
+# Shape problems stop the reference and provider checks, which need a well-formed file.
+def validate_text(kind: str, text: str, *, references: bool = True) -> list[str]:
+    try:
         # This parse only rejects broken JSON and duplicate keys; the model reads the text itself.
         json.loads(text, object_pairs_hook=_unique_keys)
         model = PersonalisationSettings if kind == "personalisation" else ProjectSettings
@@ -126,9 +139,15 @@ def validate(kind: str, path: Path) -> list[str]:
             settings = model.model_validate_json(text)
         except ValidationError as error:
             return [_framed(_describe(problem)) for problem in error.errors()]
-        if not isinstance(settings, PersonalisationSettings):
+        if not isinstance(settings, PersonalisationSettings) or not references:
             return []
-        tools = load_descriptors(ToolDescriptor, "tool.json")
-        return _reference_issues(settings, tools, load_descriptors(ChannelDescriptor, "channel.json")) + _provider_issues(settings, tools)
+        return _semantic_issues(settings)
+    except Exception as error:
+        return [_framed(str(error))]
+
+
+def validate(kind: str, path: Path) -> list[str]:
+    try:
+        return validate_text(kind, read_text(path))
     except Exception as error:
         return [_framed(str(error))]
