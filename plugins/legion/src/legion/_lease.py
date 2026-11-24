@@ -20,7 +20,7 @@ else:
     import fcntl
 
 State = Literal["free", "held", "stale", "foreign"]
-# A lock that cannot be read yet was most likely just created by a session that is still writing it.
+# A lock that is not a lease yet was most likely just created by a session that is still writing it.
 WRITE_GRACE_SECONDS = 10
 # On Windows another process may have the lock open for a moment; wait this long between the few tries.
 RETRY_PAUSE_SECONDS = 0.025
@@ -96,8 +96,14 @@ def state(repo: Path) -> LeaseState:
     if not path.exists():
         return LeaseState("free", None)
     try:
-        lease = Lease.from_json(_read(path))
-    except (OSError, ValueError, TypeError):
+        text = _read(path)
+    except FileNotFoundError:
+        return LeaseState("free", None)
+    except OSError:
+        return LeaseState("held", None)  # Unreadable is not stale: the owner may be alive behind a sharing or permission error.
+    try:
+        lease = Lease.from_json(text)
+    except (ValueError, TypeError):
         if _age_seconds(path) < WRITE_GRACE_SECONDS:
             return LeaseState("held", None)
         return LeaseState("stale", None)
@@ -111,7 +117,7 @@ def state(repo: Path) -> LeaseState:
     return LeaseState("stale", lease)
 
 
-# Take the owner's lock; replace only stale or unreadable leases.
+# Take the owner's lock; replace only a stale lease. The guard is held from the check until the new lease is written.
 def take(repo: Path, tool: str, account: str, process_id: Optional[int] = None) -> str:
     pid, started = _owner(process_id)
     if started is None:
@@ -128,28 +134,30 @@ def take(repo: Path, tool: str, account: str, process_id: Optional[int] = None) 
         started_at=round_trip(datetime.now(UTC)) + "+00:00",
         session=thread if tool == "codex" and thread else None,
     )
-    for attempt in range(2):
-        try:
-            with open(path, "x", encoding="utf-8", newline="") as file:
-                file.write(lease.to_json())
-            return "lease taken"
-        except (FileExistsError, PermissionError):
-            current = state(repo)
+    guard = _open_guard(path)
+    if guard is None:
+        raise LeaseError("lease change in progress in another session; retry")
+    try:
+        current = state(repo)
         found = current.lease
         if current.state == "held" and found is not None and _same_host(found.host) and found.pid == pid:
             return "skip: lease take (already done)"
         if current.state == "foreign" and found is not None:
             raise LeaseError(f"lease from host {found.host}; ask the owner")
         if current.state == "held" and found is None:
-            raise LeaseError("lease is being taken by another session; retry")
+            raise LeaseError("lease is being written or cannot be read; retry, or check its permissions")
         if current.state == "held" and found is not None:
             raise LeaseError(f"lease held by {found.tool} {found.account} since {found.started_at}")
-        if attempt == 0 and current.state == "stale":
-            if not _remove_stale(repo, found):
-                raise LeaseError("lease takeover in progress in another session; retry")
-            continue
-        break
-    raise LeaseError("lease unavailable; retry takeover")
+        if current.state == "stale" and not _remove(path):
+            raise LeaseError("lease takeover in progress in another session; retry")
+        try:
+            with open(path, "x", encoding="utf-8", newline="") as file:
+                file.write(lease.to_json())
+        except (FileExistsError, PermissionError):
+            raise LeaseError("lease unavailable; retry takeover") from None
+        return "lease taken"
+    finally:
+        _close_guard(guard)
 
 
 # Release only this owner's lock, checked by pid, host and start time.
@@ -183,25 +191,6 @@ def _owner(process_id: Optional[int]) -> tuple[int, Optional[datetime]]:
     except LookupError as error:
         raise LeaseError(str(error)) from error
     return owner.pid, owner.started_at
-
-
-# Replace only the stale lease we saw, with one session acting at a time.
-def _remove_stale(repo: Path, seen: Optional[Lease]) -> bool:
-    path = lease_path(repo)
-    guard = _open_guard(path)
-    if guard is None:
-        return False
-    try:
-        current = state(repo)
-        if current.state != "stale":
-            return True
-        found = current.lease
-        unchanged = (seen is None and found is None) or (seen is not None and found is not None and seen.pid == found.pid and seen.started_at == found.started_at)
-        if unchanged:
-            return _remove(path)
-        return True
-    finally:
-        _close_guard(guard)
 
 
 # One session at a time changes the lease. The guard file stays; its OS lock is the guard, so a paused

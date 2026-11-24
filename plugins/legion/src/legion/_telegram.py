@@ -20,6 +20,9 @@ from pydantic import (
     ValidationError,
 )
 
+from ._home import channel_folder, legion_home
+from ._settings_models import NAME_PATTERN
+
 MESSAGE_LIMIT = 4096
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
@@ -90,9 +93,9 @@ class TelegramError(Exception):
 
 
 def bot_folder(channel: str, home: Optional[Path] = None) -> Path:
-    if not re.fullmatch(r"[a-z][a-z0-9-]*", channel):
+    if not re.fullmatch(NAME_PATTERN, channel):
         raise TelegramError(f"bad channel id '{channel}'")
-    return (home or Path.home()) / ".legion" / "channels" / "telegram" / channel
+    return channel_folder("telegram", channel, legion_home(home))
 
 
 def read_token(channel: str, home: Optional[Path] = None) -> str:

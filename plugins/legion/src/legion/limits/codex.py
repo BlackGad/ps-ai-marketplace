@@ -89,26 +89,28 @@ def window_name(minutes: Optional[int], fallback: str) -> str:
 
 
 # Only the ping's disposable working folder can identify its session; timestamps cannot.
-# A record of another shape is skipped like unreadable JSON.
+# A record of another shape is skipped like unreadable JSON, and a file that cannot be read or decoded like a foreign one.
 def _session_limits(sessions: Path, ping_folder: Path) -> Optional[RateLimits]:
     for file in sorted(sessions.rglob("*.jsonl")):
         if not file.is_file():
             continue
-        with file.open(encoding="utf-8") as lines:
-            if not _is_session_of(lines.readline(), ping_folder):
+        try:
+            with file.open(encoding="utf-8") as lines:
+                if not _is_session_of(lines.readline(), ping_folder):
+                    continue
+                records = [line for line in lines if '"rate_limits"' in line]
+        except (OSError, UnicodeDecodeError):
+            continue
+        limits = None
+        for line in records:
+            try:
+                record = RateLimitsRecord.model_validate_json(line)
+            except ValidationError:
                 continue
-            limits = None
-            for line in lines:
-                if '"rate_limits"' not in line:
-                    continue
-                try:
-                    record = RateLimitsRecord.model_validate_json(line)
-                except ValidationError:
-                    continue
-                found = (record.payload and record.payload.rate_limits) or record.rate_limits
-                if found:
-                    limits = found
-            return limits
+            found = (record.payload and record.payload.rate_limits) or record.rate_limits
+            if found:
+                limits = found
+        return limits
     return None
 
 

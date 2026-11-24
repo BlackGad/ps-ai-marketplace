@@ -176,7 +176,7 @@ def test_lock_being_written_is_held_then_stale_when_old(tmp_path: Path) -> None:
         path.write_text(partial, encoding="utf-8")
         current = state(tmp_path)
         assert (current.state, current.lease) == ("held", None)
-        with pytest.raises(LeaseError, match="being taken by another session"):
+        with pytest.raises(LeaseError, match="being written or cannot be read; retry"):
             take(tmp_path, "codex", "other", process_id=os.getpid())
         make_old(path)
         assert state(tmp_path).state == "stale"
@@ -249,7 +249,7 @@ def test_paused_guard_holder_blocks_takeover_and_release_until_it_exits(tmp_path
         guard = Path(f"{lease_path(tmp_path)}.takeover")
         old = time.time() - 600
         os.utime(guard, (old, old))
-        with pytest.raises(LeaseError, match="takeover in progress"):
+        with pytest.raises(LeaseError, match="change in progress"):
             take(tmp_path, "codex", "owner", process_id=os.getpid())
         assert json.loads(lease_path(tmp_path).read_text(encoding="utf-8"))["pid"] == DEAD_PID
         with pytest.raises(LeaseError, match="change in progress"):
@@ -259,6 +259,62 @@ def test_paused_guard_holder_blocks_takeover_and_release_until_it_exits(tmp_path
         holder.join(30)
     assert take(tmp_path, "codex", "owner", process_id=os.getpid()) == "lease taken"
     assert release(tmp_path, process_id=os.getpid()) == "lease released"
+
+
+def paused_taker(repo: str, created: Event, resume: Event, results: "multiprocessing.Queue[str]") -> None:
+    real_to_json = Lease.to_json
+
+    # The lock file exists now; its record is not written yet.
+    def paused_to_json(lease: Lease) -> str:
+        created.set()
+        resume.wait(60)
+        return real_to_json(lease)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Lease, "to_json", paused_to_json)
+        try:
+            results.put(take(Path(repo), "codex", "first", process_id=os.getpid()))
+        except LeaseError as error:
+            results.put(f"lost: {error}")
+
+
+# A taker paused between creating the lock and writing it keeps the guard, so an old empty lock is not taken.
+def test_taker_paused_between_create_and_write_keeps_the_lease(tmp_path: Path) -> None:
+    context = multiprocessing.get_context("spawn")
+    created, resume, results = context.Event(), context.Event(), context.Queue()
+    first = context.Process(target=paused_taker, args=(str(tmp_path), created, resume, results))
+    first.start()
+    try:
+        assert created.wait(60)
+        make_old(lease_path(tmp_path))
+        with pytest.raises(LeaseError, match="change in progress in another session; retry"):
+            take(tmp_path, "codex", "second", process_id=os.getpid())
+        resume.set()
+        assert results.get(timeout=60) == "lease taken"
+    finally:
+        resume.set()
+        first.join(30)
+    assert json.loads(lease_path(tmp_path).read_text(encoding="utf-8"))["account"] == "first"
+
+
+# Only a lock that was read and is not a lease can age into stale; one that cannot be read is never taken over.
+def test_old_lock_that_cannot_be_read_is_not_taken(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = write_lease(tmp_path, pid=DEAD_PID)
+    make_old(path)
+    real_read_text = Path.read_text
+
+    def refused(target: Path, encoding: Optional[str] = None, errors: Optional[str] = None) -> str:
+        if target == path:
+            raise PermissionError(13, "Permission denied")
+        return real_read_text(target, encoding, errors)
+
+    monkeypatch.setattr(Path, "read_text", refused)
+    monkeypatch.setattr(_lease, "RETRY_PAUSE_SECONDS", 0)
+    assert (state(tmp_path).state, state(tmp_path).lease) == ("held", None)
+    with pytest.raises(LeaseError, match="cannot be read; retry, or check its permissions"):
+        take(tmp_path, "codex", "owner", process_id=os.getpid())
+    monkeypatch.undo()
+    assert json.loads(path.read_text(encoding="utf-8"))["pid"] == DEAD_PID
 
 
 # On Windows a lock another process has open cannot be removed; the change fails with a retry message.

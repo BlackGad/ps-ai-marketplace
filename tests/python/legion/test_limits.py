@@ -321,7 +321,7 @@ def test_foundry_answer_without_a_token_is_not_ok(bench: Bench, tmp_path: Path) 
 
 def test_foundry_without_az_names_the_install(bench: Bench) -> None:
     next(bench.path.glob("az*")).unlink()
-    assert bench.rows("foundry-a", "copilot", provider=FOUNDRY)[0].status == "az is not installed; run legion-install-tool.ps1 -Tool az"
+    assert bench.rows("foundry-a", "copilot", provider=FOUNDRY)[0].status == "az is not installed; ask legion to install the Azure CLI"
 
 
 def test_missing_launcher_requests_setup(bench: Bench) -> None:
@@ -355,6 +355,29 @@ def test_codex_skips_unreadable_session_lines(tmp_path: Path) -> None:
     metadata = json.dumps({"type": "session_meta", "payload": {"cwd": str(probe)}})
     records = (FIXTURES / "codex-session.jsonl").read_text(encoding="utf-8").splitlines()[1:]
     (sessions / "c-probe.jsonl").write_text("\n".join([metadata, *records, '{"rate_limits": broken', '["rate_limits"]']) + "\n", encoding="utf-8")
+    rows = codex.rows(Ping(exit_code=0, output="", error="", timed_out=False, folder=probe.resolve()), tmp_path / "codex")
+    assert [(row.window, row.used) for row in rows] == [("5h", "12%"), ("7d", "40%")]
+
+
+def test_codex_reads_past_session_files_it_cannot_read_or_decode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    sessions = tmp_path / "codex" / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "a-binary.jsonl").write_bytes(b"\xff\xfe not utf-8\n")
+    locked = sessions / "b-locked.jsonl"
+    locked.write_text("{}\n", encoding="utf-8")
+    metadata = json.dumps({"type": "session_meta", "payload": {"cwd": str(probe)}})
+    records = (FIXTURES / "codex-session.jsonl").read_text(encoding="utf-8").splitlines()[1:]
+    (sessions / "c-probe.jsonl").write_text("\n".join([metadata, *records]) + "\n", encoding="utf-8")
+    real_open = Path.open
+
+    def refuse_locked(path: Path, *args: Any, **kwargs: Any) -> Any:
+        if path == locked:
+            raise PermissionError(13, "Permission denied")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", refuse_locked)
     rows = codex.rows(Ping(exit_code=0, output="", error="", timed_out=False, folder=probe.resolve()), tmp_path / "codex")
     assert [(row.window, row.used) for row in rows] == [("5h", "12%"), ("7d", "40%")]
 

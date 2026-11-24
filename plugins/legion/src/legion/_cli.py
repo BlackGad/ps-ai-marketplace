@@ -70,8 +70,7 @@ def validate(context: click.Context, kind: str, path: Path) -> None:
 @main.command("update", help="Check for updates, or update legion to the newest version of its track")
 @click.option("--check", is_flag=True, help="Check for updates without installing.")
 @click.option("--force", is_flag=True, help="Check again even if today's result is cached; requires --check.")
-# -Yes stays while bin/legion.ps1 still accepts it for the forwarded verbs.
-@click.option("--yes", "-Yes", is_flag=True, help="Confirm the update without prompting.")
+@click.option("--yes", is_flag=True, help="Confirm the update without prompting.")
 @click.pass_context
 def update(context: click.Context, check: bool, force: bool, yes: bool) -> None:
     if force and not check:
@@ -103,7 +102,7 @@ def limits(context: click.Context, account: Optional[str]) -> None:
     from .limits import LimitsError, report_lines
 
     try:
-        lines = report_lines(context.obj or Path.home(), account)
+        lines = report_lines(context.obj, account)
     except LimitsError as error:
         click.echo(str(error), err=True)
         context.exit(1)
