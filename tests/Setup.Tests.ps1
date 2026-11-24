@@ -344,13 +344,22 @@ try {
             $custom = Join-Path $fakeBin "custom'100% command.ps1"
             '# inert custom command' | Set-Content $custom
             New-SetupFixtureAccount -Id custom-a -Tool codex -Target $custom -ConfigDir $folder -Command $custom
+            $script:missingTools = @('codex')
+            $explicit = Get-SetupPlan -HomeRoot $testHome -Add @("codex:$folder") -Id custom-a
+            Assert-Equal $custom $explicit.Accounts[0].Command 'T4-03 explicit repeat retains the stored custom command'
+            Assert-Equal 0 @($explicit.MissingTools).Count 'T4-03 custom repeat needs no stock CLI install'
+            $explicitBytes = [IO.File]::ReadAllText($settings)
+            Invoke-Setup -HomeRoot $testHome -Add @("codex:$folder") -Id custom-a -Yes | Out-Null
+            Assert-Equal $explicitBytes ([IO.File]::ReadAllText($settings)) 'T4-03 explicit repeat preserves settings'
             $sh = Join-Path $testHome '.legion/bin/custom-a'
             $cmd = "$sh.cmd"
             # The stored command restores any missing launcher, whichever one survived.
             if ($IsWindows) {
                 $original = [IO.File]::ReadAllText($cmd)
                 Remove-Item $cmd
-                Invoke-Setup -HomeRoot $testHome -Yes | Out-Null
+                $explicit = Get-SetupPlan -HomeRoot $testHome -Add @("codex:$folder") -Id custom-a
+                Assert-True $explicit.Accounts[0].Usable 'T4-03 stored command repairs a missing sibling on an explicit repeat'
+                Invoke-Setup -HomeRoot $testHome -Add @("codex:$folder") -Id custom-a -Yes | Out-Null
                 Assert-Equal $original ([IO.File]::ReadAllText($cmd)) 'K8 shell survivor restores custom Windows target'
                 $original = [IO.File]::ReadAllText($sh)
                 Remove-Item $sh
@@ -367,6 +376,7 @@ try {
             Assert-SetupText $output "wrote: launcher $sh" 'Setup reports the launcher it repaired'
             Assert-True (-not ($output -contains 'skip: account custom-a (already done)')) 'Setup does not report a repaired account as unchanged'
             Assert-Equal $custom (Get-LegionWrapperTarget -Id custom-a -Tool codex -HomeRoot $testHome -ConfigDir $folder) 'The repair keeps the stored command'
+            $script:missingTools = @()
             # An account with no stored command: both launchers gone means the stock CLI, one left needs the owner.
             $data = Read-LegionJson $settings
             $data.agents[0].PSObject.Properties.Remove('command')

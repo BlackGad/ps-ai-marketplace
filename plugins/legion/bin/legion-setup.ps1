@@ -157,7 +157,7 @@ function Get-SetupAddedAccount {
     if ($existing) {
         if ($existing.tool -cne $toolId -or $existing.provider -or -not (Get-LegionPathComparer).Equals((Resolve-SetupFolder $existing.configDir $HomeRoot), $folder)) { throw "account '$Id' already exists with other values" }
     } else { Assert-LegionNewId -Id $Id -Data $Data }
-    $agent = [pscustomobject]@{ id = $Id; tool = $toolId; configDir = $folder }
+    $agent = if ($existing) { $existing } else { [pscustomobject]@{ id = $Id; tool = $toolId; configDir = $folder } }
     return New-SetupAccountRow -Agent $agent -Tool $Tools[$toolId] -HomeRoot $HomeRoot -Requested -New:(!$existing) -Adopted:($colon -ge 0)
 }
 

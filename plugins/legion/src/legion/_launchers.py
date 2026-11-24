@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from ._generated import cmd_escape, header, is_owned, shell_literal, write_generated
-from ._home import bin_folder, full_path, home_path, owner_path_safe, same_path
+from ._home import bin_folder, full_path, home_path, owner_path_safe, resolve_directory, same_path
 from ._settings_models import Agent, ToolDescriptor
 
 # intact: every launcher is there and ours; none: no launcher file at all; partial: anything between.
@@ -44,8 +44,8 @@ def _on_disk(path: Path) -> Path:
 
 # A command on PATH, never one of legion's own launchers.
 def find_command(name: str, home: Path) -> Optional[Path]:
-    own = full_path(bin_folder(home))
-    folders = [entry for entry in os.environ.get("PATH", "").split(os.pathsep) if not same_path(full_path(Path(entry)), own)]
+    own = resolve_directory(bin_folder(home))
+    folders = [entry for entry in os.environ.get("PATH", "").split(os.pathsep) if not same_path(resolve_directory(Path(entry)), own)]
     found = shutil.which(name, path=os.pathsep.join(folders))
     return _on_disk(Path(found).absolute()) if found else None
 
@@ -56,7 +56,7 @@ def stock_command(tool: ToolDescriptor, home: Path) -> Optional[Path]:
 
 def is_stock(command: Path, tool: ToolDescriptor, home: Path) -> bool:
     stock = stock_command(tool, home)
-    return stock is not None and same_path(full_path(command), stock)
+    return stock is not None and same_path(resolve_directory(command), resolve_directory(stock))
 
 
 def target(agent: Agent, tool: ToolDescriptor, home: Path) -> Path:
@@ -72,7 +72,7 @@ def target(agent: Agent, tool: ToolDescriptor, home: Path) -> Path:
 
 
 # Hand-built, reason: cmd.exe has no quoting the standard library offers (subprocess.list2cmdline targets the C runtime).
-# Ids match ^[a-z][a-z0-9-]*$ and Windows paths cannot hold a double quote, so doubling % is the only escape.
+# Disable delayed expansion for literal !; expand a batch target variable only on CALL's second pass for literal %.
 def subscription_text(account: str, variable: str, folder: str, target: str, windows: bool) -> str:
     extension = Path(target).suffix.lower()
     if windows:
@@ -80,10 +80,10 @@ def subscription_text(account: str, variable: str, folder: str, target: str, win
         if extension == ".ps1":
             run = f'@pwsh -NoProfile -File "{escaped}" %*'
         elif extension in (".cmd", ".bat"):
-            run = f'@call "{escaped}" %*'
+            run = f'@set "LEGION_ACCOUNT_TARGET={escaped}"\r\n@call "%%LEGION_ACCOUNT_TARGET%%" %*'
         else:
             run = f'@"{escaped}" %*'
-        lines = [header(_owner_name(account), True), "@setlocal", f'@set "{variable}={cmd_escape(folder)}"', run, "@exit /b %errorlevel%"]
+        lines = [header(_owner_name(account), True), "@setlocal DisableDelayedExpansion", f'@set "{variable}={cmd_escape(folder)}"', run, "@exit /b %errorlevel%"]
         return "\r\n".join(lines) + "\r\n"
     literal = shell_literal(target)
     if extension == ".ps1":
@@ -117,7 +117,7 @@ def restore_execute(agent: Agent, home: Path) -> list[Path]:
 def plan_subscription(agent: Agent, tool: ToolDescriptor, home: Path) -> dict[Path, str]:
     real = target(agent, tool, home)
     paths = launcher_paths(agent.id, home)
-    if any(same_path(real, path) for path in paths):
+    if any(same_path(resolve_directory(real), resolve_directory(path)) for path in paths):
         raise LauncherError("wrapper target would recurse")
     for path in paths:
         if not owner_path_safe(path, home):

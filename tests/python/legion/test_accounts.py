@@ -10,7 +10,7 @@ from cli_runner import run
 from filelock import FileLock
 from launcher_fakes import WINDOWS, agent, fake_cli, only_on_path, tool
 
-from legion import _footprints, _generated, _launchers, _settings_io
+from legion import _accounts, _footprints, _generated, _launchers, _settings_io
 from legion._home import bin_folder, settings_path, wrapper_command
 
 OLD_FOLDER = "Existing account config folder does not exist."
@@ -252,6 +252,138 @@ def test_an_old_account_with_intact_launchers_is_left_alone(world: World, capsys
     assert add(world) == 0
     assert says(capsys) == ("skip: account codex-a (already done)\n", "")
     assert (world.settings_bytes(), world.launcher_bytes("codex-a")) == before
+
+
+@pytest.mark.parametrize("custom", [False, True])
+def test_repeat_recreates_a_missing_managed_config_folder(world: World, capsys: pytest.CaptureFixture[str], custom: bool) -> None:
+    more = ["--command", str(world.custom)] if custom else []
+    assert add(world, "codex-a", "codex", *more) == 0
+    before = (world.settings_bytes(), world.launcher_bytes("codex-a"))
+    world.folder("codex-a").rmdir()
+    capsys.readouterr()
+    assert add(world) == 0
+    assert world.folder("codex-a").is_dir()
+    assert says(capsys) == (f"created: config folder {world.folder('codex-a')}\n", "")
+    assert (world.settings_bytes(), world.launcher_bytes("codex-a")) == before
+
+
+def test_repeat_recovers_after_config_folder_creation_failed(world: World, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    mkdir = Path.mkdir
+
+    def fail_config(path: Path, *args: Any, **kwargs: Any) -> None:
+        if path == world.folder("codex-a"):
+            raise OSError("fixture config creation failed")
+        mkdir(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "mkdir", fail_config)
+        assert add(world) == 1
+    assert says(capsys)[1] == "fixture config creation failed\n"
+    assert add(world) == 0
+    assert world.folder("codex-a").is_dir()
+    assert "already done" not in says(capsys)[0]
+
+
+def test_repeat_still_refuses_a_missing_adopted_folder(world: World, capsys: pytest.CaptureFixture[str]) -> None:
+    folder = world.base / "adopted"
+    folder.mkdir()
+    assert add(world, "codex-a", "codex", "--config-dir", str(folder)) == 0
+    folder.rmdir()
+    before = world.settings_bytes()
+    capsys.readouterr()
+    assert add(world, "codex-a", "codex", "--config-dir", str(folder)) == 1
+    assert says(capsys) == ("", OLD_FOLDER + "\n")
+    assert world.settings_bytes() == before
+
+
+@pytest.mark.parametrize("interpreted", [False, True])
+def test_register_requires_executable_native_posix_target(world: World, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], interpreted: bool) -> None:
+    command = world.base / ("custom.ps1" if interpreted else "custom-script")
+    command.write_text("exit 3\n", encoding="utf-8")
+    command.chmod(0o644)
+    # Exercise the POSIX decision here too; actual mode enforcement runs on Linux and macOS.
+    monkeypatch.setattr(_accounts, "POSIX", True)
+    if WINDOWS:
+        real_access = _accounts.os.access
+        monkeypatch.setattr(_accounts.os, "access", lambda path, mode: False if Path(path) == command and mode == _accounts.os.X_OK else real_access(path, mode))
+    words = ("register", "--id", "codex-a", "--tool", "codex", "--command", str(command), "--config-dir", str(world.base))
+    if interpreted:
+        assert account(world, *words) == 0
+    else:
+        assert account(world, *words) == 1
+        assert "not executable" in says(capsys)[1]
+        assert not settings_path(world.home).exists()
+
+
+@pytest.mark.parametrize("verb", ["rename", "remove"])
+@pytest.mark.parametrize("failure", ["footprints", "launcher", "settings"])
+def test_failed_account_change_can_be_retried(world: World, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], verb: str, failure: str) -> None:
+    assert add(world) == 0
+    assert add(world, "codex-b") == 0
+    bind(world, "codex-a", "codex-b")
+    runtime = world.home / ".legion" / "runtime"
+    runtime.mkdir()
+    _footprints.add(world.home, "folder", runtime, "account:codex-a")
+    before = world.settings_bytes()
+    words = [verb, "--id", "codex-a", *(["--new-id", "codex-new"] if verb == "rename" else [])]
+    capsys.readouterr()
+
+    def fail(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError("fixture operation failed")
+
+    with monkeypatch.context() as patch:
+        if failure == "footprints":
+            patch.setattr(_footprints, "lock", fail)
+        elif failure == "launcher":
+            # Fail after one sibling has been changed on Windows; fail the sole write on POSIX.
+            operation = Path.unlink if verb == "remove" else _launchers.write_generated
+            calls = 0
+
+            def fail_partway(*args: Any, **kwargs: Any) -> Any:
+                nonlocal calls
+                if args[0] in world.launchers("codex-a") + world.launchers("codex-new"):
+                    calls += 1
+                    if calls == (2 if WINDOWS else 1):
+                        fail()
+                return operation(*args, **kwargs)
+
+            if verb == "remove":
+                patch.setattr(Path, "unlink", fail_partway)
+            else:
+                patch.setattr(_launchers, "write_generated", fail_partway)
+        else:
+            patch.setattr(_settings_io, "save_locked", fail)
+        assert account(world, *words) == 1
+    assert "fixture operation failed" in says(capsys)[1]
+    assert world.settings_bytes() == before
+    assert account(world, *words) == 0
+    assert says(capsys)[1] == ""
+    assert not any(path.exists() for path in world.launchers("codex-a"))
+    assert world.channels()[0]["accounts"] == (["codex-new", "codex-b"] if verb == "rename" else ["codex-b"])
+    if verb == "rename":
+        assert all(path.exists() for path in world.launchers("codex-new"))
+        assert _footprints.read(world.home).entries[0].owners == ["account:codex-new"]
+    else:
+        assert _footprints.read(world.home).entries == []
+        assert not runtime.exists()
+
+
+def test_remove_validates_remaining_settings_before_deleting_footprints(world: World, capsys: pytest.CaptureFixture[str]) -> None:
+    assert add(world) == 0
+    bind(world, "codex-a")
+    data = json.loads(world.settings_bytes())
+    data["channels"][0]["accounts"].append("unknown-account")
+    write_settings(world.home, data)
+    runtime = world.home / ".legion" / "runtime"
+    runtime.mkdir()
+    _footprints.add(world.home, "folder", runtime, "account:codex-a")
+    before = (world.settings_bytes(), world.launcher_bytes("codex-a"))
+    capsys.readouterr()
+    assert account(world, "remove", "--id", "codex-a") == 1
+    assert "unknown-account" in says(capsys)[1]
+    assert (world.settings_bytes(), world.launcher_bytes("codex-a")) == before
+    assert runtime.is_dir()
+    assert _footprints.read(world.home).entries[0].owners == ["account:codex-a"]
 
 
 # Windows has two launchers, so one can survive alone; the stock command cannot tell what that launcher ran.

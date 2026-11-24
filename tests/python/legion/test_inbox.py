@@ -1,9 +1,9 @@
 import io
 import json
 import os
+import shlex
 import subprocess
 import sys
-import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -14,13 +14,13 @@ import pytest
 
 from cli_runner import run
 from launcher_fakes import agent, tool
-from process_ready import timeout_after_ready
 from legion import _inbox, _launchers
+from legion._home import wrapper_command
 from legion._inbox import (
     InboxMessage,
     repo_key,
 )
-from legion._run import RunResult
+from legion._run import RunResult, _cmd_line
 
 windows_only = pytest.mark.skipif(os.name != "nt", reason="account launchers are .cmd files on Windows only")
 
@@ -128,14 +128,13 @@ def fake_wrapper(inbox_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPat
     record = tmp_path / "argv.json"
     fake = tmp_path / "fake-codex.py"
     fake.write_text(
-        "import json, os, sys, time\n"
+        "import json, os, sys\n"
         "with open(os.environ['LEGION_TEST_ARGV'], 'a', encoding='utf-8') as file:\n"
         "    file.write(json.dumps(sys.argv[1:]))\n"
         "with open(os.environ['LEGION_TEST_ARGV'] + '.home', 'a', encoding='utf-8') as file:\n"
         "    file.write(os.environ.get('CODEX_HOME', ''))\n"
         "print('wrapper output', flush=True)\n"
         "print('wrapper error', file=sys.stderr, flush=True)\n"
-        "time.sleep(float(os.environ['LEGION_TEST_QUEUE_SLEEP']))\n"
         "sys.exit(int(os.environ['LEGION_TEST_QUEUE_EXIT']))\n",
         encoding="utf-8",
     )
@@ -146,13 +145,12 @@ def fake_wrapper(inbox_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPat
         command.write_text(f'@"{sys.executable}" "{fake}" %*\r\n', encoding="utf-8", newline="")
     else:
         command = tmp_path / "fake-codex"
-        command.write_text(f"#!/bin/sh\nexec '{sys.executable}' '{fake}' \"$@\"\n", encoding="utf-8")
+        command.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(fake))} "$@"\n', encoding="utf-8")
         command.chmod(0o700)
     _launchers.write_subscription(agent("codex-a", tmp_path / CODEX_HOME, command=str(command)), tool("codex"), tmp_path)
     assert (inbox_home / "bin" / "codex-a").is_file()
     monkeypatch.setenv("LEGION_TEST_ARGV", str(record))
     monkeypatch.setenv("LEGION_TEST_QUEUE_EXIT", "0")
-    monkeypatch.setenv("LEGION_TEST_QUEUE_SLEEP", "0")
     return record
 
 
@@ -313,17 +311,16 @@ def test_failed_nudge_preserves_message_and_success(inbox_home: Path, repo: Path
     assert (inbox_path(inbox_home, repo) / "new" / output.out.strip()).is_file()
 
 
-def test_nudge_that_outlives_its_timeout_is_killed_and_the_message_kept(inbox_home: Path, repo: Path, fake_wrapper: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_timed_out_nudge_warns_and_keeps_the_message(inbox_home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
-    monkeypatch.setattr(_inbox, "NUDGE_TIMEOUT_SECONDS", 1)
-    monkeypatch.setenv("LEGION_TEST_QUEUE_SLEEP", "30")
-    ready = timeout_after_ready(monkeypatch, fake_wrapper)
+    timed_out = MagicMock(return_value=RunResult(exit_code=-1, output="", error="", timed_out=True))
+    monkeypatch.setattr(_inbox, "run_command", timed_out)
     assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
-    assert time.monotonic() - ready[0] < 15
+    timed_out.assert_called_once_with(str(wrapper_command("codex-a", inbox_home.parent)), ["queue", "--thread", "fixture-thread", "--message", message("repo-a")], timeout=15)
     output = capsys.readouterr()
     assert output.err == "warning: inbox message saved; Codex nudge failed.\n"
-    assert fake_wrapper.is_file()
-    assert (inbox_path(inbox_home, repo) / "new" / output.out.strip()).is_file()
+    saved = inbox_path(inbox_home, repo) / "new" / output.out.strip()
+    assert InboxMessage.model_validate_json(saved.read_text(encoding="utf-8")).text == "hello"
 
 
 def test_nudge_runs_the_launcher_and_never_looks_for_powershell(repo: Path, fake_wrapper: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -334,7 +331,7 @@ def test_nudge_runs_the_launcher_and_never_looks_for_powershell(repo: Path, fake
     if os.name == "nt":
         (trap / "pwsh.cmd").write_text(f'@echo ran> "{marker}"\r\n', encoding="utf-8", newline="")
     else:
-        (trap / "pwsh").write_text(f"#!/bin/sh\necho ran > '{marker}'\n", encoding="utf-8")
+        (trap / "pwsh").write_text(f"#!/bin/sh\necho ran > {shlex.quote(str(marker))}\n", encoding="utf-8")
         (trap / "pwsh").chmod(0o700)
     monkeypatch.setenv("PATH", str(trap))
     started: list[object] = []
@@ -348,8 +345,8 @@ def test_nudge_runs_the_launcher_and_never_looks_for_powershell(repo: Path, fake
     assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
     assert capsys.readouterr().err == ""
     assert len(started) == 1
-    assert "codex-a" in str(started[0])
-    assert "pwsh" not in str(started[0]).lower()
+    arguments = [str(wrapper_command("codex-a", tmp_path)), "queue", "--thread", "fixture-thread", "--message", message("repo-a")]
+    assert started[0] == (_cmd_line(arguments) if os.name == "nt" else arguments)
     assert fake_wrapper.is_file()
     assert not marker.exists()
 

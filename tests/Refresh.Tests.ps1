@@ -133,13 +133,14 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
             . (Join-Path $root 'tests/lib/workspace.ps1')
             $fakeBin = Join-Path $scratch 'fake tools'
             New-Item -ItemType Directory -Path $fakeBin -Force | Out-Null
-            $systemBin = if ($IsWindows) { Join-Path $env:SystemRoot 'System32' } else { '/bin:/usr/bin' }
-            $env:PATH = @($fakeBin, $systemBin) -join [IO.Path]::PathSeparator
+            # Only fixture commands are discoverable, including the runner's inert uv throughout.
+            $env:PATH = @($fakeBin, $fakeUvFolder) -join [IO.Path]::PathSeparator
+            Assert-Equal $fakeUvFolder (Split-Path (Get-Command uv -CommandType Application | Select-Object -First 1).Source) 'T4-07 refresh keeps the runner fake uv available'
             $agents = @()
             foreach ($descriptor in Get-LegionTools) {
                 $cli = Join-Path $fakeBin $(if ($IsWindows) { "$($descriptor.command).cmd" } else { $descriptor.command })
                 $text = if ($IsWindows) { '@echo %' + $descriptor.configEnv + '%' + "`r`n@exit /b 0`r`n" }
-                    else { '#!/bin/sh' + "`n" + 'printenv ' + $descriptor.configEnv + "`n" }
+                    else { '#!/bin/sh' + "`n" + 'echo "$' + $descriptor.configEnv + '"' + "`n" }
                 [IO.File]::WriteAllText($cli, $text)
                 Set-TestExecutable $cli
                 $agents += @{ id = "$($descriptor.id)-a"; tool = $descriptor.id; configDir = "~/.legion/agents/$($descriptor.id)-a" }
@@ -168,7 +169,9 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
             Assert-True ($accountRepeat -contains 'skip: legion generated runtimes and launchers (already done)') 'Repeated refresh reports skip'
             Assert-Equal $accountBefore (@(Get-ChildItem $accountBin -File | Sort-Object Name | ForEach-Object { $_.LastWriteTimeUtc.Ticks }) -join '|') 'Repeated refresh changes no launcher timestamps'
             # An unavailable CLI blocks only its account; the stored command's file gone blocks its own.
-            $env:PATH = $systemBin
+            Remove-Item -LiteralPath (Join-Path $fakeBin $(if ($IsWindows) { 'codex.cmd' } else { 'codex' }))
+            Assert-Equal $fakeUvFolder (Split-Path (Get-Command uv -CommandType Application | Select-Object -First 1).Source) 'T4-07 missing CLI case retains fake uv'
+            Assert-Equal $false ([bool](Get-Command codex -CommandType Application -ErrorAction SilentlyContinue)) 'T4-07 missing CLI lookup cannot reach a host command'
             Remove-Item -LiteralPath (Join-Path $accountBin 'codex-a')
             if ($IsWindows) { Remove-Item -LiteralPath (Join-Path $accountBin 'codex-a.cmd') }
             Remove-Item -LiteralPath (Join-Path $accountBin 'custom-a')

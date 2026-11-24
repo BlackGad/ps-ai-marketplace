@@ -1,14 +1,20 @@
 # Subscription accounts in the owner's settings: add, register, rename and remove, with their launchers and footprints.
 
+import os
 import re
 import shutil
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
-from . import _footprints, _launchers, _settings_io
-from ._home import full_path, home_path, same_path
+from . import _footprints, _generated, _launchers, _settings_io
+from ._home import full_path, home_path, owner_path_safe, same_path
 from ._settings_models import NAME_PATTERN, Agent, PersonalisationSettings, ToolDescriptor
-from ._validate import load_descriptors
+from ._validate import load_descriptors, settings_issues
+
+POSIX = os.name != "nt"
 
 
 class AccountError(Exception):
@@ -48,11 +54,15 @@ def _resolve_command(text: str, account: str, home: Path) -> Path:
         raise _launchers.LauncherError("wrapper target would recurse")
     expanded = home_path(text, home)
     if full_path(expanded).is_file():
-        return full_path(expanded)
-    found = shutil.which(str(expanded))
-    if found is None:
-        raise AccountError(f"target needed: {account}; ask the owner for an existing executable")
-    return full_path(Path(found))
+        command = full_path(expanded)
+    else:
+        found = shutil.which(str(expanded))
+        if found is None:
+            raise AccountError(f"target needed: {account}; ask the owner for an existing executable")
+        command = full_path(Path(found))
+    if POSIX and command.suffix.lower() != ".ps1" and not os.access(command, os.X_OK):
+        raise AccountError(f"target is not executable: {command}")
+    return command
 
 
 def _config_folder(account: str, config_dir: Optional[str], home: Path) -> Path:
@@ -71,6 +81,13 @@ def _stored_command(command: Optional[Path], tool: ToolDescriptor, home: Path) -
     return str(command)
 
 
+def _ensure_config_folder(folder: Path) -> list[str]:
+    if folder.is_dir():
+        return []
+    folder.mkdir(parents=True, exist_ok=True)
+    return [f"created: config folder {folder}"]
+
+
 # An account made earlier: written from settings when it has a command or a command was given, else only repaired.
 def _repair(settings: PersonalisationSettings, existing: Agent, tool: ToolDescriptor, command: Optional[Path], folder: Path, home: Path) -> list[str]:
     settings_changed = False
@@ -82,14 +99,16 @@ def _repair(settings: PersonalisationSettings, existing: Agent, tool: ToolDescri
         state = _launchers.launcher_state(existing, home)
         if state == "intact":
             repaired = _launchers.restore_execute(existing, home)
-            return [f"wrote: launcher {path}" for path in repaired] or [f"skip: account {existing.id} (already done)"]
+            lines = [f"wrote: launcher {path}" for path in repaired]
+            lines.extend(_ensure_config_folder(folder))
+            return lines or [f"skip: account {existing.id} (already done)"]
         if state == "partial":
             raise _launchers.LauncherError(f"target needed: {existing.id}; ask the owner for the registered executable")
     _launchers.plan_subscription(existing, tool, home)
     if settings_changed:
         _settings_io.save_locked(home, settings)
     lines = [f"wrote: launcher {path}" for path in _launchers.write_subscription(existing, tool, home)]
-    folder.mkdir(parents=True, exist_ok=True)
+    lines.extend(_ensure_config_folder(folder))
     if settings_changed:
         lines.append(f"wrote: command of account {existing.id}")
     return lines or [f"skip: account {existing.id} (already done)"]
@@ -134,6 +153,32 @@ def _move_footprints(home: Path, account: str, new_id: str) -> list[str]:
     return _footprints.remove_owner(home, [f"account:{account}"])
 
 
+# shutil backups preserve bytes and modes if a sibling launcher or the final settings write fails.
+# Footprint work runs first and is safe to repeat; settings remain unchanged until all other work succeeds.
+@contextmanager
+def _preserve_launchers(home: Path, *accounts: str) -> Iterator[None]:
+    paths = {path: f"account {account}" for account in accounts for path in _launchers.launcher_paths(account, home)}
+    with tempfile.TemporaryDirectory() as temporary:
+        backups: dict[Path, Path] = {}
+        for path, owner in paths.items():
+            if owner_path_safe(path, home) and _generated.is_owned(path, owner):
+                backup = Path(temporary) / path.name
+                shutil.copy2(path, backup)
+                backups[path] = backup
+        try:
+            yield
+        except Exception:
+            for path, owner in paths.items():
+                if not owner_path_safe(path, home):
+                    continue
+                owned = _generated.is_owned(path, owner)
+                if path in backups and (not path.exists() or owned):
+                    shutil.copy2(backups[path], path)
+                elif path not in backups and owned:
+                    path.unlink()
+            raise
+
+
 def rename(home: Path, account: str, new_id: str) -> list[str]:
     with _settings_io.writer(home):
         settings = _settings_io.load(home)
@@ -150,9 +195,10 @@ def rename(home: Path, account: str, new_id: str) -> list[str]:
                 raise _launchers.LauncherError(f"wrapper collision '{path}'")
         _rebind(settings, account, new_id)
         old.id = new_id
-        _settings_io.save_locked(home, settings)
-        _launchers.move(account, new_id, home)
         lines = _move_footprints(home, account, new_id)
+        with _preserve_launchers(home, account, new_id):
+            _launchers.move(account, new_id, home)
+            _settings_io.save_locked(home, settings)
     return [*lines, f"Config folder kept at {old.config_dir}; rename it yourself only if you want to."]
 
 
@@ -164,7 +210,11 @@ def remove(home: Path, account: str) -> list[str]:
             return [f"skip: account remove {account} (already done)"]
         _rebind(settings, account, None)
         settings.agents = [other for other in settings.agents if other.id != account]
-        _settings_io.save_locked(home, settings)
-        _launchers.remove(account, home)
+        issues = settings_issues(settings)
+        if issues:
+            raise _settings_io.SettingsError("; ".join(issues))
         lines = _footprints.remove_owner(home, [f"account:{account}"])
+        with _preserve_launchers(home, account):
+            _launchers.remove(account, home)
+            _settings_io.save_locked(home, settings)
     return [*lines, f"Config folder kept at {agent.config_dir}."]
