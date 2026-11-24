@@ -104,7 +104,7 @@ def test_codex_child_gets_only_its_config_home_and_arguments_keep_their_boundari
     assert _run.run("codex-dev", ["-p", "hi there", "a&b"], bench.home) == 0
     environment = bench.environment("codex")
     assert Path(environment["CODEX_HOME"]) == bench.home / ".legion" / "agents" / "codex-dev"
-    assert not [name for name in environment if name.startswith("ANTHROPIC_FOUNDRY")]
+    assert bench.calls("codex")[0]["foundry_names"] == []
     assert bench.calls("codex")[0]["arguments"] == ["-p", "hi there", "a&b"]
 
 

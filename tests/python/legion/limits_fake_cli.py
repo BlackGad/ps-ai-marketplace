@@ -54,6 +54,7 @@ def main() -> int:
         "CLAUDE_CODE_USE_BEDROCK",
     )
     call["environment"] = {name: os.environ[name] for name in names if name in os.environ}
+    call["foundry_names"] = sorted(name for name in os.environ if name.startswith("ANTHROPIC_FOUNDRY"))
     providers = Path(os.environ.get("COPILOT_PROVIDERS_CONFIG", ""))
     fake_home = setting("HOME")
     fixture_temp = Path(fake_home) / ".legion" / "temp" if fake_home else None
