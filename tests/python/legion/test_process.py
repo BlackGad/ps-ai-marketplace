@@ -91,6 +91,17 @@ def test_measured_windows_chain_finds_the_agent() -> None:
     assert owner_process(17, lookup).pid == 11
 
 
+def test_legion_launcher_chain_finds_the_agent() -> None:
+    lookup = table(
+        (10, 9, "python.exe", 50),
+        (9, 8, "legion.exe", 40),
+        (8, 7, "uv.exe", 30),
+        (7, 6, "cmd.exe", 20),
+        (6, 1, "claude.exe", 10),
+    )
+    assert owner_process(10, lookup).pid == 6
+
+
 def test_shell_only_chain_keeps_the_oldest_shell() -> None:
     lookup = table((10, 9, "python", 30), (9, 8, "bash", 20), (8, 7, "zsh", 10))
     assert owner_process(10, lookup).pid == 8
