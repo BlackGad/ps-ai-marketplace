@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -13,6 +14,7 @@ if sys.platform == "win32":
 
 REPO = Path(__file__).resolve().parents[2]
 CLEARED_ENVIRONMENT = ("LEGION_ROLE", "LEGION_TASK", "PYTHONSTARTUP", "PYTHONUSERBASE", "CODEX_THREAD_ID")
+GIT_ENVIRONMENT = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES")
 
 
 # Mirrors the fence in tests/run.ps1: every test runs with a temp home reached through a link, and the
@@ -42,6 +44,8 @@ class Fence:
 
     def check(self) -> None:
         assert self.snapshot() == self.sentinel, "Test changed the fake real folder"
+        record = self.home / "socket-attempts"
+        assert not record.exists() or not record.read_bytes(), "Child attempted a socket connection"
 
     def remove(self, base: Path) -> None:
         assert self.root.resolve().is_relative_to(base.resolve()), "Unsafe fence cleanup"
@@ -84,6 +88,13 @@ def fence(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPa
         monkeypatch.setenv(name, str(fence.home / name))
     for name in CLEARED_ENVIRONMENT:
         monkeypatch.delenv(name, raising=False)
+    for name in list(os.environ):
+        if name in GIT_ENVIRONMENT or name.startswith("GIT_CONFIG"):
+            monkeypatch.delenv(name, raising=False)
+    # sitecustomize is loaded by child Python interpreters, including hooks started through uv.
+    socket_fence = str(REPO / "tests/python/socket_fence")
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(filter(None, (socket_fence, os.environ.get("PYTHONPATH")))))
+    monkeypatch.setenv("PYTHON_TEST_SOCKET_RECORD", str(fence.home / "socket-attempts"))
     try:
         yield fence
         fence.check()

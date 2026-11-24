@@ -290,7 +290,9 @@ _cli.main(['--home', sys.argv[2], 'update', '--check', '--force'], prog_name='le
     assert process.stderr == ""
     # Exclude interpreter startup and imports, but include the CLI call and process exit.
     elapsed = finished - float(marker.read_text(encoding="utf-8"))
-    assert 2.5 <= elapsed < 3.8
+    # With 32 CPU workers on one core, exit/wait overhead reached 5.5 s and marker-to-exit 9.3 s.
+    # Leave scheduling slack while staying well below the fake opener's 60 s stall.
+    assert 2.5 <= elapsed < 12
     assert json.loads(cache_path(tmp_path).read_text())["Failed"] is True
 
 

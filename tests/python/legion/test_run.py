@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 import pytest
+from process_ready import timeout_after_ready
 
 from legion import _run
 from legion._process import process_started_at
@@ -22,10 +23,10 @@ import subprocess, sys, time
 from pathlib import Path
 code = "import os, sys, time; from pathlib import Path; Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)"
 subprocess.Popen([sys.executable, "-c", code, sys.argv[1]])
-deadline = time.monotonic() + 20
-while not Path(sys.argv[1]).is_file() and time.monotonic() < deadline:
+while not Path(sys.argv[1]).is_file():
     time.sleep(0.05)
 print("tree started", flush=True)
+Path(sys.argv[1] + ".ready").touch()
 time.sleep(60)
 """
 
@@ -74,21 +75,21 @@ def test_arguments_keep_spaces_and_quotes() -> None:
     assert result.output.strip() == str(["two words", 'say "hi"', ""])
 
 
-def test_timeout_kills_the_whole_tree(tmp_path: Path) -> None:
+def test_timeout_kills_the_whole_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     marker = tmp_path / "grandchild.pid"
-    started = time.monotonic()
+    ready = timeout_after_ready(monkeypatch, Path(f"{marker}.ready"))
     result = run_command(PYTHON, ["-c", TREE, str(marker)], timeout=3)
-    assert time.monotonic() - started < 30
+    assert time.monotonic() - ready[0] < 30
     assert (result.exit_code, result.timed_out) == (-1, True)
     assert "tree started" in result.output
     wait_until_gone(int(marker.read_text(encoding="utf-8")))
 
 
-def test_child_that_starts_a_process_and_exits_at_once_is_still_stopped(tmp_path: Path) -> None:
+def test_child_that_starts_a_process_and_exits_at_once_is_still_stopped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     marker = tmp_path / "grandchild.pid"
-    started = time.monotonic()
+    ready = timeout_after_ready(monkeypatch, marker)
     result = run_command(PYTHON, ["-c", QUICK_PARENT, str(marker)], timeout=3)
-    assert time.monotonic() - started < 30
+    assert time.monotonic() - ready[0] < 30
     assert (result.exit_code, result.timed_out) == (-1, True)
     wait_until_gone(read_pid(marker))
 
@@ -101,11 +102,11 @@ def test_drain_after_a_timeout_is_bounded(tmp_path: Path, monkeypatch: pytest.Mo
 
     monkeypatch.setattr(_run, "_kill_tree", kill_only_the_child)
     marker = tmp_path / "grandchild.pid"
-    started = time.monotonic()
+    ready = timeout_after_ready(monkeypatch, Path(f"{marker}.ready"))
     result = run_command(PYTHON, ["-c", TREE, str(marker)], timeout=3)
     grandchild = read_pid(marker)
     try:
-        assert time.monotonic() - started < 3 + _run.DRAIN_SECONDS + 10
+        assert time.monotonic() - ready[0] < 3 + _run.DRAIN_SECONDS + 10
         assert (result.exit_code, result.timed_out) == (-1, True)
     finally:
         with contextlib.suppress(OSError):

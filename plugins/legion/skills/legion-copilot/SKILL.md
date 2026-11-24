@@ -21,7 +21,7 @@ Use this tool skill for Copilot CLI operations only. Load `legion-personalisatio
 ## Operations
 
 1. **Run or resume:** follow [run.md](references/run.md) to supply the task and restrict reviewers to read-only access.
-2. **Limits:** run `legion limits <id>`; [limits.md](references/limits.md) explains the readout.
+2. **Limits:** check the account's limits; [limits.md](references/limits.md) explains the readout.
 3. **Accounts:** use [accounts.md](references/accounts.md) for account changes; setup installs legion before the owner logs in.
 4. **Missing CLI:** setup installs it with the owner's yes; use [install.md](references/install.md) only for a CLI-only install the owner asks for.
 

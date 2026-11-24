@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from cli_runner import run
+from process_ready import timeout_after_ready
 from legion import _inbox
 from legion._inbox import (
     InboxMessage,
@@ -358,9 +359,9 @@ def test_nudge_that_outlives_its_timeout_is_killed_and_the_message_kept(inbox_ho
     take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
     monkeypatch.setattr(_inbox, "NUDGE_TIMEOUT_SECONDS", 1)
     monkeypatch.setenv("LEGION_TEST_QUEUE_SLEEP", "30")
-    started = time.monotonic()
+    ready = timeout_after_ready(monkeypatch, fake_wrapper)
     assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
-    assert time.monotonic() - started < 15
+    assert time.monotonic() - ready[0] < 15
     output = capsys.readouterr()
     assert output.err == "warning: inbox message saved; Codex nudge failed.\n"
     assert fake_wrapper.is_file()
