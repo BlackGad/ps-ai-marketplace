@@ -146,7 +146,7 @@ def add_foundry(home: Path, account: str, tool_id: str, endpoint: str, names: li
         with _settings_io.writer(home):
             current = _find(_settings_io.load(home), account)
             if current and current.tool == tool_id and current.provider and current.provider.kind == "foundry" and current.provider.endpoint == endpoint:
-                if _launchers.launcher_state(current, home) == "intact" or not _launchers.ready_versions(home):
+                if _launchers.launcher_state(current, home) != "none" or not _launchers.ready_versions(home):
                     return [f"skip: account {account} (already done)"]
                 written = _launchers.write_foundry(current, home)
                 return [f"wrote: launcher {path}" for path in written] or [f"skip: account {account} (already done)"]

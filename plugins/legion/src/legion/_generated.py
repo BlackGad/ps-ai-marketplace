@@ -24,6 +24,7 @@ def is_owned(path: Path, name: str) -> bool:
 
 
 def write_generated(path: Path, text: str, executable: bool) -> bool:
+    path = path.resolve()
     same = path.is_file() and path.read_bytes() == text.encode("utf-8")
     if not same:
         path.parent.mkdir(parents=True, exist_ok=True)
