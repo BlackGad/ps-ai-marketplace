@@ -230,10 +230,13 @@ def test_a_legion_launcher_left_behind_is_rewritten(world: World, capsys: pytest
 
 
 @pytest.mark.parametrize("by", ["path", "bare name"])
-def test_a_command_that_is_the_accounts_own_launcher_is_refused(world: World, capsys: pytest.CaptureFixture[str], by: str) -> None:
+def test_a_command_that_is_the_accounts_own_launcher_is_refused(world: World, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], by: str) -> None:
     own = wrapper_command("recursion", world.home)
     own.parent.mkdir(parents=True)
     own.write_text("anything\n", encoding="utf-8")
+    monkeypatch.setattr(_accounts, "POSIX", True)
+    real_access = _accounts.os.access
+    monkeypatch.setattr(_accounts.os, "access", lambda path, mode: False if Path(path) == own and mode == _accounts.os.X_OK else real_access(path, mode))
     command = str(own) if by == "path" else own.name
     assert add(world, "recursion", "claude", "--command", command) == 1
     assert says(capsys) == ("", "wrapper target would recurse\n")

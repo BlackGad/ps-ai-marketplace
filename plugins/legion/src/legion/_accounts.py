@@ -57,6 +57,8 @@ def _resolve_command(text: str, account: str, home: Path) -> Path:
         if found is None:
             raise AccountError(f"target needed: {account}; ask the owner for an existing executable")
         command = full_path(Path(found))
+    if any(same_path(command, path) for path in _launchers.launcher_paths(account, home)):
+        raise _launchers.LauncherError("wrapper target would recurse")
     if POSIX and command.suffix.lower() != ".ps1" and not os.access(command, os.X_OK):
         raise AccountError(f"target is not executable: {command}")
     return command

@@ -105,10 +105,11 @@ function Get-SetupMissingAllowRules {
 function Test-SetupTargetNeeded {
     param($Agent, [string]$HomeRoot)
     if ($Agent.command) { return -not (Test-Path -LiteralPath (Resolve-LegionHomePath -Path $Agent.command -HomeRoot $HomeRoot) -PathType Leaf) }
-    # Without a command, a launcher that survived alone cannot say which program it ran; none left means the stock one,
-    # and launchers that are all there only lack their execute permission, which Python gives back.
+    # Without a command, none left means the stock CLI can be installed. A surviving launcher
+    # cannot be repaired when its stock CLI is gone; an intact target can have its permission restored.
     $suffixes = if ($IsWindows) { @('', '.cmd') } else { @('') }
     $present = @($suffixes | Where-Object { Test-Path -LiteralPath (Get-LegionHomePath -HomeRoot $HomeRoot -Path "bin/$($Agent.id)$_") }).Count
+    if ($present -gt 0 -and -not (Test-SetupCommand -Name (Get-LegionTool -Tool $Agent.tool).command)) { return $true }
     return $present -gt 0 -and $present -lt $suffixes.Count
 }
 

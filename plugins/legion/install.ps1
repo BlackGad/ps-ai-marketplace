@@ -592,6 +592,28 @@ function Split-InstallPath {
     return @{ Kept=$kept; Removed=$removed }
 }
 
+# uv makes interpreter links in managed environments on POSIX. Purge unlinks those exact entries
+# before its usual linked-content check; the external interpreter is never traversed or removed.
+function Get-InstallPythonLinks {
+    $python = Get-InstallLegionPath 'python'
+    if (-not (Test-Path -LiteralPath $python -PathType Container) -or
+        -not (Test-LegionOwnerPathSafe -Path $python -StopRoot (Get-InstallHome))) { return @() }
+    $links = @()
+    foreach ($envFolder in (Get-ChildItem -LiteralPath $python -Directory -Force | Where-Object Name -Match '^env-[0-9a-f]{12}$')) {
+        if (-not (Test-LegionOwnerPathSafe -Path $envFolder.FullName -StopRoot (Get-InstallHome))) { continue }
+        $links += @(Get-ChildItem -LiteralPath $envFolder.FullName -Force | Where-Object {
+            $_.Name -ceq 'lib64' -and ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)
+        } | ForEach-Object FullName)
+        $bin = Join-Path $envFolder.FullName 'bin'
+        if (-not (Test-Path -LiteralPath $bin -PathType Container) -or
+            -not (Test-LegionOwnerPathSafe -Path $bin -StopRoot (Get-InstallHome))) { continue }
+        $links += @(Get-ChildItem -LiteralPath $bin -Force | Where-Object {
+            $_.Name -match '^python(?:3(?:\.\d+)?)?$' -and ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)
+        } | ForEach-Object FullName)
+    }
+    return $links
+}
+
 function Get-InstallPurgePlan {
     param([string]$ConfigDir)
     # Purge is global even if the preceding uninstall selected only some targets.
@@ -653,13 +675,15 @@ function Get-InstallPurgePlan {
         if ($edit.Manual) { $manualSteps += "Manual step: $path (linked or could not match safely)" }
         elseif ($edit) { $edits += $edit }
     }
+    $pythonLinks = @(Get-InstallPythonLinks)
     $links = @(Get-LegionFootprints -HomeRoot (Get-InstallHome) -Kind link | Where-Object { Test-LegionFootprintSafe -Entry $_ -HomeRoot (Get-InstallHome) } |
         ForEach-Object { [IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $_.path -HomeRoot (Get-InstallHome))) } | Where-Object { Get-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue })
+    $links += $pythonLinks
     $legion = Get-InstallSafePath -Root (Get-InstallHome) -Relative '.legion' -Except $links 6>$null
     if (-not $legion -and (Test-Path -LiteralPath (Get-InstallLegionPath ''))) { $manualSteps += 'Manual step: legion home contains linked paths; left in place.' }
     if (@(Get-LegionFootprints -HomeRoot (Get-InstallHome) -Kind app-version).Count) { $manualSteps += "Manual step: $(Get-InstallLegionPath 'app') (an app version is still in use; close legion, then run uninstall with purge again)" }
     return [pscustomobject]@{
-        Paths=$paths; Edits=$edits; Links=$links; Legion=$legion; HomeRoot=(Get-InstallHome); ManualSteps=$manualSteps; Index=(Get-InstallIndexText)
+        Paths=$paths; Edits=$edits; Links=$links; PythonLinks=$pythonLinks; Legion=$legion; HomeRoot=(Get-InstallHome); ManualSteps=$manualSteps; Index=(Get-InstallIndexText)
         UserPath=[pscustomobject]@{ Before=$userPath; After=($user.Kept -join ';'); Entries=$user.Removed }
         ProcessPath=[pscustomobject]@{ Before=$processPath; After=($process.Kept -join $processSeparator); Entries=$process.Removed }
         HasWork=[bool]($paths.Count -or $edits.Count -or $links.Count -or $legion -or $user.Removed.Count -or $process.Removed.Count)
@@ -730,7 +754,11 @@ function Invoke-InstallPurgeSteps {
     }
     foreach ($link in $Plan.Links) {
         $entry = Get-LegionFootprints -HomeRoot $Plan.HomeRoot -Kind link | Where-Object { (Get-LegionPathComparer).Equals([IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $_.path -HomeRoot $Plan.HomeRoot)), $link) }
-        if ($entry -and (Test-LegionFootprintSafe -Entry $entry -HomeRoot $Plan.HomeRoot)) { (Get-Item -LiteralPath $link -Force).Delete() }
+        $pythonLink = @($Plan.PythonLinks | Where-Object { (Get-LegionPathComparer).Equals($_, $link) }).Count -gt 0
+        if (($entry -and (Test-LegionFootprintSafe -Entry $entry -HomeRoot $Plan.HomeRoot)) -or
+            ($pythonLink -and @(Get-InstallPythonLinks | Where-Object { (Get-LegionPathComparer).Equals($_, $link) }).Count)) {
+            (Get-Item -LiteralPath $link -Force).Delete()
+        }
     }
     # The running installer may be a private copy under this tree; functions are
     # already loaded. Legion's caller tolerates its copy having been removed.
