@@ -50,11 +50,19 @@ function Read-OverseerChoice {
     }
 }
 
+# Both setup and validation can fail before Python returns a structured result.
+function Get-OverseerPythonFailure {
+    param($Result, [string]$Operation)
+    if ($Result.Error -and $Result.Error.Trim()) { return $Result.Error.Trim() }
+    if ($Result.Output -and $Result.Output.Trim()) { return $Result.Output.Trim() }
+    return "$Operation exited $($Result.ExitCode)"
+}
+
 function Invoke-OverseerRepositorySetup {
     param([string]$Repo)
     $result = Invoke-LegionPython -Arguments @('repository', 'setup', '--repo', $Repo) -HomeRoot $HomeRoot
     if ($result.Output) { Write-Output $result.Output }
-    if ($result.ExitCode -ne 0) { throw $(if ($result.Error) { $result.Error } else { "Repository setup exited $($result.ExitCode)" }) }
+    if ($result.ExitCode -ne 0) { throw (Get-OverseerPythonFailure -Result $result -Operation 'Repository setup') }
 }
 
 function Select-OverseerAccount {
@@ -321,8 +329,12 @@ function Invoke-Overseer {
     }
     foreach ($inputFile in @(@{Kind='personalisation';Path=$ownerFile},@{Kind='project';Path=$projectFile})) {
         $result = Invoke-LegionPython -Arguments @('validate', '--kind', $inputFile.Kind, '--path', $inputFile.Path) -HomeRoot $HomeRoot
-        if ($result.ExitCode -eq 1) { throw ((@($result.Output -split "`r?`n" | Where-Object { $_ }) -join '; ')) }
-        if ($result.ExitCode -ne 0) { throw $result.Error }
+        if ($result.ExitCode -ne 0) {
+            if ($result.ExitCode -eq 1 -and $result.Output -and $result.Output.Trim()) {
+                throw ((@($result.Output -split "`r?`n" | Where-Object { $_ }) -join '; '))
+            }
+            throw (Get-OverseerPythonFailure -Result $result -Operation 'legion validate')
+        }
     }
     $personalisation = Read-LegionJson -Path $ownerFile
     # Bare start reuses the saved account, then the lease account; -Pick asks instead.
@@ -336,7 +348,8 @@ function Invoke-Overseer {
     if ($bare -and -not $Pick) {
         $Account = $savedAccount
         if (-not $Account) {
-            # Only account selection needs this read; Python owns lease state. Milestone 4 removes it.
+            # Only account selection needs this read; Python owns lease state.
+            # milestone 4 removes this
             $leaseAccount = try {
                 (Get-Content -LiteralPath (Get-LegionRepoPath -Repo $Repo -Path 'temp/overseer.lock') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop).account
             } catch { $null }

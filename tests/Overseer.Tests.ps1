@@ -48,7 +48,7 @@ Remove-Item -LiteralPath (Join-Path $tempRoot '.legion') -Recurse -Force
     }
     $output = @(& {
         try { Invoke-OverseerRepositorySetup -Repo $tempRoot; throw 'Expected missing uv refusal' }
-        catch { Assert-Equal 'Repository setup exited 127' $_.Exception.Message 'Missing uv keeps the exit code' }
+        catch { Assert-True ($_.Exception.Message.Contains('uv is missing. Ask the owner before installing it.')) 'Missing uv keeps the hint in its error' }
     })
     Assert-Equal 1 $output.Count 'Missing uv output is reported once'
     Assert-True ($output[0].Contains('uv is missing. Ask the owner before installing it.')) 'Missing uv is reported in output'
@@ -350,9 +350,15 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     $state.ValidationResult = [pscustomobject]@{ Output = "first issue`nsecond issue"; Error = ''; ExitCode = 1 }
     try { Invoke-Overseer @run -Account claude1 -DryRun; throw 'Expected validation refusal' }
     catch { Assert-Equal 'first issue; second issue' $_.Exception.Message 'Validation refusal joins Python issues' }
-    $state.ValidationResult = [pscustomobject]@{ Output = ''; Error = 'Python unavailable'; ExitCode = 127 }
+    $state.ValidationResult = [pscustomobject]@{ Output = 'uv is missing. Ask the owner before installing it.'; Error = ''; ExitCode = 127 }
     try { Invoke-Overseer @run -Account claude1 -DryRun; throw 'Expected Python error' }
-    catch { Assert-Equal 'Python unavailable' $_.Exception.Message 'Other Python failures keep their error text' }
+    catch { Assert-Equal 'uv is missing. Ask the owner before installing it.' $_.Exception.Message 'Missing uv keeps its hint' }
+    $state.ValidationResult = [pscustomobject]@{ Output = ''; Error = "Python traceback`n"; ExitCode = 1 }
+    try { Invoke-Overseer @run -Account claude1 -DryRun; throw 'Expected Python error' }
+    catch { Assert-Equal 'Python traceback' $_.Exception.Message 'Python crash keeps stderr without a trailing newline' }
+    $state.ValidationResult = [pscustomobject]@{ Output = ''; Error = ''; ExitCode = 3 }
+    try { Invoke-Overseer @run -Account claude1 -DryRun; throw 'Expected Python error' }
+    catch { Assert-Equal 'legion validate exited 3' $_.Exception.Message 'Empty Python failure keeps its exit code' }
     $state.ValidationResult = [pscustomobject]@{ Output = ''; Error = ''; ExitCode = 0 }
     $text = @(Invoke-Overseer @run -Account claude1 -Channel @())
     Assert-Equal ('launched claude1 (claude) in ' + $runRepo + ' channel my-telegram') ($text -join '|') 'Launched line names the default channel'
@@ -386,7 +392,8 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     Assert-Equal ('launched codex1 (codex) in ' + $runRepo) ($text -join '|') 'A removed saved account falls back to the foreign lease account'
     Assert-Equal 'continue as the overseer' ($state.Launch.Args -join '|') 'Removed account channels and arguments are discarded'
     Remove-Item -LiteralPath $lastFile, $leaseFile -ErrorAction Ignore
-    Assert-Throws { Invoke-Overseer @run } 'Missing saved launch and lease list eligible accounts'
+    try { Invoke-Overseer @run; throw 'Expected account choice' }
+    catch { Assert-Equal 'Choose an account: -Account claude1 | codex1' $_.Exception.Message 'Missing saved launch and lease lists eligible accounts' }
     '{"account":"removed-account"}' | Set-Content $leaseFile
     Assert-Throws { Invoke-Overseer @run } 'A removed lease account falls back to normal selection'
     '{"account":"claude1"}' | Set-Content $leaseFile
@@ -394,10 +401,12 @@ $two | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/conf
     Assert-Equal (Get-LegionWrapperCommand claude1 $runHome) $state.Launch.Command 'A stale lease can supply the last account'
     Remove-Item -LiteralPath $lastFile, $leaseFile -ErrorAction Ignore
     New-Item -ItemType Directory -Path $leaseFile | Out-Null
-    Assert-Throws { Invoke-Overseer @run } 'An unreadable lease falls back to account selection'
+    try { Invoke-Overseer @run; throw 'Expected account choice' }
+    catch { Assert-Equal 'Choose an account: -Account claude1 | codex1' $_.Exception.Message 'An unreadable lease falls back to account selection' }
     Remove-Item -LiteralPath $leaseFile -Recurse
     '{broken' | Set-Content $leaseFile
-    Assert-Throws { Invoke-Overseer @run } 'A malformed lease falls back to account selection'
+    try { Invoke-Overseer @run; throw 'Expected account choice' }
+    catch { Assert-Equal 'Choose an account: -Account claude1 | codex1' $_.Exception.Message 'A malformed lease falls back to account selection' }
     Remove-Item -LiteralPath $lastFile, $leaseFile -ErrorAction Ignore
     $single = [pscustomobject]@{schemaVersion=1;agents=@($two.agents[1]);channels=@()}
     $single | ConvertTo-Json -Depth 100 | Set-Content (Join-Path $runHome '.legion/configuration/personalisation.json')
