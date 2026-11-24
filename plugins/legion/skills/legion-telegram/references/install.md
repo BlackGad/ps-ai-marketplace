@@ -1,6 +1,6 @@
 # Installation
 
-Claude is the tool that sets a bot up and pairs it; read its tool skill. Codex-only setup is not supported yet: the bot is set up and paired once on a Claude account, and Codex then uses it (see Codex below). Check what is ready without starting a CLI: `pwsh -NoProfile -File <plugin>/bin/legion-channel.ps1 -Action check -Kind telegram -Accounts <ids>` reports Bun and the Telegram plugin folder for each account. Never inspect credential files.
+Claude is the tool that sets a bot up and pairs it; read its tool skill. Codex-only setup is not supported yet: the bot is set up and paired once on a Claude account, and Codex then uses it (see Codex below). Check what is ready without starting a CLI: `legion channel check --kind telegram --account <id>...` reports Bun and the Telegram plugin folder for each account. Never inspect credential files.
 
 Deduplicate setup by kind/account, and installation by normalized config folder. Preview only missing work. One owner yes covers the shown helper and plugin actions. Decline makes no changes. Repeat completed work prints `skip: <what> (already done)`.
 

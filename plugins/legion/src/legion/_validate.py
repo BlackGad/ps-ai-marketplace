@@ -115,6 +115,20 @@ def _provider_issues(settings: PersonalisationSettings, tools: list[ToolDescript
     return issues
 
 
+# The checks a settings model must pass before legion writes it: the schema, then references and providers.
+def settings_issues(settings: PersonalisationSettings) -> list[str]:
+    try:
+        settings = PersonalisationSettings.model_validate(settings.model_dump(by_alias=True, exclude_none=True))
+    except ValidationError as error:
+        return [_describe(problem) for problem in error.errors()]
+    return _semantic_issues(settings)
+
+
+def _semantic_issues(settings: PersonalisationSettings) -> list[str]:
+    tools = load_descriptors(ToolDescriptor, "tool.json")
+    return _reference_issues(settings, tools, load_descriptors(ChannelDescriptor, "channel.json")) + _provider_issues(settings, tools)
+
+
 # Shape problems stop the reference and provider checks, which need a well-formed file.
 def validate(kind: str, path: Path) -> list[str]:
     try:
@@ -128,7 +142,6 @@ def validate(kind: str, path: Path) -> list[str]:
             return [_framed(_describe(problem)) for problem in error.errors()]
         if not isinstance(settings, PersonalisationSettings):
             return []
-        tools = load_descriptors(ToolDescriptor, "tool.json")
-        return _reference_issues(settings, tools, load_descriptors(ChannelDescriptor, "channel.json")) + _provider_issues(settings, tools)
+        return _semantic_issues(settings)
     except Exception as error:
         return [_framed(str(error))]
