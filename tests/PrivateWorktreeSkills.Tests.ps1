@@ -1,5 +1,7 @@
 $root = Split-Path $PSScriptRoot -Parent
 $skills = Join-Path $root 'plugins/legion/skills'
+$repositorySetup = Get-Content (Join-Path $skills 'legion-repository/references/setup.md') -Raw
+Assert-True ($repositorySetup.Contains('legion repository setup --repo <repo>')) 'Local setup uses the owner repository command'
 $lanes = Get-Content (Join-Path $skills 'legion-overseer/references/lanes.md') -Raw
 Assert-True ($lanes.Contains('a new lane or review worktree has no `.legion/`')) 'Private lane and review checkouts need local setup'
 Assert-True ($lanes -match 'Before dispatch.*copies.*\.legion/configuration/.*\.legion/scripts/.*main tree.*same paths in the worktree') 'Overseer copies configuration and indexed scripts before dispatch'

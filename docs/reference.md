@@ -267,7 +267,7 @@ To opt out, leave legion unused. To limit its use, route legion only to accounts
 | Local specs and plans | `<repo>/.legion/docs/specs/`, `plans/` | no |
 | Agent scratch files | `<repo>/.legion/temp/` | no |
 
-The [repository layout](../plugins/legion/skills/legion-repository/references/layout.md) defines ignores and Git ownership. Private is identified by a `.legion/.git` folder. Its outer ignore is local to Git and shared across worktrees. Shared uses the code repo's `.gitignore` and rules file. a bare `legion` creates the setup files; for explicit choices use `pwsh -NoProfile -File <plugin>/bin/legion-repository.ps1 -Repo <repo> [-Mode Private|Shared] [-Gate '<check command>']`. Handoff, history, and roadmap commits use the Git repository that owns `.legion/state`.
+The [repository layout](../plugins/legion/skills/legion-repository/references/layout.md) defines ignores and Git ownership. Private is identified by a `.legion/.git` folder. Its outer ignore is local to Git and shared across worktrees. Shared uses the code repo's `.gitignore` and rules file. a bare `legion` creates the setup files; for explicit choices use `legion repository setup --repo <repo> [--mode shared] [--gate '<command>'] [--rules-file <file>]`. Handoff, history, and roadmap commits use the Git repository that owns `.legion/state`.
 
 ## Skills
 

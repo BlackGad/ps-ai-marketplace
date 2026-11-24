@@ -52,7 +52,10 @@ function Read-OverseerChoice {
 
 function Invoke-OverseerRepositorySetup {
     param([string]$Repo)
-    & (Join-Path $PSScriptRoot 'legion-repository.ps1') -Repo $Repo
+    $result = Invoke-LegionPython -Arguments @('repository', 'setup', '--repo', $Repo) -HomeRoot $HomeRoot
+    $result.Output | ForEach-Object { Write-Output $_ }
+    $result.Error | ForEach-Object { Write-Error $_ -ErrorAction Continue }
+    if ($result.ExitCode -ne 0) { throw ($result.Error -join ' ') }
 }
 
 function Select-OverseerAccount {
