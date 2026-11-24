@@ -2,6 +2,7 @@
 # pass through, the exit code is exact, the caller's environment stays, and a command that is deleted while it runs
 # (an update rewriting it) still ends cleanly. Readiness is by blocking reads and a marker line, never by sleeping.
 
+import json
 import os
 import queue
 import shutil
@@ -15,6 +16,8 @@ from typing import Any
 import pytest
 
 from legion import _app
+
+from conftest import REPO
 
 MISSING = "uv is missing. Ask the owner before installing it, then run the legion installer again."
 WINDOWS = sys.platform == "win32"
@@ -277,3 +280,51 @@ def test_without_uv_the_shell_command_prints_one_line_and_exits_127(tmp_path: Pa
     result = subprocess.run(["/bin/sh", str(shim), "status"], capture_output=True, text=True, env={**os.environ, "PATH": "/nonexistent"}, check=False)
     assert result.returncode == 127
     assert result.stderr.strip() == MISSING
+
+
+def test_public_command_preserves_failed_overseer_launch_exit(tmp_path: Path, pwsh_path: Path) -> None:
+    home = tmp_path / "home"
+    app = home / ".legion" / "app" / "9.9.9"
+    shutil.copytree(REPO / "plugins" / "legion", app)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git = shutil.which("git")
+    assert git is not None
+    subprocess.run([git, "init", "--quiet", str(repo)], check=True)
+    settings = home / ".legion" / "configuration"
+    settings.mkdir(parents=True)
+    (repo / ".legion" / "configuration").mkdir(parents=True)
+    (settings / "personalisation.json").write_text(json.dumps({"schemaVersion": 1, "agents": [{"id": "codex-a", "tool": "codex", "configDir": "~/.codex"}], "channels": []}), encoding="utf-8")
+    (repo / ".legion" / "configuration" / "project.json").write_text('{"schemaVersion":1}', encoding="utf-8")
+    overseer = app / "bin" / "legion-overseer.ps1"
+    source = overseer.read_text(encoding="utf-8")
+    # The fixture changes only the installed copy's launch, so the public command still crosses both real entry points.
+    source = source.replace("[string]$HomeRoot = $HOME", f"[string]$HomeRoot = '{home}'")
+    source = source.replace("if (-not $NoRun) {", "function Start-OverseerLaunch { $global:LASTEXITCODE = 5 }; if (-not $NoRun) {")
+    overseer.write_text(source, encoding="utf-8")
+    assert "function Start-OverseerLaunch { $global:LASTEXITCODE = 5 }" in overseer.read_text(encoding="utf-8")
+
+    bin_folder = home / ".legion" / "bin"
+    bin_folder.mkdir(parents=True)
+    shim = bin_folder / ("legion.cmd" if WINDOWS else "legion")
+    shim.write_bytes(_app.shim_text(app, home, WINDOWS).encode("utf-8"))
+    shim.chmod(0o755)
+    uv_folder = tmp_path / "fake-uv"
+    uv_folder.mkdir()
+    fake = REPO / "tests" / "fixtures" / "fake-tools" / "uv-python.ps1"
+    # This stub supplies uv's command boundary while the fixture script invokes the project Python and production CLI.
+    if WINDOWS:
+        (uv_folder / "uv.cmd").write_text(f'@"{pwsh_path}" -NoProfile -File "{fake}" %*\r\n', encoding="utf-8", newline="")
+    else:
+        uv = uv_folder / "uv"
+        uv.write_text(f'#!/bin/sh\nexec "{pwsh_path}" -NoProfile -File "{fake}" "$@"\n', encoding="utf-8")
+        uv.chmod(0o755)
+    folders = [uv_folder, pwsh_path.parent, Path(git).parent]
+    if WINDOWS:
+        folders.append(Path(os.environ["SYSTEMROOT"]) / "System32")
+    else:
+        folders.append(Path("/usr/bin"))
+    environment = {**os.environ, "PATH": os.pathsep.join(map(str, folders)), "LEGION_TEST_PYTHON": sys.executable}
+    result = subprocess.run([str(shim), "--no-channel"], cwd=repo, env=environment, capture_output=True, text=True, check=False)
+    assert result.returncode == 5, result.stdout + result.stderr
+    assert not any(line.startswith("launched ") for line in result.stdout.splitlines())
