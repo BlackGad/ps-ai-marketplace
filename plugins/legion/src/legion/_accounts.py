@@ -180,12 +180,17 @@ def remove(home: Path, account: str) -> list[str]:
         agent = _find(settings, account)
         if agent is None:
             return [f"skip: account remove {account} (already done)"]
+        original = settings.model_copy(deep=True)
         _rebind(settings, account, None)
         settings.agents = [other for other in settings.agents if other.id != account]
         issues = settings_issues(settings)
         if issues:
             raise _settings_io.SettingsError("; ".join(issues))
         _launchers.remove(account, home)
-        lines = _footprints.remove_owner(home, [f"account:{account}"])
         _settings_io.save_locked(home, settings)
+        try:
+            lines = _footprints.remove_owner(home, [f"account:{account}"])
+        except Exception:
+            _settings_io.save_locked(home, original)
+            raise
     return [*lines, f"Config folder kept at {agent.config_dir}."]

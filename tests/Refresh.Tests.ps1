@@ -177,6 +177,7 @@ exec pwsh -NoProfile -File '/old/owner'"'"'s/cache/bin/legion.ps1' -Account chos
                 Remove-Item -LiteralPath (Join-Path $accountBin 'codex-a')
                 $repaired = @(& $refresh -HomeRoot $scratch)
                 Assert-True (Test-Path -LiteralPath (Join-Path $accountBin 'codex-a')) 'Python batch survivor repairs missing shell launcher'
+                Assert-Equal $pythonText ([IO.File]::ReadAllText($survivor)) 'Refresh leaves the intact Python batch launcher unchanged while repairing its sibling'
                 Assert-Equal (Get-LegionNewAccountDir -Id codex-a -HomeRoot $scratch) "$( & $survivor )" 'Python batch survivor retains stock target'
                 Assert-Equal 0 @($repaired -match 'collision|target not found').Count 'Python batch survivor does not collide with refresh'
                 $storedSurvivor = Join-Path $accountBin 'custom-a.cmd'

@@ -422,6 +422,25 @@ def test_remove_keeps_runtime_when_launcher_removal_fails(world: World, monkeypa
     assert account(world, "remove", "--id", "codex-a") == 0
 
 
+def test_remove_keeps_last_owner_runtime_when_settings_save_fails(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert add(world) == 0
+    runtime = world.home / ".legion" / "runtime"
+    runtime.mkdir()
+    _footprints.add(world.home, "folder", runtime, "account:codex-a")
+    before = world.settings_bytes()
+
+    def fail_save(*_args: object) -> None:
+        raise OSError("save failed")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(_settings_io, "save_locked", fail_save)
+        assert account(world, "remove", "--id", "codex-a") == 1
+
+    assert world.settings_bytes() == before
+    assert runtime.is_dir()
+    assert _footprints.read(world.home).entries[0].owners == ["account:codex-a"]
+
+
 def test_remove_validates_remaining_settings_before_deleting_footprints(world: World, capsys: pytest.CaptureFixture[str]) -> None:
     assert add(world) == 0
     bind(world, "codex-a")

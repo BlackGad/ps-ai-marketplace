@@ -415,3 +415,17 @@ Test-PurgeScenario {
     Assert-True (-not (Test-Path (Join-Path $fixtureHome '.legion'))) 'Purge removes the recorded link, then the legion folder'
     Assert-True (Test-Path $target) 'The link target stays'
 }
+
+Test-PurgeScenario {
+    $script:installCatalog = $catalog
+    $version = Join-Path $fixtureHome '.legion/app/0.0.1'
+    New-Item -ItemType Directory -Path $version -Force | Out-Null
+    Add-LegionFootprint -HomeRoot $fixtureHome -Kind app-version -Path $version -Owner legion
+    $interpreter = New-PurgeFile '.legion/python/env-0123456789ab/bin/python' 'interpreter link fixture'
+    function Get-InstallPythonLinks { return @($interpreter) }
+    $plan = Get-InstallPurgePlan
+    Assert-Equal 0 @($plan.PythonLinks).Count 'Purge plans no interpreter links while an app version is retained'
+    Assert-Equal 0 @($plan.Links | Where-Object { $_ -ceq $interpreter }).Count 'Purge does not put retained interpreter links in its deletion list'
+    Invoke-InstallPurgePlan -Plan $plan
+    Assert-True (Test-Path -LiteralPath $interpreter) 'Purge leaves the retained interpreter entry intact'
+}

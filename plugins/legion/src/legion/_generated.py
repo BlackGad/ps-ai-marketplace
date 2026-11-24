@@ -1,5 +1,7 @@
+import os
 import stat
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -25,7 +27,18 @@ def write_generated(path: Path, text: str, executable: bool) -> bool:
     same = path.is_file() and path.read_bytes() == text.encode("utf-8")
     if not same:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8", newline="")
+        fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        os.close(fd)
+        temp = Path(name)
+        try:
+            temp.write_text(text, encoding="utf-8", newline="")
+            if path.is_file():
+                temp.chmod(path.stat().st_mode)
+            if executable and sys.platform != "win32":
+                temp.chmod(temp.stat().st_mode | stat.S_IXUSR)
+            temp.replace(path)
+        finally:
+            temp.unlink(missing_ok=True)
     changed = not same
     if executable and sys.platform != "win32" and not path.stat().st_mode & stat.S_IXUSR:
         path.chmod(path.stat().st_mode | stat.S_IXUSR)

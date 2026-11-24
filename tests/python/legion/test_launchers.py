@@ -171,6 +171,25 @@ def test_a_legion_launcher_with_other_text_is_rewritten(home: Path) -> None:
     assert "exit 9" not in path.read_text(encoding="utf-8")
 
 
+def test_interrupted_launcher_write_keeps_the_existing_owned_file(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    account = agent("codex-a", home / "a")
+    path = _launchers.write_subscription(account, codex(), home)[0]
+    before = path.read_bytes()
+    original_write = Path.write_text
+
+    def interrupted_write(target: Path, text: str, encoding: str | None = None, errors: str | None = None, newline: str | None = None) -> int:
+        if target.parent == path.parent:
+            original_write(target, "partial", encoding="utf-8")
+            raise OSError("interrupted write")
+        return original_write(target, text, encoding=encoding, errors=errors, newline=newline)
+
+    monkeypatch.setattr(Path, "write_text", interrupted_write)
+    with pytest.raises(OSError, match="interrupted write"):
+        _generated.write_generated(path, "replacement", executable=True)
+    assert path.read_bytes() == before
+    assert sorted(entry.name for entry in path.parent.iterdir()) == sorted(item.name for item in _launchers.launcher_paths(account.id, home))
+
+
 def test_a_file_without_the_header_is_a_collision(home: Path) -> None:
     path = bin_folder(home) / "codex-a"
     path.parent.mkdir(parents=True)

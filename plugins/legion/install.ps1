@@ -675,7 +675,8 @@ function Get-InstallPurgePlan {
         if ($edit.Manual) { $manualSteps += "Manual step: $path (linked or could not match safely)" }
         elseif ($edit) { $edits += $edit }
     }
-    $pythonLinks = @(Get-InstallPythonLinks)
+    # A retained app version still needs its Python environment and interpreter links.
+    $pythonLinks = if (@(Get-LegionFootprints -HomeRoot (Get-InstallHome) -Kind app-version).Count) { @() } else { @(Get-InstallPythonLinks) }
     $links = @(Get-LegionFootprints -HomeRoot (Get-InstallHome) -Kind link | Where-Object { Test-LegionFootprintSafe -Entry $_ -HomeRoot (Get-InstallHome) } |
         ForEach-Object { [IO.Path]::GetFullPath((Resolve-LegionHomePath -Path $_.path -HomeRoot (Get-InstallHome))) } | Where-Object { Get-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue })
     $links += $pythonLinks

@@ -181,8 +181,8 @@ function New-LegionWrappers {
     }
     if ($CheckOnly) { return }
     New-Item -ItemType Directory -Path $bin, $folder -Force | Out-Null
-    Write-LegionGeneratedFile -Path $shFile -Content $sh -Executable -Changes $Changes
-    if ($IsWindows) { Write-LegionGeneratedFile -Path $cmdFile -Content $cmd -Changes $Changes }
+    if (-not (Test-LegionLauncherExecutable -Path $shFile)) { Write-LegionGeneratedFile -Path $shFile -Content $sh -Executable -Changes $Changes }
+    if ($IsWindows -and -not (Test-LegionLauncherExecutable -Path $cmdFile)) { Write-LegionGeneratedFile -Path $cmdFile -Content $cmd -Changes $Changes }
 }
 
 # task 5 removes this
