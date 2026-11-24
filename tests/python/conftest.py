@@ -14,7 +14,6 @@ if sys.platform == "win32":
 
 REPO = Path(__file__).resolve().parents[2]
 CLEARED_ENVIRONMENT = ("LEGION_ROLE", "LEGION_TASK", "PYTHONSTARTUP", "PYTHONUSERBASE", "CODEX_THREAD_ID")
-GIT_ENVIRONMENT = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES")
 
 
 # Mirrors the fence in tests/run.ps1: every test runs with a temp home reached through a link, and the
@@ -62,6 +61,14 @@ def config_environments() -> list[str]:
     return [tool["configEnv"] for tool in catalog["tools"]]
 
 
+# Fixture Git reads no inherited Git setting and no system config, so it cannot write an index or trace elsewhere.
+def fence_git(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in list(os.environ):
+        if name.startswith("GIT_"):
+            monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
 @pytest.fixture(autouse=True)
 def fence(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Iterator[Fence]:
     base = tmp_path_factory.getbasetemp()
@@ -88,9 +95,7 @@ def fence(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPa
         monkeypatch.setenv(name, str(fence.home / name))
     for name in CLEARED_ENVIRONMENT:
         monkeypatch.delenv(name, raising=False)
-    for name in list(os.environ):
-        if name in GIT_ENVIRONMENT or name.startswith("GIT_CONFIG"):
-            monkeypatch.delenv(name, raising=False)
+    fence_git(monkeypatch)
     # sitecustomize is loaded by child Python interpreters, including hooks started through uv.
     socket_fence = str(REPO / "tests/python/socket_fence")
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join(filter(None, (socket_fence, os.environ.get("PYTHONPATH")))))

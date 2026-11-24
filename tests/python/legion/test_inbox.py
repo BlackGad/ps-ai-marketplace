@@ -25,6 +25,9 @@ from legion._run import RunResult
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ACCOUNTS_PS1 = REPO_ROOT / "plugins/legion/bin/lib/accounts.ps1"
 PWSH = shutil.which("pwsh")
+if sys.platform == "win32":
+    import _winapi
+
 windows_only = pytest.mark.skipif(os.name != "nt", reason="account launchers are .cmd files on Windows only")
 
 
@@ -294,6 +297,7 @@ def test_nudge_through_a_nested_forwarder_keeps_percent_text_literal(
 def test_powershell_launcher_never_runs_pwsh_from_the_current_folder(
     inbox_home: Path, repo: Path, fake_wrapper: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    assert sys.platform == "win32"
     assert fake_wrapper.name == "argv.json"
     write_launcher(inbox_home, '@pwsh -NoProfile -File "C:\\tools\\codex.ps1" %*')
     take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
@@ -309,14 +313,20 @@ def test_powershell_launcher_never_runs_pwsh_from_the_current_folder(
 
     monkeypatch.setattr(_inbox, "run_command", spy)
     monkeypatch.chdir(planted)
-    monkeypatch.setenv("PATH", os.pathsep.join([".", "", str(installed)]))
-    assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
-    assert capsys.readouterr().err == ""
-    assert commands == [str(installed / "pwsh.exe")]
-    monkeypatch.setenv("PATH", ".")
-    assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
-    assert capsys.readouterr().err == "warning: inbox message saved; Codex nudge failed.\n"
-    assert len(commands) == 1
+    alias = tmp_path / "alias"
+    _winapi.CreateJunction(str(planted), str(alias))
+    try:
+        # The current folder by any name is skipped; a quoted folder is a valid Windows PATH entry.
+        monkeypatch.setenv("PATH", os.pathsep.join([".", "", str(planted), str(planted).upper(), str(alias), f'"{installed}"']))
+        assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
+        assert capsys.readouterr().err == ""
+        assert commands == [str(installed / "pwsh.exe")]
+        monkeypatch.setenv("PATH", os.pathsep.join([".", str(alias)]))
+        assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
+        assert capsys.readouterr().err == "warning: inbox message saved; Codex nudge failed.\n"
+        assert len(commands) == 1
+    finally:
+        alias.rmdir()
 
 
 # The launchers the PowerShell writers produce are the ones the nudge reads.
@@ -324,15 +334,21 @@ def test_powershell_launcher_never_runs_pwsh_from_the_current_folder(
 @pytest.mark.skipif(PWSH is None, reason="pwsh is not on PATH")
 def test_launchers_written_by_powershell_give_the_real_command(tmp_path: Path) -> None:
     assert PWSH is not None
-    home = tmp_path / "home"
-    targets = {"codex-exe": tmp_path / "codex.exe", "codex-cmd": tmp_path / "codex.cmd", "codex-ps": tmp_path / "codex.ps1"}
-    runner = tmp_path / "legion-foundry.ps1"
+    # Paths reach PowerShell as environment values, so an apostrophe cannot break the script.
+    base = tmp_path / "owner's files"
+    base.mkdir()
+    home = base / "home"
+    targets = {"codex-exe": base / "codex.exe", "codex-cmd": base / "codex.cmd", "codex-ps": base / "codex.ps1"}
+    runner = base / "legion-foundry.ps1"
     for file in (*targets.values(), runner):
         file.write_text("", encoding="utf-8")
-    writes = "; ".join(f"New-LegionWrappers -Id {account} -Tool codex -HomeRoot '{home}' -RealCommand '{target}'" for account, target in targets.items())
-    foundry = f"function Sync-LegionFoundryRuntime {{ return '{runner}' }}; New-FoundryWrappers -Id codex-f -Tool codex -HomeRoot '{home}'"
-    script = f"$ErrorActionPreference = 'Stop'; . '{ACCOUNTS_PS1}'; {writes}; {foundry}"
-    result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True, text=True, timeout=120, check=False)
+    paths = {"FIXTURE_ACCOUNTS_PS1": str(ACCOUNTS_PS1), "FIXTURE_HOME": str(home), "FIXTURE_RUNNER": str(runner)}
+    paths |= {f"FIXTURE_TARGET_{account.replace('-', '_')}": str(target) for account, target in targets.items()}
+    writes = "; ".join(f"New-LegionWrappers -Id {account} -Tool codex -HomeRoot $env:FIXTURE_HOME -RealCommand $env:FIXTURE_TARGET_{account.replace('-', '_')}" for account in targets)
+    foundry = "function Sync-LegionFoundryRuntime { return $env:FIXTURE_RUNNER }; New-FoundryWrappers -Id codex-f -Tool codex -HomeRoot $env:FIXTURE_HOME"
+    script = f"$ErrorActionPreference = 'Stop'; . $env:FIXTURE_ACCOUNTS_PS1; {writes}; {foundry}"
+    environment = {**os.environ, **paths}
+    result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True, text=True, timeout=120, env=environment, check=False)
     assert result.returncode == 0, result.stderr
     launchers = home / ".legion" / "bin"
 

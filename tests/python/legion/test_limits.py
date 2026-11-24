@@ -382,6 +382,43 @@ def test_codex_reads_past_session_files_it_cannot_read_or_decode(tmp_path: Path,
     assert [(row.window, row.used) for row in rows] == [("5h", "12%"), ("7d", "40%")]
 
 
+def test_codex_reads_past_session_files_whose_metadata_is_refused(tmp_path: Path) -> None:
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    sessions = tmp_path / "codex" / "sessions"
+    sessions.mkdir(parents=True)
+    refused = sessions / "a-refused.jsonl"
+    refused.write_text("{}\n", encoding="utf-8")
+    metadata = json.dumps({"type": "session_meta", "payload": {"cwd": str(probe)}})
+    records = (FIXTURES / "codex-session.jsonl").read_text(encoding="utf-8").splitlines()[1:]
+    (sessions / "b-probe.jsonl").write_text("\n".join([metadata, *records]) + "\n", encoding="utf-8")
+    real_stat = Path.stat
+
+    def refuse_metadata(path: Path, *, follow_symlinks: bool = True) -> os.stat_result:
+        if path == refused:
+            raise PermissionError(13, "Permission denied")
+        return real_stat(path, follow_symlinks=follow_symlinks)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Path, "stat", refuse_metadata)
+        rows = codex.rows(Ping(exit_code=0, output="", error="", timed_out=False, folder=probe.resolve()), tmp_path / "codex")
+    assert [(row.window, row.used) for row in rows] == [("5h", "12%"), ("7d", "40%")]
+
+
+# Only the latest valid record counts; a later record of another shape does not hide it.
+def test_codex_keeps_the_latest_valid_record(tmp_path: Path) -> None:
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    sessions = tmp_path / "codex" / "sessions"
+    sessions.mkdir(parents=True)
+    metadata = json.dumps({"type": "session_meta", "payload": {"cwd": str(probe)}})
+    records = (FIXTURES / "codex-session.jsonl").read_text(encoding="utf-8").splitlines()[1:]
+    later = json.dumps({"rate_limits": {"primary": {"used_percent": 77.0, "window_minutes": 300}}})
+    (sessions / "probe.jsonl").write_text("\n".join([metadata, *records, later, '{"rate_limits": broken']) + "\n", encoding="utf-8")
+    rows = codex.rows(Ping(exit_code=0, output="", error="", timed_out=False, folder=probe.resolve()), tmp_path / "codex")
+    assert [(row.window, row.used) for row in rows] == [("5h", "77%")]
+
+
 def test_foundry_az_that_never_answers_is_stopped(bench: Bench) -> None:
     bench.fake(AZ_SLEEP="60")
     assert bench.rows("foundry-a", "claude", timeout=3, provider=FOUNDRY) == [LimitRow(used="-", resets="-", status="az timed out")]

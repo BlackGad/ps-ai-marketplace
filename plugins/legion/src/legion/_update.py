@@ -164,7 +164,7 @@ def check_lines(plugin_root: Path, home: Optional[Path] = None, *, force: bool =
     try:
         result = get_update(plugin_root, home, force=force)
         if result is None:
-            return [FAILURE]  # A failure cached today; only the session-start hook stays silent about it.
+            return [FAILURE]  # Any failure without --force; only the session-start hook stays silent about it.
         if not result.newer:
             return [f"legion {result.installed} is up to date."]
         return [f"legion installed: {result.installed}", f"legion available: {result.available}", UPDATE_COMMAND]

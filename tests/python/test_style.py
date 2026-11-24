@@ -18,6 +18,14 @@ def test_tests_have_no_inline_suppressions() -> None:
                 assert suppression not in token.string, f"{path.relative_to(REPO)}:{token.start[0]}"
 
 
+# The autouse fence shares the test's monkeypatch, so undo() would also lift the fence; use pytest.MonkeyPatch.context().
+def test_tests_never_undo_the_shared_monkeypatch() -> None:
+    for path in (REPO / "tests/python").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "undo" and isinstance(node.func.value, ast.Name) and node.func.value.id == "monkeypatch":
+                pytest.fail(f"{path.relative_to(REPO).as_posix()}:{node.lineno}: monkeypatch.undo() also undoes the fence")
+
+
 @pytest.mark.parametrize("path", sorted([*SOURCE.rglob("*.py"), *HOOKS.glob("*.py"), *(REPO / "tests/python").rglob("*.py")]), ids=lambda path: path.relative_to(REPO).as_posix())
 def test_no_docstrings(path: Path) -> None:
     tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))

@@ -112,6 +112,20 @@ def test_refusals_go_to_stderr_with_exit_1(tmp_path: Path, capsys: pytest.Captur
     assert lease_path(tmp_path).exists()
 
 
+# A lock that is not valid UTF-8 is treated like any record that is not a lease: held while young, stale when old.
+def test_status_of_a_lock_with_invalid_bytes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    path = lease_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"\x80\xff not utf-8")
+    assert run(["lease", "status", "--repo", str(tmp_path)]) == 0
+    assert capsys.readouterr().out == "held\n"
+    os.utime(path, (0, 0))
+    assert run(["lease", "status", "--repo", str(tmp_path)]) == 0
+    assert capsys.readouterr().out == "stale\n"
+    assert run(["lease", "take", "--repo", str(tmp_path), "--tool", "codex", "--account", "codex-a", "--process-id", str(os.getpid())]) == 0
+    assert lease_file(tmp_path)["account"] == "codex-a"
+
+
 def test_foreign_lease_is_reported_and_kept(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     _lease.take(tmp_path, "codex", "codex-a", process_id=os.getpid())
     data = lease_file(tmp_path) | {"host": "fixture-foreign-host"}

@@ -1,12 +1,13 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 import pytest
-from conftest import GIT_ENVIRONMENT, Fence
+from conftest import Fence, fence_git
 
 
 def test_fence_points_the_environment_at_the_linked_home(fence: Fence) -> None:
@@ -25,7 +26,8 @@ def test_fence_points_the_environment_at_the_linked_home(fence: Fence) -> None:
     assert Path(os.environ["PYTHONPYCACHEPREFIX"]) == fence.temp / "pycache"
     assert "PYTHONSTARTUP" not in os.environ
     assert "PYTHONUSERBASE" not in os.environ
-    assert not any(name in GIT_ENVIRONMENT or name.startswith("GIT_CONFIG") for name in os.environ)
+    assert [name for name in os.environ if name.startswith("GIT_")] == ["GIT_CONFIG_NOSYSTEM"]
+    assert os.environ["GIT_CONFIG_NOSYSTEM"] == "1"
 
 
 def test_fence_catches_a_change_to_the_fake_real_folder(fence: Fence) -> None:
@@ -81,34 +83,26 @@ for method in ('connect', 'connect_ex'):
         record.unlink(missing_ok=True)
 
 
-def test_fixture_git_ignores_inherited_index(fence: Fence, tmp_path: Path) -> None:
-    sentinel = fence.outside / "index"
-    sentinel.write_bytes(b"outside index sentinel")
-    environment = {**os.environ, "GIT_INDEX_FILE": str(sentinel)}
-    repo = Path(__file__).resolve().parents[2]
+# Fixture Git never writes outside the fixture through an inherited setting, such as an index or a trace file.
+def test_fixture_git_ignores_inherited_settings(fence: Fence, tmp_path: Path) -> None:
+    git = shutil.which("git")
+    assert git is not None
+    index, trace = fence.outside / "index", fence.outside / "trace2.json"
+    index.write_bytes(b"outside index sentinel")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "file.txt").write_text("fixture", encoding="utf-8")
     try:
-        child = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                "--rootdir=.",
-                "-c",
-                "plugins/legion/pyproject.toml",
-                "-o",
-                "addopts=",
-                "--basetemp",
-                str(tmp_path / "nested-pytest"),
-                "tests/python/legion/test_status.py::test_repository_requires_complete_tracked_scaffold_and_inner_private_history",
-            ],
-            cwd=repo,
-            env=environment,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-        assert sentinel.read_bytes() == b"outside index sentinel"
-        assert child.returncode == 0, child.stdout + child.stderr
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setenv("GIT_INDEX_FILE", str(index))
+            patch.setenv("GIT_TRACE2_EVENT", str(trace))
+            fence_git(patch)
+            for words in (["init", "--quiet"], ["add", "file.txt"]):
+                result = subprocess.run([git, "-C", str(repo), *words], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False)
+                assert result.returncode == 0, result.stderr
+        assert index.read_bytes() == b"outside index sentinel"
+        assert not trace.exists()
+        assert (repo / ".git" / "index").is_file()
     finally:
-        sentinel.unlink()
+        index.unlink()
+        trace.unlink(missing_ok=True)

@@ -169,10 +169,13 @@ def _windows_launcher(path: Path, account: str) -> Optional[tuple[list[str], dic
     return command, environment
 
 
-# pwsh from an absolute PATH folder: for a bare name Windows would look in the current folder first.
+# pwsh from an absolute PATH folder other than the current one, by any name: for a bare name Windows
+# would look in the current folder first. Windows allows a PATH folder in quotes.
 def _pwsh_path() -> Optional[str]:
-    for folder in os.environ.get("PATH", "").split(os.pathsep):
-        candidate = Path(folder) / "pwsh.exe"
-        if Path(folder).is_absolute() and candidate.is_file():
+    current = os.path.normcase(Path.cwd().resolve())
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        folder = Path(entry.strip().strip('"'))
+        candidate = folder / "pwsh.exe"
+        if folder.is_absolute() and os.path.normcase(folder.resolve()) != current and candidate.is_file():
             return str(candidate)
     return None

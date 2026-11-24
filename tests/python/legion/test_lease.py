@@ -302,7 +302,7 @@ def test_taker_paused_between_create_and_write_keeps_the_lease(tmp_path: Path) -
 
 
 # Only a lock that was read and is not a lease can age into stale; one that cannot be read is never taken over.
-def test_old_lock_that_cannot_be_read_is_not_taken(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_old_lock_that_cannot_be_read_is_not_taken(tmp_path: Path) -> None:
     path = write_lease(tmp_path, pid=DEAD_PID)
     make_old(path)
     real_read_text = Path.read_text
@@ -312,13 +312,25 @@ def test_old_lock_that_cannot_be_read_is_not_taken(tmp_path: Path, monkeypatch: 
             raise PermissionError(13, "Permission denied")
         return real_read_text(target, encoding, errors)
 
-    monkeypatch.setattr(Path, "read_text", refused)
-    monkeypatch.setattr(_lease, "RETRY_PAUSE_SECONDS", 0)
-    assert (state(tmp_path).state, state(tmp_path).lease) == ("held", None)
-    with pytest.raises(LeaseError, match="cannot be read; retry, or check its permissions"):
-        take(tmp_path, "codex", "owner", process_id=os.getpid())
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Path, "read_text", refused)
+        patch.setattr(_lease, "RETRY_PAUSE_SECONDS", 0)
+        assert (state(tmp_path).state, state(tmp_path).lease) == ("held", None)
+        with pytest.raises(LeaseError, match="cannot be read; retry, or check its permissions"):
+            take(tmp_path, "codex", "owner", process_id=os.getpid())
     assert json.loads(path.read_text(encoding="utf-8"))["pid"] == DEAD_PID
+
+
+# The lock is read directly: an error while checking that it exists cannot skip the read-error handling.
+def test_state_does_not_depend_on_an_existence_check(tmp_path: Path) -> None:
+    write_lease(tmp_path)
+
+    def denied(_target: Path, **_options: object) -> bool:
+        raise PermissionError(13, "Permission denied")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Path, "exists", denied)
+        assert state(tmp_path).state == "held"
 
 
 # On Windows a lock another process has open cannot be removed; the change fails with a retry message.
