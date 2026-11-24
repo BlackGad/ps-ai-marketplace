@@ -130,9 +130,8 @@ def _semantic_issues(settings: PersonalisationSettings) -> list[str]:
 
 
 # Shape problems stop the reference and provider checks, which need a well-formed file.
-def validate(kind: str, path: Path) -> list[str]:
+def validate_text(kind: str, text: str, *, references: bool = True) -> list[str]:
     try:
-        text = read_text(path)
         # This parse only rejects broken JSON and duplicate keys; the model reads the text itself.
         json.loads(text, object_pairs_hook=_unique_keys)
         model = PersonalisationSettings if kind == "personalisation" else ProjectSettings
@@ -140,8 +139,15 @@ def validate(kind: str, path: Path) -> list[str]:
             settings = model.model_validate_json(text)
         except ValidationError as error:
             return [_framed(_describe(problem)) for problem in error.errors()]
-        if not isinstance(settings, PersonalisationSettings):
+        if not isinstance(settings, PersonalisationSettings) or not references:
             return []
         return _semantic_issues(settings)
+    except Exception as error:
+        return [_framed(str(error))]
+
+
+def validate(kind: str, path: Path) -> list[str]:
+    try:
+        return validate_text(kind, read_text(path))
     except Exception as error:
         return [_framed(str(error))]

@@ -49,6 +49,23 @@ def test_load_reads_a_bom_file(tmp_path: Path) -> None:
     assert _settings_io.load(tmp_path) == model()
 
 
+def test_load_validates_the_same_snapshot_it_returns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_settings(tmp_path, {"schemaVersion": 1, "agents": [ACCOUNT], "channels": []})
+    original = _settings_io._validate.read_text
+    reads = 0
+
+    def changing_read(path: Path) -> str:
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            return original(path)
+        return '{"schemaVersion":1,"agents":[],"channels":[{"id":"stale","kind":"telegram","target":"1","accounts":["gone"]}]}'
+
+    monkeypatch.setattr(_settings_io._validate, "read_text", changing_read)
+    assert _settings_io.load(tmp_path) == model()
+    assert reads == 1
+
+
 def test_load_refuses_a_broken_file_in_one_line(tmp_path: Path) -> None:
     write_settings(tmp_path, {"schemaVersion": 2, "agents": [], "channels": []})
     with pytest.raises(SettingsError) as error:
@@ -84,6 +101,29 @@ def test_save_rewrites_a_present_schema_and_leaves_an_absent_one_out(tmp_path: P
     assert saved["$schema"] == SCHEMA_URL
 
 
+def test_save_follows_a_settings_symlink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = tmp_path / "managed.json"
+    target.write_text('{"schemaVersion":1,"agents":[],"channels":[]}', encoding="utf-8")
+    path = settings_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    linked = True
+    try:
+        path.symlink_to(target)
+    except (OSError, NotImplementedError):
+        linked = False
+        # Windows may deny file symlinks; exercise the resolved destination with an injected resolver.
+        original_resolve = Path.resolve
+
+        def resolve(candidate: Path, *args: Any, **kwargs: Any) -> Path:
+            return target if candidate == path else original_resolve(candidate, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "resolve", resolve)
+    _settings_io.save(tmp_path, model())
+    if linked:
+        assert path.is_symlink()
+    assert json.loads(target.read_text(encoding="utf-8"))["agents"] == [ACCOUNT]
+
+
 @pytest.mark.parametrize(
     ("settings", "message"),
     [
@@ -113,9 +153,11 @@ def test_save_refuses_a_model_that_breaks_the_schema(tmp_path: Path) -> None:
 def test_save_reports_a_held_file_in_one_line_and_leaves_no_temp_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     before = write_settings(tmp_path, {"schemaVersion": 1, "agents": [], "channels": []})
 
-    # WinError 5 and 32, a file another program holds, reach Python as PermissionError.
+    # The held-file diagnostic is specific to WinError 5 and 32.
     def held(_source: object, _target: object) -> None:
-        raise PermissionError(13, "The process cannot access the file because it is being used by another process")
+        error = PermissionError(13, "The process cannot access the file because it is being used by another process")
+        monkeypatch.setattr(error, "winerror", 32, raising=False)
+        raise error
 
     monkeypatch.setattr(os, "replace", held)
     with pytest.raises(SettingsError) as error:
@@ -123,6 +165,37 @@ def test_save_reports_a_held_file_in_one_line_and_leaves_no_temp_file(tmp_path: 
     assert str(error.value) == "legion settings are in use by another program; close it and run the command again"
     assert settings_path(tmp_path).read_bytes() == before
     assert folder_names(tmp_path) == ["personalisation.json"]
+
+
+def test_save_preserves_non_windows_permission_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_settings(tmp_path, {"schemaVersion": 1, "agents": [], "channels": []})
+
+    def denied(*_args: object, **_kwargs: object) -> None:
+        raise PermissionError(13, "temporary directory denies creation")
+
+    monkeypatch.setattr(_settings_io.tempfile, "NamedTemporaryFile", denied)
+    with pytest.raises(SettingsError, match="temporary directory denies creation"):
+        _settings_io.save(tmp_path, model())
+
+
+def test_save_reports_replace_and_cleanup_failures_together(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_settings(tmp_path, {"schemaVersion": 1, "agents": [], "channels": []})
+
+    def held(_source: object, _target: object) -> None:
+        error = OSError("replacement denied")
+        monkeypatch.setattr(error, "winerror", 32, raising=False)
+        raise error
+
+    def cleanup_denied(_path: Path, **_kwargs: object) -> None:
+        raise PermissionError("cleanup denied")
+
+    monkeypatch.setattr(_settings_io.Path, "unlink", cleanup_denied)
+    monkeypatch.setattr(_settings_io.Path, "replace", held)
+    with pytest.raises(SettingsError) as failure:
+        _settings_io.save(tmp_path, model())
+    assert "in use by another program" in str(failure.value)
+    assert "cleanup denied" in str(failure.value)
+    assert "\n" not in str(failure.value)
 
 
 @pytest.mark.parametrize("winerror", [5, 32])

@@ -62,7 +62,7 @@ def add(home: Path, channel_id: str, kind: str, target: str, accounts: list[str]
 
 
 def remove(home: Path, channel_id: str) -> str:
-    settings = _settings_io.load(home)
+    settings = _settings_io.load_unchecked(home)
     kept = [channel for channel in settings.channels if channel.id != channel_id]
     if len(kept) == len(settings.channels):
         return f"skip: channel remove {channel_id} (already done)"

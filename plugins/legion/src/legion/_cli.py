@@ -244,7 +244,7 @@ def _report_channel(context: click.Context, change: Callable[[], list[str]]) -> 
     try:
         lines = change()
     except (ChannelError, SettingsError) as error:
-        click.echo(str(error), err=True)
+        click.echo(" ".join(str(error).split()), err=True)
         context.exit(1)
     for line in lines:
         click.echo(line)

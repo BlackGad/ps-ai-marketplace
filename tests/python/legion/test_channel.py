@@ -16,6 +16,23 @@ from legion._home import settings_path
 SETUP = "run /telegram:configure in that session"
 
 
+@pytest.fixture(name="_poisoned_lookup")
+def poisoned_lookup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    bun = fake_bun(tmp_path / "inherited-bin")
+    monkeypatch.setenv("PATH", str(bun.parent))
+    monkeypatch.chdir(bun.parent)
+    if sys.platform == "win32":
+        monkeypatch.setenv("PATHEXT", ".CMD")
+
+
+@pytest.fixture(autouse=True)
+def isolated_lookup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _poisoned_lookup: None) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    if sys.platform == "win32":
+        monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+
+
 @pytest.fixture
 def home(tmp_path: Path) -> Path:
     (tmp_path / "claude1-config").mkdir()
@@ -99,6 +116,18 @@ def test_remove_and_its_repeat(home: Path, capsys: pytest.CaptureFixture[str]) -
     assert settings_path(home).read_bytes() == before
 
 
+def test_remove_repairs_a_stale_binding_and_keeps_others(home: Path) -> None:
+    path = settings_path(home)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["channels"] = [
+        {"id": "stale", "kind": "telegram", "target": "1", "accounts": ["gone"]},
+        {"id": "valid", "kind": "telegram", "target": "2", "accounts": ["claude1"]},
+    ]
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert _channel.remove(home, "stale") == "removed: channel stale"
+    assert saved_channels(home) == [data["channels"][1]]
+
+
 @pytest.mark.parametrize("words", [["add", "--kind", "telegram"], ["remove", "my-telegram"], ["check", "--account", "claude1"]], ids=["add", "remove", "check"])
 def test_ids_and_kinds_are_named_options(home: Path, words: list[str]) -> None:
     assert legion(home, *words) == 2
@@ -136,6 +165,18 @@ def test_check_reports_bun_and_each_account_plugin(home: Path, monkeypatch: pyte
 def test_check_refuses_an_unknown_account(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert legion(home, "check", "--kind", "telegram", "--account", "nobody") == 1
     assert capsys.readouterr().err == "unknown account 'nobody'\n"
+
+
+def test_check_ignores_inherited_executable_lookup(home: Path) -> None:
+    assert _channel.check(home, "telegram", ["claude1"])[0] == "bun        not found"
+
+
+@pytest.mark.parametrize("words", [add_words("1", "missing\naccount"), ["add", "--id", "bad\nid", "--kind", "telegram", "--target", "1", "--account", "claude1"]], ids=["account", "id"])
+def test_refusal_flattens_line_breaks(home: Path, capsys: pytest.CaptureFixture[str], words: list[str]) -> None:
+    assert legion(home, *words) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert len(output.err.splitlines()) == 1
 
 
 def test_write_failure_prints_one_stderr_line_and_preserves_settings(home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
