@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from . import _accounts, _app, _launchers, _settings_io
-from ._home import settings_path
+from ._home import owner_path_safe, settings_path
 from ._plugin import PLUGIN_ROOT
 from ._settings_models import Agent
 
@@ -37,6 +37,8 @@ def _write_foundry(agent: Agent, home: Path) -> list[str]:
 # Order matters: subscription launchers are repaired first, then the app is published, and the Foundry launchers
 # point at the version that is ready before any older version is pruned. The app lock covers publish and prune.
 def refresh(home: Path, source: Path = PLUGIN_ROOT, lock_timeout: float = 60) -> list[str]:
+    if not owner_path_safe(home / ".legion", home):
+        raise _settings_io.SettingsError("The legion folder contains a link; resolve it before refreshing")
     lines: list[str] = []
     changed = False
     with _settings_io.writer(home, require_existing=False):

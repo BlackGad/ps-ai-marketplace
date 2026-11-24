@@ -233,6 +233,15 @@ def test_a_linked_app_folder_is_refused_before_anything_is_written(tmp_path: Pat
     assert list(elsewhere.iterdir()) == []
 
 
+def test_a_linked_legion_folder_is_refused_before_settings_lock(tmp_path: Path) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    make_link(tmp_path / "home" / ".legion", elsewhere)
+    with pytest.raises((_app.AppError, _settings_io.SettingsError), match="link"):
+        run(tmp_path / "home")
+    assert list(elsewhere.iterdir()) == []
+
+
 def test_refresh_repairs_subscription_launchers_before_the_app_is_published(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ready_app(tmp_path)
     foundry_settings(tmp_path, [])
