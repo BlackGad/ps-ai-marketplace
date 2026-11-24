@@ -8,10 +8,12 @@ New-Item -ItemType Directory -Path $emptyPath | Out-Null
 try {
     # An empty folder: a uv that sits beside pwsh (Homebrew, /usr/bin) must never be found.
     $env:PATH = $emptyPath
-    $output = @(& $pwsh -NoProfile -File $refresh -HomeRoot $homeRoot 2>&1)
+    $errorFile = Join-Path $emptyPath 'stderr.txt'
+    $output = @(& $pwsh -NoProfile -File $refresh -HomeRoot $homeRoot 2>$errorFile)
     Assert-Equal 0 $LASTEXITCODE 'Refresh without uv exits successfully'
-    Assert-Equal 'uv is missing. Ask the owner before installing it.' ($output -join "`n") 'Refresh without uv prints one warning'
+    Assert-Equal 'uv is missing. Ask the owner before installing it.' ($output -join "`n") 'Refresh without uv prints one warning on stdout'
+    Assert-Equal '' ((Get-Content -LiteralPath $errorFile -Raw) ?? '') 'Refresh without uv prints nothing on stderr'
 } finally {
     $env:PATH = $savedPath
-    Remove-Item -LiteralPath $emptyPath -Force
+    Remove-Item -LiteralPath $emptyPath -Recurse -Force
 }

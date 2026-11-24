@@ -37,6 +37,7 @@ try {
     Assert-Equal (Get-LegionPythonEnvironment -PluginRoot $arguments[2]) ($result.Output -split '\r?\n')[1] 'Default legion home'
     Assert-Equal $null $env:UV_PROJECT_ENVIRONMENT 'Absent environment restored'
 
+    # The environment rule below is a twin of _app.python_environment until milestone 4; test_app.py's parity test pins them together.
     New-Item -ItemType Directory -Force -Path (Join-Path $folder 'copy-a'), (Join-Path $folder 'copy-b') | Out-Null
     $rootA = Get-LegionPythonEnvironment -PluginRoot (Join-Path $folder 'copy-a') -HomeRoot $selectedHome
     $rootB = Get-LegionPythonEnvironment -PluginRoot (Join-Path $folder 'copy-b') -HomeRoot $selectedHome

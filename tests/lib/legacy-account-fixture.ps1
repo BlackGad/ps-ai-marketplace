@@ -2,6 +2,7 @@
 # They are copied from the previous implementation, never called by shipped scripts.
 . (Join-Path $PSScriptRoot '../../plugins/legion/bin/lib/accounts.ps1')
 . (Join-Path $PSScriptRoot '../../plugins/legion/bin/lib/commands.ps1')
+. (Join-Path $PSScriptRoot 'legacy-app-fixture.ps1')
 . (Join-Path $PSScriptRoot '../../plugins/legion/bin/lib/footprints.ps1')
 
 function Get-LegionLauncherHeader {
