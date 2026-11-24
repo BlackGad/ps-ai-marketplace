@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.16.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.15.0...v0.16.0) (2026-11-24)
+
+
+### Features
+
+* **python:** accounts and launchers in Python ([#69](https://github.com/BlackGad/ps-legion-marketplace/issues/69)) ([b0746d1](https://github.com/BlackGad/ps-legion-marketplace/commit/b0746d19a38a82d304e9ab00a000b136f8d4b581))
+* **python:** channels in Python ([#65](https://github.com/BlackGad/ps-legion-marketplace/issues/65)) ([ea156e0](https://github.com/BlackGad/ps-legion-marketplace/commit/ea156e0cdfa77e94626bbcd9dbeac5e4df31e918))
+* **python:** footprints and settings core ([#67](https://github.com/BlackGad/ps-legion-marketplace/issues/67)) ([c19597e](https://github.com/BlackGad/ps-legion-marketplace/commit/c19597eb9e8a8257f6d83905f0d01c284d1ef1fb))
+* **python:** Foundry accounts and runner in Python ([#70](https://github.com/BlackGad/ps-legion-marketplace/issues/70)) ([982c3e4](https://github.com/BlackGad/ps-legion-marketplace/commit/982c3e40b07ff5ad21b42385f5d76f2f8780547f))
+* **python:** refresh and app lifecycle in Python ([#71](https://github.com/BlackGad/ps-legion-marketplace/issues/71)) ([23d1190](https://github.com/BlackGad/ps-legion-marketplace/commit/23d11907e9a9ca77b399af8661369bbc1b0c9aef))
+* **python:** repository setup in Python ([#64](https://github.com/BlackGad/ps-legion-marketplace/issues/64)) ([1cc335e](https://github.com/BlackGad/ps-legion-marketplace/commit/1cc335e84a340eb372903fdf24b27eaf7add089e))
+
+
+### Fixes
+
+* milestone 3 end-review fixes ([#74](https://github.com/BlackGad/ps-legion-marketplace/issues/74)) ([9fc61dc](https://github.com/BlackGad/ps-legion-marketplace/commit/9fc61dc9fa61eaa73de2f82ad6227a783df32a19))
+
+
+### Refactoring
+
+* overseer and setup use Python validate and lease ([#72](https://github.com/BlackGad/ps-legion-marketplace/issues/72)) ([7fc506c](https://github.com/BlackGad/ps-legion-marketplace/commit/7fc506c2d24f41f8ece0e6739c81e2ccdce7cde6))
+
+
+### Tests
+
+* fence Git config for every Python test ([#68](https://github.com/BlackGad/ps-legion-marketplace/issues/68)) ([bc55d86](https://github.com/BlackGad/ps-legion-marketplace/commit/bc55d865c54f90054252395b3755e7c9820de69f))
+* **integration:** milestone 3 verbs without pwsh ([#73](https://github.com/BlackGad/ps-legion-marketplace/issues/73)) ([b252925](https://github.com/BlackGad/ps-legion-marketplace/commit/b252925202d95be012b1b4f5abc095ed4c262439))
+
 ## [0.15.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.14.0...v0.15.0) (2026-11-24)
 
 
