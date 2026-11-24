@@ -48,7 +48,7 @@ def main(context: click.Context, home: Optional[Path]) -> None:
             stream.reconfigure(encoding="utf-8")
     # The Windows command passes its home as <home>/.legion/bin/../..
     if home is not None:
-        home = Path(os.path.normpath(home))
+        home = Path(os.path.normpath(home)).absolute()
     context.obj = home
     if context.invoked_subcommand is None:
         context.exit(_forward.run([], home))

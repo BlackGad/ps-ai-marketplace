@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from cli_runner import run
 
-from legion import _plugin
+from legion import _plugin, _status
 
 
 @pytest.fixture
@@ -54,6 +54,19 @@ def test_inbox_send_read_roundtrip_via_click(tmp_path: Path, capsys: pytest.Capt
 def test_home_changes_the_telegram_bot_folder(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert run(["--home", str(tmp_path), "telegram", "react", "--channel", "main", "--chat", "1", "--message", "2", "--emoji", "x"]) == 1
     assert "no bot token for channel 'main'" in capsys.readouterr().err
+
+
+def test_relative_home_is_absolute_before_a_verb_receives_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    received: list[Path | None] = []
+
+    def status_lines(_repo: Path, home: Path | None) -> list[str]:
+        received.append(home)
+        return []
+
+    monkeypatch.setattr(_status, "status_lines", status_lines)
+    assert run(["--home", "owner", "status"]) == 0
+    assert received == [tmp_path / "owner"]
 
 
 def test_help_does_not_import_command_modules() -> None:

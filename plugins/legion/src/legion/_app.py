@@ -211,6 +211,8 @@ def _remove_version(path: Path, home: Path) -> bool:
             moved_path.replace(path)
         return False
     try:
+        # Once deletion starts, a restored environment may be incomplete and must not qualify as ready.
+        (moved_path / MARKER).unlink(missing_ok=True)
         if moved_environment.exists():
             shutil.rmtree(moved_environment)
         if moved_path.exists():

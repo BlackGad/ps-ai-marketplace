@@ -39,6 +39,8 @@ class Bench:
             folder.mkdir(parents=True)
         for name in [name for name in os.environ if name.startswith("LEGION_FAKE_")]:
             monkeypatch.delenv(name)
+        for name in [name for name in os.environ if name.startswith("ANTHROPIC_FOUNDRY")]:
+            monkeypatch.delenv(name)
         monkeypatch.setenv("PATH", os.pathsep.join([str(self.home / ".legion" / "bin"), str(self.bin)]))
         monkeypatch.setenv("LEGION_FAKE_LOG", str(self.logs))
         if WINDOWS:

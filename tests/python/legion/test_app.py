@@ -376,7 +376,7 @@ def test_failed_prune_rename_keeps_both_trees_and_record(tmp_path: Path, monkeyp
     assert any(entry.path == "~/.legion/app/0.0.1" for entry in _footprints.read(tmp_path).entries)
 
 
-def test_a_version_whose_environment_cannot_be_removed_keeps_its_source_marker_and_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_version_whose_environment_cannot_be_removed_keeps_its_source_and_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     held, environment = old_app(tmp_path, "0.0.1")
     old_app(tmp_path, "0.0.2")
     current, _ = old_app(tmp_path, "0.0.3")
@@ -390,12 +390,34 @@ def test_a_version_whose_environment_cannot_be_removed_keeps_its_source_marker_a
     monkeypatch.setattr(_app.shutil, "rmtree", rmtree)
     assert _app.prune_old_versions(current, tmp_path) == ["skip: legion app 0.0.1 (in use; removed at the next sync)"]
     assert (held / "plugin.json").is_file()
-    assert (held / MARKER).is_file()
+    assert not (held / MARKER).exists()
     assert environment.is_dir()
     assert any(entry.path == "~/.legion/app/0.0.1" for entry in _footprints.read(tmp_path).entries)
 
 
-def test_a_removed_folder_is_renamed_with_its_marker_before_deletion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_partial_environment_delete_invalidates_restored_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    held, environment = old_app(tmp_path, "0.0.1")
+    old_app(tmp_path, "0.0.2")
+    current, _ = old_app(tmp_path, "0.0.3")
+    real = shutil.rmtree
+
+    def partial_delete(target: Any, *arguments: Any, **keywords: Any) -> None:
+        if Path(target).name.startswith(f".pruning-{environment.name}-"):
+            (Path(target) / "python.txt").unlink()
+            raise PermissionError("in use")
+        real(target, *arguments, **keywords)
+
+    monkeypatch.setattr(_app.shutil, "rmtree", partial_delete)
+    assert _app.prune_old_versions(current, tmp_path) == ["skip: legion app 0.0.1 (in use; removed at the next sync)"]
+    assert held.is_dir()
+    assert not (held / MARKER).exists()
+    assert environment.is_dir()
+    assert not (environment / "python.txt").exists()
+    assert all(version.path != held for version in _app.ready_versions(tmp_path))
+    assert any(entry.path == "~/.legion/app/0.0.1" for entry in _footprints.read(tmp_path).entries)
+
+
+def test_a_removed_folder_is_renamed_and_invalidated_before_deletion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path, _ = old_app(tmp_path, "0.0.1")
     old_app(tmp_path, "0.0.2")
     current, _ = old_app(tmp_path, "0.0.3")
@@ -404,7 +426,7 @@ def test_a_removed_folder_is_renamed_with_its_marker_before_deletion(tmp_path: P
 
     def rmtree(target: Any, *arguments: Any, **keywords: Any) -> None:
         if Path(target).parent == path.parent and Path(target).name.startswith(f".pruning-{path.name}-"):
-            seen.append((Path(target) / MARKER).exists() and not path.exists())
+            seen.append(not (Path(target) / MARKER).exists() and not path.exists())
         real(target, *arguments, **keywords)
 
     monkeypatch.setattr(_app.shutil, "rmtree", rmtree)
