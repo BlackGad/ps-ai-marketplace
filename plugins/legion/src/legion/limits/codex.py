@@ -92,26 +92,29 @@ def window_name(minutes: Optional[int], fallback: str) -> str:
 # A record of another shape is skipped like unreadable JSON, and a file that cannot be read or decoded like a foreign one.
 def _session_limits(sessions: Path, ping_folder: Path) -> Optional[RateLimits]:
     for file in sorted(sessions.rglob("*.jsonl")):
-        if not file.is_file():
-            continue
         try:
+            if not file.is_file():
+                continue
             with file.open(encoding="utf-8") as lines:
                 if not _is_session_of(lines.readline(), ping_folder):
                     continue
-                records = [line for line in lines if '"rate_limits"' in line]
+                limits = None
+                for line in lines:
+                    found = _rate_limits(line) if '"rate_limits"' in line else None
+                    if found:
+                        limits = found
         except (OSError, UnicodeDecodeError):
             continue
-        limits = None
-        for line in records:
-            try:
-                record = RateLimitsRecord.model_validate_json(line)
-            except ValidationError:
-                continue
-            found = (record.payload and record.payload.rate_limits) or record.rate_limits
-            if found:
-                limits = found
         return limits
     return None
+
+
+def _rate_limits(line: str) -> Optional[RateLimits]:
+    try:
+        record = RateLimitsRecord.model_validate_json(line)
+    except ValidationError:
+        return None
+    return (record.payload and record.payload.rate_limits) or record.rate_limits
 
 
 def _is_session_of(first_line: str, ping_folder: Path) -> bool:

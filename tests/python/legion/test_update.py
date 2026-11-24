@@ -153,23 +153,23 @@ def test_check_output(remote: dict[str, Any], tmp_path: Path, capsys: pytest.Cap
 
 @pytest.mark.parametrize("blocker", ["file as the parent", "folder at the destination", "cleanup refused"])
 @pytest.mark.usefixtures("plugin")
-def test_unsavable_cache_keeps_the_check_result(remote: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], blocker: str) -> None:
+def test_unsavable_cache_keeps_the_check_result(remote: dict[str, Any], tmp_path: Path, capsys: pytest.CaptureFixture[str], blocker: str) -> None:
     path = cache_path(tmp_path)
     if blocker == "file as the parent":
         path.parent.parent.mkdir(parents=True)
         path.parent.write_text("not a folder", encoding="utf-8")
     else:
         path.mkdir(parents=True)
-    if blocker == "cleanup refused":
 
-        def refuse(_path: Path, **_options: object) -> None:
-            raise PermissionError(13, "Permission denied")
+    def refuse(_path: Path, **_options: object) -> None:
+        raise PermissionError(13, "Permission denied")
 
-        monkeypatch.setattr(Path, "unlink", refuse)
-    assert run(["--home", str(tmp_path), "update", "--check", "--force"]) == 0
+    with pytest.MonkeyPatch.context() as patch:
+        if blocker == "cleanup refused":
+            patch.setattr(Path, "unlink", refuse)
+        assert run(["--home", str(tmp_path), "update", "--check", "--force"]) == 0
     assert capsys.readouterr().out == "legion installed: 0.3.0\nlegion available: 0.4.0\nlegion update\n"
     assert remote["calls"] == [URL]
-    monkeypatch.undo()
     assert [item.name for item in path.parent.parent.iterdir()] == ["temp"]
     if blocker == "folder at the destination":
         assert [item.name for item in path.parent.iterdir()] == ["update.json"]

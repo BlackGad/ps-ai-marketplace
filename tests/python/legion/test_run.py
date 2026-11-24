@@ -17,12 +17,15 @@ from legion._run import run_command
 
 PYTHON = sys.executable
 
+# The grandchild publishes its pid; a reader that sees the file sees all of it.
+PUBLISH_PID = "import os, sys; from pathlib import Path; part = Path(sys.argv[1] + '.part'); part.write_text(str(os.getpid())); part.replace(sys.argv[1])"
+GRANDCHILD = PUBLISH_PID + "; import time; time.sleep(60)"
+
 # The child starts a grandchild that records its pid, then both sleep far past the timeout.
-TREE = """
+TREE = f"""
 import subprocess, sys, time
 from pathlib import Path
-code = "import os, sys, time; from pathlib import Path; Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)"
-subprocess.Popen([sys.executable, "-c", code, sys.argv[1]])
+subprocess.Popen([sys.executable, "-c", {GRANDCHILD!r}, sys.argv[1]])
 while not Path(sys.argv[1]).is_file():
     time.sleep(0.05)
 print("tree started", flush=True)
@@ -32,10 +35,20 @@ time.sleep(60)
 
 
 # The child starts a grandchild that holds both pipes, then exits at once.
-QUICK_PARENT = """
+QUICK_PARENT = f"""
 import subprocess, sys
-code = "import os, sys, time; from pathlib import Path; Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)"
-subprocess.Popen([sys.executable, "-c", code, sys.argv[1]])
+subprocess.Popen([sys.executable, "-c", {GRANDCHILD!r}, sys.argv[1]])
+"""
+
+# Pauses every write_text between creating the file and writing it, as a busy machine can.
+PAUSED_WRITE = """
+import pathlib, time
+def paused_write_text(self, data, encoding=None, errors=None, newline=None):
+    with open(self, "w", encoding=encoding, errors=errors, newline=newline) as file:
+        file.flush()
+        time.sleep(1)
+        file.write(data)
+pathlib.Path.write_text = paused_write_text
 """
 
 
@@ -51,6 +64,15 @@ def read_pid(marker: Path) -> int:
     while not marker.is_file() and time.monotonic() < deadline:
         time.sleep(0.05)
     return int(marker.read_text(encoding="utf-8"))
+
+
+def test_grandchild_pid_is_complete_once_its_file_appears(tmp_path: Path) -> None:
+    marker = tmp_path / "grandchild.pid"
+    child = subprocess.Popen([PYTHON, "-c", PAUSED_WRITE + PUBLISH_PID, str(marker)])
+    try:
+        assert read_pid(marker) > 0
+    finally:
+        child.wait(30)
 
 
 def test_success_captures_both_streams() -> None:

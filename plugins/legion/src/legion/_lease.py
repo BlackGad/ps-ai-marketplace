@@ -93,17 +93,13 @@ def round_trip(value: datetime) -> str:
 
 def state(repo: Path) -> LeaseState:
     path = lease_path(repo)
-    if not path.exists():
-        return LeaseState("free", None)
     try:
-        text = _read(path)
+        lease = Lease.from_json(_read(path))
     except FileNotFoundError:
         return LeaseState("free", None)
     except OSError:
         return LeaseState("held", None)  # Unreadable is not stale: the owner may be alive behind a sharing or permission error.
-    try:
-        lease = Lease.from_json(text)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError):  # Not a lease, including bytes that are not UTF-8.
         if _age_seconds(path) < WRITE_GRACE_SECONDS:
             return LeaseState("held", None)
         return LeaseState("stale", None)

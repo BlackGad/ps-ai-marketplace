@@ -173,6 +173,15 @@ def test_old_corrupt_lease_is_stale(repo: Path, remote: dict[str, Any]) -> None:
     assert mode_text(repo, {}) == ORCHESTRATED
 
 
+def test_lease_with_invalid_bytes_is_held_then_stale(repo: Path, remote: dict[str, Any]) -> None:
+    remote["fail"] = True
+    path = write_lease(repo)
+    path.write_bytes(b"\x80\xff not utf-8")
+    assert mode_text(repo, {}) == ORCHESTRATED + " Another overseer is active."
+    os.utime(path, (0, 0))
+    assert mode_text(repo, {}) == ORCHESTRATED
+
+
 def test_hook_input_reads_cwd_only() -> None:
     assert HookInput.from_json('{"cwd":"C:/work","session_id":"x"}') == HookInput("C:/work")
     assert HookInput.from_json("{}") == HookInput(None)

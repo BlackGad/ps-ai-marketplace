@@ -8,6 +8,9 @@ $savedCi = $env:CI
 $savedSummary = $env:GITHUB_STEP_SUMMARY
 $savedNoColor = $env:NO_COLOR
 $savedRendering = $PSStyle.OutputRendering
+$savedSummaryText = if ($savedSummary -and (Test-Path -LiteralPath $savedSummary)) { [IO.File]::ReadAllText($savedSummary) } else { '' }
+# Fake runs report into the fixture, never into the inherited CI step summary.
+$env:GITHUB_STEP_SUMMARY = Join-Path $tempRoot 'full-run-summary.md'
 try {
     $inheritedPathStore = $env:LEGION_TEST_USER_PATH_FILE
     $inheritedPathText = [IO.File]::ReadAllText($inheritedPathStore)
@@ -64,6 +67,9 @@ $main = (Get-Content -LiteralPath $Runner -Raw) -split '# ---- Main[^\r\n]*', 2
     Assert-Equal 0 $LASTEXITCODE ('A full run creates its own PATH fence when none is inherited: ' + ($mainOutput -join "`n"))
     $ownStore = Join-Path $tempRoot 'legion-work/user-path.txt'
     Assert-True (([IO.File]::ReadAllText($ownStore)).Contains((Join-Path $tempRoot 'own-home/.legion/bin'))) 'The default PATH store stays inside the fixture'
+    if ($savedSummary) {
+        Assert-Equal $savedSummaryText ([IO.File]::ReadAllText($savedSummary)) 'Fake full runs leave the inherited step summary unchanged'
+    }
     # Raw registry snapshots are exercised through a fake key, never through HKCU writes.
     & {
         $script:pathState = [pscustomobject]@{ Value='keep;%FIXTURE%;'; Kind=2; Opens=0; Disposals=0; RestoreFails=$false }

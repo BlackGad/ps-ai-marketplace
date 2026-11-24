@@ -7,7 +7,8 @@ import sys
 import time
 from pathlib import Path
 
-SLEEPER = "import os, sys, time; from pathlib import Path; Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)"
+# The grandchild publishes its pid through a sibling file, so a reader that sees the file sees all of it.
+SLEEPER = "import os, sys, time; from pathlib import Path; part = Path(sys.argv[1] + '.part'); part.write_text(str(os.getpid())); part.replace(sys.argv[1]); time.sleep(60)"
 
 
 def setting(name: str) -> str:
