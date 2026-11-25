@@ -285,6 +285,21 @@ class Runner:
                 pass
         return max(versions, key=lambda value: tuple(int(part) for part in value.split(".")[:3]), default=None)
 
+    def installed_source_matches(self, tool: str, folder: Path) -> bool:
+        expected = (self.checkout / "plugins/legion/src/legion/_app.py").read_bytes()
+        if tool == "copilot":
+            try:
+                settings = json.loads((folder / "settings.json").read_text(encoding="utf-8"))
+                source = settings["extraKnownMarketplaces"]["ps-legion-marketplace"]["source"]
+                return source["source"] == "directory" and Path(source["path"]).resolve() == self.checkout.resolve() and (self.checkout / "plugins/legion/src/legion/_app.py").read_bytes() == expected
+            except (OSError, KeyError, ValueError):
+                return False
+        installed_root = self.catalog[tool]["plugin"].get("installedRoot")
+        if not installed_root or not (folder / installed_root).is_dir():
+            return False
+        files = [manifest.parent / "src/legion/_app.py" for manifest in (folder / installed_root).rglob("plugin.json")]
+        return bool(files) and all(path.is_file() and path.read_bytes() == expected for path in files)
+
     def settings(self) -> dict[str, Any]:
         return json.loads((self.home / ".legion/configuration/personalisation.json").read_text(encoding="utf-8"))
 
@@ -402,6 +417,20 @@ class Runner:
         contains(lines, "skip:")
         unchanged(self.state["snapshot"], self.home_snapshot())
         return lines
+
+    def update(self, repeat: bool) -> str:
+        expected = json.loads((self.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
+        output = self.legion("install", "--update", "--source", str(self.checkout), "--yes", owner=True)
+        for tool in self.active():
+            contains(output, f"Update legion for {tool}")
+            require(self.version(tool, self.folder(tool)) == expected, f"{tool} version changed away from the checkout")
+            require(self.installed_source_matches(tool, self.folder(tool)), f"{tool} update did not keep the PR checkout source")
+        contains(output, "already up to date")
+        if repeat:
+            unchanged(self.state["update_snapshot"], self.home_snapshot())
+        else:
+            self.state["update_snapshot"] = self.home_snapshot()
+        return output
 
     def setup_accounts(self) -> str:
         return "\n".join(self.legion("add", tool, "--id", f"{tool}1", "--source", self.targets[tool][0], "--yes") for tool in self.active())
@@ -704,7 +733,8 @@ class Runner:
     def purge(self, repeat: bool) -> str:
         if not repeat:
             self.state["purge_targets"] = self.targets_for_uninstall(all_tools=True)
-        if WINDOWS:
+            output = self.legion("uninstall", "--purge", "--yes", owner=True)
+        elif WINDOWS:
             output = self.run(["powershell.exe", "-NoProfile", "-File", str(self.checkout / "install.ps1"), "-HomeRoot", str(self.home), "-Uninstall", "-Purge", "-Yes"])
         else:
             output = self.run(["sh", str(self.checkout / "install.sh"), "--uninstall", "--purge", "--yes"])
@@ -736,6 +766,7 @@ class Runner:
         steps += [(f"install-cli-{tool}", lambda repeat, tool=tool: self.install_cli(tool, repeat)) for tool in TOOLS]
         steps += [
             ("install-legion", lambda repeat: self.install_repeat() if repeat else self.install_first()),
+            ("update-legion", self.update),
             ("setup", lambda repeat: self.setup_repeat() if repeat else self.setup_first()),
             ("add", self.add),
             ("remove", self.remove),

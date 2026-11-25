@@ -265,10 +265,10 @@ def test_local_source_is_absolute_when_cli_runs_elsewhere(tmp_path: Path, monkey
     assert source.as_posix() in lines[0]
 
 
-def test_install_prompt_discloses_path_edit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_install_prompt_discloses_path_edit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setattr(_installer.shutil, "which", lambda _name: "claude")
     questions: list[str] = []
-    monkeypatch.setattr("builtins.input", lambda question: questions.append(question) or "n")
+    monkeypatch.setattr("builtins.input", lambda: questions.append(capsys.readouterr().out) or "n")
     _installer.install(tmp_path, ["claude"], catalog=catalog())
     assert len(questions) == 1
     assert "PATH" in questions[0]
@@ -445,7 +445,7 @@ def test_repeat_purge_with_retained_app_skips_without_prompt_or_change(tmp_path:
     first = _installer.install(home, ["codex"], uninstall=True, purge=True, yes=True, catalog=catalog())
     assert any("keeping app and python" in line for line in first)
     index = (home / ".legion/footprints.json").read_bytes()
-    monkeypatch.setattr("builtins.input", lambda _question: pytest.fail("repeat purge prompted"))
+    monkeypatch.setattr("builtins.input", lambda: pytest.fail("repeat purge prompted"))
     second = _installer.install(home, ["codex"], uninstall=True, purge=True, catalog=catalog())
     assert "skip: purge (already done)" in second
     assert not any(line.startswith("Remove ") for line in second)
@@ -466,12 +466,22 @@ def test_uninstall_purge_asks_twice_and_dry_run_neither_prompts_nor_runs_cli(tmp
     command = home / ".legion/bin/legion"
     _footprints.add(home, "file", command, _footprints.target_owner("codex", folder))
     questions: list[str] = []
-    monkeypatch.setattr("builtins.input", lambda question: questions.append(question) or "y")
+    monkeypatch.setattr("builtins.input", lambda: questions.append("asked") or "y")
     monkeypatch.setattr(_installer, "_step", lambda *_args: pytest.fail("CLI command ran"))
     _installer.install(home, ["codex"], config_dir=folder, uninstall=True, purge=True, dry_run=True, catalog=catalog())
     assert questions == []
     _installer.install(home, ["codex"], config_dir=folder, uninstall=True, purge=True, catalog=catalog())
     assert len(questions) == 2
+
+
+def test_confirmation_question_is_visible_before_input(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    def answer(question: str = "") -> str:
+        assert question == ""
+        assert capsys.readouterr().out.endswith("Apply? [y/N]\n")
+        return "y"
+
+    monkeypatch.setattr("builtins.input", answer)
+    assert _installer._confirm("Apply? [y/N]", ["plan line"])
 
 
 def test_cli_uninstall_runs_without_pwsh(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -1084,7 +1094,7 @@ def test_profile_edit_keeps_utf16_and_crlf(tmp_path: Path) -> None:
 def test_confirmation_prints_target_preview_before_asking(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     lines = ["Target: codex in selected folder", "codex plugin remove legion@ps-legion-marketplace"]
 
-    def answer(_question: str) -> str:
+    def answer() -> str:
         assert "Target: codex in selected folder" in capsys.readouterr().out
         return "n"
 
@@ -1254,7 +1264,7 @@ def test_install_without_consent_changes_nothing_and_says_how_to_apply(tmp_path:
     _fake_targets(tmp_path, monkeypatch)
     ran = _steps_run(monkeypatch)
 
-    def closed_stdin(_question: str) -> str:
+    def closed_stdin() -> str:
         raise EOFError
 
     monkeypatch.setattr("builtins.input", closed_stdin)
@@ -1268,7 +1278,7 @@ def test_install_without_consent_changes_nothing_and_says_how_to_apply(tmp_path:
 def test_the_owner_can_say_yes_at_the_install_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_targets(tmp_path, monkeypatch)
     ran = _steps_run(monkeypatch)
-    monkeypatch.setattr("builtins.input", lambda _question: "yes")
+    monkeypatch.setattr("builtins.input", lambda: "yes")
     lines = _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", catalog=catalog())
     assert ran == ["claude"]
     assert "Nothing changed. Run again with --yes to apply." not in lines
@@ -1276,7 +1286,7 @@ def test_the_owner_can_say_yes_at_the_install_prompt(tmp_path: Path, monkeypatch
 
 def test_a_dry_run_never_prompts_and_changes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_targets(tmp_path, monkeypatch)
-    monkeypatch.setattr("builtins.input", lambda _question: pytest.fail("a dry run asked"))
+    monkeypatch.setattr("builtins.input", lambda: pytest.fail("a dry run asked"))
     lines = _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", dry_run=True, catalog=catalog())
     assert not (tmp_path / "config").exists()
     assert not (tmp_path / ".legion").exists()
@@ -1297,9 +1307,10 @@ def test_install_prints_the_tool_hook_hint(tmp_path: Path, monkeypatch: pytest.M
     assert hint in _installer.install(tmp_path, ["codex"], config_dir=tmp_path / "config", yes=True, catalog=catalog())
 
 
-def test_update_asks_once_across_folders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_asks_once_across_folders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     _fake_targets(tmp_path, monkeypatch)
     questions: list[str] = []
-    monkeypatch.setattr("builtins.input", lambda question: questions.append(question) or "y")
+    monkeypatch.setattr("builtins.input", lambda: questions.append(capsys.readouterr().out) or "y")
     _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", update=True, catalog=catalog())
-    assert questions == ["Update legion? [y/N] "]
+    assert len(questions) == 1
+    assert questions[0].endswith("Update legion? [y/N]\n")
