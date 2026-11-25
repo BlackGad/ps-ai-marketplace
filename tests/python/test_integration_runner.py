@@ -257,7 +257,7 @@ def test_candidate_names_the_exact_legacy_launcher_and_still_fails(tmp_path: Pat
 
 
 def write_owner_launcher(upgrade: Any, lines: list[str], code: int) -> None:
-    """Write a real owner command that prints the lines and exits with the code, marked with the candidate version."""
+    # Use a real owner command that prints the lines and exits with the requested code.
     for path in upgrade.owner_shims():
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.suffix == ".cmd":
@@ -706,6 +706,30 @@ def test_candidate_fence_is_checked_even_after_a_failed_action(tmp_path: Path, r
     with pytest.raises(AssertionError, match=r"changed: keep\.txt") as raised:
         instance.update_from_0_17_0(repeat)
     assert str(raised.value).startswith("action failed\noutside the disposable home:")
+
+
+def test_candidate_fence_read_error_preserves_the_failed_action(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    instance = make_runner(tmp_path)
+    outside = instance.work / "fake-real"
+    outside.mkdir()
+    sentinel = outside / "keep.txt"
+    sentinel.write_text("owner sentinel", encoding="utf-8")
+    instance.state.update({"outside": outside, "outside_snapshot": runner.snapshot(outside)})
+    read_bytes = Path.read_bytes
+
+    def read_with_denied_sentinel(path: Path) -> bytes:
+        if path == sentinel:
+            raise PermissionError("cannot read keep.txt")
+        return read_bytes(path)
+
+    def failed_update() -> None:
+        monkeypatch.setattr(Path, "read_bytes", read_with_denied_sentinel)
+        raise RuntimeError("action failed")
+
+    instance.prepare_candidate = lambda: None
+    instance.install_old = failed_update
+    with pytest.raises(AssertionError, match=r"^action failed\noutside the disposable home: cannot read keep\.txt$"):
+        instance.update_from_0_17_0(repeat=False)
 
 
 def test_upgrade_advances_origin_without_changing_reader(tmp_path: Path) -> None:
@@ -1213,3 +1237,110 @@ def test_update_snapshot_still_detects_other_claude_config_changes(tmp_path: Pat
     (instance.home / ".claude/plugins/installed_plugins.json").write_text("{}", encoding="utf-8")
     with pytest.raises(AssertionError, match=r"added: .claude/plugins/installed_plugins.json"):
         runner.unchanged(first, instance.home_snapshot(update=True))
+
+
+def copilot_config(**changes: Any) -> str:
+    # Match the format that Copilot CLI 1.0.114 wrote in a disposable home.
+    plugin = {
+        "name": "legion",
+        "marketplace": "ps-legion-marketplace",
+        "version": "0.18.0",
+        "installed_at": "2026-11-25T22:52:45.5283579Z",
+        "cache_path": "/home/user/.copilot/installed-plugins/ps-legion-marketplace/legion",
+        "installed_source": {"source": "github", "repo": "BlackGad/ps-legion-marketplace"},
+        "source_sha": "6a7ff7919624c665cd48e6444e7076e421bd0ef620f2b61321435d22fb5581fb",
+        "enabled": True,
+    }
+    extra = changes.pop("extra", {})
+    plugin.update(changes)
+    body = json.dumps({"installedPlugins": [plugin], "firstLaunchAt": "2026-03-11T00:00:00.000Z", **extra}, indent=2)
+    return "// User settings belong in settings.json.\n// This file is managed automatically.\n" + body + "\n"
+
+
+def copilot_snapshot(tmp_path: Path, content: str) -> dict[str, str]:
+    instance = make_runner(tmp_path)
+    path = instance.home / ".copilot/config.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return instance.home_snapshot(update=True)
+
+
+def test_update_snapshot_ignores_only_copilots_restamped_install_time(tmp_path: Path) -> None:
+    # Copilot restamps installed_at on every `plugin update` of a Git-sourced plugin, even "already at latest".
+    first = copilot_snapshot(tmp_path, copilot_config())
+    assert copilot_snapshot(tmp_path, copilot_config(installed_at="2026-11-25T22:52:48.3198594Z")) == first
+
+
+# Changes outside the Legion install timestamp must still be visible.
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"version": "0.19.0"},
+        {"source_sha": "0" * 64},
+        {"enabled": False},
+        {"cache_path": "/elsewhere"},
+        {"extra": {"trusted_folders": ["/repo"]}},
+        {"extra": {"firstLaunchAt": "2026-03-12T00:00:00.000Z"}},
+    ],
+    ids=["version", "source", "enabled", "cache", "new-key", "first-launch"],
+)
+def test_update_snapshot_still_detects_every_other_copilot_config_change(tmp_path: Path, changes: dict[str, Any]) -> None:
+    first = copilot_snapshot(tmp_path, copilot_config())
+    with pytest.raises(AssertionError, match=r"changed: .copilot/config.json"):
+        runner.unchanged(first, copilot_snapshot(tmp_path, copilot_config(**changes)))
+
+
+def test_update_snapshot_keeps_unreadable_copilot_config_raw(tmp_path: Path) -> None:
+    first = copilot_snapshot(tmp_path, "{not json")
+    with pytest.raises(AssertionError, match=r"changed: .copilot/config.json"):
+        runner.unchanged(first, copilot_snapshot(tmp_path, "{not json!"))
+
+
+def test_update_snapshot_keeps_other_plugins_install_times(tmp_path: Path) -> None:
+    first = copilot_snapshot(tmp_path, copilot_config(name="other"))
+    with pytest.raises(AssertionError, match=r"changed: .copilot/config.json"):
+        runner.unchanged(first, copilot_snapshot(tmp_path, copilot_config(name="other", installed_at="2026-11-25T22:52:48.3198594Z")))
+
+
+def test_only_the_deletion_of_codex_finished_staging_is_expected() -> None:
+    staging = runner.CODEX_STAGING + "marketplace-linux-abc123"
+    unrelated = runner.CODEX_STAGING + "keep.txt"
+    persistent = {".codex/config.toml": "c", unrelated: "sentinel"}
+    before = {**persistent, staging: "directory", staging + "/checkout/plugin.json": "a"}
+    runner.unchanged(runner.without_finished_codex_staging(before, persistent), persistent)
+    # Keep checking staging additions, edits, and partial deletions, plus everything outside the checkout.
+    for after in (
+        {**before, runner.CODEX_STAGING + "marketplace-linux-new": "directory"},
+        {**before, staging + "/checkout/plugin.json": "b"},
+        {**persistent, staging: "directory"},
+        {".codex/config.toml": "c"},
+        {unrelated: "sentinel"},
+    ):
+        with pytest.raises(AssertionError, match="the home changed"):
+            runner.unchanged(runner.without_finished_codex_staging(before, after), after)
+
+
+def test_repeat_writes_every_change_and_the_config_values_on_both_sides(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    upgrade = make_runner(tmp_path / "upgrade")
+    config = upgrade.home / ".copilot/config.json"
+    config.parent.mkdir(parents=True)
+    config.write_text(copilot_config(), encoding="utf-8")
+    instance.state.update({"candidate": upgrade, "candidate_snapshot": upgrade.home_snapshot(update=True), "candidate_configs": upgrade.host_configs()})
+
+    def repeat_update(*args: str, **_kwargs: Any) -> str:
+        if args[0] == "update":
+            config.write_text(copilot_config(installed_at="2026-11-25T22:52:48.3198594Z", extra={"trusted_folders": ["/repo"]}), encoding="utf-8")
+        return "already up to date\n" + "\n".join(f"Update legion for {tool}" for tool in runner.TOOLS)
+
+    upgrade.legion = repeat_update
+    upgrade.version = lambda *_args: instance.candidate_version
+    upgrade.check_uninstalled = lambda _tool, _folder: None
+    with pytest.raises(AssertionError, match=r"repeat update: the home changed on the repeat run:\nchanged: .copilot/config.json"):
+        instance.finish_candidate()
+    evidence = json.loads((upgrade.out / "repeat-changes.json").read_text(encoding="utf-8"))
+    assert evidence["changes"] == ["changed: .copilot/config.json"]
+    values = evidence["configs"][".copilot/config.json"]
+    assert '"trusted_folders"' not in values["before"]
+    assert '"trusted_folders"' in values["after"]
+    assert "22:52:48.3198594Z" in values["after"]

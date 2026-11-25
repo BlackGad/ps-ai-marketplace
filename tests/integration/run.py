@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -197,8 +198,33 @@ def without_marketplace_timestamps(data: bytes) -> bytes:
     return json.dumps({name: {key: value for key, value in entry.items() if key != "lastUpdated"} for name, entry in entries.items()}, sort_keys=True).encode()
 
 
-def snapshot(root: Path, excludes: list[str] | None = None, ignore_timestamps: list[str] | None = None) -> dict[str, str]:
-    """Hash a tree so a repeat can name changed paths."""
+def without_copilot_install_times(data: bytes) -> bytes:
+    # Copilot restamps the Git-sourced Legion install record even when it reports "already at latest".
+    try:
+        lines = data.decode("utf-8").splitlines()
+        comments = [line for line in lines if line.lstrip().startswith("//")]
+        config = json.loads("\n".join(line for line in lines if not line.lstrip().startswith("//")))
+    except ValueError:
+        return data
+    plugins = config.get("installedPlugins") if isinstance(config, dict) else None
+    if not isinstance(plugins, list):
+        return data
+    for plugin in plugins:
+        if not isinstance(plugin, dict):
+            return data
+        source = plugin.get("installed_source")
+        if (
+            plugin.get("name") == "legion"
+            and plugin.get("marketplace") == "ps-legion-marketplace"
+            and isinstance(source, dict)
+            and source.get("source") == "github"
+            and isinstance(plugin.get("installed_at"), str)
+        ):
+            plugin["installed_at"] = ""
+    return "\n".join([*comments, json.dumps(config, sort_keys=True)]).encode()
+
+
+def snapshot(root: Path, excludes: list[str] | None = None, normalizers: dict[str, Callable[[bytes], bytes]] | None = None) -> dict[str, str]:
     # Hand-built, reason: a path-by-path hash names unexpected repeat changes and excludes observed CLI runtime files.
     result = {}
     for path in root.rglob("*"):
@@ -209,12 +235,27 @@ def snapshot(root: Path, excludes: list[str] | None = None, ignore_timestamps: l
             result[relative] = "directory"
         else:
             data = path.read_bytes()
-            result[relative] = hashlib.sha256(without_marketplace_timestamps(data) if relative in (ignore_timestamps or []) else data).hexdigest()
+            normalize = normalizers.get(relative) if normalizers else None
+            result[relative] = hashlib.sha256(normalize(data) if normalize else data).hexdigest()
     return result
 
 
+CODEX_STAGING = ".codex/.tmp/marketplaces/.staging/"
+
+
+def without_finished_codex_staging(before: dict[str, str], after: dict[str, str]) -> dict[str, str]:
+    # Codex removes the completed marketplace checkout on its next marketplace run.
+    pattern = re.escape(CODEX_STAGING) + r"marketplace-(linux|macos|windows)-[A-Za-z0-9]+"
+    removed = {name for name, value in before.items() if value == "directory" and name not in after and re.fullmatch(pattern, name)}
+    return {name: value for name, value in before.items() if not (name.startswith(CODEX_STAGING) and (name in removed or any(name.startswith(root + "/") for root in removed)))}
+
+
+def changed_paths(before: dict[str, str], after: dict[str, str]) -> list[str]:
+    return [f"{'added' if name not in before else 'removed' if name not in after else 'changed'}: {name}" for name in sorted(before.keys() | after.keys()) if before.get(name) != after.get(name)]
+
+
 def unchanged(before: dict[str, str], after: dict[str, str]) -> None:
-    changes = [f"{'added' if name not in before else 'removed' if name not in after else 'changed'}: {name}" for name in sorted(before.keys() | after.keys()) if before.get(name) != after.get(name)]
+    changes = changed_paths(before, after)
     if changes:
         omitted = f"\n{len(changes) - 20} more paths omitted" if len(changes) > 20 else ""
         raise AssertionError("the home changed on the repeat run:\n" + "\n".join(changes[:20]) + omitted)
@@ -462,6 +503,7 @@ class Runner:
 
     def home_snapshot(self, update: bool = False) -> dict[str, str]:
         runtime = {"claude": [], "codex": ["tmp", r"tmp/arg0-(windows|linux|macos)(/codex-arg0[^/]+(/.*)?)?"], "copilot": ["logs", r"logs/process-[0-9]+-[0-9]+\.log"]}
+        normalizers = {"claude": {"plugins/known_marketplaces.json": without_marketplace_timestamps}, "copilot": {"config.json": without_copilot_install_times}} if update else {}
         folders = [(tool, self.folder(tool)) for tool in TOOLS]
         if (self.home / ".legion/configuration/personalisation.json").exists():
             folders += [(agent["tool"], self.resolve_folder(agent.get("configDir", ""))) for agent in self.settings()["agents"]]
@@ -479,14 +521,18 @@ class Runner:
                     excludes = runtime[tool]
                 else:
                     excludes = []
-                ignore_timestamps = ["plugins/known_marketplaces.json"] if update and tool == "claude" else []
-                for name, value in snapshot(path, excludes, ignore_timestamps).items():
+                for name, value in snapshot(path, excludes, normalizers.get(tool) if tool else None).items():
                     result[prefix + "/" + name] = value
         for name in (".zshrc", ".bashrc", ".profile"):
             path = self.home / name
             if path.is_file():
                 result[name] = hashlib.sha256(path.read_bytes()).hexdigest()
         return result
+
+    def host_configs(self) -> dict[str, str]:
+        # The host CLIs' own settings and records in the disposable home; credential files are never read.
+        names = (".claude/settings.json", ".claude/plugins/known_marketplaces.json", ".claude/plugins/installed_plugins.json", ".codex/config.toml", ".copilot/config.json", ".copilot/settings.json")
+        return {name: (self.home / name).read_text(encoding="utf-8", errors="replace") for name in names if (self.home / name).is_file()}
 
     def resolve_folder(self, value: str) -> Path:
         return self.home / value[2:] if value.startswith("~/") else Path(value)
@@ -833,7 +879,7 @@ class Runner:
             ("client command", upgrade.check_client_command),
             ("owner MCP without uv", upgrade.prove_mcp_without_uv),
             ("clients", clients),
-            ("home snapshot", lambda: self.state.update(candidate_snapshot=upgrade.home_snapshot(update=True))),
+            ("home snapshot", lambda: self.state.update(candidate_snapshot=upgrade.home_snapshot(update=True), candidate_configs=upgrade.host_configs())),
         ]
         failures = upgrade.collect(checks)
         require(not failures, "\n".join(failures))
@@ -998,7 +1044,16 @@ class Runner:
                 require(upgrade.version(tool, upgrade.folder(tool)) == self.candidate_version, f"{tool}: repeat changed version")
             contains(output, "already up to date")
             require("candidate_snapshot" in self.state, "no snapshot after the first update")
-            unchanged(self.state["candidate_snapshot"], upgrade.home_snapshot(update=True))
+            before, after = self.state["candidate_snapshot"], upgrade.home_snapshot(update=True)
+            # Every path the repeat touched and the host config texts on both sides, so a failure names its owner and value.
+            configs, earlier = upgrade.host_configs(), self.state.get("candidate_configs", {})
+            evidence = {
+                "changes": changed_paths(before, after),
+                "configs": {name: {"before": earlier.get(name), "after": configs.get(name)} for name in sorted(earlier.keys() | configs.keys()) if earlier.get(name) != configs.get(name)},
+            }
+            upgrade.out.mkdir(parents=True, exist_ok=True)
+            (upgrade.out / "repeat-changes.json").write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+            unchanged(without_finished_codex_staging(before, after), after)
 
         def purge() -> None:
             upgrade.legion("uninstall", "--purge", "--yes", owner=True)
@@ -1033,7 +1088,7 @@ class Runner:
         if "outside" in self.state:
             try:
                 unchanged(self.state["outside_snapshot"], snapshot(self.state["outside"]))
-            except AssertionError as error:
+            except (AssertionError, OSError) as error:
                 failures.append(f"outside the disposable home: {error}")
         require(not failures, "\n".join(failures))
 
