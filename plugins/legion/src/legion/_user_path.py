@@ -124,7 +124,8 @@ def shell_profile(home: Path) -> ShellProfile:
 def _read_profile(path: Path) -> tuple[str, str]:
     data = path.read_bytes()
     codec = "utf-8"
-    for mark, name in ((codecs.BOM_UTF8, "utf-8"), (codecs.BOM_UTF16_LE, "utf-16-le"), (codecs.BOM_UTF16_BE, "utf-16-be")):
+    # UTF-32LE starts with the UTF-16LE mark, so the longer marks come first.
+    for mark, name in ((codecs.BOM_UTF8, "utf-8"), (codecs.BOM_UTF32_LE, "utf-32-le"), (codecs.BOM_UTF32_BE, "utf-32-be"), (codecs.BOM_UTF16_LE, "utf-16-le"), (codecs.BOM_UTF16_BE, "utf-16-be")):
         if data.startswith(mark):
             data, codec = data[len(mark) :], name
             break

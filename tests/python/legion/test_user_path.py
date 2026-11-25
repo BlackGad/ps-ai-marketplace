@@ -1,4 +1,5 @@
 # The shell profile PATH line that setup adds on macOS and Linux; no real profile or registry is touched.
+import codecs
 import subprocess
 import sys
 from pathlib import Path
@@ -112,3 +113,14 @@ def test_sourcing_the_profile_puts_a_home_with_spaces_on_the_path(tmp_path: Path
     script = f'HOME="{spaced}"; . "{spaced / ".bashrc"}"; printf "%s" "$PATH"'
     result = subprocess.run(["/bin/sh", "-c", script], capture_output=True, text=True, check=True, env={"PATH": "/usr/bin"})
     assert result.stdout.startswith(f"{spaced}/.legion/bin:")
+
+
+@pytest.mark.parametrize("codec", ["utf-32-le", "utf-32-be"])
+def test_a_utf32_profile_gets_utf32_bytes_and_keeps_its_original_bytes(home: Path, monkeypatch: pytest.MonkeyPatch, codec: str) -> None:
+    monkeypatch.setenv("SHELL", "/bin/bash")
+    profile = home / ".bashrc"
+    mark = codecs.BOM_UTF32_LE if codec == "utf-32-le" else codecs.BOM_UTF32_BE
+    original = mark + "# x\n".encode(codec)
+    profile.write_bytes(original)
+    _user_path.shell_profile_lines(home)
+    assert profile.read_bytes() == original + f"{MARKER}\n{LINE}\n".encode(codec)

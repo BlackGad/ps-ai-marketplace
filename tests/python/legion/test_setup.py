@@ -4,6 +4,7 @@
 import json
 import os
 import stat
+import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
@@ -15,7 +16,7 @@ from launcher_fakes import WINDOWS, fake_cli, only_on_path
 
 from legion._run import RunResult
 from legion import _accounts, _app, _footprints, _forward, _launchers, _refresh, _setup, _status, _tool_install, _user_path
-from legion._home import bin_folder, settings_path
+from legion._home import bin_folder, footprint_index, settings_path
 from legion._plugin import PLUGIN_ROOT
 from legion._settings_models import ToolDescriptor
 from legion._validate import load_descriptors
@@ -50,7 +51,7 @@ class Bench:
         self.uv = FakeUv(monkeypatch)
         self.source = make_source(base, VERSION)
         real_refresh = _refresh.refresh
-        monkeypatch.setattr(_refresh, "refresh", lambda home: real_refresh(home, self.source))
+        monkeypatch.setattr(_refresh, "refresh", lambda home, **keywords: real_refresh(home, self.source, **keywords))
         self.tool_installs: list[str] = []
         self.tool_failure = ""
         self.needs_terminal = False
@@ -265,15 +266,15 @@ def test_setup_plans_under_the_settings_lock_and_does_the_outside_work_without_i
         real = getattr(module, name)
         bench.monkeypatch.setattr(module, name, lambda *args: (held.__setitem__(label, locked()), real(*args))[1])
 
-    watch(_setup, "initialize_files", "files")
+    watch(_setup, "build_plan", "plan")
     for name in ("install_tools", "add_allow_rules", "install_plugins", "write_commands"):
         watch(_setup, name, name)
     watch(_accounts, "add_subscription", "add")
     bench.seed("seeded-a", "codex")
     held.clear()
     bench.apply(["codex"])
-    assert held["files"]
-    assert {label: state for label, state in held.items() if label != "files"} == {"install_tools": False, "add": False, "add_allow_rules": False, "install_plugins": False, "write_commands": False}
+    assert held["plan"]
+    assert {label: state for label, state in held.items() if label != "plan"} == {"install_tools": False, "add": False, "add_allow_rules": False, "install_plugins": False, "write_commands": False}
 
 
 def test_missing_uv_is_a_plan_line_and_a_next_step_but_no_python_work(bench: Bench) -> None:
@@ -652,16 +653,39 @@ def test_the_plan_and_status_agree_about_percent_variables_in_path(bench: Bench)
     assert _setup.build_plan(bench.home, [], None).needs_path == (not _status.on_path(folder))
 
 
-def test_the_saved_path_folders_help_the_account_add_find_a_new_cli_without_changing_this_path(bench: Bench) -> None:
+@windows_only
+def test_a_cli_installed_onto_a_new_saved_path_folder_gets_its_launchers_and_this_path_is_restored(bench: Bench) -> None:
     saved = bench.base / "saved"
-    fake_cli(saved, "copilot", "COPILOT_HOME")
+    folders: list[str] = []
+    bench.monkeypatch.setattr(_user_path, "persistent_folders", lambda: list(folders))
+    bench.hide("codex")
+
+    def install(_home: Path, tool_id: str) -> Optional[str]:
+        fake_cli(saved, tool_id, "CODEX_HOME")
+        folders.append(str(saved))
+        return None
+
+    bench.monkeypatch.setattr(_setup, "install_tool", install)
+    before = os.environ["PATH"]
+    bench.apply(["codex"])
+    assert bench.ids() == ["codex1"]
+    assert all(path.is_file() for path in bench.launcher_paths("codex1"))
+    assert os.environ["PATH"] == before
+
+
+@windows_only
+def test_the_preview_shows_the_command_the_apply_runs_when_npm_is_only_on_the_saved_path(bench: Bench) -> None:
+    saved = bench.base / "saved"
+    fake_cli(saved, "node")
     bench.hide("copilot")
     bench.monkeypatch.setattr(_user_path, "persistent_folders", lambda: [str(saved)])
-    before = os.environ["PATH"]
-    with _setup.saved_path():
-        if WINDOWS:
-            assert str(saved) in os.environ["PATH"]
-    assert os.environ["PATH"] == before
+    bench.monkeypatch.setattr(_setup, "install_tool", REAL_INSTALL_TOOL)
+    ran: list[list[str]] = []
+    bench.monkeypatch.setattr(_tool_install.ToolInstaller, "execute", lambda _self, command: ran.append(command) or 0)
+    shown = text(bench.preview(["copilot"]))
+    bench.apply(["copilot"])
+    assert ran == [["npm", "install", "-g", "@github/copilot"]]
+    assert " ".join(ran[0]) in shown
 
 
 # --- the plugin installer process ---
@@ -850,3 +874,99 @@ def test_a_plan_that_fails_stops_before_any_prompt(bench: Bench, monkeypatch: py
     assert run(["--home", str(bench.home), "add", "nothing"]) == 1
     assert talk.asked == []
     assert capsys.readouterr().err.strip() == "unknown tool 'nothing'"
+
+
+# --- review fixes ---
+
+
+def test_a_blocked_account_is_left_alone_by_the_final_refresh(bench: Bench) -> None:
+    bench.seed("recover-a", "codex")
+    broken = bench.launcher_paths("recover-a")[-1]
+    broken.unlink() if WINDOWS else broken.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    bench.hide("codex")
+    skipped: list[object] = []
+    real = _refresh.refresh
+    bench.monkeypatch.setattr(_refresh, "refresh", lambda home, **keywords: (skipped.append(keywords.get("skip")), real(home, **keywords))[1])
+    bench.apply()
+    assert skipped == [{"recover-a"}]
+
+
+def link_to(link: Path, real: Path) -> Path:
+    real.mkdir()
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except OSError:
+        # Windows: a junction needs no privilege and resolves the same way.
+        if not WINDOWS or subprocess.run([os.environ["COMSPEC"], "/c", "mklink", "/J", str(link), str(real)], capture_output=True, check=False).returncode != 0:
+            pytest.skip("links need a privilege here")
+    return link
+
+
+def test_the_same_folder_through_a_link_and_its_real_path_is_one_account_and_one_install(bench: Bench) -> None:
+    real = bench.base / "real"
+    link = link_to(bench.base / "link", real)
+    bench.apply([f"codex:{link}"])
+    bench.apply([f"codex:{real}"])
+    assert bench.ids() == ["codex1"]
+    other = bench.base / "second"
+    second_link = link_to(bench.base / "second-link", other)
+    bench.plugin_installs.clear()
+    bench.apply([f"codex:{second_link}", f"codex:{other}"])
+    assert len(bench.plugin_installs) == 1
+
+
+def test_an_interrupted_write_leaves_the_settings_file_and_never_makes_a_partial_one(bench: Bench) -> None:
+    def fail(_self: Path, _target: Path) -> Path:
+        raise OSError("interrupted")
+
+    bench.monkeypatch.setattr(Path, "replace", fail)
+    plan = _setup.build_plan(bench.home, [], None)
+    with pytest.raises(OSError, match="interrupted"):
+        _setup.initialize_files(plan, lambda _line: None)
+    assert not settings_path(bench.home).exists()
+    assert not plan.notes.exists()
+
+
+def test_an_interrupted_allow_rule_write_keeps_the_account_settings_whole(bench: Bench) -> None:
+    folder = bench.base / "claude-folder"
+    folder.mkdir()
+    original = '{"theme": "dark"}'
+    (folder / "settings.json").write_text(original, encoding="utf-8")
+    plan = _setup.build_plan(bench.home, [f"claude:{folder}"], None)
+
+    real_replace = Path.replace
+
+    def fail(self: Path, target: Path) -> Path:
+        if target.name == "settings.json":
+            raise OSError("interrupted")
+        return real_replace(self, target)
+
+    bench.monkeypatch.setattr(Path, "replace", fail)
+    with pytest.raises(OSError, match="interrupted"):
+        _setup.add_allow_rules(plan, lambda _line: None)
+    assert (folder / "settings.json").read_text(encoding="utf-8") == original
+
+
+def test_a_scalar_allow_rule_stays_a_rule(bench: Bench) -> None:
+    folder = bench.base / "claude-folder"
+    folder.mkdir()
+    (folder / "settings.json").write_text(json.dumps({"permissions": {"allow": "Bash(mine)"}}), encoding="utf-8")
+    bench.apply([f"claude:{folder}"])
+    data = json.loads((folder / "settings.json").read_text(encoding="utf-8"))
+    assert data["permissions"]["allow"] == ["Bash(mine)", RULE]
+
+
+@pytest.mark.parametrize("content", [{"permissions": 5}, {"permissions": {"allow": 5}}, {"permissions": {"allow": {"a": 1}}}])
+def test_an_allow_shape_that_cannot_be_kept_stops_the_plan_before_any_record(bench: Bench, content: dict[str, Any]) -> None:
+    folder = bench.base / "claude-folder"
+    folder.mkdir()
+    (folder / "settings.json").write_text(json.dumps(content), encoding="utf-8")
+    with pytest.raises(_setup.SetupError, match="cannot read"):
+        bench.apply([f"claude:{folder}"])
+    assert not footprint_index(bench.home).exists()
+
+
+def test_an_explicitly_empty_adoption_folder_is_refused_before_anything_is_written(bench: Bench, capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(["--home", str(bench.home), "add", "codex", "", "--yes"]) == 1
+    assert _setup.NO_FOLDER in capsys.readouterr().err
+    assert not settings_path(bench.home).exists()

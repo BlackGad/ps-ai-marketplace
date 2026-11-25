@@ -421,7 +421,7 @@ def setup(context: click.Context, yes: bool) -> None:
 @click.pass_context
 def add(context: click.Context, tool: str, folder: Optional[str], yes: bool, account_id: Optional[str], source: Optional[str]) -> None:
     # The setup code splits the item on its first colon, so a folder may contain colons.
-    _run_setup(context, [f"{tool}:{folder}" if folder else tool], account_id, source, yes)
+    _run_setup(context, [f"{tool}:{folder}" if folder is not None else tool], account_id, source, yes)
 
 
 @main.group(help="Check and install the CLI tools legion needs")

@@ -15,8 +15,8 @@ from typing import Optional
 import click
 from pydantic import ValidationError
 
-from . import _accounts, _app, _footprints, _forward, _launchers, _refresh, _settings_io, _status, _tool_install, _user_path
-from ._home import bin_folder, full_path, home_path, settings_path, same_path
+from . import _accounts, _app, _footprints, _forward, _generated, _launchers, _refresh, _settings_io, _status, _tool_install, _user_path
+from ._home import bin_folder, full_path, home_path, resolve_directory, same_path, settings_path
 from ._plugin import PLUGIN_ROOT
 from ._run import run_command
 from ._settings_models import Agent, PersonalisationSettings, ToolDescriptor
@@ -57,6 +57,11 @@ class Row:
     provider: bool = False
     missing_allow_rules: list[str] = field(default_factory=list[str])
 
+    # The launchers are gone and only the owner can name the program again.
+    @property
+    def blocked(self) -> bool:
+        return self.next_step.startswith("target needed:")
+
 
 @dataclass
 class Plan:
@@ -87,20 +92,31 @@ def command_available(name: str) -> bool:
 @contextmanager
 def saved_path() -> Iterator[None]:
     before = os.environ.get("PATH", "")
-    if WINDOWS:
-        path = before
-        for folder in _user_path.persistent_folders():
-            if not _user_path.has_entry(path, folder):
-                path += f";{folder}"
-        os.environ["PATH"] = path
+    add_saved_folders()
     try:
         yield
     finally:
         os.environ["PATH"] = before
 
 
+# Also called after an install, which may have added a folder to the saved PATH.
+def add_saved_folders() -> None:
+    if not WINDOWS:
+        return
+    path = os.environ.get("PATH", "")
+    for folder in _user_path.persistent_folders():
+        if not _user_path.has_entry(path, folder):
+            path += f";{folder}"
+    os.environ["PATH"] = path
+
+
 def _resolve(folder: str, home: Path) -> Path:
     return full_path(home_path(folder, home))
+
+
+# Two spellings of one folder (a link and its target) are one folder.
+def _same_folder(left: Path, right: Path) -> bool:
+    return same_path(resolve_directory(left), resolve_directory(right))
 
 
 def _managed_folder(account: str, home: Path) -> Path:
@@ -135,14 +151,27 @@ def _read_json(file: Path) -> dict[str, object]:
     return data
 
 
+# The rules a settings file allows now: a list, or one rule written as text. Another shape is refused.
+def _allowed_rules(file: Path, data: dict[str, object]) -> list[object]:
+    permissions = data.get("permissions")
+    if permissions is not None and not isinstance(permissions, dict):
+        raise SetupError(f"cannot read {file}: permissions is not an object")
+    allowed = permissions.get("allow") if isinstance(permissions, dict) else None
+    if allowed is None:
+        return []
+    if isinstance(allowed, str):
+        return [allowed]
+    if isinstance(allowed, list):
+        return list(allowed)
+    raise SetupError(f"cannot read {file}: permissions.allow is not a list or a rule")
+
+
 def _missing_allow_rules(tool: ToolDescriptor, folder: Path) -> list[str]:
     rules = [rule for rule in tool.allow_rules or [] if rule]
     file = folder / "settings.json"
     if not rules or not file.exists():
         return rules
-    permissions = _read_json(file).get("permissions")
-    allowed = permissions.get("allow") if isinstance(permissions, dict) else None
-    current = allowed if isinstance(allowed, list) else []
+    current = _allowed_rules(file, _read_json(file))
     return [rule for rule in rules if rule not in current]
 
 
@@ -190,14 +219,14 @@ def _added_account(item: str, account_id: Optional[str], planned: Personalisatio
         if folder is None or not folder.is_dir():
             raise SetupError(NO_FOLDER)
         if account_id is None:
-            same = next((agent for agent in planned.agents if agent.tool == tool_id and agent.provider is None and same_path(_resolve(agent.config_dir, home), folder)), None)
+            same = next((agent for agent in planned.agents if agent.tool == tool_id and agent.provider is None and _same_folder(_resolve(agent.config_dir, home), folder)), None)
             if same is not None:
                 account_id, folder = same.id, _resolve(same.config_dir, home)
     account_id = account_id or _next_id(tool_id, planned, home)
     folder = folder or _managed_folder(account_id, home)
     existing = next((agent for agent in planned.agents if agent.id == account_id), None)
     if existing is not None:
-        if existing.tool != tool_id or existing.provider is not None or not same_path(_resolve(existing.config_dir, home), folder):
+        if existing.tool != tool_id or existing.provider is not None or not _same_folder(_resolve(existing.config_dir, home), folder):
             raise SetupError(f"account '{account_id}' already exists with other values")
     else:
         _accounts.check_new_id(planned, account_id, home)
@@ -268,7 +297,7 @@ def plan_lines(plan: Plan) -> list[str]:
         lines.append(f"  wrappers repair {', '.join(repairs)}")
     if plan.uv_missing:
         lines.append("  uv       missing; ask the owner before installing it")
-    lines.extend(f"  wrappers {row.next_step}" for row in plan.accounts if row.next_step.startswith("target needed:"))
+    lines.extend(f"  wrappers {row.next_step}" for row in plan.accounts if row.blocked)
     folders = list(dict.fromkeys(str(row.folder) for row in plan.accounts if row.usable and row.version is None))
     if folders:
         lines.append(f"  install  legion into {', '.join(folders)}")
@@ -289,8 +318,10 @@ def plan_lines(plan: Plan) -> list[str]:
     return [*blocked, "Plan (nothing changed yet):", *lines, RUN_AGAIN]
 
 
+# The preview looks for commands where the apply will, so the hint it shows is the command that runs.
 def preview(home: Path, adds: list[str], account_id: Optional[str]) -> list[str]:
-    return plan_lines(build_plan(home, adds, account_id))
+    with saved_path():
+        return plan_lines(build_plan(home, adds, account_id))
 
 
 # --- doing it ---
@@ -300,12 +331,11 @@ def initialize_files(plan: Plan, say: Callable[[str], None]) -> None:
     if plan.settings_file.exists():
         say("skip: settings (already done)")
     else:
-        plan.settings_file.parent.mkdir(parents=True, exist_ok=True)
-        plan.settings_file.write_text(_settings_io.EMPTY + "\n", encoding="utf-8", newline="")
+        _generated.write_generated(plan.settings_file, _settings_io.EMPTY + "\n", executable=False)
     if plan.notes.exists():
         say("skip: notes (already done)")
     else:
-        plan.notes.write_text(NOTES_TEMPLATE.read_text(encoding="utf-8-sig"), encoding="utf-8", newline="")
+        _generated.write_generated(plan.notes, NOTES_TEMPLATE.read_text(encoding="utf-8-sig"), executable=False)
 
 
 # An error message, or None when the tool is installed. The installer talks to the owner's terminal itself.
@@ -321,6 +351,7 @@ def install_tool(home: Path, tool_id: str) -> Optional[str]:
 def install_tools(plan: Plan) -> None:
     for tool in plan.missing_tools:
         message = install_tool(plan.home, tool.id)
+        add_saved_folders()
         if message is not None:
             reason = f"{tool.id} install failed: {one_line(message)}"
         elif not command_available(tool.command):
@@ -371,13 +402,12 @@ def add_allow_rules(plan: Plan, say: Callable[[str], None]) -> None:
         for rule in missing:
             _footprints.add(plan.home, "edit", file, owner, key="permissions.allow", value=rule)
         data = _read_json(file) if file.exists() else {}
+        current = [rule for rule in _allowed_rules(file, data) if rule]
         permissions = data.get("permissions")
         if not isinstance(permissions, dict):
             permissions = data["permissions"] = {}
-        current = permissions.get("allow")
-        permissions["allow"] = [*[rule for rule in current if rule], *missing] if isinstance(current, list) else missing
-        row.folder.mkdir(parents=True, exist_ok=True)
-        file.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="")
+        permissions["allow"] = [*current, *missing]
+        _generated.write_generated(file, json.dumps(data, indent=2, ensure_ascii=False) + "\n", executable=False)
 
 
 def set_path(plan: Plan, say: Callable[[str], None]) -> None:
@@ -422,7 +452,7 @@ def install_plugins(plan: Plan, source: Optional[str], say: Callable[[str], None
         if row.version:
             say(f"skip: legion in {row.folder} (already done)")
             continue
-        key = f"{row.tool.id}:{os.path.normcase(str(row.folder))}"
+        key = f"{row.tool.id}:{os.path.normcase(str(resolve_directory(row.folder)))}"
         if key not in results:
             try:
                 results[key] = install_plugin(row.tool.id, row.folder, plan.home, source)
@@ -443,7 +473,7 @@ def write_commands(plan: Plan, say: Callable[[str], None]) -> None:
             for path, _state in plan.commands:
                 _footprints.add(plan.home, "file", path, owner)
             _footprints.add(plan.home, "app", plan.home / ".legion" / "app", owner)
-    for line in _refresh.refresh(plan.home):
+    for line in _refresh.refresh(plan.home, skip={row.id for row in plan.accounts if row.blocked}):
         say(line)
     if any(state == "owned" for _path, state in plan.commands):
         say("skip: command legion (already done)")
