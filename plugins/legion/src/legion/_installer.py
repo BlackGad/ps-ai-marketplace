@@ -662,19 +662,24 @@ def apply_purge(plan: PurgePlan) -> None:
             if _safe_path(plan.home, ".legion", plan.home, retained=retained) != plan.legion:
                 raise InstallerError("Legion home changed after preview; run purge again.")
             lock_file = Path(str(index) + ".lock")
+            windows = sys.platform == "win32"
             for item in plan.legion.iterdir():
                 if item == lock_file or (app_in_use and item in retained) or (app_in_use and item == index):
                     continue
                 shutil.rmtree(item) if item.is_dir() else item.unlink()
             if app_in_use:
                 _footprints._write(plan.home, _footprints.FootprintIndex.model_validate({"schemaVersion": 1, "entries": app_records}))
+            elif not windows and [item.name for item in plan.legion.iterdir()] == [lock_file.name]:
+                # Unix keeps the lock file on release. Unlinking it while we hold it is safe: a waiter that
+                # already opened it sees no link left and retries. Windows removes it itself on release.
+                lock_file.unlink()
     if plan.legion and plan.legion.is_dir():
-        # A waiting writer can recreate the index now. Keep its new record and the shared lock if it did.
-        remaining = sorted(item.name for item in plan.legion.iterdir())
-        if remaining in ([], ["footprints.json.lock"]):
-            Path(str(index) + ".lock").unlink(missing_ok=True)
-            if not any(plan.legion.iterdir()):
-                plan.legion.rmdir()
+        try:
+            plan.legion.rmdir()
+        except OSError:
+            # A waiting writer can recreate its lock or records now; keep them. Anything else is a real error.
+            if plan.legion.is_dir() and not any(plan.legion.iterdir()):
+                raise
 
 
 def _execute(entry: dict[str, Any], arguments: list[str], folder: Path, listing: bool = False) -> str:
