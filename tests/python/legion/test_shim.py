@@ -171,19 +171,21 @@ def test_uninstall_deletes_its_batch_command_and_returns_uvs_status(tmp_path: Pa
 
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
-def test_uninstall_runs_a_temp_copy_when_uv_is_in_legion_home(tmp_path: Path, fake_uv_folder: Path) -> None:
+@pytest.mark.parametrize("code", [0, 3])
+def test_uninstall_runs_a_temp_copy_when_uv_is_in_legion_home(tmp_path: Path, fake_uv_folder: Path, code: int) -> None:
     _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
     installed_uv = shim.parent / "uv.exe"
     shutil.copy2(fake_uv_folder / "uv.exe", installed_uv)
     temp = tmp_path / "temp"
     temp.mkdir()
     log = tmp_path / "uv.log"
-    environment = child_environment(shim.parent, log, 0, delete=installed_uv) | {"TEMP": str(temp), "TMP": str(temp), "FAKE_UV_NO_STDIN": "1"}
+    environment = child_environment(shim.parent, log, code, delete=installed_uv) | {"TEMP": str(temp), "TMP": str(temp), "FAKE_UV_NO_STDIN": "1", "LEGION_UV_COPY": "caller value"}
     result = cmd(f'"{shim}" uninstall --purge --yes', environment)
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.returncode == code, result.stdout + result.stderr
     assert not installed_uv.exists()
     assert "_self_uninstall.py" in log.read_text(encoding="utf-8")
     assert list(temp.iterdir()) == []
+    assert environment["LEGION_UV_COPY"] == "caller value"
 
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")

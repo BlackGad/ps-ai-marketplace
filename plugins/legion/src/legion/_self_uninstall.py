@@ -15,7 +15,7 @@ def run(app: Path, arguments: list[str]) -> int:
         project = root / "app"
         shutil.copytree(app, project, symlinks=True)
         environment = root / "env"
-        command = ["uv", "run", "--project", str(project), "--frozen", "--quiet", "legion", "--home", str(home), *arguments]
+        command = [os.environ.get("LEGION_UV_COPY") or "uv", "run", "--project", str(project), "--frozen", "--quiet", "legion", "--home", str(home), *arguments]
         result = subprocess.run(command, env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(environment)}, check=False)
         return result.returncode
 

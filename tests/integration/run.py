@@ -268,11 +268,12 @@ class Runner:
             try:
                 settings = json.loads((folder / "settings.json").read_text(encoding="utf-8"))
                 marketplace = settings["extraKnownMarketplaces"]["ps-legion-marketplace"]
-                if marketplace["source"]["source"] != "directory" or settings["enabledPlugins"].get("legion@ps-legion-marketplace") is not True:
+                if settings["enabledPlugins"].get("legion@ps-legion-marketplace") is not True:
                     return None
-                source = marketplace["source"]["path"]
-                manifest = json.loads((Path(source) / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
-                files = [Path(source) / plugin["source"] / "plugin.json" for plugin in manifest["plugins"] if plugin["name"] == "legion"]
+                if marketplace["source"]["source"] == "directory":
+                    source = marketplace["source"]["path"]
+                    manifest = json.loads((Path(source) / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+                    files = [Path(source) / plugin["source"] / "plugin.json" for plugin in manifest["plugins"] if plugin["name"] == "legion"]
             except (OSError, KeyError, ValueError):
                 pass
         versions = []
@@ -291,13 +292,23 @@ class Runner:
             try:
                 settings = json.loads((folder / "settings.json").read_text(encoding="utf-8"))
                 source = settings["extraKnownMarketplaces"]["ps-legion-marketplace"]["source"]
-                return source["source"] == "directory" and Path(source["path"]).resolve() == self.checkout.resolve() and (self.checkout / "plugins/legion/src/legion/_app.py").read_bytes() == expected
+                if self.targets[tool][1] == "main":
+                    return source["source"] != "directory" and MARKETPLACE.lower() in json.dumps(source).lower()
+                return source["source"] == "directory" and Path(source["path"]).resolve() == self.checkout.resolve()
             except (OSError, KeyError, ValueError):
                 return False
         installed_root = self.catalog[tool]["plugin"].get("installedRoot")
         if not installed_root or not (folder / installed_root).is_dir():
             return False
-        files = [manifest.parent / "src/legion/_app.py" for manifest in (folder / installed_root).rglob("plugin.json")]
+        files = []
+        for manifest in (folder / installed_root).rglob("plugin.json"):
+            if manifest.parent.name in (".codex-plugin", ".claude-plugin"):
+                continue
+            try:
+                if json.loads(manifest.read_text(encoding="utf-8-sig")).get("name") == "legion":
+                    files.append(manifest.parent / "src/legion/_app.py")
+            except (OSError, ValueError):
+                continue
         return bool(files) and all(path.is_file() and path.read_bytes() == expected for path in files)
 
     def settings(self) -> dict[str, Any]:
@@ -420,13 +431,32 @@ class Runner:
 
     def update(self, repeat: bool) -> str:
         expected = json.loads((self.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
-        output = self.legion("install", "--update", "--source", str(self.checkout), "--yes", owner=True)
+        active = self.active()
+        if not repeat:
+            # Use the public tool commands to leave one target absent. The owner update must restore it.
+            target = next((tool for tool in active if self.targets[tool][1] != "main"), active[0])
+            entry = self.catalog[target]["plugin"]
+            self.cli(target, entry["uninstall"])
+            self.cli(target, entry["marketplaceRemove"])
+            require(not self.listing(target, self.folder(target)), f"{target} remains installed before update")
+            self.state["update_target"] = target
+        target = self.state["update_target"]
+        if repeat:
+            output = self.legion("update", "--yes", owner=True)
+        else:
+            source, ref = self.targets[target]
+            arguments = ["install", "--update", "--source", source]
+            if ref == "main":
+                arguments += ["--ref", "main"]
+            output = self.legion(*arguments, "--yes", owner=True)
+        if not repeat:
+            contains(output, f"legion not installed -> {expected}")
         for tool in self.active():
             contains(output, f"Update legion for {tool}")
             require(self.version(tool, self.folder(tool)) == expected, f"{tool} version changed away from the checkout")
             require(self.installed_source_matches(tool, self.folder(tool)), f"{tool} update did not keep the PR checkout source")
-        contains(output, "already up to date")
         if repeat:
+            contains(output, "already up to date")
             unchanged(self.state["update_snapshot"], self.home_snapshot())
         else:
             self.state["update_snapshot"] = self.home_snapshot()
