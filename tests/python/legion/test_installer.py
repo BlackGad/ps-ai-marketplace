@@ -325,6 +325,33 @@ def test_self_purge_keeps_running_copy_and_clears_other_data(tmp_path: Path, mon
     assert not data.exists()
 
 
+def test_repeat_purge_with_retained_app_skips_without_prompt_or_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    app = home / ".legion/app/1.2.3"
+    app.mkdir(parents=True)
+    (app / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
+    _footprints.add(home, "app-version", app, "legion")
+    python = home / ".legion/python/env-012345abcdef"
+    python.mkdir(parents=True)
+    (python / "keep.txt").write_text("keep", encoding="utf-8")
+    notes = home / ".legion/configuration/notes.md"
+    notes.parent.mkdir()
+    notes.write_text("remove", encoding="utf-8")
+
+    monkeypatch.setattr(_installer, "_uninstall", lambda *_args: None)
+    first = _installer.install(home, ["codex"], uninstall=True, purge=True, yes=True, catalog=catalog())
+    assert any("keeping app and python" in line for line in first)
+    index = (home / ".legion/footprints.json").read_bytes()
+    monkeypatch.setattr("builtins.input", lambda _question: pytest.fail("repeat purge prompted"))
+    second = _installer.install(home, ["codex"], uninstall=True, purge=True, catalog=catalog())
+    assert "skip: purge (already done)" in second
+    assert not any(line.startswith("Remove ") for line in second)
+    assert (home / ".legion/footprints.json").read_bytes() == index
+    assert app.is_dir()
+    assert python.is_dir()
+    assert not notes.exists()
+
+
 def test_uninstall_purge_asks_twice_and_dry_run_neither_prompts_nor_runs_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
     folder = home / ".codex"
@@ -728,6 +755,52 @@ def test_update_refreshes_new_installed_copy_and_reports_version(tmp_path: Path,
     assert "legion 1.0.0 -> 1.1.0" in lines
     assert entry["plugin"]["marketplaceUpdate"] in calls
     assert entry["plugin"]["update"] in calls
+
+
+def test_update_reports_refresh_failure_and_continues_to_next_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "plugin"
+    root.mkdir()
+    (root / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
+    monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: root)
+    monkeypatch.setattr(_installer, "_step", lambda *_args: None)
+    refreshed: list[str] = []
+
+    def refresh(entry: dict, *_args: object) -> list[str]:
+        refreshed.append(entry["id"])
+        if entry["id"] == "claude":
+            raise RuntimeError("broken refresh")
+        return ["refreshed codex"]
+
+    monkeypatch.setattr(_installer, "_refresh_target", refresh)
+    lines = _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
+    assert refreshed == ["claude", "codex"]
+    assert any("claude" in line and "broken refresh" in line for line in lines)
+    assert "refreshed codex" in lines
+
+
+def test_install_reports_refresh_failure_and_continues_to_next_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "plugin"
+    root.mkdir()
+    (root / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
+    monkeypatch.setattr(_installer, "_install_steps", lambda *_args: None)
+    monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: root)
+    monkeypatch.setenv("LEGION_TEST_USER_PATH_FILE", str(tmp_path / "saved-path.txt"))
+    (tmp_path / "saved-path.txt").write_text("", encoding="utf-8")
+    refreshed: list[str] = []
+
+    def refresh(entry: dict, *_args: object) -> list[str]:
+        refreshed.append(entry["id"])
+        if entry["id"] == "claude":
+            raise RuntimeError("broken refresh")
+        return ["refreshed codex"]
+
+    monkeypatch.setattr(_installer, "_refresh_target", refresh)
+    lines = _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", yes=True, catalog=catalog())
+    assert refreshed == ["claude", "codex"]
+    assert any("claude" in line and "broken refresh" in line for line in lines)
+    assert "refreshed codex" in lines
 
 
 def test_other_marketplace_source_loads_its_catalog_for_selected_ref(monkeypatch: pytest.MonkeyPatch) -> None:

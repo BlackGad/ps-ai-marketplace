@@ -598,9 +598,13 @@ def purge_plan(home: Path, catalog: dict[str, Any], config_dir: Path | None = No
                 plan.links.append(path)
     retained = (home / ".legion/app", home / ".legion/python") if app_in_use else ()
     legion = _safe_path(home, ".legion", home, exceptions=tuple(plan.links), retained=retained)
+    kept = (*retained, index, Path(str(index) + ".lock"))
+    has_home_work = False
     if legion:
+        has_home_work = not app_in_use or any(item not in kept for item in legion.iterdir()) or any(entry.kind not in ("app", "app-version") for entry in records)
+    if legion and has_home_work:
         plan.legion = legion
-    elif (home / ".legion").exists():
+    elif legion is None and (home / ".legion").exists():
         plan.lines.append("Manual step: legion home contains linked paths; left in place.")
         plan.manual = True
     for edit in plan.edits:
@@ -610,9 +614,10 @@ def purge_plan(home: Path, catalog: dict[str, Any], config_dir: Path | None = No
     for path in [*plan.paths, *plan.empty_paths, *([plan.legion] if plan.legion else [])]:
         if path.is_dir():
             count = sum(1 for child in path.rglob("*") if child.is_file())
-            last = " (last: all settings, notes, account folders, logins and launchers)" if path == plan.legion else ""
+            last = " (last: all settings, notes, account folders, logins and launchers)" if path == plan.legion and not app_in_use else ""
+            keeping = ", keeping app and python" if path == plan.legion and app_in_use else ""
             empty = " (if empty)" if path in plan.empty_paths else ""
-            plan.lines.append(f"Remove folder: {path} ({count} files){empty}{last}")
+            plan.lines.append(f"Remove folder: {path} ({count} files){empty}{last}{keeping}")
         else:
             plan.lines.append(f"Remove file: {path}")
     if not plan.lines:
@@ -895,7 +900,11 @@ def install(
                 after = _plugin_root(entry, folder)
                 if after is None:
                     raise InstallerError(f"{entry['id']} legion is absent from the post-update listing; generated artifacts were not refreshed.")
-                lines.extend(_refresh_target(entry, folder, home, after))
+                try:
+                    lines.extend(_refresh_target(entry, folder, home, after))
+                except Exception as error:
+                    lines.append(f"commands not refreshed for {entry['id']} in {folder}: {error}; run legion setup")
+                    continue
                 after_version = json.loads((after / "plugin.json").read_text(encoding="utf-8"))["version"]
                 lines.append(f"legion {before_version} -> {after_version}" if before_version != after_version else f"skip: legion {after_version} (already up to date)")
         if targets and not dry_run:
@@ -924,8 +933,11 @@ def install(
                 except Exception:
                     root = None
                 if root:
-                    lines.extend(_refresh_target(entry, folder, home, root))
-                    installed_version = json.loads((root / "plugin.json").read_text(encoding="utf-8"))["version"]
+                    try:
+                        lines.extend(_refresh_target(entry, folder, home, root))
+                        installed_version = json.loads((root / "plugin.json").read_text(encoding="utf-8"))["version"]
+                    except Exception as error:
+                        lines.append(f"commands not refreshed for {tool_id} in {folder}: {error}; run legion setup")
                 else:
                     lines.append(f"commands not refreshed for {tool_id} in {folder}; run legion setup")
         if entry["hooks"].get("hint"):
