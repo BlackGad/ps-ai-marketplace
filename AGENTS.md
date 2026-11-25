@@ -46,7 +46,7 @@ Run a single file with `pwsh -NoProfile -File tests/run.ps1 -Name <file>` (wildc
 
 The last line must be `<n> passed, 0 failed`. Tests never call real `az`, `claude`, `codex`, `copilot`, winget or the network; use the fakes in `tests/` and replace download functions.
 
-CI runs the same command on Windows, macOS and Linux, and runs the integration suite (`tests/integration/run.ps1`) on every pull request; both are required checks.
+CI runs the same command on Windows, macOS and Linux, and runs the integration suite (`tests/integration/run.py`) on every pull request; both are required checks.
 
 Python uses uv only (Python >=3.12), with code style from ps-poetry: the repository's `ruff.toml` and standard-mode `pyrightconfig.json`. From the repository root, set `UV_PROJECT_ENVIRONMENT` to the folder `Get-LegionPythonEnvironment` returns for `plugins/legion` (`<legion home>/python/env-<hash>`), then use `uv run --project plugins/legion --frozen --group dev` followed by `ruff check plugins/legion/src tests/python`, `ruff format --check plugins/legion/src tests/python`, `pyright`, or `pytest --rootdir=. -c plugins/legion/pyproject.toml`. Before pytest, set `LEGION_TEST_PWSH` to the absolute pwsh path, for example `(Get-Command pwsh).Source`. Keep environments outside the plugin cache; the PowerShell test runner stays PowerShell-only.
 

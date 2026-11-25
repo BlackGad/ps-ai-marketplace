@@ -196,7 +196,8 @@ ${{ (inputs.sha != '' || (github.event_name == 'pull_request' && github.event.pu
         Require-Workflow ($run -match 'os: \[windows-2025, macos-15, ubuntu-24.04\]' -and $run -match 'fail-fast: false' -and $run -match 'timeout-minutes: 30') 'integration matrix uses all three systems with independent timeouts'
         Require-Workflow ($run.Contains('ref: ${{ inputs.sha || github.sha }}')) 'matrix tests the supplied immutable SHA'
         Require-Workflow ($run.Contains('ALLOW_SOURCE_FALLBACK: ${{ github.event_name == ''push'' && github.ref == ''refs/heads/main'' && inputs.sha == '''' }}')) 'published-source fallback is allowed only on direct main pushes without a checkout input'
-        Require-Workflow ($run -match 'python tests/integration/run.py --out results' -and $run -notmatch 'tests/integration/run.ps1') 'matrix runs the Python integration runner'
+        Require-Workflow ($run -match 'uv run --no-project --python 3\.12 tests/integration/run.py --out results' -and $run -notmatch 'tests/integration/run.ps1') 'matrix runs the Python 3.12 integration runner through uv'
+        Require-Workflow ($run -notmatch 'astral-sh/setup-uv@' -and $run -match 'install\.sh --yes' -and $run -match 'powershell\.exe -NoProfile -File.*install\.ps1') 'matrix bootstraps uv using each root installer'
         Require-Workflow ($run -match "if: github.event_name == 'pull_request'\r?\n        uses: actions/cache/restore@" -and $run -match "if: github.event_name == 'schedule' && github.ref == 'refs/heads/main' && inputs.sha == ''\r?\n        uses: actions/cache/save@") 'npm downloads restore only on PRs and save only on the weekly main run'
         Require-Workflow ($run -match 'if: always\(\)' -and $run -match 'retention-days: 90') 'matrix preserves reports and logs for 90 days even on failure'
         $report = ($integrationJobs | Where-Object Id -eq 'report').Lines -join "`n"

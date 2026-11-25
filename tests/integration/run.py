@@ -6,6 +6,7 @@ import importlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -70,7 +71,10 @@ def write_report(out: Path, system: str, cases: list[Case], probe: list[str], ex
     for case in cases:
         element = ET.SubElement(suite, "testcase", classname=f"integration.{system}", name=case.title, time=f"{case.seconds:.3f}")
         if case.result != "passed":
-            ET.SubElement(element, "failure" if case.result == "failed" else "skipped", message=case.message)
+            # Hand-built, reason: JUnit XML 1.0 cannot represent terminal control sequences.
+            clean = re.sub(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[ -/]*[0-~])", "", case.message)
+            clean = re.sub(r"[^\x09\x0a\x0d\x20-\ud7ff\ue000-\ufffd]", "", clean)
+            ET.SubElement(element, "failure" if case.result == "failed" else "skipped", message=clean)
     ET.indent(suite)
     ET.ElementTree(suite).write(out / f"integration-{system}.xml", encoding="utf-8", xml_declaration=True)
     benchmark = []
@@ -85,7 +89,7 @@ def write_report(out: Path, system: str, cases: list[Case], probe: list[str], ex
     for first, repeat in zip(cases[::2], cases[1::2], strict=True):
         result = repeat.result if first.result == "passed" else first.result
         lines.append(f"| {first.name} | {first.seconds:.3f} | {repeat.seconds:.3f} | {result} |")
-    notes = [f"- `{case.title}` {case.result}: {case.message.splitlines()[0]}" for case in cases if case.result != "passed"]
+    notes = [f"- `{case.title}` {case.result}: {(case.message.splitlines() or [''])[0]}" for case in cases if case.result != "passed"]
     if notes:
         lines.extend(["", "### Details", "", *notes])
     summary = "\n".join(lines) + "\n"
@@ -110,7 +114,8 @@ def snapshot(root: Path, excludes: list[str] | None = None) -> dict[str, str]:
 def unchanged(before: dict[str, str], after: dict[str, str]) -> None:
     changes = [f"{'added' if name not in before else 'removed' if name not in after else 'changed'}: {name}" for name in sorted(before.keys() | after.keys()) if before.get(name) != after.get(name)]
     if changes:
-        raise AssertionError("the home changed on the repeat run:\n" + "\n".join(changes[:20]))
+        omitted = f"\n{len(changes) - 20} more paths omitted" if len(changes) > 20 else ""
+        raise AssertionError("the home changed on the repeat run:\n" + "\n".join(changes[:20]) + omitted)
 
 
 def require(condition: bool, message: str) -> None:
@@ -196,6 +201,7 @@ class Runner:
                 "TMPDIR": str(temp),
             }
         )
+        self.base_path = self.env["PATH"]
         (self.work / "user-path.txt").touch(exist_ok=True)
         for tool in TOOLS:
             self.env[self.catalog[tool]["configEnv"]] = str(self.folder(tool))
@@ -214,7 +220,10 @@ class Runner:
             candidates += windows_saved_path_folders()
         for folder in candidates:
             if folder.is_dir():
-                self.env["PATH"] += os.pathsep + str(folder)
+                if str(folder) not in self.base_path.split(os.pathsep):
+                    self.base_path += os.pathsep + str(folder)
+                if str(folder) not in self.env["PATH"].split(os.pathsep):
+                    self.env["PATH"] += os.pathsep + str(folder)
         path = shutil.which(name, path=self.env["PATH"])
         if path is None:
             raise AssertionError(f"{name} was not found on PATH after install")
@@ -243,7 +252,7 @@ class Runner:
         env = self.env.copy()
         env[entry["configEnv"]] = str(folder or self.folder(tool))
         env.update(entry["plugin"].get("listingEnv", {}))
-        return self.run([self.command(entry["command"]), *args], env=env)
+        return self.run([self.command(entry["command"]), *args], env=env, cwd=self.work)
 
     def listing(self, tool: str, folder: Path, kind: str = "plugin", include_disabled: bool = False) -> bool:
         args = self.catalog[tool]["plugin"]["marketplaceList" if kind == "marketplace" else "list"]
@@ -257,7 +266,10 @@ class Runner:
         if tool == "copilot":
             try:
                 settings = json.loads((folder / "settings.json").read_text(encoding="utf-8"))
-                source = settings["extraKnownMarketplaces"]["ps-legion-marketplace"]["source"]["path"]
+                marketplace = settings["extraKnownMarketplaces"]["ps-legion-marketplace"]
+                if marketplace["source"]["source"] != "directory" or settings["enabledPlugins"].get("legion@ps-legion-marketplace") is not True:
+                    return None
+                source = marketplace["source"]["path"]
                 manifest = json.loads((Path(source) / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
                 files = [Path(source) / plugin["source"] / "plugin.json" for plugin in manifest["plugins"] if plugin["name"] == "legion"]
             except (OSError, KeyError, ValueError):
@@ -270,7 +282,7 @@ class Runner:
                     versions.append(data["version"])
             except (OSError, ValueError, KeyError):
                 pass
-        return max(versions, default=None)
+        return max(versions, key=lambda value: tuple(int(part) for part in value.split(".")[:3]), default=None)
 
     def settings(self) -> dict[str, Any]:
         return json.loads((self.home / ".legion/configuration/personalisation.json").read_text(encoding="utf-8"))
@@ -283,12 +295,18 @@ class Runner:
         folders = [(tool, self.folder(tool)) for tool in TOOLS]
         if (self.home / ".legion/configuration/personalisation.json").exists():
             folders += [(agent["tool"], self.resolve_folder(agent.get("configDir", ""))) for agent in self.settings()["agents"]]
-        excludes = []
-        for tool, folder in folders:
-            relative = folder.relative_to(self.home).as_posix() if folder.is_relative_to(self.home) else None
-            if relative:
-                excludes += [re.escape(relative) + "/" + pattern for pattern in runtime[tool]]
-        return snapshot(self.home, excludes)
+        # Hand-built, reason: CLI runtime caches in HOME are unrelated to Legion repeat behavior.
+        result = {}
+        for path in [self.home / ".legion", *(folder for _, folder in folders)]:
+            if path.is_dir() and path.is_relative_to(self.home):
+                prefix = path.relative_to(self.home).as_posix()
+                tool = next((tool for tool, folder in folders if folder == path), None)
+                result.update({prefix + "/" + name: value for name, value in snapshot(path, runtime[tool] if tool else []).items()})
+        for name in (".zshrc", ".bashrc", ".profile"):
+            path = self.home / name
+            if path.is_file():
+                result[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        return result
 
     def resolve_folder(self, value: str) -> Path:
         return self.home / value[2:] if value.startswith("~/") else Path(value)
@@ -298,7 +316,7 @@ class Runner:
         try:
             return self.legion(*args)
         except RuntimeError as error:
-            if sys.platform != "win32" or "exited 2" not in str(error):
+            if sys.platform != "win32" or not re.search(r"\bexited 2(?:\n|$)", str(error)):
                 raise
             return self.legion(*args, "--method", "zip")
 
@@ -313,16 +331,20 @@ class Runner:
             raise AssertionError(f"{tool} --version has no version token: {version_output}")
         value = (match.group(), command)
         if repeat:
-            require(value == self.versions[tool], f"{tool} version or executable changed on repeat")
+            require(value == self.versions[tool], f"{tool} version or executable changed on repeat: {self.versions[tool]} -> {value}")
         else:
             self.versions[tool] = value
         return output + "\n" + version_output
 
-    def install_uv(self, repeat: bool) -> str:
-        output = self.install_tool("uv")
-        if repeat:
-            contains(output, "skip:")
-        return output + "\n" + self.run([self.command("uv"), "--version"])
+    def bootstrap(self, repeat: bool) -> str:
+        if sys.platform == "win32":
+            output = self.run(["powershell.exe", "-NoProfile", "-File", str(self.checkout / "install.ps1"), "-Yes", "-HomeRoot", str(self.home)])
+        else:
+            output = self.run(["sh", str(self.checkout / "install.sh"), "--yes"])
+        contains(output, "skip: uv (already done)")
+        uv = self.home / ".legion/tools/uv" / ("uv.exe" if sys.platform == "win32" else "uv")
+        require(uv.is_file(), f"bootstrap did not install uv at {uv}")
+        return output + "\n" + self.run([str(uv), "--version"])
 
     def install_legion(self, tool: str) -> str:
         source, ref = self.targets.get(tool, (str(self.checkout), "release"))
@@ -355,10 +377,11 @@ class Runner:
                     continue
                 revision = self.run(["git", "-C", str(self.checkout), "rev-parse", "HEAD"])
                 remote = self.run(["git", "-C", str(self.checkout), "ls-remote", "origin", "refs/heads/main"]).split()[0]
-                require(remote == revision, f"{tool} needs published source but main moved")
+                require(remote == revision, f"{tool} needs published source but main differs: checkout {revision}, main {remote}")
                 self.targets[tool] = (MARKETPLACE, "main")
                 lines.append(self.install_legion(tool))
-                require(self.run(["git", "-C", str(self.checkout), "ls-remote", "origin", "refs/heads/main"]).split()[0] == revision, "main moved during install")
+                later = self.run(["git", "-C", str(self.checkout), "ls-remote", "origin", "refs/heads/main"]).split()[0]
+                require(later == revision, f"main moved during install: {revision} -> {later}")
         require(not errors, "\n".join(errors))
         require(bool(self.active()), "; ".join(self.not_tested.values()))
         expected = json.loads((self.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
@@ -474,7 +497,7 @@ class Runner:
             require(self.commit_count(repo / ".legion") >= 1, "inner repository has no commit")
             require(self.commit_count(repo) == 1 and not self.run(["git", "-C", str(repo), "status", "--porcelain"]), "outer repository changed")
             if repeat:
-                contains(output, "skip:")
+                contains(output, "skip: Private orchestration (already done)")
                 require(self.commit_count(repo / ".legion") == self.state["inner_commits"], "repeat made an inner commit")
             else:
                 self.state["inner_commits"] = self.commit_count(repo / ".legion")
@@ -549,28 +572,29 @@ class Runner:
         marker = trap / "called"
         marker.unlink(missing_ok=True)
         if sys.platform == "win32":
-            (trap / "pwsh.cmd").write_text('@echo off\necho called>"%LEGION_PWSH_TRAP_MARKER%"\nexit /b 97\n', encoding="utf-8")
+            (trap / "pwsh.cmd").write_text(f'@echo off\necho called>"{marker}"\nexit /b 97\n', encoding="utf-8")
         else:
             executable = trap / "pwsh"
-            executable.write_text('#!/bin/sh\necho called > "$LEGION_PWSH_TRAP_MARKER"\nexit 97\n', encoding="utf-8")
+            executable.write_text(f"#!/bin/sh\necho called > {shlex.quote(str(marker))}\nexit 97\n", encoding="utf-8")
             executable.chmod(0o755)
-        old = self.env["PATH"]
         kept = []
-        for folder in old.split(os.pathsep):
+        for folder in self.base_path.split(os.pathsep):
             if not folder:
                 continue
             path = Path(folder)
-            if not (path / ("pwsh.exe" if sys.platform == "win32" else "pwsh")).exists() or any(
-                (path / (name + suffix)).exists() for name in ("uv", "git", "sh", "claude", "codex", "copilot", "legion") for suffix in ("", ".exe", ".cmd")
+            if (
+                sys.platform != "win32"
+                or not (path / "pwsh.exe").exists()
+                or any(
+                    (path / (name + suffix)).exists() for name in ("uv", "git", "sh", "claude", "codex", "copilot", "legion", "node", "npm", "npx", "winget", "az") for suffix in ("", ".exe", ".cmd")
+                )
             ):
                 kept.append(folder)
         self.env["PATH"] = os.pathsep.join([str(trap), str(self.checkout / "tests/fixtures/integration-az"), *kept])
-        self.env["LEGION_PWSH_TRAP_MARKER"] = str(marker)
         try:
             yield
         finally:
-            self.env["PATH"] = old
-            self.env.pop("LEGION_PWSH_TRAP_MARKER", None)
+            self.env["PATH"] = self.base_path
             require(not marker.exists(), "a command called pwsh")
 
     def no_pwsh(self, repeat: bool) -> str:
@@ -648,6 +672,8 @@ class Runner:
         for tool in self.active():
             self.run([self.command(self.catalog[tool]["command"]), "--version"])
         require(not self.launcher("legion").exists(), "owner command remains")
+        if sys.platform == "win32":
+            require(not self.launcher("legion").with_suffix("").exists(), "owner command remains")
         require(not (self.home / ".legion/app").exists(), "app remains")
         self.check_launchers()
         for name in ("configuration", "agents"):
@@ -690,7 +716,7 @@ class Runner:
                         require(not (folder / relative).exists(), f"purge path remains: {folder / relative}")
                 for setting in plugin.get("purge", {}).get("settings", []):
                     path = folder / setting["path"]
-                    require(not path.is_file() or "legion" not in path.read_text(encoding="utf-8"), f"legion remains in {path}")
+                    require(not path.is_file() or "legion" not in path.read_text(encoding="utf-8").lower(), f"legion remains in {path}")
         for tool in TOOLS:
             self.cli(tool, ["--version"])
         if repeat:
@@ -700,9 +726,9 @@ class Runner:
         return output
 
     def steps(self) -> list[tuple[str, Any]]:
-        steps = [(f"install-cli-{tool}", lambda repeat, tool=tool: self.install_cli(tool, repeat)) for tool in TOOLS]
+        steps = [("bootstrap", self.bootstrap)]
+        steps += [(f"install-cli-{tool}", lambda repeat, tool=tool: self.install_cli(tool, repeat)) for tool in TOOLS]
         steps += [
-            ("install-uv", self.install_uv),
             ("install-legion", lambda repeat: self.install_repeat() if repeat else self.install_first()),
             ("setup", lambda repeat: self.setup_repeat() if repeat else self.setup_first()),
             ("add", self.add),
@@ -732,13 +758,16 @@ class Runner:
                     result, message = "skipped", blocked
                 else:
                     try:
-                        with self.without_pwsh():
+                        if name == "bootstrap":
                             returned = action(repeat)
+                        else:
+                            with self.without_pwsh():
+                                returned = action(repeat)
                         if isinstance(returned, str):
                             logged = "\n".join(self.log).splitlines()
                             self.log.extend(line for line in returned.splitlines() if line not in logged)
                     except Exception as error:
-                        result, message = "failed", str(error)
+                        result, message = "failed", str(error) or type(error).__name__
                         blocked = f"previous step failed: {name}{' (repeat)' if repeat else ''}"
                 log = "\n".join([*self.log, message]).strip()
                 case = Case(name, repeat, result, time.monotonic() - start if not blocked or result == "failed" else 0, message, log)

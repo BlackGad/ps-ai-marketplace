@@ -38,7 +38,24 @@ jobs:
         with:
           ref: ${{ inputs.sha || github.sha }}
           persist-credentials: false
-      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      - name: Bootstrap uv on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $homeRoot = Join-Path $env:RUNNER_TEMP 'legion-home'
+          powershell.exe -NoProfile -File ./install.ps1 -Yes -HomeRoot $homeRoot
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $uvFolder = Join-Path $homeRoot '.legion/tools/uv'
+          if (-not (Test-Path (Join-Path $uvFolder 'uv.exe'))) { throw 'bootstrap did not install uv' }
+          $uvFolder >> $env:GITHUB_PATH
+      - name: Bootstrap uv on macOS and Linux
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          export HOME="$RUNNER_TEMP/legion-home"
+          sh ./install.sh --yes
+          test -x "$HOME/.legion/tools/uv/uv"
+          echo "$HOME/.legion/tools/uv" >> "$GITHUB_PATH"
       - name: Select the npm download cache
         shell: bash
         run: |
@@ -56,7 +73,7 @@ jobs:
         run: |
           args=()
           if [ "$ALLOW_SOURCE_FALLBACK" = true ]; then args+=(--allow-source-fallback); fi
-          python tests/integration/run.py --out results "${args[@]}"
+          uv run --no-project --python 3.12 tests/integration/run.py --out results "${args[@]}"
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
