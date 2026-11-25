@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.17.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.16.0...v0.17.0) (2026-11-25)
+
+
+### Features
+
+* **python:** setup and add in Python ([#82](https://github.com/BlackGad/ps-legion-marketplace/issues/82)) ([0989a8c](https://github.com/BlackGad/ps-legion-marketplace/commit/0989a8c63d855eeb80c0a2730739824bb9ef21fe))
+* **python:** the installer lifecycle in Python ([#80](https://github.com/BlackGad/ps-legion-marketplace/issues/80)) ([d970044](https://github.com/BlackGad/ps-legion-marketplace/commit/d97004428ced416b13ab5850cec3bbe1dd2dc31e))
+* **python:** the overseer launch in Python ([#78](https://github.com/BlackGad/ps-legion-marketplace/issues/78)) ([a91899b](https://github.com/BlackGad/ps-legion-marketplace/commit/a91899bdd5f0dcafd1a9cbdf45490bcaf901050d))
+* **python:** tool installs in Python ([#77](https://github.com/BlackGad/ps-legion-marketplace/issues/77)) ([5217d8f](https://github.com/BlackGad/ps-legion-marketplace/commit/5217d8f24d35f5d7481f842210140a0662adac4a))
+
+
+### Fixes
+
+* **install:** resolve milestone four release findings ([#85](https://github.com/BlackGad/ps-legion-marketplace/issues/85)) ([55704fd](https://github.com/BlackGad/ps-legion-marketplace/commit/55704fdbc2d0fda5e0d3f4ddc42edfa66ca09c1f))
+* **lease:** keep a same-tick parent in the process chain ([#81](https://github.com/BlackGad/ps-legion-marketplace/issues/81)) ([30e9a0a](https://github.com/BlackGad/ps-legion-marketplace/commit/30e9a0a05e6265a6e16ca2e172c9d0f8f672b52e))
+* **lease:** skip the legion launcher when finding the session ([#75](https://github.com/BlackGad/ps-legion-marketplace/issues/75)) ([cd8585c](https://github.com/BlackGad/ps-legion-marketplace/commit/cd8585cf1cf28cd651637f997f18345ea4fc3381))
+
+
+### Tests
+
+* **integration:** the integration runner in Python ([#83](https://github.com/BlackGad/ps-legion-marketplace/issues/83)) ([252779a](https://github.com/BlackGad/ps-legion-marketplace/commit/252779a73ec276699fad6c207f16ecf93bd65fcb))
+* tolerate same-tick process starts in the chain test ([30e9a0a](https://github.com/BlackGad/ps-legion-marketplace/commit/30e9a0a05e6265a6e16ca2e172c9d0f8f672b52e))
+
 ## [0.16.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.15.0...v0.16.0) (2026-11-24)
 
 
