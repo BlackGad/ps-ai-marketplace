@@ -46,6 +46,125 @@ def test_no_coding_cli_installs_owner_command_without_plugin(tmp_path: Path, mon
     assert len(uv.calls) == 1
 
 
+def _command_only_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    home = tmp_path / "home"
+    source = make_source(tmp_path)
+    FakeUv(monkeypatch)
+    monkeypatch.setattr(_installer, "PLUGIN_ROOT", source)
+    monkeypatch.setattr(_installer, "ensure_path", lambda _home, _dry_run, _lines: None)
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: "uv" if name == "uv" else None)
+    _installer.install(home, yes=True, catalog=catalog())
+    command = home / ".legion/bin" / ("legion.cmd" if sys.platform == "win32" else "legion")
+    return home, command
+
+
+def test_command_only_install_uninstalls_purges_and_repeats(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    assert any(entry.kind == "file" and entry.owners for entry in _footprints.read(home).entries)
+    preview = _installer.install(home, uninstall=True, dry_run=True, catalog=catalog())
+    assert command.is_file()
+    assert any(f"Remove file: {command}" in line for line in preview)
+
+    lines = _installer.install(home, uninstall=True, purge=True, yes=True, catalog=catalog())
+    assert not command.exists()
+    assert not (home / ".legion/app").exists()
+    assert not (home / ".legion").exists()
+    assert "done: purge" in lines
+    repeat = _installer.install(home, uninstall=True, purge=True, yes=True, catalog=catalog())
+    assert "Nothing to uninstall." in repeat
+
+
+def test_command_only_install_from_an_older_release_is_adopted_by_uninstall(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    # Older releases recorded the app version and PATH entry but no owner for the command or the app folder.
+    for entry in _footprints.read(home).entries:
+        if entry.kind in ("file", "app"):
+            _footprints.remove_entry(home, entry.kind, entry.path)
+    assert not [entry for entry in _footprints.read(home).entries if entry.kind in ("file", "app")]
+    _installer.install(home, uninstall=True, purge=True, yes=True, catalog=catalog())
+    assert not command.exists()
+    assert not (home / ".legion").exists()
+
+
+def _drop_standalone_records(home: Path) -> None:
+    for entry in _footprints.read(home).entries:
+        if entry.kind in ("file", "app"):
+            _footprints.remove_entry(home, entry.kind, entry.path)
+
+
+def _index_bytes(home: Path) -> dict[Path, bytes]:
+    return {path: path.read_bytes() for path in sorted((home / ".legion").rglob("*")) if path.is_file() and path.suffix == ".json"}
+
+
+def test_uninstall_with_a_config_dir_keeps_the_standalone_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    folder = tmp_path / "unrelated"
+    folder.mkdir()
+    _installer.install(home, uninstall=True, yes=True, config_dir=folder, catalog=catalog())
+    assert command.is_file()
+    assert any(entry.kind == "file" and _installer.STANDALONE_OWNER in entry.owners for entry in _footprints.read(home).entries)
+
+
+def test_legacy_uninstall_with_a_config_dir_adopts_and_removes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    _drop_standalone_records(home)
+    before = _index_bytes(home)
+    folder = tmp_path / "unrelated"
+    folder.mkdir()
+    _installer.install(home, uninstall=True, yes=True, config_dir=folder, catalog=catalog())
+    assert command.is_file()
+    assert _index_bytes(home) == before
+
+
+def test_legacy_adoption_is_only_a_preview_for_dry_run_and_decline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    _drop_standalone_records(home)
+    before = _index_bytes(home)
+    preview = _installer.install(home, uninstall=True, dry_run=True, catalog=catalog())
+    assert f"Remove file: {command}" in preview
+    assert _index_bytes(home) == before
+    monkeypatch.setattr(_installer, "_confirm", lambda _question, _lines: False)
+    declined = _installer.install(home, uninstall=True, catalog=catalog())
+    assert "Uninstall cancelled." in declined
+    assert command.is_file()
+    assert _index_bytes(home) == before
+    # After consent the command goes, and a repeat has nothing left.
+    _installer.install(home, uninstall=True, yes=True, catalog=catalog())
+    assert not command.exists()
+    assert "Nothing to uninstall." in _installer.install(home, uninstall=True, yes=True, catalog=catalog())
+
+
+def test_older_record_with_a_foreign_command_file_removes_nothing_foreign(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    for entry in _footprints.read(home).entries:
+        if entry.kind in ("file", "app"):
+            _footprints.remove_entry(home, entry.kind, entry.path)
+    command.write_text("owner script", encoding="utf-8")
+    _installer.install(home, uninstall=True, yes=True, catalog=catalog())
+    assert command.read_text(encoding="utf-8") == "owner script"
+
+
+def test_partial_uninstall_keeps_the_command_a_command_only_install_owns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    lines = _installer.install(home, tools=["codex"], uninstall=True, yes=True, catalog=catalog())
+    assert command.is_file()
+    assert any(entry.kind == "app-version" for entry in _footprints.read(home).entries)
+    assert not any("Remove app version" in line for line in lines)
+
+
+def test_command_only_uninstall_keeps_another_owners_command_and_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    owner = f"claude:{tmp_path / 'claude-a'}"
+    _footprints.add(home, "file", command, owner)
+    _footprints.add(home, "app", home / ".legion/app", owner)
+    _installer.install(home, tools=["codex"], uninstall=True, yes=True, catalog=catalog())
+    assert command.is_file()
+    # Only the standalone owner leaves; the other owner keeps the command and the app version.
+    _footprints.remove_owner(home, [_installer.STANDALONE_OWNER])
+    assert command.is_file()
+    assert any(entry.kind == "app-version" for entry in _footprints.read(home).entries)
+
+
 def test_no_coding_cli_declined_command_install_changes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_installer.shutil, "which", lambda _name: None)
     monkeypatch.setattr(_installer, "_confirm", lambda _question, _lines: False)
@@ -194,10 +313,10 @@ def test_local_source_is_absolute_when_cli_runs_elsewhere(tmp_path: Path, monkey
     assert source.as_posix() in lines[0]
 
 
-def test_install_prompt_discloses_path_edit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_install_prompt_discloses_path_edit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setattr(_installer.shutil, "which", lambda _name: "claude")
     questions: list[str] = []
-    monkeypatch.setattr("builtins.input", lambda question: questions.append(question) or "n")
+    monkeypatch.setattr("builtins.input", lambda: questions.append(capsys.readouterr().out) or "n")
     _installer.install(tmp_path, ["claude"], catalog=catalog())
     assert len(questions) == 1
     assert "PATH" in questions[0]
@@ -233,10 +352,79 @@ def test_copilot_root_uses_from_line_only_for_legion(tmp_path: Path, monkeypatch
         manifest.write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
         registry = root / ".claude-plugin/marketplace.json"
         registry.parent.mkdir()
-        registry.write_text('{"plugins":[{"name":"legion","source":"plugins/legion"}]}', encoding="utf-8")
+        registry.write_text('{"name":"ps-legion-marketplace","plugins":[{"name":"legion","source":"plugins/legion"}]}', encoding="utf-8")
     listing = f"other@marketplace 1.0.0\n  from {unrelated}\nlegion@ps-legion-marketplace 1.2.3\n  from {expected}"
     monkeypatch.setattr(_installer, "_listing", lambda *_args: listing)
     assert _installer._plugin_root(entry, tmp_path) == expected / "plugins/legion"
+
+
+def test_copilot_live_local_plugin_resolves_indented_listing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "copilot")
+    folder = tmp_path / "copilot"
+    folder.mkdir()
+    marketplace = tmp_path / "checkout"
+    manifest = marketplace / "plugins/legion/plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"legion","version":"0.16.0"}', encoding="utf-8")
+    registry = marketplace / ".claude-plugin/marketplace.json"
+    registry.parent.mkdir()
+    registry.write_text('{"name":"ps-legion-marketplace","plugins":[{"name":"legion","source":"./plugins/legion"}]}', encoding="utf-8")
+    settings = {"extraKnownMarketplaces": {"ps-legion-marketplace": {"source": {"source": "directory", "path": str(marketplace)}}}, "enabledPlugins": {"legion@ps-legion-marketplace": True}}
+    (folder / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+    listing = f"Live Plugins (loaded from a local marketplace directory, never copied):\n  • legion@ps-legion-marketplace (v0.16.0) (enabled)\n      from {marketplace}"
+    monkeypatch.setattr(_installer, "_listing", lambda *_args: listing)
+    assert _installer._plugin_root(entry, folder) == manifest.parent
+
+    settings["enabledPlugins"]["legion@ps-legion-marketplace"] = False
+    (folder / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+    monkeypatch.setattr(_installer, "_listing", lambda *_args: listing.replace("(enabled)", "(disabled)"))
+    assert _installer._plugin_root(entry, folder) == manifest.parent
+
+    monkeypatch.setattr(_installer, "_listing", lambda *_args: "No plugins installed.")
+    assert _installer._plugin_root(entry, folder) is None
+
+    monkeypatch.setattr(_installer, "_listing", lambda *_args: listing)
+    settings["extraKnownMarketplaces"]["ps-legion-marketplace"]["source"]["path"] = str(tmp_path / "other")
+    (folder / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+    with pytest.raises(_installer.InstallerError, match="could not be identified uniquely"):
+        _installer._plugin_root(entry, folder)
+
+    del settings["extraKnownMarketplaces"]["ps-legion-marketplace"]
+    (folder / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+    assert _installer._plugin_root(entry, folder) is None
+
+    settings["extraKnownMarketplaces"]["ps-legion-marketplace"] = {"source": {"source": "directory", "path": str(marketplace)}}
+    (folder / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+    registry.write_text('{"name":"other-marketplace","plugins":[{"name":"legion","source":"./plugins/legion"}]}', encoding="utf-8")
+    with pytest.raises(_installer.InstallerError, match="could not be identified uniquely"):
+        _installer._plugin_root(entry, folder)
+
+
+def test_copilot_live_listing_rejects_ambiguous_legion_sources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "copilot")
+    roots = [tmp_path / "one", tmp_path / "two"]
+    for root in roots:
+        manifest = root / "plugins/legion/plugin.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
+        registry = root / ".claude-plugin/marketplace.json"
+        registry.parent.mkdir()
+        registry.write_text('{"name":"ps-legion-marketplace","plugins":[{"name":"legion","source":"plugins/legion"}]}', encoding="utf-8")
+    listing = "\n".join(f"  • legion@ps-legion-marketplace (v1.2.3) (enabled)\n      from {root}" for root in roots)
+    monkeypatch.setattr(_installer, "_listing", lambda *_args: listing)
+    with pytest.raises(_installer.InstallerError, match="could not be identified uniquely"):
+        _installer._plugin_root(entry, tmp_path)
+
+
+def test_copilot_copied_plugin_keeps_installed_root_semantics(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "copilot")
+    folder = tmp_path / "copilot"
+    manifest = folder / "installed-plugins/legion-marketplace/legion/plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
+    (folder / "settings.json").write_text('{"extraKnownMarketplaces":{"other":{}}}', encoding="utf-8")
+    monkeypatch.setattr(_installer, "_listing", lambda *_args: "legion@ps-legion-marketplace 1.2.3")
+    assert _installer._plugin_root(entry, folder) == manifest.parent
 
 
 def test_uninstall_refresh_failure_keeps_command_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -342,6 +530,44 @@ def test_purge_waits_for_writer_and_removes_lock_last(tmp_path: Path, monkeypatc
     assert [(entry.kind, entry.value) for entry in _footprints.read(home).entries] == [("path-entry", "new")]
 
 
+def test_idle_purge_leaves_no_lock_or_folder_and_repeat_skips(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    (home / ".legion/configuration").mkdir(parents=True)
+    _installer.apply_purge(_installer.purge_plan(home, catalog()))
+    assert not (home / ".legion").exists()
+    assert _installer.purge_plan(home, catalog()).lines == ["skip: purge (already done)"]
+
+
+def test_purge_keeps_folder_a_writer_refilled_before_removal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    (home / ".legion/configuration").mkdir(parents=True)
+    plan = _installer.purge_plan(home, catalog())
+    original = Path.rmdir
+
+    def refilled(path: Path) -> None:
+        if path == plan.legion:
+            (path / "footprints.json").write_text("{}", encoding="utf-8")
+        original(path)
+
+    monkeypatch.setattr(Path, "rmdir", refilled)
+    _installer.apply_purge(plan)
+    assert (home / ".legion/footprints.json").read_text(encoding="utf-8") == "{}"
+
+
+def test_purge_reports_an_unrelated_folder_removal_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    (home / ".legion/configuration").mkdir(parents=True)
+    plan = _installer.purge_plan(home, catalog())
+
+    def refuse(_path: Path) -> None:
+        raise PermissionError("denied")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "rmdir", refuse)
+        with pytest.raises(PermissionError):
+            _installer.apply_purge(plan)
+
+
 def test_self_purge_keeps_running_copy_and_clears_other_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
     app = home / ".legion/app/1.2.3"
@@ -374,7 +600,7 @@ def test_repeat_purge_with_retained_app_skips_without_prompt_or_change(tmp_path:
     first = _installer.install(home, ["codex"], uninstall=True, purge=True, yes=True, catalog=catalog())
     assert any("keeping app and python" in line for line in first)
     index = (home / ".legion/footprints.json").read_bytes()
-    monkeypatch.setattr("builtins.input", lambda _question: pytest.fail("repeat purge prompted"))
+    monkeypatch.setattr("builtins.input", lambda: pytest.fail("repeat purge prompted"))
     second = _installer.install(home, ["codex"], uninstall=True, purge=True, catalog=catalog())
     assert "skip: purge (already done)" in second
     assert not any(line.startswith("Remove ") for line in second)
@@ -395,12 +621,22 @@ def test_uninstall_purge_asks_twice_and_dry_run_neither_prompts_nor_runs_cli(tmp
     command = home / ".legion/bin/legion"
     _footprints.add(home, "file", command, _footprints.target_owner("codex", folder))
     questions: list[str] = []
-    monkeypatch.setattr("builtins.input", lambda question: questions.append(question) or "y")
+    monkeypatch.setattr("builtins.input", lambda: questions.append("asked") or "y")
     monkeypatch.setattr(_installer, "_step", lambda *_args: pytest.fail("CLI command ran"))
     _installer.install(home, ["codex"], config_dir=folder, uninstall=True, purge=True, dry_run=True, catalog=catalog())
     assert questions == []
     _installer.install(home, ["codex"], config_dir=folder, uninstall=True, purge=True, catalog=catalog())
     assert len(questions) == 2
+
+
+def test_confirmation_question_is_visible_before_input(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    def answer(question: str = "") -> str:
+        assert question == ""
+        assert capsys.readouterr().out.endswith("Apply? [y/N]\n")
+        return "y"
+
+    monkeypatch.setattr("builtins.input", answer)
+    assert _installer._confirm("Apply? [y/N]", ["plan line"])
 
 
 def test_cli_uninstall_runs_without_pwsh(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -726,6 +962,37 @@ def test_uninstall_removes_only_recorded_allow_rule(tmp_path: Path) -> None:
     assert not [entry for entry in _footprints.read(home).entries if entry.kind == "edit"]
 
 
+def test_allow_rule_edit_leaves_the_same_text_in_deny_untouched(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    settings = home / ".legion/agents/claude-a/settings.json"
+    settings.parent.mkdir(parents=True)
+    # The allow entry spells the rule with a JSON escape; the deny entry spells the same rule literally.
+    text = '{"permissions":{"allow":["owner","Bash(LEGION_ROLE=\\u002a)"],"deny":["Bash(LEGION_ROLE=*)"]}}'
+    settings.write_text(text, encoding="utf-8")
+    owner = f"claude:{settings.parent}"
+    _footprints.add(home, "edit", settings, owner, key="permissions.allow", value="Bash(LEGION_ROLE=*)")
+    lines: list[str] = []
+    _installer.remove_owned_edits(home, [owner], lines)
+    after = json.loads(settings.read_text(encoding="utf-8"))
+    assert after == {"permissions": {"allow": ["owner"], "deny": ["Bash(LEGION_ROLE=*)"]}}
+    assert '"deny":["Bash(LEGION_ROLE=*)"]' in settings.read_text(encoding="utf-8")
+
+
+def test_allow_rule_edit_changes_nothing_else_in_nested_data(tmp_path: Path) -> None:
+    settings = tmp_path / "settings.json"
+    text = '{"a":{"x":[1,{"y":"rule"}]},"permissions":{"allow":["rule","keep"],"ask":["rule"]},"z":"rule"}'
+    settings.write_text(text, encoding="utf-8")
+    edit = _installer._allow_edit(settings, "rule")
+    assert edit is not None
+    assert edit.after.decode() == '{"a":{"x":[1,{"y":"rule"}]},"permissions":{"allow":["keep"],"ask":["rule"]},"z":"rule"}'
+
+
+def test_allow_rule_edit_refuses_an_ambiguous_allow_array(tmp_path: Path) -> None:
+    settings = tmp_path / "settings.json"
+    settings.write_text('{"permissions":{"allow":["rule","rule"]},"other":{"permissions":{"allow":["rule"]}}}', encoding="utf-8")
+    assert _installer._allow_edit(settings, "rule") is None
+
+
 def test_copilot_jsonc_inventory_edit_keeps_owner_comments(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
     (home / ".legion").mkdir(parents=True)
@@ -906,7 +1173,7 @@ def test_copilot_directory_marketplace_listing_finds_plugin_root(tmp_path: Path,
     manifest.write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
     registry = marketplace / ".claude-plugin/marketplace.json"
     registry.parent.mkdir()
-    registry.write_text('{"plugins":[{"name":"legion","source":"plugins/legion"}]}', encoding="utf-8")
+    registry.write_text('{"name":"ps-legion-marketplace","plugins":[{"name":"legion","source":"plugins/legion"}]}', encoding="utf-8")
     monkeypatch.setattr(_installer, "_listing", lambda *_: f"legion@ps-legion-marketplace 1.2.3\n  from {marketplace}")
     assert _installer._plugin_root(entry, folder) == manifest.parent
 
@@ -982,7 +1249,7 @@ def test_profile_edit_keeps_utf16_and_crlf(tmp_path: Path) -> None:
 def test_confirmation_prints_target_preview_before_asking(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     lines = ["Target: codex in selected folder", "codex plugin remove legion@ps-legion-marketplace"]
 
-    def answer(_question: str) -> str:
+    def answer() -> str:
         assert "Target: codex in selected folder" in capsys.readouterr().out
         return "n"
 
@@ -1152,7 +1419,7 @@ def test_install_without_consent_changes_nothing_and_says_how_to_apply(tmp_path:
     _fake_targets(tmp_path, monkeypatch)
     ran = _steps_run(monkeypatch)
 
-    def closed_stdin(_question: str) -> str:
+    def closed_stdin() -> str:
         raise EOFError
 
     monkeypatch.setattr("builtins.input", closed_stdin)
@@ -1166,7 +1433,7 @@ def test_install_without_consent_changes_nothing_and_says_how_to_apply(tmp_path:
 def test_the_owner_can_say_yes_at_the_install_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_targets(tmp_path, monkeypatch)
     ran = _steps_run(monkeypatch)
-    monkeypatch.setattr("builtins.input", lambda _question: "yes")
+    monkeypatch.setattr("builtins.input", lambda: "yes")
     lines = _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", catalog=catalog())
     assert ran == ["claude"]
     assert "Nothing changed. Run again with --yes to apply." not in lines
@@ -1174,7 +1441,7 @@ def test_the_owner_can_say_yes_at_the_install_prompt(tmp_path: Path, monkeypatch
 
 def test_a_dry_run_never_prompts_and_changes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_targets(tmp_path, monkeypatch)
-    monkeypatch.setattr("builtins.input", lambda _question: pytest.fail("a dry run asked"))
+    monkeypatch.setattr("builtins.input", lambda: pytest.fail("a dry run asked"))
     lines = _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", dry_run=True, catalog=catalog())
     assert not (tmp_path / "config").exists()
     assert not (tmp_path / ".legion").exists()
@@ -1195,9 +1462,10 @@ def test_install_prints_the_tool_hook_hint(tmp_path: Path, monkeypatch: pytest.M
     assert hint in _installer.install(tmp_path, ["codex"], config_dir=tmp_path / "config", yes=True, catalog=catalog())
 
 
-def test_update_asks_once_across_folders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_asks_once_across_folders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     _fake_targets(tmp_path, monkeypatch)
     questions: list[str] = []
-    monkeypatch.setattr("builtins.input", lambda question: questions.append(question) or "y")
+    monkeypatch.setattr("builtins.input", lambda: questions.append(capsys.readouterr().out) or "y")
     _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", update=True, catalog=catalog())
-    assert questions == ["Update legion? [y/N] "]
+    assert len(questions) == 1
+    assert questions[0].endswith("Update legion? [y/N]\n")

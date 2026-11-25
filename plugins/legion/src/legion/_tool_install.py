@@ -18,7 +18,7 @@ from typing import IO, Any, Optional, Union
 from pydantic import BaseModel
 
 from . import _user_path
-from ._home import full_path, is_under
+from ._home import full_path, is_under, owner_path_safe
 from ._plugin import PLUGIN_ROOT
 from ._run import run_command
 from ._settings_models import BinaryDownload, InstallRecipe, ScriptDownload, ToolDescriptor, Windows
@@ -247,24 +247,36 @@ class ToolInstaller:
         folder = inside(root, path_folder)
         command = portable_command(recipe, root)
         if archive is not None and (command is None or not command.is_file()):
-            # Extract beside the final folder and rename it into place, so an interrupted run leaves no half install.
-            staging = root.with_name(root.name + ".staging")
-            shutil.rmtree(staging, ignore_errors=True)
-            # extractall drops the parts of a name that would climb out of the folder.
-            with zipfile.ZipFile(archive) as contents:
-                contents.extractall(staging)
-            staged = portable_command(recipe, staging)
-            if staged is None or not staged.is_file():
+            if not owner_path_safe(root, self.home):
+                raise ToolInstallError(f"{tool} folder path contains a link; resolve it before installing")
+            root.parent.mkdir(parents=True, exist_ok=True)
+            # A private staging folder beside the final one: another installer's staging is never touched.
+            staging = Path(tempfile.mkdtemp(dir=root.parent, prefix=f"{root.name}.staging-"))
+            try:
+                # extractall drops the parts of a name that would climb out of the folder.
+                with zipfile.ZipFile(archive) as contents:
+                    contents.extractall(staging)
+                staged = portable_command(recipe, staging)
+                if staged is None or not staged.is_file():
+                    raise ToolInstallError(f"{tool} executable missing from download")
+                self._place(tool, staging, root)
+            finally:
                 shutil.rmtree(staging, ignore_errors=True)
-                raise ToolInstallError(f"{tool} executable missing from download")
-            shutil.rmtree(root, ignore_errors=True)
-            staging.rename(root)
             command = portable_command(recipe, root)
         if command is None or not command.is_file():
             raise ToolInstallError(f"{tool} executable missing from download")
         if not folder.is_dir():
             raise ToolInstallError(f"executable folder missing for {tool} download")
         _user_path.add(self.home, folder)
+
+    # Move the staged folder into place. A folder that already holds files is never merged or replaced.
+    def _place(self, tool: str, staging: Path, root: Path) -> None:
+        try:
+            if root.exists():
+                root.rmdir()  # only an empty folder can go; anything else raises
+            staging.rename(root)
+        except OSError as error:
+            raise ToolInstallError(f"{tool} folder {root} already has files; move or remove it, then run again") from error
 
     def download_install(self, tool: str, recipe: InstallRecipe, method: str) -> None:
         download = self.resolve_download(tool, method)

@@ -16,12 +16,15 @@ import tomlkit
 from tomlkit.items import InlineTable
 
 from . import _footprints, _refresh, _user_path
-from ._home import bin_folder, footprint_index, full_path, home_path, is_reparse, is_under, owner_path_safe, same_path, tree_has_reparse
+from ._generated import is_owned
+from ._home import bin_folder, footprint_index, full_path, home_path, is_reparse, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
 from ._plugin import PLUGIN_ROOT
 from ._run import run_command
 
 
 DEFAULT_SOURCE = "BlackGad/ps-legion-marketplace"
+# Owns the command and app that install published when no coding CLI exists, so a full uninstall can retire them.
+STANDALONE_OWNER = "standalone"
 
 
 class InstallerError(ValueError):
@@ -298,6 +301,37 @@ def _remove_copilot_item(text: str, clean: str) -> str:
     return changed
 
 
+def _skip_space(text: str, position: int) -> int:
+    rest = text[position:]
+    return position + len(rest) - len(rest.lstrip())
+
+
+def _allow_item_spans(clean: str, value: str) -> list[tuple[int, int]]:
+    # Other arrays and members can hold the same text, so only items of the one permissions.allow array count.
+    decoder = json.JSONDecoder()
+    permissions = list(re.finditer(r'"permissions"\s*:\s*', clean))
+    if len(permissions) != 1:
+        return []
+    start_of_object = permissions[0].end()
+    _, length = decoder.raw_decode(clean[start_of_object:])
+    end_of_object = start_of_object + length
+    arrays = list(re.finditer(r'"allow"\s*:\s*\[', clean[start_of_object:end_of_object]))
+    if len(arrays) != 1:
+        return []
+    position = start_of_object + arrays[0].end()
+    spans: list[tuple[int, int]] = []
+    while True:
+        position = _skip_space(clean, position)
+        if clean[position] == "]":
+            return spans
+        item, length = decoder.raw_decode(clean[position:])
+        if item == value:
+            spans.append((position, position + length))
+        position = _skip_space(clean, position + length)
+        if clean[position] == ",":
+            position += 1
+
+
 def _allow_edit(path: Path, value: str, data: bytes | None = None) -> Edit | None:
     before = data if data is not None else path.read_bytes()
     try:
@@ -307,12 +341,11 @@ def _allow_edit(path: Path, value: str, data: bytes | None = None) -> Edit | Non
         allowed = document.get("permissions", {}).get("allow", [])
         if not isinstance(allowed, list) or value not in allowed:
             return None
-        # Hand-built, reason: remove the recorded array item by its token span and leave other JSONC bytes untouched.
-        token = json.dumps(value)
-        matches = list(re.finditer(re.escape(token), clean))
+        # Hand-built, reason: remove the recorded array item by its token span inside permissions.allow only.
+        matches = _allow_item_spans(clean, value)
         if len(matches) != 1:
             return None
-        start, end = matches[0].span()
+        start, end = matches[0]
         suffix = re.match(r"\s*,", clean[end:])
         if suffix:
             end += suffix.end()
@@ -321,7 +354,11 @@ def _allow_edit(path: Path, value: str, data: bytes | None = None) -> Edit | Non
             if prefix:
                 start = prefix.start()
         changed = text[:start] + text[end:]
-        json.loads(_strip_jsonc_comments(changed))
+        # Only the recorded item may differ; anything else means the match was wrong, so leave the file alone.
+        expected = json.loads(clean)
+        expected["permissions"]["allow"].remove(value)
+        if json.loads(_strip_jsonc_comments(changed)) != expected:
+            return None
         after = bom + changed.encode(encoding)
         return Edit(path, before, after, [f"permissions.allow: {value}"])
     except (UnicodeError, ValueError, TypeError, AttributeError):
@@ -625,19 +662,24 @@ def apply_purge(plan: PurgePlan) -> None:
             if _safe_path(plan.home, ".legion", plan.home, retained=retained) != plan.legion:
                 raise InstallerError("Legion home changed after preview; run purge again.")
             lock_file = Path(str(index) + ".lock")
+            windows = sys.platform == "win32"
             for item in plan.legion.iterdir():
                 if item == lock_file or (app_in_use and item in retained) or (app_in_use and item == index):
                     continue
                 shutil.rmtree(item) if item.is_dir() else item.unlink()
             if app_in_use:
                 _footprints._write(plan.home, _footprints.FootprintIndex.model_validate({"schemaVersion": 1, "entries": app_records}))
+            elif not windows and [item.name for item in plan.legion.iterdir()] == [lock_file.name]:
+                # Unix keeps the lock file on release. Unlinking it while we hold it is safe: a waiter that
+                # already opened it sees no link left and retries. Windows removes it itself on release.
+                lock_file.unlink()
     if plan.legion and plan.legion.is_dir():
-        # A waiting writer can recreate the index now. Keep its new record and the shared lock if it did.
-        remaining = sorted(item.name for item in plan.legion.iterdir())
-        if remaining in ([], ["footprints.json.lock"]):
-            Path(str(index) + ".lock").unlink(missing_ok=True)
-            if not any(plan.legion.iterdir()):
-                plan.legion.rmdir()
+        try:
+            plan.legion.rmdir()
+        except OSError:
+            # A waiting writer can recreate its lock or records now; keep them. Anything else is a real error.
+            if plan.legion.is_dir() and not any(plan.legion.iterdir()):
+                raise
 
 
 def _execute(entry: dict[str, Any], arguments: list[str], folder: Path, listing: bool = False) -> str:
@@ -714,26 +756,48 @@ def _plugin_root(entry: dict[str, Any], folder: Path) -> Path | None:
     listed, _, paths, version = _plugin_state(entry, folder)
     if not listed:
         return None
+    settings_path = folder / "settings.json"
+    configured_source = None
     if entry["id"] == "copilot":
         is_legion = False
+        if settings_path.is_file():
+            try:
+                settings = json.loads(settings_path.read_text(encoding="utf-8-sig"))
+                source = settings["extraKnownMarketplaces"]["ps-legion-marketplace"]["source"]
+                if source["source"] == "directory" and isinstance(source["path"], str) and isinstance(settings["enabledPlugins"]["legion@ps-legion-marketplace"], bool):
+                    configured_source = Path(source["path"])
+            except (OSError, ValueError, TypeError, KeyError):
+                pass
         for line in _listing(entry, folder, "plugin").splitlines():
-            if not line[:1].isspace():
-                is_legion = bool(re.search(r"legion@ps-legion-marketplace(?![\w-])", line))
+            if re.search(r"legion@ps-legion-marketplace(?![\w-])", line):
+                is_legion = "not installed" not in line
+            elif re.search(r"\S+@\S+\s+\(v?\d", line) or (line.strip() and not line[:1].isspace()):
+                is_legion = False
             marketplace = re.match(r"^\s+from (.+?)\s*$", line) if is_legion else None
             if marketplace is None:
                 continue
             try:
                 root = Path(marketplace[1])
+                if settings_path.is_file() and configured_source is None:
+                    continue
+                if configured_source is not None and not same_path(resolve_directory(root), resolve_directory(configured_source)):
+                    continue
                 data = json.loads((root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8-sig"))
+                if data.get("name") != "ps-legion-marketplace":
+                    continue
                 for plugin in data["plugins"]:
                     if plugin.get("name") == "legion" and isinstance(plugin.get("source"), str):
-                        paths.append(root / plugin["source"])
-            except (OSError, ValueError, KeyError):
+                        path = root / plugin["source"]
+                        if is_under(resolve_directory(path), resolve_directory(root)):
+                            paths.append(path)
+            except (OSError, ValueError, TypeError, KeyError):
                 continue
     if not paths and entry["plugin"].get("installedRoot"):
         root = folder / entry["plugin"]["installedRoot"]
         if root.is_dir():
             paths = [path.parent for path in root.rglob("plugin.json") if path.parent.name not in (".claude-plugin", ".codex-plugin")]
+    if entry["id"] == "copilot" and not paths and settings_path.is_file() and configured_source is None:
+        return None
     roots = []
     for path in set(paths):
         try:
@@ -751,11 +815,28 @@ def _owner(entry: dict[str, Any], folder: Path) -> str:
     return _footprints.target_owner(entry["id"], folder)
 
 
-def _refresh_target(entry: dict[str, Any], folder: Path, home: Path, root: Path) -> list[str]:
-    owner = _owner(entry, folder)
-    for name in ["legion", "legion.cmd"] if sys.platform == "win32" else ["legion"]:
+def _command_names() -> list[str]:
+    return ["legion", "legion.cmd"] if sys.platform == "win32" else ["legion"]
+
+
+def _record_commands(home: Path, owner: str) -> None:
+    for name in _command_names():
         _footprints.add(home, "file", bin_folder(home) / name, owner)
     _footprints.add(home, "app", home / ".legion/app", owner)
+
+
+# Older releases published the command without an owner. Returns its generated files so a full uninstall can retire them.
+def _unrecorded_commands(home: Path) -> list[Path]:
+    records = _footprints.read(home).entries
+    if not any(entry.kind == "app-version" for entry in records) or any(entry.kind == "app" for entry in records):
+        return []
+    recorded = [home_path(entry.path, home) for entry in records if entry.kind == "file"]
+    commands = [bin_folder(home) / name for name in _command_names()]
+    return [path for path in commands if path.is_file() and is_owned(path, "owner command") and not any(same_path(path, item) for item in recorded)]
+
+
+def _refresh_target(entry: dict[str, Any], folder: Path, home: Path, root: Path) -> list[str]:
+    _record_commands(home, _owner(entry, folder))
     return _refresh.refresh(home, source=root)
 
 
@@ -847,6 +928,7 @@ def install(
             return [*lines, "Nothing changed. Run again with --yes to apply."]
         ensure_path(home, dry_run, lines)
         if not dry_run:
+            _record_commands(home, STANDALONE_OWNER)
             lines.extend(_refresh.refresh(home, source=PLUGIN_ROOT))
         return lines
     if update:
@@ -949,7 +1031,8 @@ def _confirm(question: str, lines: list[str]) -> bool:
         print(line)
     lines.clear()
     try:
-        return input(question + " ").strip().lower() in ("y", "yes")
+        print(question, flush=True)
+        return input().strip().lower() in ("y", "yes")
     except EOFError:
         return False
 
@@ -1017,10 +1100,17 @@ def _uninstall(home: Path, catalog: dict[str, Any], selected: list[str], config_
             lines.extend(_command_line(entry, arguments, folder) for _, arguments in steps)
             if cache:
                 lines.append(f"Remove cache folder: {cache}")
+    adopted: list[Path] = []
+    if config_dir is None and {entry["id"] for entry in catalog["tools"]} <= set(selected):
+        # Only a full, unscoped uninstall retires the command that install published without a coding CLI.
+        owners.append(STANDALONE_OWNER)
+        # Older installs left these files unrecorded; they are only previewed until the owner agrees.
+        adopted = _unrecorded_commands(home)
+        lines.extend(f"Remove file: {path}" for path in adopted)
     recorded = [record for record in _footprints.read(home).entries if not record.owners or any(_footprints.same_owner(owner, selected_owner) for owner in record.owners for selected_owner in owners)]
     lines.extend(preview_owned(home, owners))
     lines.append("Channel plugins and their state remain in place.")
-    if not targets and not recorded:
+    if not targets and not recorded and not adopted:
         lines.append("Nothing to uninstall.")
         return
     if dry_run:
@@ -1028,6 +1118,10 @@ def _uninstall(home: Path, catalog: dict[str, Any], selected: list[str], config_
     if not (yes or _confirm("Uninstall legion from these targets? [y/N]", lines)):
         lines.append("Uninstall cancelled.")
         return
+    for path in adopted:
+        _footprints.add(home, "file", path, STANDALONE_OWNER)
+    if adopted:
+        _footprints.add(home, "app", home / ".legion/app", STANDALONE_OWNER)
     for entry, folder, steps, cache in targets:
         for kind, arguments in steps:
             listed = _plugin_state(entry, folder)[0] if kind == "plugin" else _marketplace(entry, folder)
@@ -1045,10 +1139,11 @@ def _uninstall(home: Path, catalog: dict[str, Any], selected: list[str], config_
 
 
 def refresh_remaining(home: Path, catalog: dict[str, Any], lines: list[str]) -> None:
-    commands = [entry for entry in _footprints.read(home).entries if entry.kind == "file" and entry.path == "~/.legion/bin/legion" and entry.owners]
-    if not commands:
+    commands = [entry for entry in _footprints.read(home).entries if entry.kind == "file" and entry.path == "~/.legion/bin/legion"]
+    target_owners = [owner for entry in commands for owner in entry.owners if owner != STANDALONE_OWNER]
+    if not target_owners:
         return
-    owner = commands[0].owners[0]
+    owner = target_owners[0]
     if ":" not in owner:
         raise InstallerError("Invalid target owner in footprint record")
     tool_id, folder = owner.split(":", 1)

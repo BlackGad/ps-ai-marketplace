@@ -22,6 +22,9 @@ from legion._run import RunResult
 from legion._settings_models import InstallRecipe, ScriptDownload, ToolDescriptor
 from legion._tool_install import ToolInstaller, ToolInstallError
 
+if os.name == "nt":
+    import _winapi
+
 REPO = Path(__file__).resolve().parents[3]
 SOURCES: dict[str, Any] = json.loads((REPO / "tests/fixtures/install/sources.json").read_text(encoding="utf-8"))
 FOURTH: dict[str, Any] = json.loads((REPO / "tests/fixtures/tools/legion-fourth/tool.json").read_text(encoding="utf-8"))["install"]
@@ -406,6 +409,62 @@ def test_verified_archive_extracts_once_and_repeat_writes_nothing(bench: Bench) 
     assert bench.user_path().startswith("%SYSTEMROOT%\\existing"), "existing placeholders survive"
     records = [(entry.kind, entry.path, entry.value) for entry in read_footprints(bench.home).entries]
     assert ("path-entry", "user PATH", str(exe.parent)) in records
+
+
+def _repair(bench: Bench, files: dict[str, str]) -> None:
+    bench.serve(bench.serve_zip(files), "zip")
+    bench.run("az", yes=True, method="zip")
+
+
+def test_repair_refuses_a_folder_with_owner_files_and_publishes_nothing(bench: Bench) -> None:
+    sentinel = bench.tools / "az" / "bin" / "settings.cfg"
+    sentinel.parent.mkdir(parents=True)
+    sentinel.write_text("owner value", encoding="utf-8")
+    bench.serve(bench.serve_zip({"bin/az.cmd": "inert fixture", "bin/settings.cfg": "download value"}), "zip")
+    with pytest.raises(ToolInstallError, match="already has files"):
+        bench.installer(yes=True).install("az", "zip")
+    assert sentinel.read_text(encoding="utf-8") == "owner value"
+    assert not (bench.tools / "az" / "bin" / "az.cmd").exists(), "no expected executable is published early"
+    assert [item.name for item in bench.tools.iterdir()] == ["az"], "the private staging folder is gone"
+    assert bench.path_writes == []
+
+
+def test_repair_replaces_an_empty_tool_folder(bench: Bench) -> None:
+    (bench.tools / "az").mkdir(parents=True)
+    _repair(bench, {"bin/az.cmd": "inert fixture"})
+    assert (bench.tools / "az" / "bin" / "az.cmd").read_text(encoding="utf-8") == "inert fixture"
+
+
+def test_repair_refuses_a_linked_tools_folder(bench: Bench) -> None:
+    outside = bench.root / "outside-tools"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("sentinel", encoding="utf-8")
+    bench.tools.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        _winapi.CreateJunction(str(outside), str(bench.tools))
+    else:
+        bench.tools.symlink_to(outside, target_is_directory=True)
+    bench.serve(bench.serve_zip({"bin/az.cmd": "inert fixture"}), "zip")
+    with pytest.raises(ToolInstallError, match="link"):
+        bench.installer(yes=True).install("az", "zip")
+    assert [item.name for item in outside.iterdir()] == ["keep.txt"]
+    assert bench.path_writes == []
+
+
+def test_repair_never_touches_a_fixed_name_staging_folder(bench: Bench) -> None:
+    other = bench.tools / "az.staging"
+    other.mkdir(parents=True)
+    (other / "sentinel.txt").write_text("another installer's files", encoding="utf-8")
+    _repair(bench, {"bin/az.cmd": "inert fixture"})
+    assert (other / "sentinel.txt").read_text(encoding="utf-8") == "another installer's files"
+    assert (bench.tools / "az" / "bin" / "az.cmd").is_file()
+
+
+def test_download_without_the_executable_leaves_no_staging_folder(bench: Bench) -> None:
+    bench.serve(bench.serve_zip({"readme.txt": "inert"}), "zip")
+    with pytest.raises(ToolInstallError, match="executable missing"):
+        bench.installer(yes=True).install("az", "zip")
+    assert not bench.tools.exists() or list(bench.tools.iterdir()) == []
 
 
 def test_preview_never_repairs_the_path_and_yes_repairs_it_once(bench: Bench) -> None:

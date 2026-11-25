@@ -109,6 +109,7 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "install-cli-codex",
         "install-cli-copilot",
         "install-legion",
+        "update-legion",
         "setup",
         "add",
         "remove",
@@ -122,6 +123,94 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "restore-launchers",
         "purge",
     ]
+
+
+def test_update_first_reinstalls_a_tool_then_repeat_is_stable(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    expected = json.loads((instance.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
+    calls = []
+    owner_calls = []
+    instance.active = lambda: ["codex"]
+    instance.targets["codex"] = (str(instance.checkout), "release")
+    instance.cli = lambda tool, args, _folder=None: calls.append((tool, tuple(args))) or ""
+    instance.listing = lambda *_args, **_kwargs: False
+
+    def legion(*args: str, **kwargs: bool) -> str:
+        calls.append((args, kwargs))
+        owner_calls.append(args)
+        if len(owner_calls) == 1:
+            return f"Update legion for codex\nlegion not installed -> {expected}"
+        return f"Update legion for codex\nskip: legion {expected} (already up to date)"
+
+    instance.legion = legion
+    instance.version = lambda _tool, _folder: expected
+    instance.installed_source_matches = lambda _tool, _folder: True
+    instance.home_snapshot = dict
+    instance.update(False)
+    instance.update(True)
+    assert calls[:2] == [("codex", tuple(instance.catalog["codex"]["plugin"][name])) for name in ("uninstall", "marketplaceRemove")]
+    assert calls[2:] == [(("install", "--update", "--source", str(instance.checkout), "--yes"), {"owner": True}), (("update", "--yes"), {"owner": True})]
+
+
+def test_update_rejects_a_release_instead_of_the_checkout(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    expected = json.loads((instance.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
+    instance.active = lambda: ["codex"]
+    instance.targets["codex"] = (str(instance.checkout), "release")
+    instance.cli = lambda *_args, **_kwargs: ""
+    instance.listing = lambda *_args, **_kwargs: False
+    instance.legion = lambda *_args, **_kwargs: f"Update legion for codex\nlegion not installed -> {expected}"
+    instance.version = lambda _tool, _folder: expected
+    instance.installed_source_matches = lambda _tool, _folder: False
+    with pytest.raises(AssertionError, match="checkout"):
+        instance.update(False)
+
+
+def test_published_source_repeat_uses_documented_owner_command(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    expected = json.loads((instance.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
+    instance.active = lambda: ["claude"]
+    instance.targets["claude"] = (runner.MARKETPLACE, "main")
+    instance.cli = lambda *_args, **_kwargs: ""
+    instance.listing = lambda *_args, **_kwargs: False
+    calls = []
+    instance.legion = lambda *args, **kwargs: (
+        calls.append((args, kwargs))
+        or (f"Update legion for claude\nlegion not installed -> {expected}" if len(calls) == 1 else f"Update legion for claude\nskip: legion {expected} (already up to date)")
+    )
+    instance.version = lambda _tool, _folder: expected
+    instance.installed_source_matches = lambda _tool, _folder: True
+    instance.home_snapshot = dict
+    instance.update(False)
+    instance.update(True)
+    assert calls == [(("install", "--update", "--source", runner.MARKETPLACE, "--ref", "main", "--yes"), {"owner": True}), (("update", "--yes"), {"owner": True})]
+
+
+def test_installed_source_check_rejects_different_plugin_bytes(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    root = instance.folder("codex") / instance.catalog["codex"]["plugin"]["installedRoot"] / "1.2.3"
+    source = root / "src/legion/_app.py"
+    source.parent.mkdir(parents=True)
+    (root / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
+    source.write_bytes((instance.checkout / "plugins/legion/src/legion/_app.py").read_bytes())
+    for metadata in (".codex-plugin", ".claude-plugin"):
+        sibling = root / metadata
+        sibling.mkdir()
+        (sibling / "plugin.json").write_text('{"name":"legion"}', encoding="utf-8")
+    assert instance.installed_source_matches("codex", instance.folder("codex"))
+    source.write_text("release copy", encoding="utf-8")
+    assert not instance.installed_source_matches("codex", instance.folder("codex"))
+
+
+def test_first_purge_uses_owner_command_repeat_uses_bootstrap(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    instance.targets_for_uninstall = lambda **_kwargs: []
+    instance.legion = lambda *args, **kwargs: "done: purge" if args == ("uninstall", "--purge", "--yes") and kwargs == {"owner": True} else pytest.fail("wrong first purge")
+    instance.run = lambda argv, **_kwargs: "skip: purge (already done)" if "--purge" in argv or "-Purge" in argv else pytest.fail("wrong repeat purge")
+    instance.profile_count = lambda: 0
+    instance.cli = lambda *_args, **_kwargs: ""
+    instance.purge(False)
+    instance.purge(True)
 
 
 def test_no_ci_writes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -261,17 +350,17 @@ def test_repeat_purge_uses_bootstrap_after_owned_uv_was_removed(tmp_path: Path) 
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows cannot delete a running uv.exe")
-def test_first_windows_purge_uses_bootstrap_uv_copy(tmp_path: Path) -> None:
+def test_first_windows_purge_uses_owner_command(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
     instance.targets_for_uninstall = lambda **_kwargs: []
     instance.profile_count = lambda: 0
     instance.cli = lambda *_args: ""
     calls: list[list[str]] = []
-    instance.run = lambda argv, **_kwargs: calls.append(argv) or "done: purge"
-    instance.legion = lambda *_args, **_kwargs: pytest.fail("purge ran the installed uv.exe")
+    instance.run = lambda *_args, **_kwargs: pytest.fail("first purge ran bootstrap")
+    instance.legion = lambda *args, **kwargs: calls.append([*args, str(kwargs)]) or "done: purge"
     instance.purge(False)
     assert len(calls) == 1
-    assert Path(calls[0][0]).name == "powershell.exe"
+    assert calls[0] == ["uninstall", "--purge", "--yes", "{'owner': True}"]
 
 
 def test_version_orders_semantic_parts(tmp_path: Path) -> None:
@@ -300,6 +389,22 @@ def test_copilot_version_requires_enabled_local_marketplace(tmp_path: Path, kind
         encoding="utf-8",
     )
     assert instance.version("copilot", folder) is None
+
+
+def test_copilot_published_fallback_reads_installed_manifest(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    folder = instance.folder("copilot")
+    folder.mkdir(parents=True)
+    (folder / "settings.json").write_text(
+        json.dumps(
+            {"enabledPlugins": {"legion@ps-legion-marketplace": True}, "extraKnownMarketplaces": {"ps-legion-marketplace": {"source": {"source": "remote", "path": "BlackGad/ps-legion-marketplace"}}}}
+        ),
+        encoding="utf-8",
+    )
+    manifest = folder / "installed-plugins/legion-marketplace/legion/plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"legion","version":"0.16.0"}', encoding="utf-8")
+    assert instance.version("copilot", folder) == "0.16.0"
 
 
 def test_listing_runs_outside_checkout(tmp_path: Path) -> None:
@@ -337,3 +442,60 @@ def test_command_finds_winget_alias_on_saved_path(tmp_path: Path, monkeypatch: p
     instance.env["PATH"] = str(tmp_path / "empty")
     monkeypatch.setattr(runner, "windows_saved_path_folders", lambda: [folder])
     assert Path(instance.command("claude")).parent == folder
+
+
+MARKETPLACES = ".claude/plugins/known_marketplaces.json"
+
+
+def marketplaces(source: str = "/repo", stamp: str = "2026-11-25T11:42:18.839Z", **extra: Any) -> str:
+    entry = {"source": {"source": "directory", "path": source}, "installLocation": source, "lastUpdated": stamp, **extra}
+    return json.dumps({"ps-legion-marketplace": entry, "other": {"source": {"source": "github"}, "lastUpdated": "a"}})
+
+
+def update_snapshot(tmp_path: Path, content: str) -> dict[str, str]:
+    instance = make_runner(tmp_path)
+    path = instance.home / MARKETPLACES
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return instance.home_snapshot(update=True)
+
+
+def test_update_snapshot_ignores_only_the_marketplace_last_updated_timestamp(tmp_path: Path) -> None:
+    first = update_snapshot(tmp_path, marketplaces())
+    assert update_snapshot(tmp_path, marketplaces(stamp="2026-11-25T11:43:00.000Z")) == first
+    # The original snapshot keeps seeing the timestamp.
+    instance = make_runner(tmp_path)
+    assert instance.home_snapshot() != first
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        marketplaces(source="/other"),
+        marketplaces(installLocation="/elsewhere"),
+        marketplaces(extra="new"),
+        json.dumps({"renamed": {"source": {"source": "github"}}}),
+        marketplaces().replace('"other"', '"other2"'),
+    ],
+)
+def test_update_snapshot_still_detects_other_marketplace_changes(tmp_path: Path, content: str) -> None:
+    first = update_snapshot(tmp_path, marketplaces())
+    with pytest.raises(AssertionError, match=rf"changed: {MARKETPLACES}"):
+        runner.unchanged(first, update_snapshot(tmp_path, content))
+
+
+def test_update_snapshot_keeps_malformed_marketplaces_visible(tmp_path: Path) -> None:
+    first = update_snapshot(tmp_path, "{not json")
+    assert update_snapshot(tmp_path, "{not json") == first
+    with pytest.raises(AssertionError, match=rf"changed: {MARKETPLACES}"):
+        runner.unchanged(first, update_snapshot(tmp_path, "{not json!"))
+    with pytest.raises(AssertionError, match=rf"changed: {MARKETPLACES}"):
+        runner.unchanged(update_snapshot(tmp_path, marketplaces()), update_snapshot(tmp_path, "[1]"))
+
+
+def test_update_snapshot_still_detects_other_claude_config_changes(tmp_path: Path) -> None:
+    first = update_snapshot(tmp_path, marketplaces())
+    instance = make_runner(tmp_path)
+    (instance.home / ".claude/plugins/installed_plugins.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(AssertionError, match=r"added: .claude/plugins/installed_plugins.json"):
+        runner.unchanged(first, instance.home_snapshot(update=True))

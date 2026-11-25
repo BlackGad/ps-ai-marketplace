@@ -100,7 +100,19 @@ def write_report(out: Path, system: str, cases: list[Case], probe: list[str], ex
             stream.write(summary)
 
 
-def snapshot(root: Path, excludes: list[str] | None = None) -> dict[str, str]:
+def without_marketplace_timestamps(data: bytes) -> bytes:
+    """Drop the per-marketplace lastUpdated that the Claude CLI rewrites on every marketplace update; the rest is compared as normalized JSON (key order and spacing ignored)."""
+    # Hand-built, reason: only this CLI-maintained field is volatile, so source, path and entry changes must still show.
+    try:
+        entries = json.loads(data)
+    except ValueError:
+        return data
+    if not isinstance(entries, dict) or not all(isinstance(entry, dict) for entry in entries.values()):
+        return data
+    return json.dumps({name: {key: value for key, value in entry.items() if key != "lastUpdated"} for name, entry in entries.items()}, sort_keys=True).encode()
+
+
+def snapshot(root: Path, excludes: list[str] | None = None, ignore_timestamps: list[str] | None = None) -> dict[str, str]:
     """Hash a tree so a repeat can name changed paths."""
     # Hand-built, reason: a path-by-path hash names unexpected repeat changes and excludes observed CLI runtime files.
     result = {}
@@ -108,7 +120,11 @@ def snapshot(root: Path, excludes: list[str] | None = None) -> dict[str, str]:
         relative = path.relative_to(root).as_posix()
         if any(re.fullmatch(pattern, relative) for pattern in excludes or []):
             continue
-        result[relative] = "directory" if path.is_dir() else hashlib.sha256(path.read_bytes()).hexdigest()
+        if path.is_dir():
+            result[relative] = "directory"
+        else:
+            data = path.read_bytes()
+            result[relative] = hashlib.sha256(without_marketplace_timestamps(data) if relative in (ignore_timestamps or []) else data).hexdigest()
     return result
 
 
@@ -268,11 +284,12 @@ class Runner:
             try:
                 settings = json.loads((folder / "settings.json").read_text(encoding="utf-8"))
                 marketplace = settings["extraKnownMarketplaces"]["ps-legion-marketplace"]
-                if marketplace["source"]["source"] != "directory" or settings["enabledPlugins"].get("legion@ps-legion-marketplace") is not True:
+                if settings["enabledPlugins"].get("legion@ps-legion-marketplace") is not True:
                     return None
-                source = marketplace["source"]["path"]
-                manifest = json.loads((Path(source) / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
-                files = [Path(source) / plugin["source"] / "plugin.json" for plugin in manifest["plugins"] if plugin["name"] == "legion"]
+                if marketplace["source"]["source"] == "directory":
+                    source = marketplace["source"]["path"]
+                    manifest = json.loads((Path(source) / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+                    files = [Path(source) / plugin["source"] / "plugin.json" for plugin in manifest["plugins"] if plugin["name"] == "legion"]
             except (OSError, KeyError, ValueError):
                 pass
         versions = []
@@ -285,13 +302,38 @@ class Runner:
                 pass
         return max(versions, key=lambda value: tuple(int(part) for part in value.split(".")[:3]), default=None)
 
+    def installed_source_matches(self, tool: str, folder: Path) -> bool:
+        expected = (self.checkout / "plugins/legion/src/legion/_app.py").read_bytes()
+        if tool == "copilot":
+            try:
+                settings = json.loads((folder / "settings.json").read_text(encoding="utf-8"))
+                source = settings["extraKnownMarketplaces"]["ps-legion-marketplace"]["source"]
+                if self.targets[tool][1] == "main":
+                    return source["source"] != "directory" and MARKETPLACE.lower() in json.dumps(source).lower()
+                return source["source"] == "directory" and Path(source["path"]).resolve() == self.checkout.resolve()
+            except (OSError, KeyError, ValueError):
+                return False
+        installed_root = self.catalog[tool]["plugin"].get("installedRoot")
+        if not installed_root or not (folder / installed_root).is_dir():
+            return False
+        files = []
+        for manifest in (folder / installed_root).rglob("plugin.json"):
+            if manifest.parent.name in (".codex-plugin", ".claude-plugin"):
+                continue
+            try:
+                if json.loads(manifest.read_text(encoding="utf-8-sig")).get("name") == "legion":
+                    files.append(manifest.parent / "src/legion/_app.py")
+            except (OSError, ValueError):
+                continue
+        return bool(files) and all(path.is_file() and path.read_bytes() == expected for path in files)
+
     def settings(self) -> dict[str, Any]:
         return json.loads((self.home / ".legion/configuration/personalisation.json").read_text(encoding="utf-8"))
 
     def active(self) -> list[str]:
         return [tool for tool in TOOLS if tool not in self.not_tested]
 
-    def home_snapshot(self) -> dict[str, str]:
+    def home_snapshot(self, update: bool = False) -> dict[str, str]:
         runtime = {"claude": [], "codex": ["tmp", r"tmp/arg0-(windows|linux|macos)(/codex-arg0[^/]+(/.*)?)?"], "copilot": ["logs", r"logs/process-[0-9]+-[0-9]+\.log"]}
         folders = [(tool, self.folder(tool)) for tool in TOOLS]
         if (self.home / ".legion/configuration/personalisation.json").exists():
@@ -304,7 +346,15 @@ class Runner:
             if path.is_dir() and path.is_relative_to(self.home):
                 prefix = path.relative_to(self.home).as_posix()
                 tool = next((tool for tool, folder in folders if folder == path), None)
-                result.update({prefix + "/" + name: value for name, value in snapshot(path, nested if path == legion else runtime[tool] if tool else []).items()})
+                if path == legion:
+                    excludes = nested
+                elif tool:
+                    excludes = runtime[tool]
+                else:
+                    excludes = []
+                ignore_timestamps = ["plugins/known_marketplaces.json"] if update and tool == "claude" else []
+                for name, value in snapshot(path, excludes, ignore_timestamps).items():
+                    result[prefix + "/" + name] = value
         for name in (".zshrc", ".bashrc", ".profile"):
             path = self.home / name
             if path.is_file():
@@ -402,6 +452,39 @@ class Runner:
         contains(lines, "skip:")
         unchanged(self.state["snapshot"], self.home_snapshot())
         return lines
+
+    def update(self, repeat: bool) -> str:
+        expected = json.loads((self.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
+        active = self.active()
+        if not repeat:
+            # Use the public tool commands to leave one target absent. The owner update must restore it.
+            target = next((tool for tool in active if self.targets[tool][1] != "main"), active[0])
+            entry = self.catalog[target]["plugin"]
+            self.cli(target, entry["uninstall"])
+            self.cli(target, entry["marketplaceRemove"])
+            require(not self.listing(target, self.folder(target)), f"{target} remains installed before update")
+            self.state["update_target"] = target
+        target = self.state["update_target"]
+        if repeat:
+            output = self.legion("update", "--yes", owner=True)
+        else:
+            source, ref = self.targets[target]
+            arguments = ["install", "--update", "--source", source]
+            if ref == "main":
+                arguments += ["--ref", "main"]
+            output = self.legion(*arguments, "--yes", owner=True)
+        if not repeat:
+            contains(output, f"legion not installed -> {expected}")
+        for tool in self.active():
+            contains(output, f"Update legion for {tool}")
+            require(self.version(tool, self.folder(tool)) == expected, f"{tool} version changed away from the checkout")
+            require(self.installed_source_matches(tool, self.folder(tool)), f"{tool} update did not keep the PR checkout source")
+        if repeat:
+            contains(output, "already up to date")
+            unchanged(self.state["update_snapshot"], self.home_snapshot(update=True))
+        else:
+            self.state["update_snapshot"] = self.home_snapshot(update=True)
+        return output
 
     def setup_accounts(self) -> str:
         return "\n".join(self.legion("add", tool, "--id", f"{tool}1", "--source", self.targets[tool][0], "--yes") for tool in self.active())
@@ -704,7 +787,8 @@ class Runner:
     def purge(self, repeat: bool) -> str:
         if not repeat:
             self.state["purge_targets"] = self.targets_for_uninstall(all_tools=True)
-        if WINDOWS:
+            output = self.legion("uninstall", "--purge", "--yes", owner=True)
+        elif WINDOWS:
             output = self.run(["powershell.exe", "-NoProfile", "-File", str(self.checkout / "install.ps1"), "-HomeRoot", str(self.home), "-Uninstall", "-Purge", "-Yes"])
         else:
             output = self.run(["sh", str(self.checkout / "install.sh"), "--uninstall", "--purge", "--yes"])
@@ -736,6 +820,7 @@ class Runner:
         steps += [(f"install-cli-{tool}", lambda repeat, tool=tool: self.install_cli(tool, repeat)) for tool in TOOLS]
         steps += [
             ("install-legion", lambda repeat: self.install_repeat() if repeat else self.install_first()),
+            ("update-legion", self.update),
             ("setup", lambda repeat: self.setup_repeat() if repeat else self.setup_first()),
             ("add", self.add),
             ("remove", self.remove),
