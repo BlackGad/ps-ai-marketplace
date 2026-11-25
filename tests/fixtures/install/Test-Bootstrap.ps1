@@ -7,12 +7,17 @@ $script:downloads = [Collections.Generic.List[string]]::new()
 $uvLog = Join-Path $Scratch 'uv-log.txt'
 $env:FAKE_UV_LOG = $uvLog
 $env:FAKE_UV_EXIT = '0'
+# The bootstrap's temporary folders go to the system temp folder; keep that inside the scratch folder.
+$systemTemp = Join-Path $Scratch 'tmp'
+New-Item -ItemType Directory -Path $systemTemp -Force | Out-Null
+foreach ($name in @('TMP', 'TEMP', 'TMPDIR')) { Set-Item -Path "Env:$name" -Value $systemTemp }
+foreach ($name in @('UV_INSTALL_DIR', 'XDG_BIN_HOME')) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
 $onWindows = $env:OS -eq 'Windows_NT'
 $uvName = 'uv'
 if ($onWindows) { $uvName = 'uv.cmd' }
 # A PATH with no uv on it, but with the system tools the bootstrap needs.
 function Set-NoUvPath {
-    if ($onWindows) { $env:PATH = Join-Path $env:SystemRoot 'System32' } else { $env:PATH = '/usr/bin:/bin' }
+    if ($onWindows) { $env:PATH = Join-Path $env:SystemRoot 'System32' } else { $env:PATH = Join-Path $Scratch 'empty' }
 }
 
 # A fake uv release: metadata with the digest of a small ZIP, and the ZIP itself (a placeholder uv.exe).
@@ -26,6 +31,8 @@ function New-UvRelease {
     Compress-Archive -Path (Join-Path $folder 'uv.exe') -DestinationPath $uvZip -Force
 }
 
+$realInvokeUv = ${function:Invoke-InstallUv}
+$realDownload = ${function:Invoke-InstallDownload}
 function Invoke-InstallDownload {
     param([string]$Url, [string]$OutFile)
     $script:downloads.Add($Url)
@@ -47,20 +54,25 @@ function Invoke-InstallDownload {
 # The extracted uv is a placeholder file, so the hand-over runs the fake uv instead.
 function Invoke-InstallUv {
     param([string]$Uv, [string[]]$Arguments)
+    $script:uvUsed = $Uv
     & (Join-Path (Join-Path $Scratch 'fake-uv-source') $uvName) @Arguments
     return $LASTEXITCODE
 }
+# The extracted uv is a placeholder, so "runs" is decided by the mode.
+function Test-InstallUv { param([string]$Uv) return $script:Mode -ne 'uv-broken' }
+function Test-InstallPython { param([string]$Uv) return -not $script:Mode.StartsWith('no-python') }
 function Read-Host { param($Prompt) $script:prompts++; return $script:answer }
 $script:prompts = 0
 $script:answer = 'n'
 
 function Show-Result {
     Write-Output ("downloads=" + ($script:downloads -join ','))
-    Write-Output ("uvInstalled=" + (Test-Path -LiteralPath (Join-Path $Scratch '.legion/tools/uv/uv.exe')))
+    Write-Output ("uvInstalled=" + (Test-Path -LiteralPath (Join-Path $Scratch '.legion/bin/uv.exe')))
     Write-Output "prompts=$($script:prompts)"
     Write-Output "exit=$($script:bootstrapExitCode)"
+    Write-Output "uvUsed=$($script:uvUsed)"
     if (Test-Path -LiteralPath $uvLog) { Get-Content -LiteralPath $uvLog | ForEach-Object { Write-Output "uv:$_" } }
-    $left = @(Get-ChildItem -LiteralPath (Join-Path $Scratch '.legion/temp') -Force -ErrorAction SilentlyContinue)
+    $left = @(Get-ChildItem -LiteralPath $systemTemp -Force -ErrorAction SilentlyContinue)
     Write-Output "tempLeft=$($left.Count)"
 }
 
@@ -71,7 +83,7 @@ switch ($Mode) {
     'remote-main' { $parameters.Ref = 'main'; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot '' }
     'no-release' { Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot '' }
     'exit-code' { $env:FAKE_UV_EXIT = '3'; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
-    { $_ -in 'uv-missing-yes', 'uv-bad-digest', 'uv-no-digest' } {
+    { $_ -in 'uv-missing-yes', 'uv-bad-digest', 'uv-no-digest', 'uv-broken' } {
         # No uv on PATH: -Yes downloads and verifies the uv release, then the hand-over runs.
         $env:OS = 'Windows_NT'
         Set-NoUvPath
@@ -89,9 +101,33 @@ switch ($Mode) {
         $parameters.Remove('Yes')
         Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
     }
+    'purge' { $parameters.Purge = [switch]$true; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
+    'no-python-dry' { $parameters.DryRun = [switch]$true; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
+    'no-python-declined' { $parameters.Remove('Yes'); Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
+    'no-python-yes' { Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
+    'uv-call' {
+        # The real hand-over function: uv's output goes to the owner, the result is only the exit code.
+        $env:FAKE_UV_SAY = '1'
+        $env:FAKE_UV_EXIT = '3'
+        $result = & $realInvokeUv -Uv (Join-Path (Join-Path $Scratch 'fake-uv-source') $uvName) -Arguments @('run')
+        Write-Output "result=$(@($result) -join ',')"
+        return
+    }
+    'http-refused' {
+        # The real download refuses a plain HTTP address before it connects.
+        try { & $realDownload -Url 'http://127.0.0.1:9/uv.zip' -OutFile (Join-Path $Scratch 'x') ; Write-Output 'refused=False' }
+        catch { Write-Output "refused=$($_.Exception.Message.Contains('HTTPS'))" }
+        return
+    }
+    'default-home' {
+        # Without -HomeRoot the effective home is $HOME, and it is handed over.
+        Set-Variable -Name HOME -Value $Scratch -Force
+        $parameters.Remove('HomeRoot')
+        Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
+    }
     'find-folder' {
         Set-NoUvPath
-        $folder = Join-Path (Join-Path $Scratch '.local') 'bin'
+        $folder = Join-Path $Scratch '.legion/bin'
         New-Item -ItemType Directory -Path $folder -Force | Out-Null
         $name = 'uv'
         if ($onWindows) { $name = 'uv.exe' }

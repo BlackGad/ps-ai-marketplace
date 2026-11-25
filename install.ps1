@@ -32,11 +32,11 @@ function Get-InstallLegionPath {
     return Join-Path (Join-Path (Get-InstallHome) '.legion') $Path
 }
 
-# uv is found on PATH, in the legion tools folder, or in the folder its own installer uses.
+# uv is found on PATH, in the legion bin folder (which `legion install` puts on the user PATH), or in the folder its own installer uses.
 function Get-InstallUv {
     $found = Get-Command uv -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($found) { return $found.Source }
-    $folders = @((Get-InstallLegionPath 'tools/uv'), $env:UV_INSTALL_DIR, $env:XDG_BIN_HOME, (Join-Path (Join-Path (Get-InstallHome) '.local') 'bin'))
+    $folders = @((Get-InstallLegionPath 'bin'), $env:UV_INSTALL_DIR, $env:XDG_BIN_HOME, (Join-Path (Join-Path (Get-InstallHome) '.local') 'bin'))
     foreach ($folder in $folders) {
         if (-not $folder) { continue }
         foreach ($name in @('uv.exe', 'uv')) {
@@ -46,37 +46,63 @@ function Get-InstallUv {
     }
 }
 
+# Hand-built, reason: Invoke-WebRequest follows redirects without a check, so every hop is requested here and must be HTTPS.
 function Invoke-InstallDownload {
     param([string]$Url, [string]$OutFile)
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-    $ProgressPreference = 'SilentlyContinue'
-    Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
+    for ($hop = 0; $hop -lt 10; $hop++) {
+        if ($Url -notmatch '^https://') { throw "Refusing to download over anything but HTTPS: $Url" }
+        $request = [Net.HttpWebRequest]::Create($Url)
+        $request.AllowAutoRedirect = $false
+        $request.UserAgent = 'legion-bootstrap'
+        $response = $request.GetResponse()
+        try {
+            $status = [int]$response.StatusCode
+            if ($status -ge 300 -and $status -lt 400) {
+                $Url = (New-Object Uri ([Uri]$Url), $response.Headers['Location']).AbsoluteUri
+                continue
+            }
+            $file = [IO.File]::Create($OutFile)
+            try { $response.GetResponseStream().CopyTo($file) } finally { $file.Dispose() }
+            return
+        } finally { $response.Dispose() }
+    }
+    throw 'Too many redirects.'
 }
 
-# Runs uv with the given arguments.
+# Runs uv with the given arguments; its output goes to the owner, the result is only the exit code.
 function Invoke-InstallUv {
     param([string]$Uv, [string[]]$Arguments)
-    & $Uv @Arguments
+    & $Uv @Arguments | Out-Host
     return $LASTEXITCODE
 }
 
-function Remove-InstallTemporary {
-    param([string]$Path)
-    $homePrefix = [IO.Path]::GetFullPath((Get-InstallHome)).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
-    $target = [IO.Path]::GetFullPath($Path)
-    $comparison = [StringComparison]::Ordinal
-    if ($env:OS -eq 'Windows_NT') { $comparison = [StringComparison]::OrdinalIgnoreCase }
-    if (-not $target.StartsWith($homePrefix, $comparison)) { throw 'Unsafe installer temporary path' }
-    if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop }
+function Test-InstallUv {
+    param([string]$Uv)
+    try { & $Uv --version *> $null } catch { return $false }
+    return $LASTEXITCODE -eq 0
 }
 
+function Test-InstallPython {
+    param([string]$Uv)
+    & $Uv python find '>=3.12' *> $null
+    return $LASTEXITCODE -eq 0
+}
+
+# Temporary folders live in the system temp folder, outside .legion, so a purge can delete .legion while they are in use.
 function New-InstallTemporary {
-    $temporary = Join-Path (Get-InstallLegionPath 'temp') ('install-' + [guid]::NewGuid().ToString('N'))
+    $temporary = Join-Path ([IO.Path]::GetTempPath()) ('legion-install-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $temporary -Force -ErrorAction Stop | Out-Null
     return $temporary
 }
 
-# Downloads the latest uv release for this system, checks its SHA-256 digest and extracts it to ~/.legion/tools/uv.
+function Remove-InstallTemporary {
+    param([string]$Path)
+    if (-not ([IO.Path]::GetFileName($Path)).StartsWith('legion-install-')) { throw 'Unsafe installer temporary path' }
+    if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop }
+}
+
+# Downloads the latest uv release for this system, checks its SHA-256 digest and publishes it to ~/.legion/bin.
 function Install-InstallUvRelease {
     $architecture = 'x86_64'
     if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $architecture = 'aarch64' }
@@ -96,7 +122,15 @@ function Install-InstallUvRelease {
             Remove-Item -LiteralPath $archive -Force
             throw 'uv SHA-256 digest mismatch; download deleted.'
         }
-        Expand-Archive -LiteralPath $archive -DestinationPath (Get-InstallLegionPath 'tools/uv') -Force -ErrorAction Stop
+        $staging = Join-Path $temporary 'uv'
+        Expand-Archive -LiteralPath $archive -DestinationPath $staging -Force -ErrorAction Stop
+        $staged = Join-Path $staging 'uv.exe'
+        if (-not (Test-InstallUv -Uv $staged)) { throw 'The downloaded uv does not run; nothing was installed.' }
+        $folder = Get-InstallLegionPath 'bin'
+        New-Item -ItemType Directory -Path $folder -Force -ErrorAction Stop | Out-Null
+        # Copy beside the target, then rename: an interrupted run never leaves a partial uv.exe.
+        Copy-Item -LiteralPath $staged -Destination (Join-Path $folder 'uv.exe.new') -Force -ErrorAction Stop
+        Move-Item -LiteralPath (Join-Path $folder 'uv.exe.new') -Destination (Join-Path $folder 'uv.exe') -Force -ErrorAction Stop
     } finally {
         Remove-InstallTemporary -Path $temporary
     }
@@ -115,7 +149,7 @@ function Ensure-InstallUv {
         Write-Host 'On macOS and Linux run install.sh instead: https://github.com/BlackGad/ps-legion-marketplace'
         return $null
     }
-    Write-Host 'Install uv: download the latest official uv release, verified with its SHA-256 digest, to ~/.legion/tools/uv/.'
+    Write-Host 'Install uv: download the latest official uv release, verified with its SHA-256 digest, to ~/.legion/bin/, which the legion install then puts on your PATH.'
     if ($DryRun) { return $null }
     if (-not (Confirm-InstallChange -Yes:$Yes -Question 'Install uv now? [y/N]')) {
         Write-Host 'Nothing changed. Run again with -Yes to apply.'
@@ -125,6 +159,17 @@ function Ensure-InstallUv {
     $uv = Get-InstallUv
     if (-not $uv) { throw 'uv was installed but could not be found; open a new terminal and run the bootstrap again.' }
     return $uv
+}
+
+# Previews never let uv download Python; an ordinary run asks first. Returns whether to go on.
+function Confirm-InstallPython {
+    param([string]$Uv, [switch]$DryRun, [switch]$Yes)
+    if (Test-InstallPython -Uv $Uv) { return $true }
+    Write-Host 'Python 3.12 is missing. uv can download it for legion.'
+    if ($DryRun) { return $false }
+    if (Confirm-InstallChange -Yes:$Yes -Question 'Download Python with uv now? [y/N]') { return $true }
+    Write-Host 'Nothing changed. Run again with -Yes to apply.'
+    return $false
 }
 
 # The plugin folder that holds the Python project: this checkout, or the archive downloaded from the fixed legion repository.
@@ -152,9 +197,10 @@ function Get-InstallProject {
 # The options of this script, as the `legion install` command spells them.
 function Get-InstallArguments {
     param([Collections.IDictionary]$Parameters)
-    $arguments = @()
-    if ($Parameters.HomeRoot) { $arguments += @('--home', $Parameters.HomeRoot) }
-    $arguments += 'install'
+    # Always the home this script used, so a redirected $HOME reaches Python too.
+    $homeRoot = $Parameters.HomeRoot
+    if (-not $homeRoot) { $homeRoot = $HOME }
+    $arguments = @('--home', $homeRoot, 'install')
     if ($Parameters.Tools) { $arguments += @('--tool', (@($Parameters.Tools) -join ',')) }
     if ($Parameters.Source) { $arguments += @('--source', $Parameters.Source) }
     if ($Parameters.ConfigDir) { $arguments += @('--config-dir', $Parameters.ConfigDir) }
@@ -176,6 +222,7 @@ function Invoke-InstallBootstrap {
     if (($env:PATH -split [regex]::Escape([string][IO.Path]::PathSeparator)) -notcontains $folder) {
         $env:PATH = $folder + [IO.Path]::PathSeparator + $env:PATH
     }
+    if (-not (Confirm-InstallPython -Uv $uv -DryRun:$dryRun -Yes:([bool]$Parameters.Yes))) { return }
     $temporary = New-InstallTemporary
     $savedEnvironment = $env:UV_PROJECT_ENVIRONMENT
     try {
@@ -184,6 +231,12 @@ function Invoke-InstallBootstrap {
         $project = Get-InstallProject -CheckoutRoot $CheckoutRoot -Branch $branch -Temporary $temporary
         # The project environment lives beside the downloaded copy and goes with it.
         $env:UV_PROJECT_ENVIRONMENT = Join-Path $temporary 'env'
+        if ($Parameters.Purge) {
+            # A purge deletes .legion, where uv.exe may live, and Windows cannot delete a running program.
+            $copy = Join-Path $temporary (Split-Path $uv -Leaf)
+            Copy-Item -LiteralPath $uv -Destination $copy -ErrorAction Stop
+            $uv = $copy
+        }
         $script:bootstrapExitCode = Invoke-InstallUv -Uv $uv -Arguments (@('run', '--project', $project, '--frozen', '--quiet', 'legion') + @(Get-InstallArguments -Parameters $Parameters))
     } finally {
         $env:UV_PROJECT_ENVIRONMENT = $savedEnvironment
