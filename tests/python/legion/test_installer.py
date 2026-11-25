@@ -86,6 +86,54 @@ def test_command_only_install_from_an_older_release_is_adopted_by_uninstall(tmp_
     assert not (home / ".legion").exists()
 
 
+def _drop_standalone_records(home: Path) -> None:
+    for entry in _footprints.read(home).entries:
+        if entry.kind in ("file", "app"):
+            _footprints.remove_entry(home, entry.kind, entry.path)
+
+
+def _index_bytes(home: Path) -> dict[Path, bytes]:
+    return {path: path.read_bytes() for path in sorted((home / ".legion").rglob("*")) if path.is_file() and path.suffix == ".json"}
+
+
+def test_uninstall_with_a_config_dir_keeps_the_standalone_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    folder = tmp_path / "unrelated"
+    folder.mkdir()
+    _installer.install(home, uninstall=True, yes=True, config_dir=folder, catalog=catalog())
+    assert command.is_file()
+    assert any(entry.kind == "file" and _installer.STANDALONE_OWNER in entry.owners for entry in _footprints.read(home).entries)
+
+
+def test_legacy_uninstall_with_a_config_dir_adopts_and_removes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    _drop_standalone_records(home)
+    before = _index_bytes(home)
+    folder = tmp_path / "unrelated"
+    folder.mkdir()
+    _installer.install(home, uninstall=True, yes=True, config_dir=folder, catalog=catalog())
+    assert command.is_file()
+    assert _index_bytes(home) == before
+
+
+def test_legacy_adoption_is_only_a_preview_for_dry_run_and_decline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    _drop_standalone_records(home)
+    before = _index_bytes(home)
+    preview = _installer.install(home, uninstall=True, dry_run=True, catalog=catalog())
+    assert f"Remove file: {command}" in preview
+    assert _index_bytes(home) == before
+    monkeypatch.setattr(_installer, "_confirm", lambda _question, _lines: False)
+    declined = _installer.install(home, uninstall=True, catalog=catalog())
+    assert "Uninstall cancelled." in declined
+    assert command.is_file()
+    assert _index_bytes(home) == before
+    # After consent the command goes, and a repeat has nothing left.
+    _installer.install(home, uninstall=True, yes=True, catalog=catalog())
+    assert not command.exists()
+    assert "Nothing to uninstall." in _installer.install(home, uninstall=True, yes=True, catalog=catalog())
+
+
 def test_older_record_with_a_foreign_command_file_removes_nothing_foreign(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home, command = _command_only_install(tmp_path, monkeypatch)
     for entry in _footprints.read(home).entries:

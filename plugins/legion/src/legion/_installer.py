@@ -1101,16 +1101,12 @@ def _uninstall(home: Path, catalog: dict[str, Any], selected: list[str], config_
             if cache:
                 lines.append(f"Remove cache folder: {cache}")
     adopted: list[Path] = []
-    if {entry["id"] for entry in catalog["tools"]} <= set(selected):
-        # A full uninstall also retires the command that install published without a coding CLI.
+    if config_dir is None and {entry["id"] for entry in catalog["tools"]} <= set(selected):
+        # Only a full, unscoped uninstall retires the command that install published without a coding CLI.
         owners.append(STANDALONE_OWNER)
+        # Older installs left these files unrecorded; they are only previewed until the owner agrees.
         adopted = _unrecorded_commands(home)
-        if adopted and not dry_run:
-            for path in adopted:
-                _footprints.add(home, "file", path, STANDALONE_OWNER)
-            _footprints.add(home, "app", home / ".legion/app", STANDALONE_OWNER)
-        elif adopted:
-            lines.extend(f"Remove file: {path}" for path in adopted)
+        lines.extend(f"Remove file: {path}" for path in adopted)
     recorded = [record for record in _footprints.read(home).entries if not record.owners or any(_footprints.same_owner(owner, selected_owner) for owner in record.owners for selected_owner in owners)]
     lines.extend(preview_owned(home, owners))
     lines.append("Channel plugins and their state remain in place.")
@@ -1122,6 +1118,10 @@ def _uninstall(home: Path, catalog: dict[str, Any], selected: list[str], config_
     if not (yes or _confirm("Uninstall legion from these targets? [y/N]", lines)):
         lines.append("Uninstall cancelled.")
         return
+    for path in adopted:
+        _footprints.add(home, "file", path, STANDALONE_OWNER)
+    if adopted:
+        _footprints.add(home, "app", home / ".legion/app", STANDALONE_OWNER)
     for entry, folder, steps, cache in targets:
         for kind, arguments in steps:
             listed = _plugin_state(entry, folder)[0] if kind == "plugin" else _marketplace(entry, folder)
