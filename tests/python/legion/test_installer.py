@@ -726,6 +726,28 @@ def test_uninstall_removes_only_recorded_allow_rule(tmp_path: Path) -> None:
     assert not [entry for entry in _footprints.read(home).entries if entry.kind == "edit"]
 
 
+def test_allow_rule_edit_leaves_the_same_text_in_deny_untouched(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    settings = home / ".legion/agents/claude-a/settings.json"
+    settings.parent.mkdir(parents=True)
+    # The allow entry spells the rule with a JSON escape; the deny entry spells the same rule literally.
+    text = '{"permissions":{"allow":["owner","Bash(LEGION_ROLE=\\u002a)"],"deny":["Bash(LEGION_ROLE=*)"]}}'
+    settings.write_text(text, encoding="utf-8")
+    owner = f"claude:{settings.parent}"
+    _footprints.add(home, "edit", settings, owner, key="permissions.allow", value="Bash(LEGION_ROLE=*)")
+    lines: list[str] = []
+    _installer.remove_owned_edits(home, [owner], lines)
+    after = json.loads(settings.read_text(encoding="utf-8"))
+    assert after == {"permissions": {"allow": ["owner"], "deny": ["Bash(LEGION_ROLE=*)"]}}
+    assert '"deny":["Bash(LEGION_ROLE=*)"]' in settings.read_text(encoding="utf-8")
+
+
+def test_allow_rule_edit_refuses_an_ambiguous_allow_array(tmp_path: Path) -> None:
+    settings = tmp_path / "settings.json"
+    settings.write_text('{"permissions":{"allow":["rule","rule"]},"other":{"permissions":{"allow":["rule"]}}}', encoding="utf-8")
+    assert _installer._allow_edit(settings, "rule") is None
+
+
 def test_copilot_jsonc_inventory_edit_keeps_owner_comments(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
     (home / ".legion").mkdir(parents=True)

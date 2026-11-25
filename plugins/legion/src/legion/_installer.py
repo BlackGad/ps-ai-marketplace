@@ -298,6 +298,37 @@ def _remove_copilot_item(text: str, clean: str) -> str:
     return changed
 
 
+def _skip_space(text: str, position: int) -> int:
+    rest = text[position:]
+    return position + len(rest) - len(rest.lstrip())
+
+
+def _allow_item_spans(clean: str, value: str) -> list[tuple[int, int]]:
+    # Other arrays and members can hold the same text, so only items of the one permissions.allow array count.
+    decoder = json.JSONDecoder()
+    permissions = list(re.finditer(r'"permissions"\s*:\s*', clean))
+    if len(permissions) != 1:
+        return []
+    start_of_object = permissions[0].end()
+    _, length = decoder.raw_decode(clean[start_of_object:])
+    end_of_object = start_of_object + length
+    arrays = list(re.finditer(r'"allow"\s*:\s*\[', clean[start_of_object:end_of_object]))
+    if len(arrays) != 1:
+        return []
+    position = start_of_object + arrays[0].end()
+    spans: list[tuple[int, int]] = []
+    while True:
+        position = _skip_space(clean, position)
+        if clean[position] == "]":
+            return spans
+        item, length = decoder.raw_decode(clean[position:])
+        if item == value:
+            spans.append((position, position + length))
+        position = _skip_space(clean, position + length)
+        if clean[position] == ",":
+            position += 1
+
+
 def _allow_edit(path: Path, value: str, data: bytes | None = None) -> Edit | None:
     before = data if data is not None else path.read_bytes()
     try:
@@ -307,12 +338,11 @@ def _allow_edit(path: Path, value: str, data: bytes | None = None) -> Edit | Non
         allowed = document.get("permissions", {}).get("allow", [])
         if not isinstance(allowed, list) or value not in allowed:
             return None
-        # Hand-built, reason: remove the recorded array item by its token span and leave other JSONC bytes untouched.
-        token = json.dumps(value)
-        matches = list(re.finditer(re.escape(token), clean))
+        # Hand-built, reason: remove the recorded array item by its token span inside permissions.allow only.
+        matches = _allow_item_spans(clean, value)
         if len(matches) != 1:
             return None
-        start, end = matches[0].span()
+        start, end = matches[0]
         suffix = re.match(r"\s*,", clean[end:])
         if suffix:
             end += suffix.end()
