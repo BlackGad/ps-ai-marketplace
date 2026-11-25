@@ -11,7 +11,6 @@ from . import _plugin
 ENTRY_SCRIPT = "bin/legion.ps1"
 FORWARDED_VERBS = {
     "pick": "Choose which account leads the overseer",
-    "uninstall": "Remove legion; --purge also deletes settings, notes and logins",
     "help": "Show the legion commands",
 }
 PWSH_MISSING = "pwsh is missing. Ask the owner before installing PowerShell 7, then run the legion installer again."

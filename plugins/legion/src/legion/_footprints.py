@@ -1,3 +1,4 @@
+import importlib
 import re
 import shutil
 import sys
@@ -9,6 +10,7 @@ from typing import Literal
 
 from filelock import FileLock, Timeout
 
+from . import _plugin
 from ._generated import is_owned
 from ._home import footprint_index, full_path, home_path, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
 from ._settings_models import SchemaVersion, SettingsModel, Text, ToolDescriptor
@@ -33,17 +35,54 @@ class FootprintError(Exception):
     pass
 
 
+def target_owner(tool: ToolDescriptor | str, folder: Path | str | None, home: Path | None = None) -> str:
+    if isinstance(tool, ToolDescriptor):
+        if home is None:
+            raise ValueError("home is required for a tool descriptor")
+        folder = folder or tool.plugin.default_config_dir or ""
+        path = home_path(str(folder), home)
+        tool_id = tool.id
+    else:
+        if folder is None:
+            raise ValueError("folder is required for a tool id")
+        path = Path(folder)
+        tool_id = tool
+    owner = f"{tool_id}:{str(resolve_directory(path)).rstrip('/\\')}"
+    return owner.lower() if sys.platform == "win32" else owner
+
+
+def same_owner(left: str, right: str) -> bool:
+    def spelling(value: str) -> str:
+        tool_id, separator, folder = value.partition(":")
+        if separator and tool_id in ("claude", "codex", "copilot") and Path(folder).is_absolute():
+            return target_owner(tool_id, Path(folder))
+        return value
+
+    return spelling(left) == spelling(right)
+
+
 @contextmanager
 def lock(home: Path) -> Iterator[None]:
     index = footprint_index(home)
     if not owner_path_safe(index, home):
         raise FootprintError("Footprint index contains a link; resolve it before writing")
     index.parent.mkdir(parents=True, exist_ok=True)
+    file_lock = FileLock(str(index) + ".lock", timeout=30)
     try:
-        with FileLock(str(index) + ".lock", timeout=30):
-            yield
+        try:
+            file_lock.acquire()
+        except FileNotFoundError:
+            # Purge can remove an empty .legion after releasing this lock while a writer waits.
+            if not owner_path_safe(index, home):
+                raise FootprintError("Footprint index contains a link; resolve it before writing") from None
+            index.parent.mkdir(parents=True, exist_ok=True)
+            file_lock.acquire()
     except Timeout:
         raise FootprintError("Footprint index is busy; another legion command is still running") from None
+    try:
+        yield
+    finally:
+        file_lock.release()
 
 
 def read(home: Path) -> FootprintIndex:
@@ -75,22 +114,13 @@ def stored_path(home: Path, path: Path | str) -> str:
     return str(full)
 
 
-# Who owns what is installed in a tool's config folder: the tool and the physical folder, so a linked
-# and a plain spelling of one folder are one target.
-def target_owner(tool: ToolDescriptor, folder: Path | str | None, home: Path) -> str:
-    folder = folder or tool.plugin.default_config_dir or ""
-    physical = str(resolve_directory(home_path(str(folder), home))).rstrip("\\/")
-    owner = f"{tool.id}:{physical}"
-    return owner.lower() if sys.platform == "win32" else owner
-
-
 def add(home: Path, kind: FootprintKind, path: Path | str, owner: str, key: str = "", value: str = "") -> None:
     stored = stored_path(home, path)
     with lock(home):
         data = read(home)
         for entry in data.entries:
             if entry.kind == kind and same_path(Path(entry.path), Path(stored)) and entry.key == key and entry.value == value:
-                if owner not in entry.owners:
+                if not any(same_owner(owner, existing) for existing in entry.owners):
                     entry.owners.append(owner)
                     _write(home, data)
                 return
@@ -103,6 +133,15 @@ def remove_entry(home: Path, kind: FootprintKind, path: Path | str) -> None:
     with lock(home):
         data = read(home)
         kept = [entry for entry in data.entries if entry.kind != kind or not same_path(full_path(home_path(entry.path, home)), target)]
+        if len(kept) != len(data.entries):
+            _write(home, data.model_copy(update={"entries": kept}))
+
+
+def remove_exact(home: Path, kind: FootprintKind, path: Path | str, key: str, value: str) -> None:
+    target = full_path(home_path(str(path), home))
+    with lock(home):
+        data = read(home)
+        kept = [entry for entry in data.entries if entry.kind != kind or not same_path(full_path(home_path(entry.path, home)), target) or entry.key != key or entry.value != value]
         if len(kept) != len(data.entries):
             _write(home, data.model_copy(update={"entries": kept}))
 
@@ -133,6 +172,39 @@ def is_safe(entry: Footprint, home: Path) -> bool:
     return not tree_has_reparse(path)
 
 
+# Hand-built, reason: an app version and its uv environment must be removed as one safe unit after the last target owner leaves.
+def _remove_orphan_app(home: Path, kept: list[Footprint], lines: list[str]) -> bool:
+    orphan_app = [entry for entry in kept if entry.kind == "app" and not entry.owners]
+    if not orphan_app:
+        return False
+    # Import at use time because app imports footprint helpers while its module is initialized.
+    app = importlib.import_module("legion._app")
+    changed = False
+    versions = [entry for entry in kept if entry.kind == "app-version"]
+    for entry in versions:
+        path = full_path(home_path(entry.path, home))
+        if is_under(_plugin.PLUGIN_ROOT, path, allow_equal=True):
+            lines.append(f"Kept app version in use: {path} (close legion, then run uninstall again)")
+            continue
+        if not app.version_safe(path, home):
+            lines.append(f"skip: {path} (linked or not legion's)")
+            continue
+        if not app._remove_version(path, home):
+            lines.append(f"Kept app version in use: {path} (close legion, then run uninstall again)")
+            continue
+        kept.remove(entry)
+        lines.append(f"Remove app version: {path}")
+        changed = True
+    if not any(entry.kind == "app-version" for entry in kept):
+        for entry in orphan_app:
+            kept.remove(entry)
+            changed = True
+        app_folder = home / ".legion" / "app"
+        if app_folder.is_dir() and not any(app_folder.iterdir()):
+            app_folder.rmdir()
+    return changed
+
+
 def remove_owner(home: Path, owners: list[str]) -> list[str]:
     index = footprint_index(home)
     if not index.exists():
@@ -143,7 +215,7 @@ def remove_owner(home: Path, owners: list[str]) -> list[str]:
         kept: list[Footprint] = []
         changed = False
         for entry in data.entries:
-            remaining = [owner for owner in entry.owners if owner not in owners]
+            remaining = [owner for owner in entry.owners if not any(same_owner(owner, selected) for selected in owners)]
             if len(remaining) == len(entry.owners):
                 kept.append(entry)
                 continue
@@ -163,6 +235,7 @@ def remove_owner(home: Path, owners: list[str]) -> list[str]:
                     shutil.rmtree(full_path(path))
                 else:
                     path.unlink()
+        changed = _remove_orphan_app(home, kept, lines) or changed
         if changed:
             _write(home, data.model_copy(update={"entries": kept}))
     return lines

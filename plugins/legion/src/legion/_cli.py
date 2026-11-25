@@ -83,7 +83,58 @@ def update(context: click.Context, check: bool, force: bool, yes: bool) -> None:
         for line in _update.check_lines(_plugin.PLUGIN_ROOT, context.obj, force=force):
             click.echo(line)
         return
-    context.exit(_forward.run(["update", *(["--yes"] if yes else [])], context.obj))
+    from . import _installer
+
+    _report_installer(context, lambda: _installer.install(_home.legion_home(context.obj), update=True, yes=yes))
+
+
+def _report_installer(context: click.Context, change: Callable[[], list[str]]) -> None:
+    from ._installer import InstallerError
+    from ._footprints import FootprintError
+    from ._launchers import LauncherError
+    from ._settings_io import SettingsError
+
+    try:
+        for line in change():
+            click.echo(line)
+    except (InstallerError, FootprintError, LauncherError, SettingsError, OSError, ValueError) as error:
+        click.echo(str(error), err=True)
+        context.exit(1)
+
+
+@main.command("install", help="Install legion for one or more coding CLIs")
+@click.option("--tool", "tools", multiple=True, help="CLI target; repeat or separate with commas")
+@click.option("--source", default="BlackGad/ps-legion-marketplace")
+@click.option("--ref", "ref", type=click.Choice(["release", "main"]), default="release")
+@click.option("--config-dir", type=click.Path(path_type=Path))
+@click.option("--dry-run", is_flag=True)
+@click.option("--yes", is_flag=True)
+@click.option("--update", is_flag=True, help="Update installed targets instead of installing.")
+@click.option("--uninstall", is_flag=True, help="Remove installed targets instead of installing.")
+@click.option("--purge", is_flag=True, help="Also remove recorded settings and data; requires --uninstall.")
+@click.pass_context
+def install(context: click.Context, tools: tuple[str, ...], source: str, ref: str, config_dir: Optional[Path], dry_run: bool, yes: bool, update: bool, uninstall: bool, purge: bool) -> None:
+    from . import _installer
+
+    _report_installer(
+        context,
+        lambda: _installer.install(
+            _home.legion_home(context.obj), tools=list(tools), source=source, ref=ref, config_dir=config_dir, dry_run=dry_run, yes=yes, update=update, uninstall=uninstall, purge=purge
+        ),
+    )
+
+
+@main.command("uninstall", help="Remove legion; --purge also deletes settings, notes and logins")
+@click.option("--tool", "tools", multiple=True, help="CLI target; repeat or separate with commas")
+@click.option("--config-dir", type=click.Path(path_type=Path))
+@click.option("--purge", is_flag=True)
+@click.option("--dry-run", is_flag=True)
+@click.option("--yes", is_flag=True)
+@click.pass_context
+def uninstall(context: click.Context, tools: tuple[str, ...], config_dir: Optional[Path], purge: bool, dry_run: bool, yes: bool) -> None:
+    from . import _installer
+
+    _report_installer(context, lambda: _installer.install(_home.legion_home(context.obj), list(tools), config_dir=config_dir, dry_run=dry_run, yes=yes, uninstall=True, purge=purge))
 
 
 @main.command("status", help="Show accounts, commands, channels and this repository")
