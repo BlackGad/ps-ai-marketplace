@@ -1,5 +1,4 @@
 . (Join-Path $PSScriptRoot 'tools.ps1')
-. (Join-Path $PSScriptRoot 'channels.ps1')
 
 
 function Read-LegionJson {

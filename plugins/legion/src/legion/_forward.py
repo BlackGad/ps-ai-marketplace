@@ -7,10 +7,9 @@ from typing import Optional
 from . import _plugin
 
 # Temporary while legion moves to Python: verbs the PowerShell entry point still serves, with their help line.
-# Each row goes when its verb is ported. Bare `legion` and flags-only calls forward too, with no verb.
+# Each row goes when its verb is ported.
 ENTRY_SCRIPT = "bin/legion.ps1"
 FORWARDED_VERBS = {
-    "pick": "Choose which account leads the overseer",
     "help": "Show the legion commands",
 }
 PWSH_MISSING = "pwsh is missing. Ask the owner before installing PowerShell 7, then run the legion installer again."

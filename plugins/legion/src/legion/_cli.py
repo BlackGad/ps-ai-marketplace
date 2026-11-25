@@ -20,11 +20,11 @@ def _show_version(context: click.Context, _parameter: click.Parameter, value: bo
     context.exit()
 
 
-# Flags before any verb (`legion --no-channel`) belong to the overseer launch, so they forward with no verb.
+# Flags before any verb (`legion --no-channel`) belong to the Python overseer launch.
 class _LegionGroup(click.Group):
     def resolve_command(self, ctx: click.Context, args: list[str]) -> tuple[Optional[str], Optional[click.Command], list[str]]:
         if args and args[0].startswith("-"):
-            return "", _forwarded(""), args
+            return "", _launch_command(""), args
         return super().resolve_command(ctx, args)
 
 
@@ -51,7 +51,49 @@ def main(context: click.Context, home: Optional[Path]) -> None:
         home = Path(os.path.normpath(home)).absolute()
     context.obj = home
     if context.invoked_subcommand is None:
-        context.exit(_forward.run([], home))
+        _report_overseer(context, Path.cwd())
+
+
+def _report_overseer(
+    context: click.Context,
+    repo: Path,
+    *,
+    account: Optional[str] = None,
+    tool: Optional[str] = None,
+    channels: tuple[str, ...] = (),
+    no_channel: bool = False,
+    dry_run: bool = False,
+    arguments: tuple[str, ...] = (),
+    pick: bool = False,
+) -> None:
+    from . import _overseer
+    from ._channel import ChannelError
+    from ._repository import RepositoryError
+    from ._settings_io import SettingsError
+
+    try:
+        context.exit(_overseer.run(repo, _home.legion_home(context.obj), account=account, tool=tool, channels=channels, no_channel=no_channel, dry_run=dry_run, arguments=arguments, pick=pick))
+    except (ChannelError, RepositoryError, SettingsError, _overseer.OverseerError, OSError, ValueError) as error:
+        click.echo(" ".join(str(error).split()), err=True)
+        context.exit(1)
+
+
+def _launch_command(verb: str) -> click.Command:
+    @click.command(verb, help="Choose which account leads the overseer" if verb else "Start the overseer")
+    @click.option("--account")
+    @click.option("--tool")
+    @click.option("--channel", "channels", multiple=True)
+    @click.option("--no-channel", is_flag=True)
+    @click.option("--dry-run", is_flag=True)
+    @click.option("--repo", type=click.Path(path_type=Path))
+    @click.option("--argument", "arguments", multiple=True, help="A literal tool argument; repeat for each word (use --argument=--flag for flags).")
+    @click.pass_context
+    def launch(
+        context: click.Context, account: Optional[str], tool: Optional[str], channels: tuple[str, ...], no_channel: bool, dry_run: bool, repo: Optional[Path], arguments: tuple[str, ...]
+    ) -> None:
+        _report_overseer(context, repo=repo or Path.cwd(), account=account, tool=tool, channels=channels, no_channel=no_channel, dry_run=dry_run, arguments=arguments, pick=verb == "pick")
+
+    return launch
 
 
 @main.command("validate", help="Check a settings or project file against its schema")
@@ -566,5 +608,11 @@ def remove(context: click.Context, account_id: str) -> None:
     _remove_account(context, account_id)
 
 
+main.add_command(_launch_command("pick"))
+
 for _verb, _help in _forward.FORWARDED_VERBS.items():
     main.add_command(_forwarded(_verb, _help))
+
+
+if __name__ == "__main__":
+    main()

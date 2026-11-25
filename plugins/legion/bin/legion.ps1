@@ -66,34 +66,9 @@ function Get-LegionCall {
     param([string[]]$Words)
 
     if ($Words.Count -gt 0 -and $Words[0] -eq 'help') { return $null }
-    # A bare legion, or one with only flags, has the empty verb: it launches the overseer.
+    # Python owns every command except help.
     $verb = if ($Words.Count -eq 0 -or $Words[0].StartsWith('-')) { '' } else { $Words[0] }
-    $parts = Split-LegionWords -Words @($Words | Select-Object -Skip $(if ($verb) { 1 } else { 0 }))
-    $yesFlags = @('--yes', '-Yes')
-    $hasYes = ($parts.Flags | Where-Object { $yesFlags -contains $_ }).Count -gt 0
-    $repo = (Get-Location).Path
-
-    switch ($verb) {
-        { $_ -in @('', 'pick') } {
-            $noChannelFlags = @('--no-channel', '-NoChannel')
-            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags $noChannelFlags -MinArguments 0 -MaxArguments 0
-            $splat = @{ Repo = $repo }
-            if ($verb -eq 'pick') { $splat.Pick = $true }
-            if ($parts.Flags | Where-Object { $noChannelFlags -contains $_ }) { $splat.NoChannel = $true }
-            return @{ Script = 'legion-overseer.ps1'; Splat = $splat }
-        }
-        { $_ -in @('update', 'uninstall') } {
-            $allowedFlags = $yesFlags
-            if ($verb -eq 'uninstall') { $allowedFlags += @('--purge', '-Purge') }
-            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags $allowedFlags -MinArguments 0 -MaxArguments 0
-            $splat = @{}
-            if ($verb -eq 'update') { $splat.Update = $true } else { $splat.Uninstall = $true }
-            if ($parts.Flags | Where-Object { $_ -in @('--purge', '-Purge') }) { $splat.Purge = $true }
-            if ($hasYes) { $splat.Yes = $true }
-            return @{ Installer = $true; Splat = $splat }
-        }
-        default { throw "legion: unknown command '$verb'" }
-    }
+    throw "legion: unknown command '$verb'"
 }
 
 # update and uninstall run a private copy of the installer, so uninstalling the plugin

@@ -223,9 +223,6 @@ Test-PurgeScenario {
 
 Test-PurgeScenario {
     . (Join-Path $repo 'plugins/legion/bin/legion.ps1') -HomeRoot $fixtureHome
-    $call = Get-LegionCall -Words @('uninstall','--purge','--yes')
-    Assert-True ($call.Splat.Uninstall -and $call.Splat.Purge -and $call.Splat.Yes) 'Legion forwards purge with uninstall'
-    Assert-Throws { Get-LegionCall -Words @('update','--purge') } 'Update rejects purge'
     Assert-True (((Get-LegionHelp) -join "`n").Contains('uninstall [--purge]')) 'Help includes purge'
     # Exercise the local root entry point without invoking any CLI or registry API.
     $entry = Get-Content (Join-Path $repo 'install.ps1') -Raw
@@ -320,29 +317,6 @@ Test-PurgeScenario {
     Assert-True (Test-Path $cache) 'Purge never traverses linked cache'
     # Remove the link itself before recursive fixture cleanup, without following it.
     [IO.Directory]::Delete($cache)
-}
-
-Test-PurgeScenario {
-    . (Join-Path $repo 'plugins/legion/bin/legion.ps1') -HomeRoot $fixtureHome
-    $copy = Copy-LegionInstaller
-    $installer = Join-Path $copy 'install.ps1'
-    # The copied installer is real; only its external boundaries are replaced.
-    $fakes = @'
-function Test-InstallCommandAvailable { $false }
-function Get-InstallSourceText { throw 'Network forbidden' }
-function Get-LegionUserPath { '' }
-function Set-LegionUserPath { throw 'Registry writes forbidden' }
-function Read-Host { throw 'Yes must not prompt' }
-function Invoke-ClosedInput { throw 'Real CLI calls forbidden' }
-'@
-    $text = [IO.File]::ReadAllText($installer).Replace('if (-not $NoRun) {', $fakes + "`nif (-not `$NoRun) {")
-    [IO.File]::WriteAllText($installer, $text)
-    $null = New-PurgeFile '.legion/agents/codex-a/auth.json' 'fake login'
-    function Copy-LegionInstaller { $copy }
-    $output = @(Invoke-LegionScript -Call (Get-LegionCall -Words @('uninstall','--purge','--yes')) 6>&1) -join "`n"
-    Assert-Equal 0 $script:LegionExit 'Legion tolerates its copied installer being purged'
-    Assert-True (-not (Test-Path (Join-Path $fixtureHome '.legion'))) 'Running copy and legion home removed'
-    Assert-True ($output.Contains('done: purge')) 'Copied installer finished purge'
 }
 
 Test-PurgeScenario {

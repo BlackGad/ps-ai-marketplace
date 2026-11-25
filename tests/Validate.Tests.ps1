@@ -57,9 +57,6 @@ try {
         $owner.agents = @([pscustomobject]@{ id = 'fourth-dev'; tool = 'fourth'; configDir = (Join-Path $homeRoot '.legion/agents/fourth-dev') })
         $owner | ConvertTo-Json -Depth 100 | Set-Content $ownerPath
         $owner = Read-LegionJson $ownerPath
-        . (Join-Path $plugin 'bin/legion-overseer.ps1') -NoRun -HomeRoot $homeRoot
-        $launch = Get-OverseerLaunch -Personalisation $owner -AccountId fourth-dev -Tool fourth -Arguments @('--account','account value','','2026-11-19') -HomeRoot $homeRoot
-        Assert-Equal '--account|account value||2026-11-19|--interactive|space value|continue as the overseer' ($launch.Args -join '|') 'Descriptor tail follows explicit literal arguments'
         $descriptorPath = Join-Path $fourthSkill 'tool.json'
         $descriptor = Get-Content $descriptorPath -Raw | ConvertFrom-Json
         $descriptor.foundry = $null

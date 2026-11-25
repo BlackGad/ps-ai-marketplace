@@ -61,9 +61,14 @@ def run_command(command: str, arguments: Sequence[str], timeout: Optional[float]
             try:
                 output, error = process.communicate(timeout=DRAIN_SECONDS)
             except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-                output, error = b"", b""
+                # A descendant can still hold the pipes after the first stop; try the tree again.
+                _kill_tree(process, job)
+                try:
+                    output, error = process.communicate(timeout=DRAIN_SECONDS)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                    output, error = b"", b""
             timed_out = True
     finally:
         if job:
