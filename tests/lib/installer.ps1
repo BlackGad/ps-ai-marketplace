@@ -1,4 +1,4 @@
-# Shared helpers for tests/Bootstrap.Tests.ps1. A test file dot-sources this once.
+# Shared helpers for tests/repository/Bootstrap.Tests.ps1. A test file dot-sources this once.
 # It defines $repo, so a test file needs no setup line of its own.
 . (Join-Path $PSScriptRoot 'workspace.ps1')
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent

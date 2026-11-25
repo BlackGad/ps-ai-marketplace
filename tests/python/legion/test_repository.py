@@ -8,9 +8,9 @@ from typing import Literal, Optional
 import pytest
 from click.testing import CliRunner
 
-from legion._cli import main
-from legion import _repository
-from legion._run import RunResult, run_command
+from legion.cli import main
+from legion.services.repository import _repository
+from legion.core._run import RunResult, run_command
 
 if sys.platform == "win32":
     import _winapi

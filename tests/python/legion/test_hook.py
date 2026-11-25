@@ -4,22 +4,16 @@ import os
 import socket
 import subprocess
 import sys
-import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from legion import _hook, _lease, _update
-from legion._hook import (
-    FAILURE,
-    MEMBER,
-    MEMBER_WITHOUT_TASK,
-    HookInput,
-    mode_text,
-    session_folder,
-)
+from legion.hook import _hook
+from legion.services.repository import _lease
+from legion.services.installation import _update
+from legion.hook._hook import FAILURE, MEMBER, MEMBER_WITHOUT_TASK, HookInput, mode_text, session_folder
 
 HOOK = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "hooks" / "session_start.py"
 ORCHESTRATED = "legion: this repo is orchestrated. Say continue to act as the overseer."
@@ -45,15 +39,15 @@ def remote(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(_hook, "PLUGIN_ROOT", plugin)
     state: dict[str, Any] = {"version": "0.4.0", "calls": 0, "fail": False}
 
-    def open_fake(url: str, *, timeout: float) -> io.BytesIO:
-        assert url == _update.MANIFEST_URL
-        assert 0 < timeout <= 3
+    # Notice and cache tests must not depend on the daemon worker meeting its real deadline.
+    # test_update exercises the real downloader and its process-exit deadline separately.
+    def download_fake(_deadline: float) -> str:
         state["calls"] += 1
         if state["fail"]:
             raise OSError("offline fixture")
-        return io.BytesIO(json.dumps({"name": "legion", "version": state["version"]}).encode())
+        return json.dumps({"name": "legion", "version": state["version"]})
 
-    monkeypatch.setattr(urllib.request, "urlopen", open_fake)
+    monkeypatch.setattr(_update, "_download", download_fake)
     return state
 
 
@@ -233,7 +227,7 @@ def test_cached_hook_does_not_import_filelock(repo: Path) -> None:
         json.dumps({"Source": "BlackGad/ps-legion-marketplace", "CheckedAt": datetime.now(UTC).isoformat(), "Available": "0.0.0", "Failed": False}),
         encoding="utf-8",
     )
-    script = "import sys; from legion._hook import mode_text; from pathlib import Path; mode_text(Path(sys.argv[1]), {}); print('filelock' in sys.modules)"
+    script = "import sys; from legion.hook._hook import mode_text; from pathlib import Path; mode_text(Path(sys.argv[1]), {}); print('filelock' in sys.modules)"
     result = subprocess.run([sys.executable, "-c", script, str(repo)], capture_output=True, text=True, check=True)
     assert result.stdout == "False\n"
 
@@ -262,8 +256,15 @@ def test_failure_prints_one_line_and_exits_zero(repo: Path, monkeypatch: pytest.
 def test_update_notice_line_and_daily_cache(repo: Path, remote: dict[str, Any]) -> None:
     text = mode_text(repo, {})
     assert text == f"{ORCHESTRATED} {NOTICE}"
+    assert remote["calls"] == 1
+    cache = Path.home() / ".legion" / "temp" / "update.json"
+    before = cache.read_bytes()
+    record = _update.UpdateCache.from_json(before.decode())
+    assert (record.available, record.failed) == ("0.4.0", False)
+    remote["fail"] = True  # A fresh successful cache must avoid even a failing download.
     assert mode_text(repo, {"LEGION_ROLE": "legion", "LEGION_TASK": "task.md"}) == text
     assert remote["calls"] == 1
+    assert cache.read_bytes() == before
     for word in ("pwsh", "irm", ".ps1", " -"):
         assert word not in NOTICE
 
@@ -278,14 +279,21 @@ def test_member_and_plain_folders_never_check(tmp_path: Path, remote: dict[str, 
 def test_equal_or_older_release_adds_no_notice(repo: Path, remote: dict[str, Any], version: str) -> None:
     remote["version"] = version
     assert mode_text(repo, {}) == ORCHESTRATED
+    assert remote["calls"] == 1
 
 
 def test_failed_check_keeps_the_mode_guidance(repo: Path, remote: dict[str, Any]) -> None:
     remote["fail"] = True
     assert mode_text(repo, {}) == ORCHESTRATED
     assert remote["calls"] == 1
+    cache = Path.home() / ".legion" / "temp" / "update.json"
+    before = cache.read_bytes()
+    record = _update.UpdateCache.from_json(before.decode())
+    assert (record.available, record.failed) == (None, True)
+    remote["fail"] = False  # A fresh failed cache must also avoid retrying the download.
     assert mode_text(repo, {}) == ORCHESTRATED
     assert remote["calls"] == 1
+    assert cache.read_bytes() == before
 
 
 def test_unexpected_update_error_keeps_the_mode_guidance(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:

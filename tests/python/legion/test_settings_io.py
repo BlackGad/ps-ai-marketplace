@@ -8,13 +8,14 @@ from typing import Any
 
 import pytest
 
-from legion import _accounts, _settings_io
-from legion.foundry import _discovery
-from legion import _channel
+from legion.services.accounts import _accounts
+from legion.core import _settings_io
+from legion.services.foundry import _discovery
+from legion.services.channels import _channel
 from filelock import FileLock
-from legion._home import settings_path
-from legion._settings_io import SCHEMA_URL, SettingsError
-from legion._settings_models import PersonalisationSettings
+from legion.core._home import settings_path
+from legion.core._settings_io import SCHEMA_URL, SettingsError
+from legion.core._settings_models import PersonalisationSettings
 
 ACCOUNT = {"id": "claude-a", "tool": "claude", "configDir": "~/.claude"}
 FOUNDRY = {

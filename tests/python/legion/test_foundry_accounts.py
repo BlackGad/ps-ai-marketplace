@@ -7,12 +7,13 @@ import pytest
 from launcher_fakes import ready_app
 from test_foundry_run import ENDPOINT, ACCESS_CALL, TOKEN_ANSWER, Bench
 
-from legion import _accounts, _settings_io
-from legion._home import settings_path
-from legion._launchers import LauncherError, launcher_paths
-from legion._settings_models import Agent, PersonalisationSettings
-from legion._validate import settings_issues
-from legion.foundry import codex
+from legion.services.accounts import _accounts
+from legion.core import _settings_io
+from legion.core._home import settings_path
+from legion.services.accounts._launchers import LauncherError, launcher_paths
+from legion.core._settings_models import Agent, PersonalisationSettings
+from legion.core._validate import settings_issues
+from legion.services.foundry import codex
 
 LIST_KEY = "cognitiveservices account list -o json"
 DEPLOYMENTS_KEY = "cognitiveservices account deployment list --name res-a --resource-group rg-a -o json"

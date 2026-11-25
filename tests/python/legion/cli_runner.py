@@ -1,4 +1,4 @@
-from legion import _cli
+from legion import cli as _cli
 
 
 def run(arguments: list[str]) -> int:

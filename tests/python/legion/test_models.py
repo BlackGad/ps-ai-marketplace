@@ -8,12 +8,7 @@ from pydantic import (
     ValidationError,
 )
 
-from legion._settings_models import (
-    ChannelDescriptor,
-    PersonalisationSettings,
-    ProjectSettings,
-    ToolDescriptor,
-)
+from legion.core._settings_models import ChannelDescriptor, PersonalisationSettings, ProjectSettings, ToolDescriptor
 
 REPO = Path(__file__).resolve().parents[3]
 FIXTURES = REPO / "tests" / "fixtures"

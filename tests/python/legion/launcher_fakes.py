@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from legion import _footprints
-from legion._app import python_environment
-from legion._settings_models import Agent, ToolDescriptor
-from legion._validate import load_descriptors
+from legion.services.repository import _footprints
+from legion.services.installation._installed_runtime import python_environment
+from legion.core._settings_models import Agent, ToolDescriptor
+from legion.core._validate import load_descriptors
 
 WINDOWS = sys.platform == "win32"
 

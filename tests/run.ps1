@@ -18,7 +18,7 @@ function Get-TestOutsideSnapshot {
     param([string]$Path)
     return @(Get-ChildItem -LiteralPath $Path -File -Recurse -Force | Sort-Object FullName | ForEach-Object { $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash }) -join '|'
 }
-$testFiles = @(Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' | Where-Object Name -Like $Name | Sort-Object Name)
+$testFiles = @(Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1' -Recurse | Where-Object Name -Like $Name | Sort-Object Name)
 if (-not $testFiles.Count) { throw "No test file matches -Name '$Name'" }
 $realHome = $HOME
 foreach ($test in $testFiles) {

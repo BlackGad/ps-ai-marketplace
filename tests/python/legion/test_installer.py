@@ -11,9 +11,12 @@ import pytest
 from click.testing import CliRunner
 from filelock import FileLock
 
-from legion import _app, _cli, _footprints, _installer, _user_path
-from legion._generated import header
-from legion._run import RunResult
+from legion.services.installation import _installed_runtime, installer as _installer
+from legion import cli as _cli
+from legion.services.repository import _footprints
+from legion.services.installation import _user_path
+from legion.core._generated import header
+from legion.core._run import RunResult
 from app_fakes import FakeUv, make_source
 
 if os.name == "nt":
@@ -572,7 +575,7 @@ def test_self_purge_keeps_running_copy_and_clears_other_data(tmp_path: Path, mon
     home = tmp_path / "home"
     app = home / ".legion/app/1.2.3"
     app.mkdir(parents=True)
-    monkeypatch.setattr(_footprints._plugin, "PLUGIN_ROOT", app)
+    monkeypatch.setattr(_installed_runtime, "PLUGIN_ROOT", app)
     (app / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
     _footprints.add(home, "app-version", app, "legion")
     data = home / ".legion/configuration/notes.md"
@@ -650,7 +653,7 @@ def test_last_owner_removes_recorded_app_version_and_environment(tmp_path: Path)
     app = tmp_path / ".legion/app/1.2.3"
     app.mkdir(parents=True)
     (app / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
-    environment = _app.python_environment(app, tmp_path)
+    environment = _installed_runtime.python_environment(app, tmp_path)
     environment.mkdir(parents=True)
     (environment / "python.txt").write_text("ready", encoding="utf-8")
     _footprints.add(tmp_path, "app-version", app, "legion")

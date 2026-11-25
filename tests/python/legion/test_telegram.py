@@ -10,11 +10,8 @@ import pytest
 from pydantic import JsonValue
 
 from cli_runner import run
-from legion import _telegram
-from legion._telegram import (
-    Access,
-    TelegramError,
-)
+from legion.services.channels import _telegram
+from legion.services.channels._telegram import Access, TelegramError
 
 BOT_KEY = "123456:secret-token"
 

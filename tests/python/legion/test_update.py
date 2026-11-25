@@ -14,7 +14,8 @@ from typing import Any
 import pytest
 from cli_runner import run
 
-from legion import _plugin, _update
+from legion.core import _plugin
+from legion.services.installation import _update
 
 SOURCE = "BlackGad/ps-legion-marketplace"
 URL = f"https://raw.githubusercontent.com/{SOURCE}/stable/plugins/legion/plugin.json"
@@ -246,19 +247,24 @@ def test_invalid_version(version: str) -> None:
         _update.compare_versions(version, "1.0.0")
 
 
-def test_download_reads_remote_body(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("elapsed", [0.0, 1.25])
+def test_download_reads_remote_body(monkeypatch: pytest.MonkeyPatch, elapsed: float) -> None:
     calls = []
+    started = 500.2
+    deadline = started + 30
+    monkeypatch.setattr(_update.time, "monotonic", lambda: started + elapsed)
 
     def open_fake(url: str, *, timeout: float) -> io.BytesIO:
         calls.append((url, timeout))
         return io.BytesIO(b"\xef\xbb\xbfnull")
 
     monkeypatch.setattr(urllib.request, "urlopen", open_fake)
-    # Allow scheduling slack here; the subprocess tests verify the three-second deadline.
-    assert _update._download(time.monotonic() + 30) == "null"
+    # The fake clock isolates timeout arithmetic; subprocess tests verify the real three-second deadline.
+    assert _update._download(deadline) == "null"
     assert len(calls) == 1
     assert calls[0][0] == URL
-    assert 0 < calls[0][1] <= 30
+    # (500.2 + 30) - 500.2 is 30.000000000000057 because of floating-point rounding.
+    assert calls[0][1] == pytest.approx(30 - elapsed, rel=0, abs=1e-12)
 
 
 @pytest.mark.parametrize("stage", ["open", "body"])
@@ -267,7 +273,8 @@ def test_stalled_download_deadline_through_process_exit(plugin: Path, tmp_path: 
     script = """
 import sys, time, urllib.request
 from pathlib import Path
-from legion import _cli, _plugin
+from legion import cli as _cli
+from legion.core import _plugin
 class Response:
     def __enter__(self): return self
     def __exit__(self, *args): pass
@@ -302,7 +309,7 @@ import sys
 import threading
 from pathlib import Path
 before = set(sys.modules)
-from legion._update import get_update
+from legion.services.installation._update import get_update
 assert get_update(Path(sys.argv[1]), Path(sys.argv[2])) is not None
 assert not any(name in sys.modules for name in ('urllib.request', 'click', 'pydantic'))
 assert not any(name.startswith('urllib') for name in set(sys.modules) - before)

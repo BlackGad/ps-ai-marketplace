@@ -6,8 +6,8 @@ import pytest
 from cli_runner import run
 from pydantic import ValidationError
 
-from legion import _validate
-from legion._settings_models import ToolDescriptor
+from legion.core import _validate
+from legion.core._settings_models import ToolDescriptor
 
 REPO = Path(__file__).resolve().parents[3]
 FIXTURES = REPO / "tests" / "fixtures"

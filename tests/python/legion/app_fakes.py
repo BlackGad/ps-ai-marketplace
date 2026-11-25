@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from legion import _app, _footprints
-from legion._run import RunResult
+from legion.services.installation import _installed_runtime
+from legion.services.repository import _footprints
+from legion.core._run import RunResult
 
 if sys.platform == "win32":
     import _winapi
@@ -41,8 +42,8 @@ class FakeUv:
         self.exit_code = 0
         self.error = ""
         self.effect: Callable[[Path], None] | None = None
-        monkeypatch.setattr(_app, "find_uv", lambda: "uv")
-        monkeypatch.setattr(_app, "run_command", self.run)
+        monkeypatch.setattr(_installed_runtime, "find_uv", lambda: "uv")
+        monkeypatch.setattr(_installed_runtime, "run_command", self.run)
 
     def run(self, command: str, arguments: list[str], timeout: float | None = None, env: Mapping[str, str] | None = None) -> RunResult:
         assert env is not None
@@ -58,7 +59,7 @@ def old_app(home: Path, version: str = "0.0.1", ready: bool = True, recorded: bo
     (path / "plugin.json").write_text(json.dumps({"name": "legion", "version": version}), encoding="utf-8")
     if ready:
         (path / MARKER).touch()
-    environment = _app.python_environment(path, home)
+    environment = _installed_runtime.python_environment(path, home)
     environment.mkdir(parents=True)
     (environment / "python.txt").write_text("python", encoding="utf-8")
     if recorded:

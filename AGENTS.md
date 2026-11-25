@@ -10,12 +10,13 @@ A plugin marketplace with one plugin, `legion`: orchestration as skills for Clau
 | --- | --- |
 | `.claude-plugin/`, `.agents/plugins/` | Marketplace manifests (Claude Code and Copilot; Codex) |
 | `plugins/legion/skills/` | Skills: `SKILL.md` plus `references/` per skill |
-| `plugins/legion/src/legion/` | Python CLI; project and lockfile in `plugins/legion/`, tests in `tests/python/` |
+| `plugins/legion/src/legion/` | Python package: `core/`, `services/`, `cli/`, `hook/`; project and lockfile in `plugins/legion/` |
 | `plugins/legion/hooks/` | Session-start hooks for all three tools |
 | `plugins/legion/schemas/` | JSON schemas for personalisation and project files |
 | `install.ps1`, `install.sh` | Root bootstraps: they only obtain uv, then run the Python `legion install` with the same options; `install.ps1` runs on Windows PowerShell 5.1 and 7 |
 | `docs/reference.md` | Installer options, CLI guides and technical details |
-| `tests/` | Test files (`*.Tests.ps1`), fakes and fixtures |
+| `tests/repository/` | PowerShell repository checks (`*.Tests.ps1`); shared fakes and fixtures stay under `tests/` |
+| `tests/python/` | Python tests, with root `pytest.ini`, `ruff.toml` and `pyrightconfig.json` kept outside the client plugin |
 | `tools/` | Maintenance scripts, such as `update-tools-index.ps1` |
 
 ## Rules
@@ -29,7 +30,7 @@ A settings field exists only if a script reads it. Everything else is a plain-wo
 - **Readable and simple code is a must (KISS).** Write code the next person can read without explanation: plain control flow, clear names, no clever tricks, no abstraction without a real second use.
 - **DRY is desired.** Keep one home for each rule, format or list and reuse it, unless repeating it is simpler to read.
 - **Minimal diff.** Change only what the task needs.
-- Compare paths by resolving links with `resolve_directory` and `same_path` in `plugins/legion/src/legion/_home.py` (PowerShell tests: `Resolve-LegionDirectoryPath` in `tests/lib/paths.ps1`), then using the OS comparer; keep deliberate link-refusal checks lexical.
+- Compare paths by resolving links with `resolve_directory` and `same_path` in `plugins/legion/src/legion/core/_home.py` (PowerShell tests: `Resolve-LegionDirectoryPath` in `tests/lib/paths.ps1`), then using the OS comparer; keep deliberate link-refusal checks lexical.
 - Skills talk to the owner in plain words. `SKILL.md` holds the flow and the conversation; commands, script paths and flags go in `references/`.
 
 ## Release
@@ -48,7 +49,7 @@ The last line must be `<n> passed, 0 failed`. Tests never call real `az`, `claud
 
 CI runs the same command on Windows, macOS and Linux, and runs the integration suite (`tests/integration/run.py`) on every pull request; both are required checks.
 
-Python uses uv only (Python >=3.12), with code style from ps-poetry: the repository's `ruff.toml` and standard-mode `pyrightconfig.json`. From the repository root, set `UV_PROJECT_ENVIRONMENT` to a folder outside the plugin cache, for example `.agents/temp/python/env` (ignored scratch), then use `uv run --project plugins/legion --frozen --group dev` followed by `ruff check plugins/legion/src tests/python`, `ruff format --check plugins/legion/src tests/python`, `pyright`, or `pytest --rootdir=. -c plugins/legion/pyproject.toml`. Before pytest, set `LEGION_TEST_PWSH` to the absolute pwsh path, for example `(Get-Command pwsh).Source`. Keep environments outside the plugin cache; the PowerShell test runner stays PowerShell-only.
+Python uses uv only (Python >=3.12), with code style from ps-poetry: the repository's `ruff.toml` and standard-mode `pyrightconfig.json`. From the repository root, set `UV_PROJECT_ENVIRONMENT` to a folder outside the plugin cache, for example `.agents/temp/python/env` (ignored scratch), then use `uv run --project plugins/legion --frozen --group dev` followed by `ruff check plugins/legion/src tests/python tests/integration`, `ruff format --check plugins/legion/src tests/python tests/integration`, `pyright`, or `pytest`. Before pytest, set `LEGION_TEST_PWSH` to the absolute pwsh path, for example `(Get-Command pwsh).Source`. Keep environments outside the plugin cache; the PowerShell test runner stays PowerShell-only.
 
 ## Not committed
 

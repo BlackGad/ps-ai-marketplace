@@ -11,9 +11,9 @@ from typing import Optional
 import pytest
 from process_ready import timeout_after_ready
 
-from legion import _run
-from legion._process import process_started_at
-from legion._run import run_command
+from legion.core import _run
+from legion.core._process import process_started_at
+from legion.core._run import run_command
 
 PYTHON = sys.executable
 

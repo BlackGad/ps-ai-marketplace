@@ -13,15 +13,15 @@ import pytest
 from launcher_fakes import WINDOWS
 from test_limits import write_executable
 
-from legion._home import settings_path
-from legion.foundry import _run
-from legion.foundry._az import AzAccessToken
-from legion.foundry._types import Launch
+from legion.core._home import settings_path
+from legion.services.foundry import _run
+from legion.services.foundry._az import AzAccessToken
+from legion.services.foundry._types import Launch
 
 ACCESS_CALL = "account get-access-token --resource https://cognitiveservices.azure.com -o json"
 TOKEN_ANSWER = {"stdout": '{"accessToken":"fake-token","expiresOn":"2026-11-18T18:30:00+00:00"}'}
 ENDPOINT = "https://res-a.cognitiveservices.azure.com"
-RUNNER = "import sys; from legion import _cli; _cli.main(sys.argv[1:], prog_name='legion')"
+RUNNER = "import sys; from legion import cli as _cli; _cli.main(sys.argv[1:], prog_name='legion')"
 
 
 def foundry(account: str, tool: str, default: str, deployments: list[dict[str, str]]) -> dict[str, object]:

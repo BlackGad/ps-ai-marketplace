@@ -7,8 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from legion import _app, _footprints
-from legion._home import full_path, is_under, owner_path_safe, resolve_directory, same_path
+from legion.services.installation import _installed_runtime
+from legion.services.repository import _footprints
+from legion.core._home import full_path, is_under, owner_path_safe, resolve_directory, same_path
 
 if sys.platform == "win32":
     import _winapi
@@ -50,7 +51,7 @@ def test_other_reparse_points_are_refused_by_walk_and_descendant_scans(tmp_path:
     assert not owner_path_safe(child, tmp_path)
     entry = _footprints.Footprint(kind="folder", path="~/.legion/app/1.0.0", owners=["account:a"])
     assert not _footprints.is_safe(entry, tmp_path)
-    assert not _app.version_safe(folder, tmp_path)
+    assert not _installed_runtime.version_safe(folder, tmp_path)
 
 
 def test_descendant_inspection_failure_refuses_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
