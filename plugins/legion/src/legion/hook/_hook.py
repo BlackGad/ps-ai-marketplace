@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, TextIO
 
-from legion.services import _lease, _update
+from legion.services.repository import _lease
+from legion.services.app import _update
 from legion.core._plugin import PLUGIN_ROOT
 
 MEMBER = (

@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING
 
 from legion.core._home import home_path, wrapper_command
 from legion.core._settings_models import Agent
-from legion.services.limit_probes import claude, codex, copilot, foundry
-from legion.services.limit_probes._ping import LimitRow, first_line
+from legion.services.limits.limit_probes import claude, codex, copilot, foundry
+from legion.services.limits.limit_probes._ping import LimitRow, first_line
 
 if TYPE_CHECKING:
     from legion.services.limits import AccountLimits

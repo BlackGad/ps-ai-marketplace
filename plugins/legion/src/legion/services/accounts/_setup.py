@@ -15,8 +15,12 @@ from typing import Any, Optional
 import click
 from pydantic import ValidationError
 
-from legion.services import _accounts, _app, _launchers, _refresh, _status, _tool_install, installer as _installer
-from legion.core import _footprints, _generated, _settings_io, _user_path
+from legion.services.accounts import _accounts, _launchers
+from legion.services.app import _app, _refresh, _tool_install, installer as _installer
+from legion.services.status import _status
+from legion.services.repository import _footprints
+from legion.core import _generated, _settings_io
+from legion.services.app import _user_path
 from legion.core._home import bin_folder, full_path, home_path, resolve_directory, same_path, settings_path
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._settings_models import Agent, PersonalisationSettings, ToolDescriptor

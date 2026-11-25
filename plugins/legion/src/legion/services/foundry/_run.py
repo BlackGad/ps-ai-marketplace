@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from legion.services import _launchers
+from legion.services.accounts import _launchers
 from legion.core import _settings_io
 from legion.core._run import _cmd_line
 from legion.core._settings_models import ToolDescriptor

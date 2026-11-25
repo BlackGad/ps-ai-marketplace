@@ -15,9 +15,10 @@ from typing import Optional
 import click
 from pydantic import BaseModel, Field, TypeAdapter
 
-from legion.services import _bridge, _channel, _lease, _repository
+from legion.services.channels import _bridge, _channel
+from legion.services.repository import _lease, _repository
 from legion.core import _home, _run, _settings_io, _validate
-from legion.services._accounts import get_tool
+from legion.services.accounts._accounts import get_tool
 from legion.core._settings_models import Agent, PersonalisationSettings
 
 WINDOWS = sys.platform == "win32"
@@ -228,7 +229,7 @@ def start_launch(repo: Path, launch: Launch, *, dry_run: bool = False, in_place:
         return 0
     if terminal:
         payload = base64.urlsafe_b64encode(launch.model_dump_json().encode("utf-8")).decode("ascii")
-        return subprocess.run([terminal, "new-tab", "-d", str(repo), sys.executable, "-m", "legion.services._overseer", str(repo), payload], check=False).returncode
+        return subprocess.run([terminal, "new-tab", "-d", str(repo), sys.executable, "-m", "legion.services.channels._overseer", str(repo), payload], check=False).returncode
     process = start_bridge(launch, repo)
     try:
         words = [launch.command, *launch.arguments]

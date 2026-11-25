@@ -7,7 +7,7 @@ import pytest
 from launcher_fakes import WINDOWS, agent, fake_cli, only_on_path, python_cli, tool
 
 from legion.core import _generated
-from legion.services import _launchers
+from legion.services.accounts import _launchers
 from legion.core._home import bin_folder, wrapper_command
 from legion.core._run import run_command
 from legion.core._settings_models import ToolDescriptor

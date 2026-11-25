@@ -15,7 +15,7 @@ import pytest
 from cli_runner import run
 
 from legion.core import _plugin
-from legion.services import _update
+from legion.services.app import _update
 
 SOURCE = "BlackGad/ps-legion-marketplace"
 URL = f"https://raw.githubusercontent.com/{SOURCE}/stable/plugins/legion/plugin.json"
@@ -304,7 +304,7 @@ import sys
 import threading
 from pathlib import Path
 before = set(sys.modules)
-from legion.services._update import get_update
+from legion.services.app._update import get_update
 assert get_update(Path(sys.argv[1]), Path(sys.argv[2])) is not None
 assert not any(name in sys.modules for name in ('urllib.request', 'click', 'pydantic'))
 assert not any(name.startswith('urllib') for name in set(sys.modules) - before)

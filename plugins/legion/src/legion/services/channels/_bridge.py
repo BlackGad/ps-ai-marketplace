@@ -9,9 +9,9 @@ from typing import Optional
 
 from pydantic import TypeAdapter
 
-from legion.services import _inbox
+from legion.services.channels import _inbox
 from legion.core._process import open_query_handle
-from legion.services._telegram import Access, Message, Post, TelegramError, Update, User, bot_folder, call_bot, read_token
+from legion.services.channels._telegram import Access, Message, Post, TelegramError, Update, User, bot_folder, call_bot, read_token
 
 MAX_BACKOFF = 60
 _UPDATES = TypeAdapter(list[Update])

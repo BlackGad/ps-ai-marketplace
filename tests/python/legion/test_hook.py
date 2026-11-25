@@ -12,7 +12,8 @@ from typing import Any
 import pytest
 
 from legion.hook import _hook
-from legion.services import _lease, _update
+from legion.services.repository import _lease
+from legion.services.app import _update
 from legion.hook._hook import FAILURE, MEMBER, MEMBER_WITHOUT_TASK, HookInput, mode_text, session_folder
 
 HOOK = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "hooks" / "session_start.py"

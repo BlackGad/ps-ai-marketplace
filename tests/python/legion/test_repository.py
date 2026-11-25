@@ -9,7 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from legion.cli import main
-from legion.services import _repository
+from legion.services.repository import _repository
 from legion.core._run import RunResult, run_command
 
 if sys.platform == "win32":

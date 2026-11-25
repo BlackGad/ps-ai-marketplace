@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from legion.services import _accounts, _app, _launchers
+from legion.services.accounts import _accounts, _launchers
+from legion.services.app import _app
 from legion.core import _settings_io
 from legion.core._home import owner_path_safe, settings_path
 from legion.core._plugin import PLUGIN_ROOT

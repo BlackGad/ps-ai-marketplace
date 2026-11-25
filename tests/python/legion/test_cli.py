@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from cli_runner import run
 
-from legion.services import installer as _installer
+from legion.services.app import installer as _installer
 from legion.core import _plugin
 from legion.services import status as status_service
 from legion.services.status import StatusReport, status
@@ -90,7 +90,7 @@ def test_help_does_not_import_command_modules() -> None:
         "    _cli.main(['--help'])\n"
         "except SystemExit:\n"
         "    pass\n"
-        "loaded = [name for name in ('legion.services._bridge', 'legion.services._telegram', 'legion.services._inbox', "
+        "loaded = [name for name in ('legion.services.channels._bridge', 'legion.services.channels._telegram', 'legion.services.channels._inbox', "
         "'legion.core._validate', 'legion.core._settings_models', 'pydantic', 'asyncio') if name in sys.modules]\n"
         "assert not loaded, loaded\n"
     )

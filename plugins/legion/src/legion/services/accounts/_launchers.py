@@ -11,7 +11,7 @@ from typing import Literal, Optional
 from legion.core._generated import cmd_escape, header, is_owned, shell_literal, write_generated
 from legion.core._home import bin_folder, full_path, home_path, owner_path_safe, resolve_directory, same_path
 from legion.core._settings_models import Agent, ToolDescriptor
-from legion.services._app import ready_versions, python_environment
+from legion.services.app._app import ready_versions, python_environment
 
 # intact: every launcher is there and ours; none: no launcher file at all; partial: anything between.
 LauncherState = Literal["intact", "none", "partial"]

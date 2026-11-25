@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from legion.core import _footprints
-from legion.services._app import python_environment
+from legion.services.repository import _footprints
+from legion.services.app._app import python_environment
 from legion.core._settings_models import Agent, ToolDescriptor
 from legion.core._validate import load_descriptors
 

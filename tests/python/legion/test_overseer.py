@@ -15,11 +15,12 @@ from typing import Any, cast
 import pytest
 from cli_runner import run
 
-from legion.services import _bridge, _channel, _lease, _overseer, _repository
+from legion.services.channels import _bridge, _channel, _overseer
+from legion.services.repository import _lease, _repository
 from legion import cli as _cli
 from legion.core import _home, _run, _settings_io, _validate
 from legion.core._settings_models import Agent, PersonalisationSettings
-from legion.services.limit_probes import LimitRow
+from legion.services.limits.limit_probes import LimitRow
 from legion.services import limits as limits_service
 
 
@@ -469,7 +470,7 @@ def test_launched_overseer_requires_limits_ids_and_preserves_owner_shell(home: P
         calls.append((command, kwargs))
         if command[0] == "wt.exe":
             # Exercise the actual module entry used by a new terminal tab.
-            assert command[1:7] == ["new-tab", "-d", str(repo), sys.executable, "-m", "legion.services._overseer"]
+            assert command[1:7] == ["new-tab", "-d", str(repo), sys.executable, "-m", "legion.services.channels._overseer"]
             assert command[7] == str(repo)
             assert _overseer.Launch.model_validate_json(base64.urlsafe_b64decode(command[8])) == launch
             with monkeypatch.context() as entry:

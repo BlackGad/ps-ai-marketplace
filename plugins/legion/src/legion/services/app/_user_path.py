@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from legion.core import _footprints
+from legion.services.repository import _footprints
 from legion.core._home import owner_path_safe
 
 if sys.platform == "win32":

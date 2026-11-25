@@ -20,7 +20,7 @@ from pydantic import (
     Field,
 )
 
-from legion.services import _lease
+from legion.services.repository import _lease
 from legion.core._home import inbox_root, legion_home, wrapper_command
 from legion.core._run import run_command
 from legion.core._settings_models import NAME_PATTERN

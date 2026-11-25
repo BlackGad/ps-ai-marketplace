@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from cli_runner import run
 
-from legion.services import _channel
+from legion.services.channels import _channel
 from legion.core._home import settings_path
 
 SETUP = "run /telegram:configure in that session"

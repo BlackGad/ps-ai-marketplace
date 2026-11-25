@@ -11,9 +11,10 @@ import pytest
 from click.testing import CliRunner
 from filelock import FileLock
 
-from legion.services import _app, installer as _installer
+from legion.services.app import _app, installer as _installer
 from legion import cli as _cli
-from legion.core import _footprints, _user_path
+from legion.services.repository import _footprints
+from legion.services.app import _user_path
 from legion.core._generated import header
 from legion.core._run import RunResult
 from app_fakes import FakeUv, make_source
@@ -574,7 +575,7 @@ def test_self_purge_keeps_running_copy_and_clears_other_data(tmp_path: Path, mon
     home = tmp_path / "home"
     app = home / ".legion/app/1.2.3"
     app.mkdir(parents=True)
-    monkeypatch.setattr(_footprints._plugin, "PLUGIN_ROOT", app)
+    monkeypatch.setattr(_app, "PLUGIN_ROOT", app)
     (app / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
     _footprints.add(home, "app-version", app, "legion")
     data = home / ".legion/configuration/notes.md"

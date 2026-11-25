@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from legion.core import _footprints
+from legion.services.repository import _footprints
 from legion.core._settings_models import ToolDescriptor
 from legion.core._validate import load_descriptors
 

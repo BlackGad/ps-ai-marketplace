@@ -14,8 +14,11 @@ from cli_runner import run
 from filelock import FileLock, Timeout
 from launcher_fakes import WINDOWS, fake_cli, only_on_path
 
-from legion.services import _accounts, _app, installer as _installer, _launchers, _refresh, _setup, _status, _tool_install
-from legion.core import _footprints, _user_path
+from legion.services.accounts import _accounts, _launchers, _setup
+from legion.services.app import _app, installer as _installer, _refresh, _tool_install
+from legion.services.status import _status
+from legion.services.repository import _footprints
+from legion.services.app import _user_path
 from legion.core._home import bin_folder, footprint_index, settings_path
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._settings_models import ToolDescriptor

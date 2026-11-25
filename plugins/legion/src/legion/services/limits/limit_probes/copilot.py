@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from legion.services.limit_probes._ping import LimitRow, Ping, ping, ping_failure
+from legion.services.limits.limit_probes._ping import LimitRow, Ping, ping, ping_failure
 
 ARGUMENTS = ["-p", "ping", "-s"]
 

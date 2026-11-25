@@ -7,8 +7,8 @@ from pydantic import BaseModel, ConfigDict
 from legion.core._home import legion_home, settings_path
 from legion.core._settings_models import Agent, PersonalisationSettings
 from legion.core._validate import read_text
-from legion.services.limit_probes import DEFAULT_TIMEOUT, LimitsError, account_rows
-from legion.services.limit_probes._ping import LimitRow, first_line
+from legion.services.limits.limit_probes import DEFAULT_TIMEOUT, LimitsError, account_rows
+from legion.services.limits.limit_probes._ping import LimitRow, first_line
 
 
 class AccountLimits(BaseModel):

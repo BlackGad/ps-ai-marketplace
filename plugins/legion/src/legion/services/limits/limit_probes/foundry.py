@@ -8,7 +8,7 @@ from pydantic import (
 )
 
 from legion.core._run import run_command
-from legion.services.limit_probes._ping import find_executable
+from legion.services.limits.limit_probes._ping import find_executable
 
 TOKEN_ARGUMENTS = ["account", "get-access-token", "--resource", "https://cognitiveservices.azure.com", "-o", "json"]
 

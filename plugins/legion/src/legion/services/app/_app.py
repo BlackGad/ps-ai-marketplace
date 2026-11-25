@@ -13,12 +13,12 @@ from typing import Optional
 
 from filelock import FileLock, Timeout
 
-from legion.core._footprints import add, read, remove_entry
+from legion.services.repository._footprints import Footprint, add, read, remove_entry
 from legion.core._generated import header, is_owned, shell_literal, write_generated
-from legion.core._home import bin_folder, full_path, home_path, owner_path_safe, resolve_directory, same_path, tree_has_reparse
+from legion.core._home import bin_folder, full_path, home_path, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import run_command
-from legion.services._update import compare_versions
+from legion.services.app._update import compare_versions
 
 UV_MISSING = "uv is missing. Ask the owner before installing it, then run the legion installer again."
 MARKER = ".legion-app-ready"
@@ -267,3 +267,44 @@ def prune_old_versions(keep: Path, home: Path) -> list[str]:
             remove_entry(home, "app-version", path)
             lines.append(f"removed legion app {path.name}")
     return lines
+
+
+# Hand-built, reason: an app version and its uv environment must be removed as one safe unit after the last target owner leaves.
+def _remove_orphan_app(home: Path, kept: list[Footprint], lines: list[str]) -> bool:
+    orphan_app = [entry for entry in kept if entry.kind == "app" and not entry.owners]
+    if not orphan_app:
+        return False
+    changed = False
+    versions = [entry for entry in kept if entry.kind == "app-version"]
+    for entry in versions:
+        path = full_path(home_path(entry.path, home))
+        if is_under(PLUGIN_ROOT, path, allow_equal=True):
+            lines.append(f"Kept app version in use: {path} (close legion, then run uninstall again)")
+            continue
+        if not version_safe(path, home):
+            lines.append(f"skip: {path} (linked or not legion's)")
+            continue
+        if not _remove_version(path, home):
+            lines.append(f"Kept app version in use: {path} (close legion, then run uninstall again)")
+            continue
+        kept.remove(entry)
+        lines.append(f"Remove app version: {path}")
+        changed = True
+    if not any(entry.kind == "app-version" for entry in kept):
+        app_folder = home / ".legion" / "app"
+        sync_lock = app_folder / ".sync.lock"
+        if app_folder.is_dir() and sync_lock.is_file() and not sync_lock.is_symlink() and list(app_folder.iterdir()) == [sync_lock]:
+            try:
+                with FileLock(str(sync_lock), timeout=0):
+                    pass
+            except Timeout:
+                lines.append(f"Kept app lock in use: {sync_lock}")
+            else:
+                sync_lock.unlink(missing_ok=True)
+        if app_folder.is_dir() and not any(app_folder.iterdir()):
+            app_folder.rmdir()
+        if not app_folder.exists():
+            for entry in orphan_app:
+                kept.remove(entry)
+                changed = True
+    return changed

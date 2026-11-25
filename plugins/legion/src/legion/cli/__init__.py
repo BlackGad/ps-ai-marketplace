@@ -57,9 +57,9 @@ def _report_overseer(
     arguments: tuple[str, ...] = (),
     pick: bool = False,
 ) -> None:
-    from legion.services import _overseer
-    from legion.services._channel import ChannelError
-    from legion.services._repository import RepositoryError
+    from legion.services.channels import _overseer
+    from legion.services.channels._channel import ChannelError
+    from legion.services.repository._repository import RepositoryError
     from legion.core._settings_io import SettingsError
 
     try:
@@ -111,20 +111,20 @@ def update(context: click.Context, check: bool, force: bool, yes: bool) -> None:
     if check and yes:
         raise click.UsageError("--yes cannot be used with --check")
     if check:
-        from legion.services import _update
+        from legion.services.app import _update
 
         for line in _update.check_lines(_plugin.PLUGIN_ROOT, context.obj, force=force):
             click.echo(line)
         return
-    from legion.services import installer as _installer
+    from legion.services.app import installer as _installer
 
     _report_installer(context, lambda: _installer.install(_home.legion_home(context.obj), update=True, yes=yes))
 
 
 def _report_installer(context: click.Context, change: Callable[[], list[str]]) -> None:
-    from legion.services.installer import InstallerError
-    from legion.core._footprints import FootprintError
-    from legion.services._launchers import LauncherError
+    from legion.services.app.installer import InstallerError
+    from legion.services.repository._footprints import FootprintError
+    from legion.services.accounts._launchers import LauncherError
     from legion.core._settings_io import SettingsError
 
     try:
@@ -147,7 +147,7 @@ def _report_installer(context: click.Context, change: Callable[[], list[str]]) -
 @click.option("--purge", is_flag=True, help="Also remove recorded settings and data; requires --uninstall.")
 @click.pass_context
 def install(context: click.Context, tools: tuple[str, ...], source: str, ref: str, config_dir: Optional[Path], dry_run: bool, yes: bool, update: bool, uninstall: bool, purge: bool) -> None:
-    from legion.services import installer as _installer
+    from legion.services.app import installer as _installer
 
     _report_installer(
         context,
@@ -165,7 +165,7 @@ def install(context: click.Context, tools: tuple[str, ...], source: str, ref: st
 @click.option("--yes", is_flag=True)
 @click.pass_context
 def uninstall(context: click.Context, tools: tuple[str, ...], config_dir: Optional[Path], purge: bool, dry_run: bool, yes: bool) -> None:
-    from legion.services import installer as _installer
+    from legion.services.app import installer as _installer
 
     _report_installer(context, lambda: _installer.install(_home.legion_home(context.obj), list(tools), config_dir=config_dir, dry_run=dry_run, yes=yes, uninstall=True, purge=purge))
 
@@ -174,7 +174,7 @@ def uninstall(context: click.Context, tools: tuple[str, ...], config_dir: Option
 @click.option("--json", "as_json", is_flag=True, help="Print the typed status report as JSON.")
 @click.pass_obj
 def status(home: Optional[Path], as_json: bool) -> None:
-    from legion.services import _status
+    from legion.services.status import _status
     from legion.services.status import status as status_report
 
     report = status_report(Path.cwd(), home)
@@ -199,7 +199,7 @@ def status(home: Optional[Path], as_json: bool) -> None:
 def limits(context: click.Context, accounts: tuple[str, ...], as_json: bool) -> None:
     from pydantic import TypeAdapter
 
-    from legion.services.limit_probes import LimitsError, report_lines
+    from legion.services.limits.limit_probes import LimitsError, report_lines
     from legion.services.limits import AccountLimits, configured_accounts, limits as limits_report
 
     try:
@@ -232,7 +232,7 @@ def inbox() -> None:
 @click.option("--text", required=True)
 @click.pass_obj
 def inbox_send(home: Optional[Path], target: Path, sender: Optional[str], text: str) -> None:
-    from legion.services import _inbox
+    from legion.services.channels import _inbox
 
     sender = sender or str(Path.cwd().resolve())
     if sender.strip().lower() == "telegram":
@@ -246,7 +246,7 @@ def inbox_send(home: Optional[Path], target: Path, sender: Optional[str], text: 
 @click.option("--repo", type=click.Path(path_type=Path), default=None)
 @click.pass_obj
 def inbox_read(home: Optional[Path], repo: Optional[Path]) -> None:
-    from legion.services import _inbox
+    from legion.services.channels import _inbox
 
     _inbox.read(repo or Path.cwd(), home)
 
@@ -265,7 +265,7 @@ def telegram() -> None:
 @click.option("--file", "files", multiple=True, type=click.Path(path_type=Path))
 @click.pass_context
 def telegram_send(context: click.Context, channel: str, chat: str, text: str, text_format: str, reply_to: Optional[int], files: tuple[Path, ...]) -> None:
-    from legion.services import _telegram
+    from legion.services.channels import _telegram
 
     context.exit(_telegram.send(channel, chat, text, text_format, reply_to, list(files), home=context.obj))
 
@@ -277,7 +277,7 @@ def telegram_send(context: click.Context, channel: str, chat: str, text: str, te
 @click.option("--emoji", required=True)
 @click.pass_context
 def telegram_react(context: click.Context, channel: str, chat: str, message: str, emoji: str) -> None:
-    from legion.services import _telegram
+    from legion.services.channels import _telegram
 
     context.exit(_telegram.react(channel, chat, message, emoji, home=context.obj))
 
@@ -287,7 +287,7 @@ def telegram_react(context: click.Context, channel: str, chat: str, message: str
 @click.option("--repo", required=True, type=click.Path(path_type=Path))
 @click.pass_context
 def telegram_bridge(context: click.Context, channel: str, repo: Path) -> None:
-    from legion.services import _bridge
+    from legion.services.channels import _bridge
 
     context.exit(_bridge.run(channel, repo, home=context.obj))
 
@@ -303,7 +303,7 @@ _process_option = click.option("--process-id", type=int, help="the owner session
 
 # Prints the lease message, or its refusal on stderr with exit code 1.
 def _report_lease(context: click.Context, change: Callable[[], str]) -> None:
-    from legion.services._lease import LeaseError
+    from legion.services.repository._lease import LeaseError
 
     try:
         click.echo(change())
@@ -319,7 +319,7 @@ def _report_lease(context: click.Context, change: Callable[[], str]) -> None:
 @_process_option
 @click.pass_context
 def lease_take(context: click.Context, repo: Optional[Path], tool: str, account: str, process_id: Optional[int]) -> None:
-    from legion.services import _lease
+    from legion.services.repository import _lease
 
     _report_lease(context, lambda: _lease.take(repo or Path.cwd(), tool, account, process_id))
 
@@ -327,7 +327,7 @@ def lease_take(context: click.Context, repo: Optional[Path], tool: str, account:
 @lease.command("status", help="Print free, held, stale or foreign")
 @_repo_option
 def lease_status(repo: Optional[Path]) -> None:
-    from legion.services import _lease
+    from legion.services.repository import _lease
 
     click.echo(_lease.state(repo or Path.cwd()).state)
 
@@ -337,7 +337,7 @@ def lease_status(repo: Optional[Path]) -> None:
 @_process_option
 @click.pass_context
 def lease_release(context: click.Context, repo: Optional[Path], process_id: Optional[int]) -> None:
-    from legion.services import _lease
+    from legion.services.repository import _lease
 
     _report_lease(context, lambda: _lease.release(repo or Path.cwd(), process_id))
 
@@ -354,7 +354,7 @@ def repository() -> None:
 @click.option("--rules-file")
 @click.pass_context
 def repository_setup(context: click.Context, repo: Optional[Path], mode: Literal["private", "shared"], gate: Optional[str], rules_file: Optional[str]) -> None:
-    from legion.services import _repository
+    from legion.services.repository import _repository
 
     try:
         lines = _repository.setup(repo or Path.cwd(), mode, gate, rules_file)
@@ -372,7 +372,7 @@ def channel() -> None:
 
 # Runs one channel change and prints its line, or its refusal on stderr with exit code 1.
 def _report_channel(context: click.Context, change: Callable[[], list[str]]) -> None:
-    from legion.services._channel import ChannelError
+    from legion.services.channels._channel import ChannelError
     from legion.core._settings_io import SettingsError
 
     try:
@@ -395,7 +395,7 @@ _channel_accounts_option = click.option("--account", "accounts", required=True, 
 @_channel_accounts_option
 @click.pass_context
 def channel_add(context: click.Context, channel_id: str, kind: str, target: str, accounts: tuple[str, ...]) -> None:
-    from legion.services import _channel
+    from legion.services.channels import _channel
 
     _report_channel(context, lambda: [_channel.add(_home.legion_home(context.obj), channel_id, kind, target, list(accounts))])
 
@@ -404,7 +404,7 @@ def channel_add(context: click.Context, channel_id: str, kind: str, target: str,
 @click.option("--id", "channel_id", required=True)
 @click.pass_context
 def channel_remove(context: click.Context, channel_id: str) -> None:
-    from legion.services import _channel
+    from legion.services.channels import _channel
 
     _report_channel(context, lambda: [_channel.remove(_home.legion_home(context.obj), channel_id)])
 
@@ -414,7 +414,7 @@ def channel_remove(context: click.Context, channel_id: str) -> None:
 @_channel_accounts_option
 @click.pass_context
 def channel_check(context: click.Context, kind: str, accounts: tuple[str, ...]) -> None:
-    from legion.services import _channel
+    from legion.services.channels import _channel
 
     _report_channel(context, lambda: _channel.check(_home.legion_home(context.obj), kind, list(accounts)))
 
@@ -426,9 +426,9 @@ def account() -> None:
 
 # Runs one account change and prints its lines, or its refusal on stderr with exit code 1.
 def _report_account(context: click.Context, change: Callable[[], list[str]]) -> None:
-    from legion.services._accounts import AccountError
-    from legion.core._footprints import FootprintError
-    from legion.services._launchers import LauncherError
+    from legion.services.accounts._accounts import AccountError
+    from legion.services.repository._footprints import FootprintError
+    from legion.services.accounts._launchers import LauncherError
     from legion.core._settings_io import SettingsError
     from pydantic import ValidationError
 
@@ -472,7 +472,7 @@ def account_add(
     standard: bool,
     list_only: bool,
 ) -> None:
-    from legion.services import _accounts
+    from legion.services.accounts import _accounts
 
     if standard and (aliases or default_model):
         raise click.UsageError("--standard cannot be combined with --alias or --default")
@@ -497,7 +497,7 @@ def account_add(
 @click.option("--list", "list_only", is_flag=True)
 @click.pass_context
 def account_models(context: click.Context, account_id: str, deployments: tuple[str, ...], default_model: Optional[str], aliases: tuple[str, ...], standard: bool, list_only: bool) -> None:
-    from legion.services import _accounts
+    from legion.services.accounts import _accounts
 
     if standard and (aliases or default_model):
         raise click.UsageError("--standard cannot be combined with --alias or --default")
@@ -507,7 +507,7 @@ def account_models(context: click.Context, account_id: str, deployments: tuple[s
 
 # Runs setup (or add) and prints its lines, or its refusal on stderr with exit code 1.
 def _run_setup(context: click.Context, adds: list[str], account_id: Optional[str], source: Optional[str], yes: bool) -> None:
-    from legion.services import _setup
+    from legion.services.accounts import _setup
 
     try:
         _setup.run(_home.legion_home(context.obj), adds, account_id, source, yes, click.echo)
@@ -546,7 +546,7 @@ def tool() -> None:
 @click.option("--method", type=click.Choice(["winget", "msi", "zip"]), help="Windows only: how to install")
 @click.pass_context
 def tool_install(context: click.Context, tool_id: str, yes: bool, method: Optional[str]) -> None:
-    from legion.services._tool_install import ToolInstaller, ToolInstallError, current_platform
+    from legion.services.app._tool_install import ToolInstaller, ToolInstallError, current_platform
 
     try:
         context.exit(ToolInstaller(_home.legion_home(context.obj), current_platform(), yes, click.echo).install(tool_id, method))
@@ -578,7 +578,7 @@ def foundry_run(context: click.Context, account: str, arguments: tuple[str, ...]
 @main.command("refresh", hidden=True)
 @click.pass_context
 def refresh(context: click.Context) -> None:
-    from legion.services._refresh import refresh as change
+    from legion.services.app._refresh import refresh as change
 
     _report_account(context, lambda: change(_home.legion_home(context.obj)))
 
@@ -590,7 +590,7 @@ def refresh(context: click.Context) -> None:
 @click.option("--config-dir", required=True, help="the account's existing folder")
 @click.pass_context
 def account_register(context: click.Context, account_id: str, tool_id: str, command: str, config_dir: str) -> None:
-    from legion.services import _accounts
+    from legion.services.accounts import _accounts
 
     _report_account(context, lambda: _accounts.add_subscription(_home.legion_home(context.obj), account_id, tool_id, command, config_dir))
 
@@ -600,14 +600,14 @@ def account_register(context: click.Context, account_id: str, tool_id: str, comm
 @click.option("--new-id", required=True, help="the new account id")
 @click.pass_context
 def account_rename(context: click.Context, account_id: str, new_id: str) -> None:
-    from legion.services import _accounts
+    from legion.services.accounts import _accounts
 
     _report_account(context, lambda: _accounts.rename(_home.legion_home(context.obj), account_id, new_id))
 
 
 # `legion remove` and `legion account remove` are the same command under two names.
 def _remove_account(context: click.Context, account_id: str) -> None:
-    from legion.services import _accounts
+    from legion.services.accounts import _accounts
 
     _report_account(context, lambda: _accounts.remove(_home.legion_home(context.obj), account_id))
 
@@ -633,7 +633,3 @@ main.add_command(_launch_command("pick"))
 @click.pass_context
 def help_command(context: click.Context) -> None:
     click.echo(context.parent.get_help() if context.parent else "")
-
-
-if __name__ == "__main__":
-    main()

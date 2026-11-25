@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from launcher_fakes import ready_app
 
-from legion.services import _launchers
+from legion.services.accounts import _launchers
 from legion.core._settings_models import Agent
 
 PROVIDER = {"kind": "foundry", "endpoint": "https://example.test", "default": "claude-a", "deployments": [{"name": "claude-a"}]}

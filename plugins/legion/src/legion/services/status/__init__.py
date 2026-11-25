@@ -5,7 +5,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from legion.services import _lease, _status
+from legion.services.repository import _lease
+from legion.services.status import _status
 from legion.core._home import bin_folder, home_path, legion_home, settings_path
 from legion.core._settings_models import PersonalisationSettings, ToolDescriptor
 from legion.core._validate import load_descriptors, read_text

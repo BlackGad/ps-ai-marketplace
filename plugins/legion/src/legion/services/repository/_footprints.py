@@ -10,7 +10,6 @@ from typing import Literal
 
 from filelock import FileLock, Timeout
 
-from legion.core import _plugin
 from legion.core._generated import is_owned
 from legion.core._home import footprint_index, full_path, home_path, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
 from legion.core._settings_models import SchemaVersion, SettingsModel, Text, ToolDescriptor
@@ -172,49 +171,6 @@ def is_safe(entry: Footprint, home: Path) -> bool:
     return not tree_has_reparse(path)
 
 
-# Hand-built, reason: an app version and its uv environment must be removed as one safe unit after the last target owner leaves.
-def _remove_orphan_app(home: Path, kept: list[Footprint], lines: list[str]) -> bool:
-    orphan_app = [entry for entry in kept if entry.kind == "app" and not entry.owners]
-    if not orphan_app:
-        return False
-    # Import at use time because app imports footprint helpers while its module is initialized.
-    app = importlib.import_module("legion.services._app")
-    changed = False
-    versions = [entry for entry in kept if entry.kind == "app-version"]
-    for entry in versions:
-        path = full_path(home_path(entry.path, home))
-        if is_under(_plugin.PLUGIN_ROOT, path, allow_equal=True):
-            lines.append(f"Kept app version in use: {path} (close legion, then run uninstall again)")
-            continue
-        if not app.version_safe(path, home):
-            lines.append(f"skip: {path} (linked or not legion's)")
-            continue
-        if not app._remove_version(path, home):
-            lines.append(f"Kept app version in use: {path} (close legion, then run uninstall again)")
-            continue
-        kept.remove(entry)
-        lines.append(f"Remove app version: {path}")
-        changed = True
-    if not any(entry.kind == "app-version" for entry in kept):
-        app_folder = home / ".legion" / "app"
-        sync_lock = app_folder / ".sync.lock"
-        if app_folder.is_dir() and sync_lock.is_file() and not sync_lock.is_symlink() and list(app_folder.iterdir()) == [sync_lock]:
-            try:
-                with FileLock(str(sync_lock), timeout=0):
-                    pass
-            except Timeout:
-                lines.append(f"Kept app lock in use: {sync_lock}")
-            else:
-                sync_lock.unlink(missing_ok=True)
-        if app_folder.is_dir() and not any(app_folder.iterdir()):
-            app_folder.rmdir()
-        if not app_folder.exists():
-            for entry in orphan_app:
-                kept.remove(entry)
-                changed = True
-    return changed
-
-
 def remove_owner(home: Path, owners: list[str]) -> list[str]:
     index = footprint_index(home)
     if not index.exists():
@@ -245,7 +201,9 @@ def remove_owner(home: Path, owners: list[str]) -> list[str]:
                     shutil.rmtree(full_path(path))
                 else:
                     path.unlink()
-        changed = _remove_orphan_app(home, kept, lines) or changed
+        # App imports footprint helpers, so load its cleanup only after the index is ready.
+        app = importlib.import_module("legion.services.app._app")
+        changed = app._remove_orphan_app(home, kept, lines) or changed
         if changed:
             _write(home, data.model_copy(update={"entries": kept}))
     return lines

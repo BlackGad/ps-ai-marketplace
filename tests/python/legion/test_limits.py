@@ -21,9 +21,9 @@ from legion.core._home import home_path
 from legion.core._process import process_started_at
 from legion.core._run import RunResult
 from legion.core._settings_models import Agent
-from legion.services.limit_probes import LimitsError, LimitRow, _ping, account_rows, claude, codex
+from legion.services.limits.limit_probes import LimitsError, LimitRow, _ping, account_rows, claude, codex
 from legion.services.limits import limits
-from legion.services.limit_probes._ping import Ping, format_used_percent
+from legion.services.limits.limit_probes._ping import Ping, format_used_percent
 
 FIXTURES = REPO / "tests" / "fixtures" / "limits"
 FAKE_CLI = Path(__file__).with_name("limits_fake_cli.py")

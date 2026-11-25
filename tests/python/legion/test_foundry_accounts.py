@@ -7,10 +7,10 @@ import pytest
 from launcher_fakes import ready_app
 from test_foundry_run import ENDPOINT, ACCESS_CALL, TOKEN_ANSWER, Bench
 
-from legion.services import _accounts
+from legion.services.accounts import _accounts
 from legion.core import _settings_io
 from legion.core._home import settings_path
-from legion.services._launchers import LauncherError, launcher_paths
+from legion.services.accounts._launchers import LauncherError, launcher_paths
 from legion.core._settings_models import Agent, PersonalisationSettings
 from legion.core._validate import settings_issues
 from legion.services.foundry import codex

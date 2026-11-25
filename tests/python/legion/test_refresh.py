@@ -9,7 +9,8 @@ from app_fakes import MARKER, VERSION, FakeUv, make_link, make_source, old_app
 from filelock import FileLock
 from launcher_fakes import ready_app
 
-from legion.services import _app, _launchers, _refresh
+from legion.services.app import _app, _refresh
+from legion.services.accounts import _launchers
 from legion.core import _settings_io
 from legion.core._home import settings_path
 from legion.core._settings_models import Agent

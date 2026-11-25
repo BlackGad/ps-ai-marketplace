@@ -10,8 +10,9 @@ from cli_runner import run
 from filelock import FileLock
 from launcher_fakes import WINDOWS, agent, fake_cli, only_on_path, tool
 
-from legion.services import _accounts, _launchers
-from legion.core import _footprints, _generated, _settings_io
+from legion.services.accounts import _accounts, _launchers
+from legion.services.repository import _footprints
+from legion.core import _generated, _settings_io
 from legion.core._home import bin_folder, settings_path, wrapper_command
 
 OLD_FOLDER = "Existing account config folder does not exist."
