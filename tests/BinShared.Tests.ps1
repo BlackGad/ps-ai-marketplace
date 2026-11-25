@@ -1,7 +1,6 @@
 $root = Split-Path $PSScriptRoot -Parent
 $bin = Join-Path $root 'plugins/legion/bin'
 . (Join-Path $bin 'lib/settings.ps1')
-. (Join-Path $bin 'lib/accounts.ps1')
 . (Join-Path $bin 'lib/footprints.ps1')
 
 # OneUserPathWriter: the user PATH is written in lib/paths.ps1 only; callers use Add-LegionUserPath.

@@ -483,8 +483,6 @@ Invoke-InstallTestCase 'Winget' {
         $expected = "winget install --id $((Get-ToolInstallData $tool).windows.wingetId) -e --source winget --accept-source-agreements --accept-package-agreements"
         $recipe = Get-ToolRecipe -Tool $tool -Platform windows
         Assert-Equal $expected ($recipe.Install[0] -join ' ') "$tool winget recipe is non-interactive"
-        $hints = @(Get-ToolInstallHints -Tool $tool -Platform windows -CommandAvailable { $false } -ToolInstalled { $false })
-        Assert-Equal $expected ($hints -join "`n") "$tool plan hint includes source and agreement flags"
     }
     function Test-ToolInstalled { @{ Installed=$false; Version='' } }
     function Get-ToolPortableCommand { $null }

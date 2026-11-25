@@ -217,6 +217,19 @@ function Invoke-IntegrationScript {
     return $lines
 }
 
+# Runs the checkout's legion (Python) through uv, as the owner command does once setup has written it.
+function Invoke-IntegrationLegion {
+    param([string[]]$Arguments)
+    $plugin = Join-Path $script:Ctx.Checkout 'plugins/legion'
+    $savedEnvironment = $env:UV_PROJECT_ENVIRONMENT
+    $env:UV_PROJECT_ENVIRONMENT = Get-LegionPythonEnvironment -PluginRoot $plugin -HomeRoot $script:Ctx.HomeRoot
+    try { $lines = @(& uv run --project $plugin --frozen --quiet legion @Arguments 2>&1 | ForEach-Object { "$_" }) }
+    finally { $env:UV_PROJECT_ENVIRONMENT = $savedEnvironment }
+    if ($null -ne $script:IntegrationScriptLog) { $script:IntegrationScriptLog.AddRange([string[]]$lines) }
+    if ($LASTEXITCODE -ne 0) { throw "legion exited $LASTEXITCODE`n$($lines -join "`n")" }
+    return $lines
+}
+
 function Assert-IntegrationText {
     param([string[]]$Lines, [string]$Text)
     if (-not ($Lines -join "`n").Contains($Text)) { throw "expected '$Text' in the output:`n$($Lines -join "`n")" }
@@ -501,8 +514,7 @@ function Invoke-LegionInstallRepeat {
 # Steps 3 and 4: setup with each tool's tested source. Explicit ids keep a repeat from asking for more accounts.
 function Invoke-Setup {
     param([string]$Tool, [string]$Id)
-    $arguments = @('-Add', @($Tool), '-Id', $Id, '-Yes', '-HomeRoot', $script:Ctx.HomeRoot, '-Source', $script:Ctx.Targets[$Tool].Source)
-    return Invoke-IntegrationScript (Join-Path (Get-IntegrationBin) 'legion-setup.ps1') $arguments
+    return Invoke-IntegrationLegion @('--home', $script:Ctx.HomeRoot, 'add', $Tool, '--id', $Id, '--source', $script:Ctx.Targets[$Tool].Source, '--yes')
 }
 
 function Invoke-SetupAccounts {

@@ -56,7 +56,7 @@ $owned = @(
 )
 $text = ($owned | ForEach-Object { Get-SkillText $_ }) -join "`n"
 $create = Get-SkillText 'legion-personalisation/references/create.md'
-Assert-True ($create.Contains('unrecorded account') -and $create.Contains('without `-Add`')) 'K10 retries distinguish unrecorded accounts from plugin install failures'
+Assert-True ($create.Contains('unrecorded account') -and $create.Contains('finish setup with `legion setup`')) 'K10 retries distinguish unrecorded accounts from plugin install failures'
 Assert-True (-not $create.Contains('For `install failed` or `installed: open a new terminal`')) 'K10 plugin failures never repeat an unnamed add'
 
 Assert-True ($text -notmatch '\birm\b') 'the remote irm installer is gone from the skill text'

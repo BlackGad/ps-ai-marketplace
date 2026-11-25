@@ -36,7 +36,7 @@ def _find(settings: PersonalisationSettings, account: str) -> Optional[Agent]:
     return matches[0] if matches else None
 
 
-def _check_new_id(settings: PersonalisationSettings, account: str, home: Path) -> None:
+def check_new_id(settings: PersonalisationSettings, account: str, home: Path) -> None:
     _check_id(account)
     if account == "legion":
         raise AccountError(f"'{account}' is reserved for an owner command")
@@ -124,7 +124,7 @@ def add_subscription(home: Path, account: str, tool_id: str, command: Optional[s
         existing = _find(settings, account)
         if existing is not None and existing.provider is None and existing.tool == tool_id and same_path(full_path(home_path(existing.config_dir, home)), folder):
             return _repair(settings, existing, tool, real, folder, home)
-        _check_new_id(settings, account, home)
+        check_new_id(settings, account, home)
         agent = Agent.model_construct(id=account, tool=tool_id, config_dir=str(folder), command=_stored_command(real, tool, home))
         _launchers.plan_subscription(agent, tool, home)
         settings.agents.append(agent)
@@ -151,7 +151,7 @@ def add_foundry(home: Path, account: str, tool_id: str, endpoint: str, names: li
                 written = _launchers.write_foundry(current, home)
                 return [f"wrote: launcher {path}" for path in written] or [f"skip: account {account} (already done)"]
     if not list_only:
-        _check_new_id(before, account, home)
+        check_new_id(before, account, home)
         provisional = Agent.model_construct(id=account, tool=tool_id, config_dir=str(home / ".legion" / "agents" / account))
         _launchers.plan_foundry(provisional, home)
     discovery = _discovery.discover(endpoint, tool)
@@ -160,7 +160,7 @@ def add_foundry(home: Path, account: str, tool_id: str, endpoint: str, names: li
     provider = _discovery.provider_block(endpoint, tool, names, default, aliases, discovery, use_standard=use_standard)
     with _settings_io.writer(home, require_existing=False):
         settings = _settings_io.load_or_empty(home)
-        _check_new_id(settings, account, home)
+        check_new_id(settings, account, home)
         agent = Agent.model_validate({"id": account, "tool": tool_id, "configDir": str(home / ".legion" / "agents" / account), "provider": provider.model_dump(by_alias=True, exclude_none=True)})
         _launchers.plan_foundry(agent, home)
         settings.agents.append(agent)
@@ -231,7 +231,7 @@ def rename(home: Path, account: str, new_id: str) -> list[str]:
         old = _find(settings, account)
         if old is None and _find(settings, new_id) is not None:
             return [f"skip: account rename {account} to {new_id} (already done)"]
-        _check_new_id(settings, new_id, home)
+        check_new_id(settings, new_id, home)
         if old is None:
             raise AccountError(f"unknown account '{account}'")
         for path in _launchers.launcher_paths(new_id, home):

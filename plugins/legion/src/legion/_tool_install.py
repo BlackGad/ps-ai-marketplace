@@ -86,6 +86,10 @@ def installed_version(recipe: InstallRecipe) -> Optional[str]:
     return lines[0].strip() if lines else ""
 
 
+def current_platform() -> str:
+    return {"win32": "windows", "darwin": "macos"}.get(sys.platform, "linux")
+
+
 def winget_command(winget_id: str) -> list[str]:
     return ["winget", "install", "--id", winget_id, "-e", "--source", "winget", "--accept-source-agreements", "--accept-package-agreements"]
 
@@ -95,6 +99,23 @@ def install_commands(recipe: InstallRecipe, platform: str) -> list[list[str]]:
     if platform == "windows":
         return [winget_command(_windows(recipe).winget_id)]
     return (recipe.macos if platform == "macos" else recipe.linux).commands
+
+
+# What installing a tool would run, prerequisites first: the commands the consent shows before a yes.
+def install_hints(tool: str, platform: str) -> list[str]:
+    recipe = find_recipe(tool)
+    unix = recipe.macos if platform == "macos" else recipe.linux
+    hints: list[str] = []
+    for need in [] if platform == "windows" else unix.needs:
+        if installed_version(find_recipe(need)) is None:
+            hints.extend(install_hints(need, platform))
+    npm = recipe.windows.npm_when_available if platform == "windows" and recipe.windows else None
+    if npm is not None and command_available(npm.check):
+        return [*hints, " ".join(npm.command)]
+    commands = install_commands(recipe, platform)
+    if not commands:
+        return [*hints, unix.docs]
+    return [*hints, *(" ".join(command) for command in commands)]
 
 
 def _windows(recipe: InstallRecipe) -> Windows:

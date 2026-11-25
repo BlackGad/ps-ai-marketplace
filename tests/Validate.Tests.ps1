@@ -51,7 +51,7 @@ try {
         Copy-Item (Join-Path $PSScriptRoot 'fixtures/tools/legion-fourth') $fourthSkill -Recurse
         $owner = [pscustomobject]@{schemaVersion=1;agents=@();channels=@()}
         $owner | ConvertTo-Json -Depth 100 | Set-Content $ownerPath
-        . (Join-Path $plugin 'bin/lib/accounts.ps1')
+        . (Join-Path $plugin 'bin/lib/settings.ps1')
         Assert-Equal 'FOURTH_HOME' (Get-LegionTool -Tool fourth).configEnv 'Fourth config environment comes from descriptor'
         $env:PATH = @($fourthSkill,$env:PATH) -join [IO.Path]::PathSeparator
         $owner.agents = @([pscustomobject]@{ id = 'fourth-dev'; tool = 'fourth'; configDir = (Join-Path $homeRoot '.legion/agents/fourth-dev') })

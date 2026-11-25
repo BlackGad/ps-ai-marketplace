@@ -1,22 +1,33 @@
 # The Windows user PATH saved in the registry: read it, add one folder, and find commands on it.
+# On macOS and Linux the PATH line goes into the shell profile.
 # LEGION_TEST_USER_PATH_FILE stands in for the registry value in tests.
 
+import codecs
 import contextlib
 import ctypes
 import ntpath
 import os
+import re
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from . import _footprints
+from ._home import owner_path_safe
 
 if sys.platform == "win32":
     import winreg
 
 USER_ENVIRONMENT = "Environment"
 MACHINE_ENVIRONMENT = r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+PROFILE_MARKER = "# Added by legion"
+PROFILE_LINE = 'export PATH="$HOME/.legion/bin:$PATH"'
+
+
+class PathError(Exception):
+    pass
 
 
 # Windows compares without case and expands %VARIABLES%; ntpath does that on every system.
@@ -88,3 +99,63 @@ def persistent_folders() -> list[str]:
 # A command found only on the saved PATH. Nothing is run: a sanitized shell may leave these folders out on purpose.
 def find_persistent_command(name: str) -> Optional[str]:
     return shutil.which(name, path=os.pathsep.join(persistent_folders()))
+
+
+@dataclass(frozen=True)
+class ShellProfile:
+    path: Path
+    text: str
+    line: str
+    has_path: bool
+    # Marked: the line sits under legion's marker, so legion added it; a bare line is the owner's.
+    marked: bool
+
+
+# macOS and Linux: the profile of the owner's shell receives one PATH line.
+def shell_profile(home: Path) -> ShellProfile:
+    name = {"zsh": ".zshrc", "bash": ".bashrc"}.get(Path(os.environ.get("SHELL", "")).name, ".profile")
+    path = home / name
+    text = _read_profile(path)[0] if path.exists() else ""
+    marked = re.search(rf"^{re.escape(PROFILE_MARKER)}\r?\n{re.escape(PROFILE_LINE)}\r?$", text, re.MULTILINE) is not None
+    return ShellProfile(path, text, PROFILE_LINE, PROFILE_LINE in re.split(r"\r?\n", text), marked)
+
+
+# The text and the codec it was read with. Only a byte-order mark names a codec other than UTF-8.
+def _read_profile(path: Path) -> tuple[str, str]:
+    data = path.read_bytes()
+    codec = "utf-8"
+    for mark, name in ((codecs.BOM_UTF8, "utf-8"), (codecs.BOM_UTF16_LE, "utf-16-le"), (codecs.BOM_UTF16_BE, "utf-16-be")):
+        if data.startswith(mark):
+            data, codec = data[len(mark) :], name
+            break
+    try:
+        return data.decode(codec), codec
+    except UnicodeError:
+        raise PathError("File encoding is not lossless; resolve it manually before editing") from None
+
+
+# Adds the PATH line to the shell profile once; callers get consent before calling. With dry_run it only says what it would do.
+def shell_profile_lines(home: Path, dry_run: bool = False) -> list[str]:
+    profile = shell_profile(home)
+    if not owner_path_safe(profile.path, home):
+        raise PathError("Shell profile contains a link; resolve it before writing")
+    if profile.has_path:
+        if profile.marked and not dry_run:
+            stored = _footprints.stored_path(home, profile.path)
+            recorded = [entry for entry in _footprints.read(home).entries if entry.kind == "path-entry" and entry.value == profile.line and entry.path == stored]
+            _footprints.add(home, "path-entry", profile.path, "legion", key=recorded[0].key if recorded else "", value=profile.line)
+        return ["skip: shell profile PATH (already done)"]
+    lines = [f"add {PROFILE_MARKER} and {profile.line} to {profile.path}"]
+    if dry_run:
+        return lines
+    # Record a separating newline too, so purge restores a file without a final newline exactly.
+    separator = "\n" if profile.text and not profile.text.endswith("\n") else ""
+    _footprints.add(home, "path-entry", profile.path, "legion", key=separator, value=profile.line)
+    addition = f"{separator}{PROFILE_MARKER}\n{profile.line}\n"
+    if profile.path.exists():
+        # Appending keeps every original byte, in the codec the file already uses.
+        with profile.path.open("ab") as file:
+            file.write(addition.encode(_read_profile(profile.path)[1]))
+    else:
+        profile.path.write_text(addition, encoding="utf-8", newline="")
+    return lines

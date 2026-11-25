@@ -7,8 +7,6 @@ $ErrorActionPreference = 'Stop'
 $script:LegionHomeRoot = $HomeRoot
 # The folder that holds the scripts legion calls; tests point it at stand-in scripts.
 $script:LegionBin = $PSScriptRoot
-# Output lines of the last script legion ran, kept so the apply flow can read the plan's last line.
-$script:LegionOutput = @()
 # The exit code of the last command. Invoke-Legion sets it instead of returning it,
 # because a returned value would capture the output of an interactive CLI.
 $script:LegionExit = 0
@@ -63,7 +61,7 @@ function Assert-LegionUsage {
     if ($count -lt $MinArguments -or $count -gt $MaxArguments) { throw "legion ${Verb}: wrong number of arguments" }
 }
 
-# Returns @{ Script; Splat; AsksToApply }, or $null when the owner asked for help.
+# Returns @{ Script; Splat }, or $null when the owner asked for help.
 function Get-LegionCall {
     param([string[]]$Words)
 
@@ -71,33 +69,18 @@ function Get-LegionCall {
     # A bare legion, or one with only flags, has the empty verb: it launches the overseer.
     $verb = if ($Words.Count -eq 0 -or $Words[0].StartsWith('-')) { '' } else { $Words[0] }
     $parts = Split-LegionWords -Words @($Words | Select-Object -Skip $(if ($verb) { 1 } else { 0 }))
-    $arguments = $parts.Arguments
     $yesFlags = @('--yes', '-Yes')
     $hasYes = ($parts.Flags | Where-Object { $yesFlags -contains $_ }).Count -gt 0
     $repo = (Get-Location).Path
 
     switch ($verb) {
-        'setup' {
-            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags $yesFlags -MinArguments 0 -MaxArguments 0
-            $splat = @{}
-            if ($hasYes) { $splat.Yes = $true }
-            return @{ Script = 'legion-setup.ps1'; Splat = $splat; AsksToApply = -not $hasYes }
-        }
-        'add' {
-            Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags $yesFlags -MinArguments 1 -MaxArguments 2
-            # The setup script splits each item on the first colon only, so a folder may contain colons.
-            $item = $arguments -join ':'
-            $splat = @{ Add = @($item) }
-            if ($hasYes) { $splat.Yes = $true }
-            return @{ Script = 'legion-setup.ps1'; Splat = $splat; AsksToApply = -not $hasYes }
-        }
         { $_ -in @('', 'pick') } {
             $noChannelFlags = @('--no-channel', '-NoChannel')
             Assert-LegionUsage -Verb $verb -Parts $parts -AllowedFlags $noChannelFlags -MinArguments 0 -MaxArguments 0
             $splat = @{ Repo = $repo }
             if ($verb -eq 'pick') { $splat.Pick = $true }
             if ($parts.Flags | Where-Object { $noChannelFlags -contains $_ }) { $splat.NoChannel = $true }
-            return @{ Script = 'legion-overseer.ps1'; Splat = $splat; AsksToApply = $false }
+            return @{ Script = 'legion-overseer.ps1'; Splat = $splat }
         }
         { $_ -in @('update', 'uninstall') } {
             $allowedFlags = $yesFlags
@@ -107,7 +90,7 @@ function Get-LegionCall {
             if ($verb -eq 'update') { $splat.Update = $true } else { $splat.Uninstall = $true }
             if ($parts.Flags | Where-Object { $_ -in @('--purge', '-Purge') }) { $splat.Purge = $true }
             if ($hasYes) { $splat.Yes = $true }
-            return @{ Installer = $true; Splat = $splat; AsksToApply = $false }
+            return @{ Installer = $true; Splat = $splat }
         }
         default { throw "legion: unknown command '$verb'" }
     }
@@ -130,25 +113,19 @@ function Copy-LegionInstaller {
 }
 
 # Runs one script in this process and sets $script:LegionExit to its exit code.
-# With -Hold the output is kept in $script:LegionOutput and not printed yet.
-# Without it the output is not piped or captured: it streams as the script writes it,
+# The output is not piped or captured: it streams as the script writes it,
 # and an interactive CLI started by the script keeps the console.
 function Invoke-LegionScript {
-    param($Call, [switch]$Hold)
+    param($Call)
 
     # Reset first: a script that ends without `exit` must not report an older failure.
     $global:LASTEXITCODE = 0
-    $script:LegionOutput = @()
     $splat = $Call.Splat.Clone()
     if ($script:LegionHomeRoot) { $splat.HomeRoot = $script:LegionHomeRoot }
     $installerFolder = if ($Call.Installer) { Copy-LegionInstaller }
     $scriptPath = if ($Call.Installer) { Join-Path $installerFolder 'install.ps1' } else { Join-Path $script:LegionBin $Call.Script }
     try {
-        if ($Hold) {
-            $script:LegionOutput = @(& $scriptPath @splat | ForEach-Object { "$_" })
-        } else {
-            & $scriptPath @splat
-        }
+        & $scriptPath @splat
         $script:LegionExit = $global:LASTEXITCODE
     } catch {
         Write-Host $_.Exception.Message
@@ -164,33 +141,6 @@ function Test-LegionInteractive {
 
 function Read-LegionAnswer {
     return Read-Host 'Apply? [Y/n]'
-}
-
-# setup and add: show the plan first, then change things only after a yes.
-function Invoke-LegionWithApply {
-    param($Call)
-
-    Invoke-LegionScript -Call $Call -Hold
-    $exit = $script:LegionExit
-    $plan = $script:LegionOutput
-    $nothingToDo = $plan.Count -gt 0 -and $plan[-1] -eq 'Nothing to do.'
-    if ($exit -ne 0 -or $nothingToDo -or -not (Test-LegionInteractive)) {
-        $plan | ForEach-Object { Write-Host $_ }
-        return
-    }
-
-    # The prompt replaces the plan's own hint to run again with -Yes.
-    $plan | Where-Object { $_ -ne 'Run again with -Yes to apply.' } | ForEach-Object { Write-Host $_ }
-
-    $answer = (Read-LegionAnswer).Trim()
-    if ($answer -eq '' -or $answer -eq 'y' -or $answer -eq 'yes') {
-        $applied = @{ Script = $Call.Script; Splat = $Call.Splat.Clone(); AsksToApply = $false }
-        $applied.Splat.Yes = $true
-        Invoke-LegionScript -Call $applied
-        return
-    }
-    Write-Host 'Nothing changed.'
-    $script:LegionExit = 0
 }
 
 # Runs the given words and sets $script:LegionExit.
@@ -210,8 +160,7 @@ function Invoke-Legion {
         $script:LegionExit = 0
         return
     }
-    if ($call.AsksToApply) { Invoke-LegionWithApply -Call $call }
-    else { Invoke-LegionScript -Call $call }
+    Invoke-LegionScript -Call $call
 }
 
 # Dot-sourcing (tests) loads the functions only.

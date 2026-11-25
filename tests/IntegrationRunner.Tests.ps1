@@ -351,6 +351,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     # Dot-source to replace the script runner with one that records each call's arguments.
     function Use-CallRecorder {
         function Invoke-IntegrationScript { param($Script, $Arguments = @()) $script:calls += , @($Arguments | ForEach-Object { $_ }); return @('ok') }
+        function Invoke-IntegrationLegion { param([string[]]$Arguments) $script:calls += , @($Arguments); return @('ok') }
     }
     function Assert-ThrowsLike {
         param([scriptblock]$Action, [string]$Pattern, [string]$Message)
@@ -381,6 +382,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
             if ($script:ownedFile) { Add-Content -LiteralPath (Join-Path $script:Ctx.HomeRoot $script:ownedFile) -Value 'unexpected write' }
             return @('skip: legion (already done)')
         }
+        function Invoke-IntegrationLegion { param([string[]]$Arguments) return Invoke-IntegrationScript }
         $script:Ctx.HomeSnapshot = Get-IntegrationHomeSnapshot
         $result = Invoke-IntegrationBlock { & $repeatStep }
         Assert-Equal 'passed' $result.Result "$repeatStep allows CLI-owned logs and helper locks"
@@ -589,7 +591,7 @@ if (($args -join '|') -ne '-NoProfile|-Command|$PSVersionTable.PSVersion.ToStrin
     Assert-Equal 3 $firstCalls.Count 'one setup call per tool'
     Assert-Equal ($firstCalls -join "`n") ($repeatCalls -join "`n") 'the repeat uses the same arguments'
     foreach ($tool in 'claude', 'codex', 'copilot') {
-        Assert-True (@($firstCalls | Where-Object { $_ -like "*-Add $tool -Id ${tool}1 *" }).Count -eq 1) "$tool has an explicit stable id"
+        Assert-True (@($firstCalls | Where-Object { $_ -like "*add $tool --id ${tool}1 *" }).Count -eq 1) "$tool has an explicit stable id"
     }
 
     # The repository step uses the owner command and named Python options.
