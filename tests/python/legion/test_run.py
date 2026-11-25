@@ -1,12 +1,16 @@
 import contextlib
+import errno
 import json
 import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 import psutil
@@ -106,6 +110,85 @@ def test_timeout_kills_the_whole_tree(tmp_path: Path, monkeypatch: pytest.Monkey
     assert (result.exit_code, result.timed_out) == (-1, True)
     assert "tree started" in result.output
     wait_until_gone(int(marker.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize("stop", ["timeout", "cancel"])
+@pytest.mark.parametrize("group_state", ["live", "zombies", "gone", "exits-during-signal"])
+def test_darwin_group_exit_race_keeps_cleanup_and_outcome(monkeypatch: pytest.MonkeyPatch, stop: str, group_state: str) -> None:
+    # Hand-built: Darwin excludes zombies from killpg and returns EPERM for an existing
+    # group with no eligible members. Force both sides of the individual-kill race.
+    group_status = "zombie" if group_state in {"zombies", "gone"} else "live"
+    states = {101: group_status, 102: group_status, 103: "live", 104: group_status, 999: "live"}
+    group = (101, 102, 104)  # 103 detached; 104 outlived discovery; 999 is unrelated.
+    events: list[int] = []
+
+    def kill(pid: int) -> None:
+        events.append(pid)
+        if states[pid] == "zombie":
+            raise psutil.NoSuchProcess(pid)
+        states[pid] = "zombie"
+
+    parent = Mock(spec=psutil.Process, pid=101)
+    child = Mock(spec=psutil.Process, pid=102)
+    detached = Mock(spec=psutil.Process, pid=103)
+    parent.children.side_effect = [[child, detached], [], []]
+    child.children.return_value = detached.children.return_value = []
+    for member in (parent, child, detached):
+        member.kill.side_effect = lambda pid=member.pid: kill(pid)
+
+    def killpg(pgid: int, sig: int) -> None:
+        assert (pgid, sig) == (101, 9)
+        events.append(-pgid)
+        if group_state == "gone":
+            raise ProcessLookupError(errno.ESRCH, "No such process")
+        if group_state == "exits-during-signal":
+            for pid in group:
+                states[pid] = "zombie"
+        if all(states[pid] == "zombie" for pid in group):
+            raise PermissionError(errno.EPERM, "Operation not permitted")
+        for pid in group:
+            states[pid] = "zombie"
+
+    cancelled = threading.Event()
+    process = Mock(spec=subprocess.Popen, pid=101, returncode=-9)
+
+    def communicate(timeout: Optional[float] = None) -> tuple[bytes, bytes]:
+        del timeout
+        if not events:
+            if stop == "cancel":
+                cancelled.set()
+            raise subprocess.TimeoutExpired("fake", 0)
+        return b"tree started\n", b""
+
+    process.communicate.side_effect = communicate
+    monkeypatch.setattr(_run, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(_run, "signal", SimpleNamespace(SIGKILL=9))
+    monkeypatch.setattr(subprocess, "Popen", Mock(return_value=process))
+    monkeypatch.setattr(psutil, "Process", Mock(return_value=parent))
+    monkeypatch.setattr(os, "killpg", killpg, raising=False)
+    with _run.command_cancellation(cancelled):
+        if stop == "cancel":
+            with pytest.raises(_run.CommandCancelled):
+                run_command("fake", [], timeout=30)
+        else:
+            result = run_command("fake", [], timeout=0)
+            assert (result.exit_code, result.timed_out, result.output) == (-1, True, "tree started\n")
+    assert events == [-101, 103, 102, 101]
+    assert states == {101: "zombie", 102: "zombie", 103: "zombie", 104: "zombie", 999: "live"}
+    assert process.communicate.call_count == 2
+
+
+def test_group_permission_error_does_not_hide_owned_process_denial(monkeypatch: pytest.MonkeyPatch) -> None:
+    parent = Mock(spec=psutil.Process, pid=101)
+    parent.children.return_value = []
+    parent.kill.side_effect = psutil.AccessDenied(101)
+    group_kill = Mock(side_effect=PermissionError(errno.EPERM, "Operation not permitted"))
+    monkeypatch.setattr(_run, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(_run, "signal", SimpleNamespace(SIGKILL=9))
+    monkeypatch.setattr(os, "killpg", group_kill, raising=False)
+    with pytest.raises(psutil.AccessDenied):
+        _run._kill_tree(Mock(pid=101), None, {101: parent})
+    group_kill.assert_called_once_with(101, 9)
 
 
 def test_child_that_starts_a_process_and_exits_at_once_is_still_stopped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

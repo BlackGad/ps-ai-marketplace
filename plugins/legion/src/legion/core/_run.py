@@ -179,12 +179,14 @@ def _kill_tree(process: subprocess.Popen[bytes], job: Optional[int], owned: dict
             process.kill()
         return
     _track_descendants(owned)
+    # Cover undiscovered children in the original group before individual kills turn
+    # its members into zombies. Darwin can report EPERM for a zombie-only group;
+    # either group error still needs the retained, identity-checked kills below.
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(process.pid, signal.SIGKILL)
     for child in reversed(list(owned.values())):
         with contextlib.suppress(psutil.NoSuchProcess):
             child.kill()
-    # Also cover short-lived parents whose children still belong to the original group.
-    with contextlib.suppress(ProcessLookupError):
-        os.killpg(process.pid, signal.SIGKILL)
 
 
 _CREATE_SUSPENDED = 0x00000004
