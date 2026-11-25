@@ -1,8 +1,7 @@
-# Shared helpers for tests/Install*.Tests.ps1. A test file dot-sources this once.
+# Shared helpers for tests/Bootstrap.Tests.ps1. A test file dot-sources this once.
 # It defines $repo, so a test file needs no setup line of its own.
 . (Join-Path $PSScriptRoot 'workspace.ps1')
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$installerPath = Join-Path $repo 'plugins/legion/install.ps1'
 
 function New-InstallTestFolder {
     # A new empty folder under the runner's linked temp.

@@ -9,6 +9,7 @@ import zipfile
 from collections.abc import Callable
 from email.message import Message
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import pytest
@@ -17,6 +18,7 @@ from cli_runner import run
 from legion import _tool_install, _user_path
 from legion._footprints import read as read_footprints
 from legion._plugin import PLUGIN_ROOT
+from legion._run import RunResult
 from legion._settings_models import InstallRecipe, ScriptDownload, ToolDescriptor
 from legion._tool_install import ToolInstaller, ToolInstallError
 
@@ -148,7 +150,7 @@ def test_recipe_data_comes_from_descriptors_and_helpers() -> None:
     descriptor_tools = {tool.id for tool in _tool_install.load_tools()}
     assert {"claude", "codex", "copilot"} <= descriptor_tools
     assert descriptor_tools.isdisjoint({"git", "node", "az", "uv", "bun"})
-    assert PLUGIN_ROOT.joinpath("bin/install-tool/helpers.json").is_file()
+    assert PLUGIN_ROOT.joinpath("helpers.json").is_file()
 
 
 def test_unknown_tool_is_refused(bench: Bench) -> None:
@@ -645,6 +647,28 @@ def test_a_command_only_on_the_saved_path_counts_as_installed(tmp_path: Path, mo
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     monkeypatch.setattr(_user_path, "persistent_folders", lambda: [str(tmp_path / "saved")])
     assert _tool_install.installed_version(fourth()) == "persisted PATH"
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_a_vendor_command_in_local_bin_counts_as_installed(platform: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    folder = home / ".local/bin"
+    folder.mkdir(parents=True)
+    command = folder / "fourth-cli"
+    command.write_text("fixture", encoding="utf-8")
+    command.chmod(0o755)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.setattr(_tool_install, "sys", SimpleNamespace(platform=platform))
+    monkeypatch.setattr(_tool_install.shutil, "which", lambda _name, path=None: str(command) if path == str(folder) else None)
+
+    def fake_check(found: str, _arguments: list[str], **_kwargs: object) -> RunResult:
+        assert Path(found) == command
+        return RunResult(exit_code=0, output="fixture-version", error="", timed_out=False)
+
+    monkeypatch.setattr(_tool_install, "run_command", fake_check)
+    assert _tool_install.installed_version(fourth()) == "fixture-version"
 
 
 # --- the saved user PATH ---

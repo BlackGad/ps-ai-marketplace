@@ -38,10 +38,28 @@ jobs:
         with:
           ref: ${{ inputs.sha || github.sha }}
           persist-credentials: false
-      - name: Select the npm download cache
+      - name: Bootstrap uv on Windows
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          "npm_config_cache=$env:RUNNER_TEMP/npm-cache" >> $env:GITHUB_ENV
+          $homeRoot = Join-Path $env:RUNNER_TEMP 'legion-home'
+          powershell.exe -NoProfile -File ./install.ps1 -Yes -HomeRoot $homeRoot
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $uvFolder = Join-Path $homeRoot '.legion/bin'
+          if (-not (Test-Path (Join-Path $uvFolder 'uv.exe'))) { throw 'bootstrap did not install uv' }
+          $uvFolder >> $env:GITHUB_PATH
+      - name: Bootstrap uv on macOS and Linux
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          export HOME="$RUNNER_TEMP/legion-home"
+          sh ./install.sh --yes
+          test -x "$HOME/.legion/bin/uv"
+          echo "$HOME/.legion/bin" >> "$GITHUB_PATH"
+      - name: Select the npm download cache
+        shell: bash
+        run: |
+          echo "npm_config_cache=$RUNNER_TEMP/npm-cache" >> "$GITHUB_ENV"
       # Only npm's downloaded packages are cached, never installed CLIs or plugins.
       - if: github.event_name == 'pull_request'
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -49,14 +67,15 @@ jobs:
           path: ${{ env.npm_config_cache }}/_cacache
           key: integration-npm-${{ runner.os }}-${{ github.run_id }}
           restore-keys: integration-npm-${{ runner.os }}-
-      - shell: pwsh
+      - shell: bash
         env:
           ALLOW_SOURCE_FALLBACK: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.sha == '' }}
         run: |
-          $arguments = @('-NoProfile', '-File', 'tests/integration/run.ps1', '-Out', 'results')
-          if ($env:ALLOW_SOURCE_FALLBACK -eq 'true') { $arguments += '-AllowSourceFallback' }
-          & pwsh @arguments
-          exit $LASTEXITCODE
+          args=()
+          if [ "$ALLOW_SOURCE_FALLBACK" = true ]; then args+=(--allow-source-fallback); fi
+          python="$(uv python find --no-project 3.12)"
+          if command -v cygpath >/dev/null 2>&1; then python="$(cygpath -u "$python")"; fi
+          "$python" tests/integration/run.py --out results "${args[@]}"
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -224,8 +243,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - shell: pwsh
+      - shell: bash
         env:
           RUN_RESULT: ${{ needs.run.result }}
         run: |
-          if ($env:RUN_RESULT -ne 'success') { throw "integration matrix: $env:RUN_RESULT" }
+          if [ "$RUN_RESULT" != success ]; then echo "integration matrix: $RUN_RESULT" >&2; exit 1; fi

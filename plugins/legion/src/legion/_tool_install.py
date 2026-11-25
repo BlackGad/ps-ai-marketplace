@@ -24,7 +24,7 @@ from ._run import run_command
 from ._settings_models import BinaryDownload, InstallRecipe, ScriptDownload, ToolDescriptor, Windows
 from ._validate import load_descriptors
 
-HELPERS_PATH = PLUGIN_ROOT / "bin" / "install-tool" / "helpers.json"
+HELPERS_PATH = PLUGIN_ROOT / "helpers.json"
 CHOICE_MESSAGE = "choose --method msi (official installer, needs admin) or --method zip (user folder, no admin)"
 # An installer that asks for a restart still installed.
 INSTALLER_SUCCESS_CODES = (0, 3010)
@@ -75,7 +75,11 @@ def installed_version(recipe: InstallRecipe) -> Optional[str]:
         # Installers update the saved PATH, while the running shell keeps its old copy.
         if sys.platform == "win32" and _user_path.find_persistent_command(name):
             return "persisted PATH"
-        return None
+        if sys.platform != "win32":
+            # Vendor scripts place CLIs here before a new shell adds it to PATH.
+            found = shutil.which(name, path=str(Path.home() / ".local" / "bin"))
+        if found is None:
+            return None
     try:
         result = run_command(found, arguments, timeout=60)
     except OSError:

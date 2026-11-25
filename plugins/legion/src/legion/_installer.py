@@ -21,6 +21,9 @@ from ._plugin import PLUGIN_ROOT
 from ._run import run_command
 
 
+DEFAULT_SOURCE = "BlackGad/ps-legion-marketplace"
+
+
 class InstallerError(ValueError):
     pass
 
@@ -67,7 +70,7 @@ def _catalog(source: str | Path, ref: str, catalog: dict[str, Any] | None) -> di
         if Path(source).is_dir():
             path = Path(source) / "plugins/legion/tools.json"
             catalog = json.loads(path.read_text(encoding="utf-8"))
-        elif str(source) == "BlackGad/ps-legion-marketplace":
+        elif str(source) == DEFAULT_SOURCE and ref != "main":
             path = PLUGIN_ROOT / "tools.json"
             catalog = json.loads(path.read_text(encoding="utf-8"))
         elif re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", str(source)):
@@ -412,15 +415,6 @@ def ensure_path(home: Path, dry_run: bool, lines: list[str]) -> None:
     separator = "\n" if text and not text.endswith("\n") else ""
     _footprints.add(home, "path-entry", profile, "legion", key=separator, value=line)
     profile.write_bytes(bom + (text + separator + "# Added by legion\n" + line + "\n").encode(encoding))
-
-
-def record_portable_path(home: Path) -> None:
-    folder = os.getenv("LEGION_PORTABLE_PATH_ADDED")
-    if sys.platform != "win32" or not folder:
-        return
-    path = full_path(Path(folder))
-    if is_under(path, home / ".legion/tools/pwsh", allow_equal=True):
-        _footprints.add(home, "path-entry", "user PATH", "legion", value=str(path).rstrip("/\\"))
 
 
 # Hand-built, reason: only recorded PATH entries may be removed while retaining the order and separators of other entries.
@@ -799,10 +793,18 @@ def _install_steps(entry: dict[str, Any], folder: Path, source: str | Path, ref:
         _step(entry, plugin["install"], folder, dry_run, lines)
 
 
+# One row per tool and folder, so a long install ends with what happened where.
+# Hand-built, reason: a three-column text table is plain str.ljust; no table library is pinned.
+def _results_table(rows: list[tuple[str, str, str]]) -> list[str]:
+    table = [("Tool", "Folder", "Result"), *rows]
+    widths = [max(len(row[column]) for row in table) for column in (0, 1)]
+    return ["Results:", *(f"{tool.ljust(widths[0])}  {folder.ljust(widths[1])}  {result}".rstrip() for tool, folder, result in table)]
+
+
 def install(
     home: Path,
     tools: list[str] | None = None,
-    source: str | Path = "BlackGad/ps-legion-marketplace",
+    source: str | Path = DEFAULT_SOURCE,
     ref: str = "release",
     config_dir: Path | None = None,
     dry_run: bool = False,
@@ -840,7 +842,13 @@ def install(
                 lines.append("Purge needs the manual steps above.")
         return lines
     if not selected:
-        return ["No coding CLI is installed. Install one, then run this script again:", *(entry.get("installHint", "") for entry in catalog["tools"])]
+        lines.extend(["No coding CLI is installed. Run legion setup to install one.", *(entry.get("installHint", "") for entry in catalog["tools"])])
+        if not dry_run and not (yes or _confirm("Install the legion command and add ~/.legion/bin to your PATH? [y/N]", lines)):
+            return [*lines, "Nothing changed. Run again with --yes to apply."]
+        ensure_path(home, dry_run, lines)
+        if not dry_run:
+            lines.extend(_refresh.refresh(home, source=PLUGIN_ROOT))
+        return lines
     if update:
         targets = [(entry, folder) for tool_id in selected for entry in [_tool(catalog, tool_id)] for folder in _folders(home, entry, config_dir) if shutil.which(entry["command"])]
         for entry, folder in targets:
@@ -849,8 +857,7 @@ def install(
             lines.append(f"Update legion for {entry['id']} in {folder} ({version})")
         if targets and not dry_run and not (yes or _confirm("Update legion? [y/N]", lines)):
             return [*lines, "Nothing changed. Run again with --yes to apply."]
-        if targets and not dry_run:
-            record_portable_path(home)
+        rows: list[tuple[str, str, str]] = []
         for entry, folder in targets:
             before = _plugin_root(entry, folder)
             before_version = json.loads((before / "plugin.json").read_text(encoding="utf-8"))["version"] if before else "not installed"
@@ -868,24 +875,27 @@ def install(
                     lines.extend(_refresh_target(entry, folder, home, after))
                 except Exception as error:
                     lines.append(f"commands not refreshed for {entry['id']} in {folder}: {error}; run legion setup")
+                    rows.append((entry["id"], str(folder), f"commands not refreshed: {error}"))
                     continue
                 after_version = json.loads((after / "plugin.json").read_text(encoding="utf-8"))["version"]
                 lines.append(f"legion {before_version} -> {after_version}" if before_version != after_version else f"skip: legion {after_version} (already up to date)")
+                rows.append((entry["id"], str(folder), f"{before_version} -> {after_version}" if before_version != after_version else f"already up to date ({after_version})"))
         if targets and not dry_run:
+            lines.extend(_results_table(rows))
             lines.append("done: restart your sessions; run legion in the repository")
         return lines
     lines.append(f"Install legion for {', '.join(selected)}")
     path_description = "user PATH" if sys.platform == "win32" else "shell profile PATH"
     if not dry_run and not (yes or _confirm(f"Install legion for {', '.join(selected)} now, and add ~/.legion/bin to your {path_description}? [y/N]", lines)):
         return [*lines, "Nothing changed. Run again with --yes to apply."]
-    if not dry_run:
-        record_portable_path(home)
     ensure_path(home, dry_run, lines)
     installed_version = ""
+    rows = []
     for tool_id in selected:
         entry = _tool(catalog, tool_id)
         if not shutil.which(entry["command"]):
             lines.append(f"skip: {tool_id} (not installed)")
+            rows.append((tool_id, "-", "skipped (not installed)"))
             continue
         for folder in _folders(home, entry, config_dir):
             if not dry_run:
@@ -900,12 +910,17 @@ def install(
                     try:
                         lines.extend(_refresh_target(entry, folder, home, root))
                         installed_version = json.loads((root / "plugin.json").read_text(encoding="utf-8"))["version"]
+                        rows.append((tool_id, str(folder), f"installed legion {installed_version}"))
                     except Exception as error:
                         lines.append(f"commands not refreshed for {tool_id} in {folder}: {error}; run legion setup")
+                        rows.append((tool_id, str(folder), f"commands not refreshed: {error}"))
                 else:
                     lines.append(f"commands not refreshed for {tool_id} in {folder}; run legion setup")
+                    rows.append((tool_id, str(folder), "commands not refreshed"))
         if entry["hooks"].get("hint"):
             lines.append(entry["hooks"]["hint"])
+    if not dry_run:
+        lines.extend(_results_table(rows))
     if installed_version and not dry_run:
         lines.append(f"installed: legion {installed_version} ({ref})")
         lines.append("next: legion add claude (or legion in a repository)")
@@ -924,7 +939,7 @@ def _kept_lines(home: Path, catalog: dict[str, Any], config_dir: Path | None) ->
             if folder.is_dir() and folder not in seen:
                 lines.append(f"Kept config folder and login: {folder}")
                 seen.add(folder)
-    lines.append("Kept repositories at their existing paths; CLIs and PowerShell at their existing install locations.")
+    lines.append("Kept repositories at their existing paths and CLIs at their existing install locations.")
     lines.append("You can delete kept data by hand if you no longer need it.")
     return lines
 

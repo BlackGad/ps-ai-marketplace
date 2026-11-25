@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from cli_runner import run
 
-from legion import _plugin, _status
+from legion import _installer, _plugin, _status
 
 
 @pytest.fixture
@@ -82,3 +82,57 @@ def test_help_does_not_import_command_modules() -> None:
     )
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
+
+
+def test_help_verb_lists_every_verb_and_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(["help"]) == 0
+    output = capsys.readouterr().out
+    for verb in ("inbox", "telegram", "validate", "setup", "add", "remove", "status", "limits", "update", "uninstall", "pick", "help"):
+        assert f"  {verb} " in output
+
+
+def test_help_verb_runs_no_other_program(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert run(["help"]) == 0
+
+
+@pytest.mark.parametrize("words", [["--check", "--yes"], ["--force"], ["--check", "extra"], ["--check", "--unknown"], ["--unknown"]])
+def test_invalid_update_combinations_exit_2(words: list[str]) -> None:
+    assert run(["update", *words]) == 2
+
+
+@pytest.mark.parametrize(
+    ("words", "message"),
+    [
+        (["--force"], "--force requires --check"),
+        (["--check", "--yes"], "--yes cannot be used with --check"),
+        (["-Yes"], "No such option '-Y'."),
+        (["extra"], "Got unexpected extra argument (extra)"),
+    ],
+)
+def test_update_usage_errors_are_plain(words: list[str], message: str, capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(["update", *words]) == 2
+    assert f"Error: {message}\n" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("words", [[], ["--yes"]])
+def test_update_routes_to_python_installer(tmp_path: Path, words: list[str], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    home = tmp_path / "update home"
+    calls: list[tuple[Path, bool, bool]] = []
+
+    def fake_install(selected: Path, **options: object) -> list[str]:
+        calls.append((selected, bool(options["update"]), bool(options["yes"])))
+        return ["updated"]
+
+    monkeypatch.setattr(_installer, "install", fake_install)
+    assert run(["--home", str(home), "update", *words]) == 0
+    assert calls == [(home, True, bool(words))]
+    assert capsys.readouterr().out == "updated\n"
+
+
+def test_update_help_lists_its_options(capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(["update", "--help"]) == 0
+    output = capsys.readouterr().out
+    assert "Usage: legion update [OPTIONS]" in output
+    for option in ("--check", "--force", "--yes", "--help"):
+        assert option in output

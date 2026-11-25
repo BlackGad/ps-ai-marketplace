@@ -196,12 +196,22 @@ def _remove_orphan_app(home: Path, kept: list[Footprint], lines: list[str]) -> b
         lines.append(f"Remove app version: {path}")
         changed = True
     if not any(entry.kind == "app-version" for entry in kept):
-        for entry in orphan_app:
-            kept.remove(entry)
-            changed = True
         app_folder = home / ".legion" / "app"
+        sync_lock = app_folder / ".sync.lock"
+        if app_folder.is_dir() and sync_lock.is_file() and not sync_lock.is_symlink() and list(app_folder.iterdir()) == [sync_lock]:
+            try:
+                with FileLock(str(sync_lock), timeout=0):
+                    pass
+            except Timeout:
+                lines.append(f"Kept app lock in use: {sync_lock}")
+            else:
+                sync_lock.unlink(missing_ok=True)
         if app_folder.is_dir() and not any(app_folder.iterdir()):
             app_folder.rmdir()
+        if not app_folder.exists():
+            for entry in orphan_app:
+                kept.remove(entry)
+                changed = True
     return changed
 
 

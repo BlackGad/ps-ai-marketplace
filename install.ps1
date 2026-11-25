@@ -12,10 +12,9 @@ param(
     [string]$HomeRoot
 )
 
-function Test-InstallCommandAvailable {
-    param([string]$Name)
-    return [bool](Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue)
-}
+# The Windows bootstrap runs in the built-in Windows PowerShell 5.1 (or PowerShell 7).
+# It only obtains uv, then hands every option to the Python `legion install` command.
+# Hand-built, reason: this runs before uv and Python exist, so it cannot use any Python library; it stays small on purpose.
 
 function Get-InstallHome {
     if ($script:installHomeRoot) { return $script:installHomeRoot }
@@ -33,222 +32,229 @@ function Get-InstallLegionPath {
     return Join-Path (Join-Path (Get-InstallHome) '.legion') $Path
 }
 
-# The minimum is PowerShell 7.4 LTS; an older pwsh counts as missing.
-function Test-InstallPowerShellVersion {
-    param([string]$Path)
-    $version = & $Path -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' 2>$null
-    return $LASTEXITCODE -eq 0 -and $version -match '^(\d+\.\d+)' -and [version]$Matches[1] -ge [version]'7.4'
-}
-
-function Get-InstallPowerShellCommand {
-    $candidates = @(Get-Command pwsh -CommandType Application -All -ErrorAction SilentlyContinue | ForEach-Object Source)
-    $candidates += Get-InstallPortablePowerShell
-    if ($env:OS -eq 'Windows_NT' -and $env:ProgramFiles) { $candidates += Join-Path $env:ProgramFiles 'PowerShell/7/pwsh.exe' }
-    foreach ($path in $candidates) {
-        if ($path -and (Test-Path -LiteralPath $path) -and (Test-InstallPowerShellVersion $path)) { return @{ Source=$path } }
+# uv is found on PATH, in the legion bin folder (which `legion install` puts on the user PATH), or in the folder its own installer uses.
+function Get-InstallUv {
+    $found = Get-Command uv -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found) { return $found.Source }
+    $folders = @((Get-InstallLegionPath 'bin'), $env:UV_INSTALL_DIR, $env:XDG_BIN_HOME, (Join-Path (Join-Path (Get-InstallHome) '.local') 'bin'))
+    foreach ($folder in $folders) {
+        if (-not $folder) { continue }
+        foreach ($name in @('uv.exe', 'uv')) {
+            $path = Join-Path $folder $name
+            if (Test-Path -LiteralPath $path -PathType Leaf) { return $path }
+        }
     }
 }
 
-function Get-InstallPortablePowerShell {
-    $root = Get-InstallLegionPath 'tools/pwsh'
-    $pattern = Join-Path ([WildcardPattern]::Escape($root)) $script:installCatalog.bootstrap.windows.portableCommand
-    $file = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
-    if ($file) { return $file.FullName }
-}
-
-function Get-InstallUserPath {
-    if ($env:LEGION_TEST_USER_PATH_FILE) { return [IO.File]::ReadAllText($env:LEGION_TEST_USER_PATH_FILE) }
-    # Read the raw registry value so entries such as %USERPROFILE%\bin stay unexpanded.
-    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
-    if (-not $key) { return '' }
-    try { return [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) }
-    finally { $key.Dispose() }
-}
-
-# 5.1 bootstrap twin of Set-LegionUserPath in plugins/legion/bin/lib/paths.ps1.
-function Set-InstallUserPath {
-    param([string]$Path)
-    if ($env:LEGION_TEST_USER_PATH_FILE) {
-        [IO.File]::WriteAllText($env:LEGION_TEST_USER_PATH_FILE, $Path)
-        return
-    }
-    # Keep the existing value kind (normally REG_EXPAND_SZ), then tell Windows the environment changed.
-    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
-    try {
-        $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
-        if ($key.GetValueNames() -icontains 'Path') { $kind = $key.GetValueKind('Path') }
-        $key.SetValue('Path', $Path, $kind)
-    } finally { $key.Dispose() }
-    if (-not ('LegionInstall.Environment' -as [type])) {
-        Add-Type -Namespace LegionInstall -Name Environment -MemberDefinition @'
-[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-public static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UIntPtr parameter, string value, uint flags, uint timeout, out UIntPtr result);
-'@
-    }
-    $result = [UIntPtr]::Zero
-    [void][LegionInstall.Environment]::SendMessageTimeout([IntPtr]0xffff, 0x1a, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
-}
-
-function Test-InstallPathEntry {
-    param([string]$Path, [string]$Entry, [string]$Separator)
-    $target = $Entry.TrimEnd('\', '/')
-    foreach ($part in ($Path -split [regex]::Escape($Separator))) {
-        if ([Environment]::ExpandEnvironmentVariables($part).TrimEnd('\', '/') -ieq $target) { return $true }
-    }
-    return $false
-}
-
-function Add-InstallPowerShellPath {
-    param([string]$Path)
-    $userPath = Get-InstallUserPath
-    if (-not (Test-InstallPathEntry -Path $userPath -Entry $Path -Separator ';')) {
-        $updated = if ($userPath) { $userPath.TrimEnd(';') + ';' + $Path } else { $Path }
-        Set-InstallUserPath -Path $updated
-        # The installer records this entry for purge only after the owner's yes to install legion.
-        $env:LEGION_PORTABLE_PATH_ADDED = $Path
-    }
-    if (-not (Test-InstallPathEntry -Path $env:PATH -Entry $Path -Separator ([string][IO.Path]::PathSeparator))) {
-        $env:PATH = $Path + [IO.Path]::PathSeparator + $env:PATH
-    }
-}
-
+# Hand-built, reason: Invoke-WebRequest follows redirects without a check, so every hop is requested here and must be HTTPS.
 function Invoke-InstallDownload {
     param([string]$Url, [string]$OutFile)
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-    $ProgressPreference = 'SilentlyContinue'
-    Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
+    for ($hop = 0; $hop -lt 10; $hop++) {
+        if ($Url -notmatch '^https://') { throw "Refusing to download over anything but HTTPS: $Url" }
+        $request = [Net.HttpWebRequest]::Create($Url)
+        $request.AllowAutoRedirect = $false
+        $request.UserAgent = 'legion-bootstrap'
+        $response = $request.GetResponse()
+        try {
+            $status = [int]$response.StatusCode
+            if ($status -ge 300 -and $status -lt 400) {
+                $Url = (New-Object Uri ([Uri]$Url), $response.Headers['Location']).AbsoluteUri
+                continue
+            }
+            $file = [IO.File]::Create($OutFile)
+            try { $response.GetResponseStream().CopyTo($file) } finally { $file.Dispose() }
+            return
+        } finally { $response.Dispose() }
+    }
+    throw 'Too many redirects.'
 }
 
-function Install-PowerShellZip {
-    $temporary = Join-Path (Get-InstallLegionPath 'temp') ('install-' + [guid]::NewGuid().ToString('N'))
-    $metadata = Join-Path $temporary 'release.json'
-    $archive = Join-Path $temporary 'pwsh.zip'
+# Runs uv with the given arguments; its output goes to the owner, the result is only the exit code.
+function Invoke-InstallUv {
+    param([string]$Uv, [string[]]$Arguments)
+    & $Uv @Arguments | Out-Host
+    return $LASTEXITCODE
+}
+
+function Test-InstallUv {
+    param([string]$Uv)
+    try { & $Uv --version *> $null } catch { return $false }
+    return $LASTEXITCODE -eq 0
+}
+
+function Test-InstallPython {
+    param([string]$Uv)
+    & $Uv python find '>=3.12' *> $null
+    return $LASTEXITCODE -eq 0
+}
+
+# Temporary folders live in the system temp folder, outside .legion, so a purge can delete .legion while they are in use.
+function New-InstallTemporary {
+    $temporary = Join-Path ([IO.Path]::GetTempPath()) ('legion-install-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $temporary -Force -ErrorAction Stop | Out-Null
+    return $temporary
+}
+
+function Remove-InstallTemporary {
+    param([string]$Path)
+    if (-not ([IO.Path]::GetFileName($Path)).StartsWith('legion-install-')) { throw 'Unsafe installer temporary path' }
+    if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop }
+}
+
+# Downloads and verifies uv, then puts it in the home for install or a temporary folder for cleanup.
+function Install-InstallUvRelease {
+    param([string]$TemporaryUv)
+    $architecture = 'x86_64'
+    if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $architecture = 'aarch64' }
+    $temporary = New-InstallTemporary
     try {
-        New-Item -ItemType Directory -Path $temporary -Force -ErrorAction Stop | Out-Null
-        $recipe = $script:installCatalog.bootstrap.windows.download.zip
-        Invoke-InstallDownload -Url $recipe.metadataUrl -OutFile $metadata
-        $release = Get-Content -LiteralPath $metadata -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-        $asset = $release.assets | Where-Object { $_.name -match $recipe.assetPattern } | Select-Object -First 1
-        if (-not $asset -or $asset.digest -notmatch '^sha256:([a-fA-F0-9]{64})$') {
-            throw 'PowerShell ZIP asset or SHA-256 digest is missing from the official release.'
+        $archive = Join-Path $temporary 'uv.zip'
+        $asset = "uv-$architecture-pc-windows-msvc.zip"
+        $url = "https://github.com/astral-sh/uv/releases/latest/download/$asset"
+        $checksum = Join-Path $temporary 'uv.zip.sha256'
+        Invoke-InstallDownload -Url "$url.sha256" -OutFile $checksum
+        $digest = (Get-Content -LiteralPath $checksum -Raw -ErrorAction Stop).Trim()
+        if ($digest -notmatch "^([a-fA-F0-9]{64})\s+\*?$([regex]::Escape($asset))$") {
+            throw 'The uv asset or its SHA-256 digest is missing from the official release.'
         }
         $expectedHash = $Matches[1]
-        Invoke-InstallDownload -Url $asset.browser_download_url -OutFile $archive
+        Invoke-InstallDownload -Url $url -OutFile $archive
         if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256 -ErrorAction Stop).Hash -ine $expectedHash) {
-            throw 'PowerShell ZIP SHA-256 digest mismatch; download deleted.'
+            Remove-Item -LiteralPath $archive -Force
+            throw 'uv SHA-256 digest mismatch; download deleted.'
         }
-        $destination = Get-InstallLegionPath 'tools/pwsh'
-        Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force -ErrorAction Stop
-        if (-not (Get-InstallPortablePowerShell)) { throw 'PowerShell ZIP does not contain the configured executable.' }
-        $folder = $recipe.pathFolder.Replace('{version}', [string]$release.tag_name)
-        if ($folder -match '(^[/\\]|:|(^|[/\\])\.\.([/\\]|$))') { throw 'invalid catalog field bootstrap ZIP pathFolder: expected relative path' }
-        Add-InstallPowerShellPath -Path (Join-Path $destination $folder)
+        $staging = Join-Path $temporary 'uv'
+        Expand-Archive -LiteralPath $archive -DestinationPath $staging -Force -ErrorAction Stop
+        $staged = Join-Path $staging 'uv.exe'
+        if (-not (Test-InstallUv -Uv $staged)) { throw 'The downloaded uv does not run; nothing was installed.' }
+        if ($TemporaryUv) {
+            Copy-Item -LiteralPath $staged -Destination $TemporaryUv -ErrorAction Stop
+        } else {
+            $folder = Get-InstallLegionPath 'bin'
+            New-Item -ItemType Directory -Path $folder -Force -ErrorAction Stop | Out-Null
+            # Copy beside the target, then rename: an interrupted run never leaves a partial uv.exe.
+            Copy-Item -LiteralPath $staged -Destination (Join-Path $folder 'uv.exe.new') -Force -ErrorAction Stop
+            Move-Item -LiteralPath (Join-Path $folder 'uv.exe.new') -Destination (Join-Path $folder 'uv.exe') -Force -ErrorAction Stop
+        }
     } finally {
         Remove-InstallTemporary -Path $temporary
     }
 }
 
-function Ensure-InstallPowerShell {
-    param([bool]$OnWindows = ($env:OS -eq 'Windows_NT'), [switch]$DryRun, [switch]$Yes)
-    $command = Get-InstallPowerShellCommand
-    if ($command) {
-        Write-Host 'skip: PowerShell 7 (already done)'
-        # A previous portable install may be present before this shell has refreshed PATH.
-        $portable = Get-InstallPortablePowerShell
-        if ($OnWindows -and -not $DryRun -and $portable -and $command.Source -eq $portable -and
-            (Confirm-InstallChange -Yes:$Yes -Question 'Add the portable PowerShell 7 folder to your user PATH? [y/N]')) {
-            Add-InstallPowerShellPath -Path (Split-Path $portable -Parent)
-        }
-        return $true
+# Returns the path of uv, or $null when the owner has to act first (dry run, or no consent).
+function Ensure-InstallUv {
+    param([bool]$OnWindows = ($env:OS -eq 'Windows_NT'), [switch]$DryRun, [switch]$Yes, [string]$TemporaryUv)
+    $uv = Get-InstallUv
+    if ($uv) {
+        Write-Host 'skip: uv (already done)'
+        return $uv
     }
+    Write-Host 'uv is missing.'
     if (-not $OnWindows) {
-        Write-Host 'PowerShell 7 is missing.'
-        Write-Host 'Install PowerShell 7: https://learn.microsoft.com/powershell/scripting/install/installing-powershell'
-        return $false
+        Write-Host 'On macOS and Linux run install.sh instead: https://github.com/BlackGad/ps-legion-marketplace'
+        return $null
     }
-    if (-not $Yes -or $DryRun) {
-        Write-Host 'PowerShell 7 is missing.'
-        Write-Host ('winget install --id ' + $script:installCatalog.bootstrap.windows.wingetId + ' -e')
-        Write-Host 'ZIP fallback: latest official PowerShell ZIP, verified with its SHA-256 digest, to ~/.legion/tools/pwsh/ (user and process PATH).'
+    if ($TemporaryUv) {
+        Write-Host 'Use temporary uv: download the latest official uv release, verified with its SHA-256 digest, outside the home for cleanup.'
+    } else {
+        Write-Host 'Install uv: download the latest official uv release, verified with its SHA-256 digest, to ~/.legion/bin/, which the legion install then puts on your PATH.'
     }
+    if ($DryRun) { return $null }
+    if (-not (Confirm-InstallChange -Yes:$Yes -Question 'Install uv now? [y/N]')) {
+        Write-Host 'Nothing changed. Run again with -Yes to apply.'
+        return $null
+    }
+    Install-InstallUvRelease -TemporaryUv $TemporaryUv
+    if ($TemporaryUv) { return $TemporaryUv }
+    $uv = Get-InstallUv
+    if (-not $uv) { throw 'uv was installed but could not be found; open a new terminal and run the bootstrap again.' }
+    return $uv
+}
+
+# Previews never let uv download Python; an ordinary run asks first. Returns whether to go on.
+function Confirm-InstallPython {
+    param([string]$Uv, [switch]$DryRun, [switch]$Yes)
+    if (Test-InstallPython -Uv $Uv) { return $true }
+    Write-Host 'Python 3.12 is missing. uv can download it for legion.'
     if ($DryRun) { return $false }
-    if (-not (Confirm-InstallChange -Yes:$Yes -Question 'Install PowerShell 7 now? [y/N]')) { return $false }
-    if (Test-InstallCommandAvailable -Name winget) {
-        try {
-            $exitCode = Invoke-InstallWinget
-            if ($exitCode -eq 0) {
-                $command = Get-InstallPowerShellCommand
-                if ($command) {
-                    $folder = Split-Path $command.Source -Parent
-                    if (-not (Test-InstallPathEntry -Path $env:PATH -Entry $folder -Separator ([string][IO.Path]::PathSeparator))) {
-                        $env:PATH = $folder + [IO.Path]::PathSeparator + $env:PATH
-                    }
-                    return $true
-                }
-            }
-            Write-Host 'winget did not make PowerShell 7 available.'
-        } catch { Write-Host 'winget failed to install PowerShell 7.' }
-    } else { Write-Host 'winget is missing.' }
-    Install-PowerShellZip
-    return $true
+    if (Confirm-InstallChange -Yes:$Yes -Question 'Download Python with uv now? [y/N]') { return $true }
+    Write-Host 'Nothing changed. Run again with -Yes to apply.'
+    return $false
 }
 
-function Invoke-InstallWinget {
-    & winget install --id $script:installCatalog.bootstrap.windows.wingetId -e | Out-Host
-    return $LASTEXITCODE
+# The plugin folder that holds the Python project: this checkout, or the archive downloaded from the fixed legion repository.
+function Get-InstallProject {
+    param([string]$CheckoutRoot, [string]$Branch, [string]$Temporary)
+    if ($CheckoutRoot) {
+        $project = Join-Path (Join-Path $CheckoutRoot 'plugins') 'legion'
+        if (Test-Path -LiteralPath (Join-Path $project 'pyproject.toml') -PathType Leaf) { return $project }
+    }
+    $archive = Join-Path $Temporary 'legion.zip'
+    $expanded = Join-Path $Temporary 'expanded'
+    try { Invoke-InstallDownload -Url "https://github.com/BlackGad/ps-legion-marketplace/archive/refs/heads/$Branch.zip" -OutFile $archive }
+    catch {
+        if ($Branch -eq 'stable') { throw 'could not find the latest release; try again or run with main' }
+        throw
+    }
+    Expand-Archive -LiteralPath $archive -DestinationPath $expanded -ErrorAction Stop
+    $top = @(Get-ChildItem -LiteralPath $expanded -Force)
+    if ($top.Count -ne 1 -or -not $top[0].PSIsContainer) { throw 'Plugin archive must contain a single top folder.' }
+    $project = Join-Path (Join-Path $top[0].FullName 'plugins') 'legion'
+    if (-not (Test-Path -LiteralPath (Join-Path $project 'pyproject.toml') -PathType Leaf)) { throw 'Plugin archive is missing the legion project.' }
+    return $project
 }
 
-function Remove-InstallTemporary {
-    param([string]$Path)
-    $homePrefix = [IO.Path]::GetFullPath((Get-InstallHome)).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
-    $target = [IO.Path]::GetFullPath($Path)
-    $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
-    if (-not $target.StartsWith($homePrefix, $comparison)) { throw 'Unsafe installer temporary path' }
-    if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop }
+# The options of this script, as the `legion install` command spells them.
+function Get-InstallArguments {
+    param([Collections.IDictionary]$Parameters)
+    # Always the home this script used, so a redirected $HOME reaches Python too.
+    $homeRoot = $Parameters.HomeRoot
+    if (-not $homeRoot) { $homeRoot = $HOME }
+    $arguments = @('--home', $homeRoot, 'install')
+    if ($Parameters.Tools) { $arguments += @('--tool', (@($Parameters.Tools) -join ',')) }
+    if ($Parameters.Source) { $arguments += @('--source', $Parameters.Source) }
+    if ($Parameters.ConfigDir) { $arguments += @('--config-dir', $Parameters.ConfigDir) }
+    if ($Parameters.Ref) { $arguments += @('--ref', $Parameters.Ref) }
+    foreach ($switch in @('DryRun', 'Yes', 'Update', 'Uninstall', 'Purge')) {
+        if ($Parameters[$switch]) { $arguments += '--' + (($switch -creplace '([a-z])([A-Z])', '$1-$2').ToLowerInvariant()) }
+    }
+    return $arguments
 }
 
 function Invoke-InstallBootstrap {
     param([Collections.IDictionary]$Parameters, [string]$CheckoutRoot = $PSScriptRoot)
     $script:bootstrapExitCode = 0
     $script:installHomeRoot = $Parameters.HomeRoot
-    $temporary = $null
+    $dryRun = [bool]$Parameters.DryRun
+    $temporary = New-InstallTemporary
+    $savedEnvironment = $env:UV_PROJECT_ENVIRONMENT
     try {
-        $installer = if ($CheckoutRoot) { Join-Path $CheckoutRoot 'plugins/legion/install.ps1' }
-        if (-not $installer -or -not (Test-Path -LiteralPath $installer -PathType Leaf)) {
-            $temporary = Join-Path (Get-InstallLegionPath 'temp') ('install-' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Path $temporary -Force -ErrorAction Stop | Out-Null
-            $archive = Join-Path $temporary 'legion.zip'
-            $expanded = Join-Path $temporary 'expanded'
-            $branch = if ($Parameters.Ref -eq 'main') { 'main' } else { 'stable' }
-            try { Invoke-InstallDownload -Url "https://github.com/BlackGad/ps-legion-marketplace/archive/refs/heads/$branch.zip" -OutFile $archive }
-            catch {
-                if ($branch -eq 'stable') { throw 'could not find the latest release; try again or run with main' }
-                throw
-            }
-            Expand-Archive -LiteralPath $archive -DestinationPath $expanded -ErrorAction Stop
-            $top = @(Get-ChildItem -LiteralPath $expanded -Force)
-            if ($top.Count -ne 1 -or -not $top[0].PSIsContainer) { throw 'Plugin archive must contain a single top folder.' }
-            $installer = Join-Path $top[0].FullName 'plugins/legion/install.ps1'
+        $cleanup = [bool]$Parameters.Uninstall -or [bool]$Parameters.Purge
+        $temporaryUv = $null
+        if ($cleanup) { $temporaryUv = Join-Path $temporary 'uv.exe' }
+        $uv = Ensure-InstallUv -DryRun:$dryRun -Yes:([bool]$Parameters.Yes) -TemporaryUv $temporaryUv
+        if (-not $uv) { return }
+        $folder = Split-Path $uv -Parent
+        if (($env:PATH -split [regex]::Escape([string][IO.Path]::PathSeparator)) -notcontains $folder) {
+            $env:PATH = $folder + [IO.Path]::PathSeparator + $env:PATH
         }
-        if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw 'Plugin archive installer is missing.' }
-        $catalog = Join-Path (Split-Path $installer -Parent) 'tools.json'
-        $script:installCatalog = Get-Content -LiteralPath $catalog -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-        if (-not (Ensure-InstallPowerShell -DryRun:$Parameters.DryRun -Yes:$Parameters.Yes)) {
-            if (-not $Parameters.DryRun) { Write-Host 'Nothing changed. Run again with -Yes to apply.' }
-            return
+        if (-not (Confirm-InstallPython -Uv $uv -DryRun:$dryRun -Yes:([bool]$Parameters.Yes))) { return }
+        $branch = 'stable'
+        if ($Parameters.Ref -eq 'main') { $branch = 'main' }
+        $project = Get-InstallProject -CheckoutRoot $CheckoutRoot -Branch $branch -Temporary $temporary
+        # The project environment lives beside the downloaded copy and goes with it.
+        $env:UV_PROJECT_ENVIRONMENT = Join-Path $temporary 'env'
+        if ($cleanup -and $uv -ne $temporaryUv) {
+            # Cleanup may remove an installed uv; Windows cannot delete a running program.
+            Copy-Item -LiteralPath $uv -Destination $temporaryUv -ErrorAction Stop
+            $uv = $temporaryUv
         }
-        $pwsh = (Get-InstallPowerShellCommand).Source
-        # SwitchParameter loses its type across the process boundary; Boolean keeps its binding meaning.
-        $arguments = @{}
-        foreach ($name in $Parameters.Keys) {
-            $value = $Parameters[$name]
-            $arguments[$name] = if ($value -is [Management.Automation.SwitchParameter]) { [bool]$value } else { $value }
-        }
-        & $pwsh -NoProfile -Command { param($p,$a) $ErrorActionPreference = 'Stop'; & $p @a; exit $LASTEXITCODE } -args $installer,$arguments
-        $script:bootstrapExitCode = $LASTEXITCODE
+        if ($cleanup) { $env:PATH = $temporary + [IO.Path]::PathSeparator + $env:PATH }
+        $script:bootstrapExitCode = Invoke-InstallUv -Uv $uv -Arguments (@('run', '--project', $project, '--frozen', '--quiet', 'legion') + @(Get-InstallArguments -Parameters $Parameters))
     } finally {
-        $env:LEGION_PORTABLE_PATH_ADDED = $null
-        if ($temporary) { Remove-InstallTemporary -Path $temporary }
+        $env:UV_PROJECT_ENVIRONMENT = $savedEnvironment
+        Remove-InstallTemporary -Path $temporary
     }
 }
 

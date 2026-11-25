@@ -10,15 +10,14 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import click
 from pydantic import ValidationError
 
-from . import _accounts, _app, _footprints, _forward, _generated, _launchers, _refresh, _settings_io, _status, _tool_install, _user_path
+from . import _accounts, _app, _footprints, _generated, _installer, _launchers, _refresh, _settings_io, _status, _tool_install, _user_path
 from ._home import bin_folder, full_path, home_path, resolve_directory, same_path, settings_path
 from ._plugin import PLUGIN_ROOT
-from ._run import run_command
 from ._settings_models import Agent, PersonalisationSettings, ToolDescriptor
 from ._validate import read_text
 
@@ -421,22 +420,17 @@ def set_path(plan: Plan, say: Callable[[str], None]) -> None:
         os.environ["PATH"] += f";{plan.bin}"
 
 
-def find_pwsh() -> Optional[str]:
-    return shutil.which("pwsh")
-
-
-# Seam for the installer module (milestone 4, task 5): the plugin still goes into an account's folder by the PowerShell
-# installer shipped beside this plugin, run with closed stdin; its output goes to a log. Returns its exit code.
-def install_plugin(tool_id: str, folder: Path, home: Path, source: Optional[str], installer: Optional[Path] = None) -> int:
-    pwsh = find_pwsh()
-    if pwsh is None:
-        code, output = 127, _forward.PWSH_MISSING
-    else:
-        arguments = ["-NoProfile", "-File", str(installer or PLUGIN_ROOT / "install.ps1"), "-Tools", tool_id, "-ConfigDir", str(folder), "-HomeRoot", str(home), "-Update", "-Yes"]
-        if source:
-            arguments += ["-Source", source]
-        result = run_command(pwsh, arguments)
-        code, output = result.exit_code, result.output + result.error
+# The plugin goes into an account's folder by the installer module, without questions (yes); its output goes to a log.
+# Returns 0 when it finished, 1 when it failed.
+def install_plugin(tool_id: str, folder: Path, home: Path, source: Optional[str]) -> int:
+    options: dict[str, Any] = {"tools": [tool_id], "config_dir": folder, "update": True, "yes": True}
+    if source:
+        options["source"] = source
+    try:
+        output = "\n".join(_installer.install(home, **options))
+        code = 0
+    except (_installer.InstallerError, _footprints.FootprintError, _launchers.LauncherError, _settings_io.SettingsError, OSError, ValueError) as error:
+        output, code = str(error), 1
     log = home / ".legion" / "temp" / f"setup-install-{tool_id}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     log.write_text(output, encoding="utf-8")
@@ -458,9 +452,9 @@ def install_plugins(plan: Plan, source: Optional[str], say: Callable[[str], None
                 results[key] = install_plugin(row.tool.id, row.folder, plan.home, source)
             except (OSError, ValueError):
                 results[key] = 1
-        if results[key] != 0:
-            row.next_step = f"install failed: log in with {row.id}, then finish setup"
         row.version = _status.installed_version(row.folder, row.tool)
+        if results[key] != 0 and row.version is None:
+            row.next_step = f"install failed: log in with {row.id}, then finish setup"
 
 
 def write_commands(plan: Plan, say: Callable[[str], None]) -> None:

@@ -1,22 +1,5 @@
 {
   "schemaVersion": 1,
-  "bootstrap": {
-    "windows": {
-      "wingetId": "Microsoft.PowerShell",
-      "portableCommand": "pwsh.exe",
-      "download": {
-        "zip": {
-          "kind": "zip",
-          "resolver": "release-assets",
-          "metadataUrl": "https://api.github.com/repos/PowerShell/PowerShell/releases/latest",
-          "assetPattern": "^PowerShell-[\\d.]+-win-x64\\.zip$",
-          "verification": "asset-digest",
-          "arguments": [],
-          "pathFolder": ""
-        }
-      }
-    }
-  },
   "tools": [
     {
       "id": "claude",

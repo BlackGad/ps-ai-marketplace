@@ -14,8 +14,7 @@ from cli_runner import run
 from filelock import FileLock, Timeout
 from launcher_fakes import WINDOWS, fake_cli, only_on_path
 
-from legion._run import RunResult
-from legion import _accounts, _app, _footprints, _forward, _launchers, _refresh, _setup, _status, _tool_install, _user_path
+from legion import _accounts, _app, _footprints, _installer, _launchers, _refresh, _setup, _status, _tool_install, _user_path
 from legion._home import bin_folder, footprint_index, settings_path
 from legion._plugin import PLUGIN_ROOT
 from legion._settings_models import ToolDescriptor
@@ -533,6 +532,18 @@ def test_a_plugin_install_failure_is_a_table_row_and_the_next_folder_still_insta
     assert len(bench.plugin_installs) == 2
 
 
+def test_copilot_setup_reports_login_when_plugin_installed_despite_installer_error(bench: Bench) -> None:
+    install = bench.install_plugin
+
+    def installed_with_error(tool_id: str, folder: Path, home: Path, source: Optional[str]) -> int:
+        install(tool_id, folder, home, source)
+        return 1
+
+    bench.monkeypatch.setattr(_setup, "install_plugin", installed_with_error)
+    output = bench.apply(["copilot"])
+    assert any(line.startswith("copilot1  copilot  ") and line.endswith(f"  {VERSION}  log in: run copilot1") for line in output)
+
+
 def test_a_plugin_installer_that_raises_is_a_failure_row_for_each_target(bench: Bench) -> None:
     bench.hide("claude1")
     attempts: list[str] = []
@@ -691,56 +702,44 @@ def test_the_preview_shows_the_command_the_apply_runs_when_npm_is_only_on_the_sa
 # --- the plugin installer process ---
 
 
-@pytest.fixture
-def stand_in(bench: Bench, pwsh_path: Path) -> Path:
-    script = bench.base / "stand in.ps1"
-    script.write_text(
-        "param([string]$Tools, [string]$ConfigDir, [string]$HomeRoot, [string]$Source, [switch]$Update, [switch]$Yes)\n"
-        "@{ Tools=$Tools; ConfigDir=$ConfigDir; HomeRoot=$HomeRoot; Source=$Source; Update=[bool]$Update; Yes=[bool]$Yes; "
-        "StdinClosed=([Console]::In.ReadToEnd() -eq '') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ConfigDir 'args.json')\n"
-        "'inert installer output'\nexit 3\n",
-        encoding="utf-8",
-    )
-    bench.monkeypatch.setattr(_setup, "find_pwsh", lambda: str(pwsh_path))
-    return script
+def installer_calls(bench: Bench, lines: list[str] | Exception) -> list[tuple[Path, dict[str, Any]]]:
+    calls: list[tuple[Path, dict[str, Any]]] = []
+
+    def fake_install(home: Path, **options: Any) -> list[str]:
+        calls.append((home, options))
+        if isinstance(lines, Exception):
+            raise lines
+        return lines
+
+    bench.monkeypatch.setattr(_installer, "install", fake_install)
+    return calls
 
 
-def test_the_plugin_installer_gets_its_flags_closed_stdin_and_a_log(bench: Bench, stand_in: Path) -> None:
+def test_the_plugin_installer_gets_its_options_and_a_log(bench: Bench) -> None:
+    calls = installer_calls(bench, ["inert installer output", "second line"])
     folder = bench.base / "target folder"
-    folder.mkdir()
-    code = REAL_INSTALL_PLUGIN("codex", folder, bench.home, None, stand_in)
-    assert code == 3
-    bound = json.loads((folder / "args.json").read_text(encoding="utf-8-sig"))
-    assert (bound["Tools"], bound["ConfigDir"], bound["HomeRoot"]) == ("codex", str(folder), str(bench.home))
-    assert bound["Update"]
-    assert bound["Yes"]
-    assert bound["StdinClosed"]
-    assert not bound["Source"]
-    assert "inert installer output" in (bench.home / ".legion" / "temp" / "setup-install-codex.log").read_text(encoding="utf-8")
+    assert REAL_INSTALL_PLUGIN("codex", folder, bench.home, None) == 0
+    assert calls == [(bench.home, {"tools": ["codex"], "config_dir": folder, "update": True, "yes": True})]
+    assert (bench.home / ".legion" / "temp" / "setup-install-codex.log").read_text(encoding="utf-8") == "inert installer output\nsecond line"
 
 
 @pytest.mark.parametrize("source", ["owner/repo", "work folder/my-project"])
-def test_a_source_reaches_the_plugin_installer_unchanged(bench: Bench, stand_in: Path, source: str) -> None:
-    folder = bench.base / "target folder"
-    folder.mkdir()
-    REAL_INSTALL_PLUGIN("claude", folder, bench.home, source, stand_in)
-    assert json.loads((folder / "args.json").read_text(encoding="utf-8-sig"))["Source"] == source
+def test_a_source_reaches_the_plugin_installer_unchanged(bench: Bench, source: str) -> None:
+    calls = installer_calls(bench, [])
+    REAL_INSTALL_PLUGIN("claude", bench.base, bench.home, source)
+    assert calls[0][1]["source"] == source
 
 
-def test_the_plugin_installer_is_the_one_shipped_with_this_plugin(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[list[str]] = []
-    monkeypatch.setattr(_setup, "find_pwsh", lambda: "pwsh")
-    monkeypatch.setattr(_setup, "run_command", lambda command, arguments, **_rest: calls.append([command, *arguments]) or RunResult(exit_code=0, output="", error="", timed_out=False))
-    REAL_INSTALL_PLUGIN("claude", bench.base, bench.home, None)
-    assert calls[0][:3] == ["pwsh", "-NoProfile", "-File"]
-    assert calls[0][3] == str(PLUGIN_ROOT / "install.ps1")
-    assert "-Source" not in calls[0]
+def test_a_failed_plugin_install_returns_one_and_logs_why(bench: Bench) -> None:
+    installer_calls(bench, _installer.InstallerError("claude exited 3\nboom"))
+    assert REAL_INSTALL_PLUGIN("claude", bench.base, bench.home, None) == 1
+    assert "boom" in (bench.home / ".legion" / "temp" / "setup-install-claude.log").read_text(encoding="utf-8")
 
 
-def test_without_pwsh_the_plugin_install_fails_with_a_log_the_owner_can_read(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_setup, "find_pwsh", lambda: None)
-    assert REAL_INSTALL_PLUGIN("claude", bench.base, bench.home, None) == 127
-    assert "pwsh is missing" in (bench.home / ".legion" / "temp" / "setup-install-claude.log").read_text(encoding="utf-8")
+def test_the_plugin_install_never_looks_for_pwsh(bench: Bench) -> None:
+    installer_calls(bench, [])
+    bench.monkeypatch.setenv("PATH", str(bench.base / "empty"))
+    assert REAL_INSTALL_PLUGIN("claude", bench.base, bench.home, None) == 0
 
 
 def test_a_cli_install_reports_its_failures_as_one_line(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -862,11 +861,6 @@ def test_an_error_is_one_line_on_stderr_with_exit_one(bench: Bench, capsys: pyte
     assert run(["--home", str(bench.home), "add", "codex", str(bench.base / "missing"), "--yes"]) == 1
     assert "does not exist" in capsys.readouterr().err
     assert not (bench.home / ".legion").exists()
-
-
-def test_setup_and_add_are_no_longer_forwarded() -> None:
-    assert "setup" not in _forward.FORWARDED_VERBS
-    assert "add" not in _forward.FORWARDED_VERBS
 
 
 def test_a_plan_that_fails_stops_before_any_prompt(bench: Bench, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

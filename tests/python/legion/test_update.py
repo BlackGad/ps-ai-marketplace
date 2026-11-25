@@ -2,7 +2,6 @@ import contextlib
 import dataclasses
 import io
 import json
-import shutil
 import subprocess
 import sys
 import threading
@@ -310,12 +309,3 @@ assert not any(name.startswith('urllib') for name in set(sys.modules) - before)
 """
     result = subprocess.run([sys.executable, "-c", script, str(plugin), str(tmp_path)], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
-
-
-def test_legacy_help_lists_python_check(tmp_path: Path) -> None:
-    pwsh = shutil.which("pwsh")
-    assert pwsh is not None
-    entry = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "bin" / "legion.ps1"
-    process = subprocess.run([pwsh, "-NoProfile", "-File", str(entry), "help", "-HomeRoot", str(tmp_path)], capture_output=True, text=True, check=False)
-    assert process.returncode == 0, process.stderr
-    assert "legion update --check [--force]" in process.stdout

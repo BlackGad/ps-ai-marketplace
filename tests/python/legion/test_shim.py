@@ -160,6 +160,18 @@ def test_a_batch_command_deleted_while_it_runs_exits_with_uvs_status(tmp_path: P
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
 @pytest.mark.parametrize("code", [0, 3])
+def test_uninstall_deletes_its_batch_command_and_returns_uvs_status(tmp_path: Path, fake_uv_folder: Path, code: int) -> None:
+    _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
+    log = tmp_path / "uv.log"
+    result = cmd(f'"{shim}" uninstall --yes', child_environment(fake_uv_folder, log, code, delete=shim))
+    assert result.returncode == code
+    assert not shim.exists()
+    assert b"batch file cannot be found" not in (result.stdout + result.stderr).lower()
+    assert "_self_uninstall.py" in log.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
+@pytest.mark.parametrize("code", [0, 3])
 def test_a_caller_with_its_own_errorlevel_variable_still_gets_uvs_exit_code(tmp_path: Path, fake_uv_folder: Path, code: int) -> None:
     _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
     environment = child_environment(fake_uv_folder, tmp_path / "uv.log", code) | {"ERRORLEVEL": "9"}
