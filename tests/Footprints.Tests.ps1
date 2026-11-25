@@ -211,15 +211,6 @@ $cases = [ordered]@{
             Assert-Equal 0 @(Get-LegionFootprints -HomeRoot $sandbox).Count 'B-b: a user PATH entry the owner already had is not recorded'
         } finally { $env:OS = $savedOS }
     }
-    ExistingAllowRule = {
-        . (Join-Path $repo 'plugins/legion/bin/legion-setup.ps1') -NoRun
-        $folder = Join-Path $sandbox 'owner-claude'
-        New-Item -ItemType Directory -Path $folder -Force | Out-Null
-        '{"permissions":{"allow":["Bash(LEGION_ROLE=member *)"]}}' | Set-Content (Join-Path $folder 'settings.json')
-        $output = @(Add-SetupAllowRules -Plan @{ HomeRoot = $sandbox; Accounts = @(@{ Usable = $true; Tool = (Get-LegionTool -Tool claude); Folder = $folder }) })
-        Assert-True (($output -join "`n").Contains('skip: permission rule')) 'An existing rule is a skip'
-        Assert-Equal 0 @(Get-LegionFootprints -HomeRoot $sandbox -Kind edit).Count 'B-b: an allow rule the owner already had is not recorded'
-    }
     LinkedTargetOwner = {
         # A linked config-folder spelling and its physical spelling are one install target.
         $physical = Join-Path $sandbox 'physical-claude'

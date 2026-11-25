@@ -36,7 +36,7 @@ def _write_foundry(agent: Agent, home: Path) -> list[str]:
 
 # Order matters: subscription launchers are repaired first, then the app is published, and the Foundry launchers
 # point at the version that is ready before any older version is pruned. The app lock covers publish and prune.
-def refresh(home: Path, source: Path = PLUGIN_ROOT, lock_timeout: float = 60) -> list[str]:
+def refresh(home: Path, source: Path = PLUGIN_ROOT, lock_timeout: float = 60, skip: frozenset[str] | set[str] = frozenset()) -> list[str]:
     if not owner_path_safe(home / ".legion", home):
         raise _settings_io.SettingsError("The legion folder contains a link; resolve it before refreshing")
     lines: list[str] = []
@@ -44,7 +44,7 @@ def refresh(home: Path, source: Path = PLUGIN_ROOT, lock_timeout: float = 60) ->
     with _settings_io.writer(home, require_existing=False):
         settings = _settings_io.load(home) if settings_path(home).is_file() else None
         for agent in settings.agents if settings else []:
-            if agent.provider is None:
+            if agent.provider is None and agent.id not in skip:
                 lines.extend(_repair_subscription(agent, home))
     with _app.app_lock(home, lock_timeout) as held:
         ready = None

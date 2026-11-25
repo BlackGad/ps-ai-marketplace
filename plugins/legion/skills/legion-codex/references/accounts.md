@@ -1,7 +1,7 @@
 # Codex CLI accounts
 
 Follow [owner notes](../../legion-personalisation/references/fields.md) before account, model or channel choices.
-Add and adopt through `legion-setup.ps1`, as [create.md](../../legion-personalisation/references/create.md) describes. It suggests `codex<n>`, accepts a valid custom lowercase hyphenated id that is not a command on PATH, installs a missing `codex` CLI, creates the wrapper and config folder, and installs legion, all before login. For a new folder only, the owner runs `<id>` in a terminal to log in once; never handle tokens or credential files. Follow the [shared account rules](../../legion-personalisation/references/fields.md#account-setup).
+Add and adopt through `legion add`, as [create.md](../../legion-personalisation/references/create.md) describes. It suggests `codex<n>`, accepts a valid custom lowercase hyphenated id that is not a command on PATH, installs a missing `codex` CLI, creates the wrapper and config folder, and installs legion, all before login. For a new folder only, the owner runs `<id>` in a terminal to log in once; never handle tokens or credential files. Follow the [shared account rules](../../legion-personalisation/references/fields.md#account-setup).
 
 [install.md](install.md) covers a CLI-only install the owner asks for. Register an existing account's program with `legion account register --id <id> --tool codex --command <path> --config-dir <dir>`; rename with `legion account rename --id <old> --new-id <new>`; remove with `legion account remove --id <id>`. They update channel bindings, keep the config folder and print its location. Ask before changing or deleting that folder.
 
@@ -23,7 +23,7 @@ For a requested provider configuration change, reuse the supplied settings and a
 legion account models --id <id> --deployment gpt-x --default gpt-x
 ```
 
-The default must be selected. An identical result prints `skip: models <id> (no changes)` and writes nothing. Then run `legion-setup.ps1` and show the owner its plan. It covers every known account, not only this one, so ask for the owner's one yes and run it again with `-Yes` to install legion wherever it is missing.
+The default must be selected. An identical result prints `skip: models <id> (no changes)` and writes nothing. Then run `legion setup` and show the owner its plan. It covers every known account, not only this one, so ask for the owner's one yes and run it again with `--yes` to install legion wherever it is missing.
 
 Launch `<id>` in a terminal. The wrapper sets `CODEX_HOME`; the provider config supplies the endpoint and token command. Resume only with the same agent and folder. A missing CLI stops with `codex is not installed; run legion tool install --tool codex`. Verify an actual GPT response before reporting this path as working.
 

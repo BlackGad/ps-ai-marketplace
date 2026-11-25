@@ -15,9 +15,9 @@ Set-Content -LiteralPath (Join-Path (Split-Path $PSScriptRoot -Parent) 'pipeline
 Write-Output 'first line'
 throw 'script failed'
 '@
-    Set-Content -LiteralPath (Join-Path $standIns 'legion-setup.ps1') -Value $standInText
+    Set-Content -LiteralPath (Join-Path $standIns 'stand-in.ps1') -Value $standInText
 
-    $lines = @(& { Invoke-Legion -Words @('setup', '--yes') } 6>&1 | ForEach-Object { "$_" })
+    $lines = @(& { Invoke-LegionScript -Call @{ Script = 'stand-in.ps1'; Splat = @{} } } 6>&1 | ForEach-Object { "$_" })
     # An interactive CLI must keep the console: nothing may be piped after the script.
     Assert-Equal '1' ((Get-Content -LiteralPath (Join-Path $scratch 'pipeline.txt')).Trim()) 'legion runs the script without capturing its output'
     # Output printed before a throw is still shown.

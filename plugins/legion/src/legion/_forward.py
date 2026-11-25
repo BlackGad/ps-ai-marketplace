@@ -10,8 +10,6 @@ from . import _plugin
 # Each row goes when its verb is ported.
 ENTRY_SCRIPT = "bin/legion.ps1"
 FORWARDED_VERBS = {
-    "setup": "Finish setup: settings, commands, legion in every account",
-    "add": "Add a claude, codex or copilot account",
     "uninstall": "Remove legion; --purge also deletes settings, notes and logins",
     "help": "Show the legion commands",
 }

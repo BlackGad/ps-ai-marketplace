@@ -1,4 +1,4 @@
-# milestone 4 removes this: the owner installs uv with it when uv is missing (lib/python.ps1 hint), and Setup tests and the integration runner still call it. legion tool install replaces it for every other caller.
+# milestone 4 removes this: the owner installs uv with it when uv is missing (lib/python.ps1 hint), and the integration runner and its own tests still call it. legion tool install replaces it for every other caller.
 param(
     [string]$Tool,
     [switch]$Yes,

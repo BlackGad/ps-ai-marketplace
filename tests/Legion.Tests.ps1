@@ -11,22 +11,12 @@ try {
     . $legionScript
 
     # --- Get-LegionCall ---
-    $call = Get-LegionCall -Words @('add', 'codex', 'C:\work\a b', '--yes')
-    Assert-Equal 'legion-setup.ps1' $call.Script 'add calls the setup script'
-    Assert-Equal 1 @($call.Splat.Add).Count 'add passes one item'
-    Assert-Equal 'codex:C:\work\a b' $call.Splat.Add[0] 'add joins tool and folder with the first colon'
-    Assert-Equal $true $call.Splat.Yes 'add --yes sets Yes'
-    Assert-Equal $false $call.AsksToApply 'add --yes does not ask'
-
-    $call = Get-LegionCall -Words @('add', 'claude')
-    Assert-Equal 'claude' $call.Splat.Add[0] 'add without folder passes the tool alone'
-    Assert-Equal $true $call.AsksToApply 'add without --yes asks to apply'
-    Assert-True (-not $call.Splat.ContainsKey('Yes')) 'add without --yes has no Yes'
-
-    $call = Get-LegionCall -Words @('setup', '-Yes')
-    Assert-Equal 'legion-setup.ps1' $call.Script 'setup calls the setup script'
-    Assert-Equal $true $call.Splat.Yes 'setup -Yes sets Yes'
-    Assert-Equal $true (Get-LegionCall -Words @('setup')).AsksToApply 'setup asks to apply'
+    # setup and add run in Python; this entry point no longer knows them.
+    Assert-Throws { Get-LegionCall -Words @('setup') } 'setup is not a script verb'
+    Assert-Throws { Get-LegionCall -Words @('add', 'codex') } 'add is not a script verb'
+    Assert-Throws { Get-LegionCall -Words @() } 'bare legion runs in Python'
+    Assert-Throws { Get-LegionCall -Words @('--no-channel') } 'flags-only launch runs in Python'
+    Assert-Throws { Get-LegionCall -Words @('pick') } 'pick runs in Python'
 
     foreach ($removed in @('start', 'repo', 'remove')) {
         try { $null = Get-LegionCall -Words @($removed); throw 'Expected unknown command' }
@@ -68,92 +58,19 @@ setup and add show the plan and ask before changing anything; --yes applies with
 '@
     Assert-Equal ($expectedHelp.Trim() -replace "`r`n", "`n") ((Get-LegionHelp) -join "`n") 'Help text is the planned block'
 
-    # --- Stand-in scripts: record bound parameters, exit with a chosen code ---
-    $record = Join-Path $scratch 'record.json'
-    $exitFile = Join-Path $scratch 'exit.txt'
-    $planFile = Join-Path $scratch 'plan.txt'
-    $standInText = @'
-param([string[]]$Add, [string]$Id, [string]$Action, [string]$Repo, [string]$HomeRoot, [switch]$Yes, [switch]$NoChannel, [switch]$Pick)
-$scratch = Split-Path $PSScriptRoot -Parent
-$entry = @{ Add = @($Add); Id = $Id; Action = $Action; Repo = $Repo; HomeRoot = $HomeRoot; Yes = [bool]$Yes; NoChannel = [bool]$NoChannel; Pick = [bool]$Pick }
-Add-Content -LiteralPath (Join-Path $scratch 'record.json') -Value ($entry | ConvertTo-Json -Compress)
-Get-Content -LiteralPath (Join-Path $scratch 'plan.txt')
-$code = (Get-Content -LiteralPath (Join-Path $scratch 'exit.txt')).Trim()
-if ($code -ne 'none') { exit [int]$code }
-'@
-    foreach ($name in 'legion-setup.ps1') {
-        Set-Content -LiteralPath (Join-Path $standIns $name) -Value $standInText
-    }
-    $script:LegionBin = $standIns
-    function Reset-StandIns {
-        param([string]$Exit = '0', [string[]]$Plan = @('Plan (nothing changed yet):', '  create   settings'))
-        Remove-Item -LiteralPath $record -ErrorAction SilentlyContinue
-        Set-Content -LiteralPath $exitFile -Value $Exit
-        Set-Content -LiteralPath $planFile -Value $Plan
-    }
-    function Get-Records {
-        if (-not (Test-Path -LiteralPath $record)) { return @() }
-        return @(Get-Content -LiteralPath $record | ForEach-Object { $_ | ConvertFrom-Json })
-    }
+    # --- Rejections: help text, exit 1 ---
     function Invoke-Quiet {
         param([string[]]$Words)
         $script:Output = @(& { Invoke-Legion -Words $Words } 6>&1 | ForEach-Object { "$_" })
         $script:Exit = $script:LegionExit
         return $script:Exit
     }
-
-    # --- Dispatch ---
-    Copy-Item -LiteralPath $legionScript -Destination (Join-Path $standIns 'legion.ps1')
-    $pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
-    foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'))) {
-        Reset-StandIns -Exit 'none'
-        & $pwsh -NoProfile -File (Join-Path $standIns 'legion.ps1') -HomeRoot $scratch @words | Out-Null
-        Assert-Equal 0 $LASTEXITCODE 'R4 B4 public legion entry accepts the bound home and verb flags'
-        Assert-Equal $scratch (Get-Records)[0].HomeRoot 'R4 B4 public legion entry forwards the bound home'
-    }
-    & {
-        . $legionScript -HomeRoot $scratch
-        $script:LegionBin = $standIns
-        foreach ($words in @(@('setup', '--yes'), @('add', 'codex', '--yes'))) {
-            Reset-StandIns -Exit 'none'
-            Invoke-Legion -Words $words | Out-Null
-            Assert-Equal $scratch (Get-Records)[0].HomeRoot 'R4 B4 legion carries the bound home through dispatch'
-        }
-    }
-    Reset-StandIns -Exit 'none'
-    $global:LASTEXITCODE = 0
-    $exit = Invoke-Quiet @('add', 'codex', 'C:\work\a b', '--yes')
-    $records = Get-Records
-    Assert-Equal 0 $exit 'Dispatch success exits zero'
-    Assert-Equal 1 $records.Count 'Dispatch runs the script once'
-    Assert-Equal 1 @($records[0].Add).Count 'Add arrives as a one-item array'
-    Assert-Equal 'codex:C:\work\a b' $records[0].Add[0] 'Add item arrives intact'
-    Assert-Equal $true $records[0].Yes 'Yes switch arrives bound'
-
-    Reset-StandIns -Exit '3'
-    Assert-Equal 3 (Invoke-Quiet @('setup', '--yes')) 'A failing script gives its exit code'
-
-    Reset-StandIns -Exit 'none'
-    $global:LASTEXITCODE = 7
-    Assert-Equal 0 (Invoke-Quiet @('setup', '--yes')) 'A stale exit code does not leak into a success'
-
-    Remove-Item -LiteralPath (Join-Path $standIns 'legion-setup.ps1')
-    $global:LASTEXITCODE = 0
-    Assert-Equal 1 (Invoke-Quiet @('setup', '--yes')) 'A script that cannot run gives exit 1'
-    Assert-True ($script:Output.Count -gt 0) 'A script that cannot run prints a message'
-    Set-Content -LiteralPath (Join-Path $standIns 'legion-setup.ps1') -Value $standInText
-
-    # --- Rejections: help text, exit 1, nothing runs ---
-    foreach ($words in @(@('frobnicate'), @('remove'), @('add', 'claude', 'x', 'extra'), @('status', '--yes'), @('setup', '--no-channel'), @('remove', 'a', '--yes'), @('start'), @('repo'), @('pick', 'a'), @('update', 'main'), @('add'))) {
-        Reset-StandIns
+    foreach ($words in @(@('frobnicate'), @('remove'), @('add', 'claude', 'x', 'extra'), @('status', '--yes'), @('setup', '--no-channel'), @('remove', 'a', '--yes'), @('start'), @('repo'), @('pick', 'a'), @('update', 'main'), @('add'), @('pick'), @('--no-channel'), @())) {
         $exit = Invoke-Quiet $words
         Assert-Equal 1 $exit ("Rejected: " + ($words -join ' '))
-        Assert-Equal 0 (Get-Records).Count ("Nothing runs for: " + ($words -join ' '))
         Assert-True ($script:Output -contains 'legion - legion commands') ("Help shown for: " + ($words -join ' '))
     }
-    Reset-StandIns
     Assert-Equal 0 (Invoke-Quiet @('help')) 'Help exits zero'
-        Assert-Equal 0 (Get-Records).Count 'Help runs nothing'
 
     # --- update and uninstall: a private copy of the installer ---
     $installerText = @'
@@ -198,83 +115,6 @@ if ($Uninstall) { exit 4 }
     $script:LegionHomeRoot = $null
     $script:LegionBin = $standIns
 
-    # --- Apply flow: replace the seams ---
-    $script:Interactive = $true
-    $script:Answers = @()
-    $script:Asked = 0
-    function Test-LegionInteractive { return $script:Interactive }
-    function Read-LegionAnswer { $script:Asked++; return $script:Answers[0] }
-
-    Reset-StandIns
-    $script:Answers = @('')
-    $exit = Invoke-Quiet @('add', 'claude')
-    $records = Get-Records
-    Assert-Equal 0 $exit 'Enter applies and exits zero'
-    Assert-Equal 2 $records.Count 'Enter runs the script a second time'
-    Assert-Equal $false $records[0].Yes 'The plan run has no Yes'
-    Assert-Equal $true $records[1].Yes 'The apply run has Yes'
-    Assert-Equal 'claude' $records[1].Add[0] 'The apply run keeps the same arguments'
-    Assert-True ($script:Output -contains '  create   settings') 'The plan is printed'
-
-    Reset-StandIns
-    $script:Answers = @('YES')
-    Invoke-Quiet @('setup') | Out-Null
-    Assert-Equal 2 (Get-Records).Count 'Yes in any case applies'
-
-    Reset-StandIns
-    $script:Answers = @('n')
-    $exit = Invoke-Quiet @('setup')
-    Assert-Equal 0 $exit 'Declining exits zero'
-    Assert-Equal 1 (Get-Records).Count 'Declining runs once'
-    Assert-True ($script:Output -contains 'Nothing changed.') 'Declining says nothing changed'
-
-    Reset-StandIns
-    $script:Interactive = $false
-    $script:Asked = 0
-    $exit = Invoke-Quiet @('setup')
-    Assert-Equal 0 $exit 'Non-interactive prints the plan and exits zero'
-    Assert-Equal 1 (Get-Records).Count 'Non-interactive runs once'
-    Assert-Equal 0 $script:Asked 'Non-interactive never prompts'
-    $script:Interactive = $true
-
-    Reset-StandIns -Plan @('Nothing to do.')
-    $script:Asked = 0
-    $exit = Invoke-Quiet @('setup')
-    Assert-Equal 0 $exit 'Nothing to do exits zero'
-    Assert-Equal 1 (Get-Records).Count 'Nothing to do runs once'
-    Assert-Equal 0 $script:Asked 'Nothing to do never prompts'
-
-    $hintPlan = @('Plan (nothing changed yet):', '  create   settings', 'Run again with -Yes to apply.')
-    Reset-StandIns -Plan $hintPlan
-    $script:Answers = @('n')
-    Invoke-Quiet @('setup') | Out-Null
-    Assert-True ($script:Output -contains '  create   settings') 'Interactive prompt still shows the plan'
-    Assert-True ($script:Output -notcontains 'Run again with -Yes to apply.') 'Interactive prompt hides the -Yes hint'
-
-    Reset-StandIns -Plan $hintPlan
-    $script:Interactive = $false
-    Invoke-Quiet @('setup') | Out-Null
-    Assert-True ($script:Output -contains 'Run again with -Yes to apply.') 'Non-interactive keeps the -Yes hint'
-    $script:Interactive = $true
-
-    Reset-StandIns -Plan $hintPlan
-    Invoke-Quiet @('setup', '--yes') | Out-Null
-    Assert-True ($script:Output -contains 'Run again with -Yes to apply.') '--yes keeps the full output'
-
-    Reset-StandIns -Exit '4'
-    $script:Asked = 0
-    $exit = Invoke-Quiet @('add', 'claude')
-    Assert-Equal 4 $exit 'A failing plan stops with its code'
-    Assert-Equal 0 $script:Asked 'A failing plan never prompts'
-
-    Reset-StandIns
-    $script:Asked = 0
-    $exit = Invoke-Quiet @('setup', '--yes')
-    $records = Get-Records
-    Assert-Equal 0 $exit '--yes exits zero'
-    Assert-Equal 1 $records.Count '--yes runs once'
-    Assert-Equal $true $records[0].Yes '--yes passes Yes'
-    Assert-Equal 0 $script:Asked '--yes never prompts'
 } finally {
     $global:LASTEXITCODE = $savedExit
     Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue

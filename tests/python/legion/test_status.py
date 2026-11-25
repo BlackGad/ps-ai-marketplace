@@ -179,24 +179,6 @@ def test_path_entries_follow_platform_rules(tmp_path: Path, monkeypatch: pytest.
     assert _status.on_path(target) == expected
 
 
-def test_setup_status_path_parity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    pwsh = shutil.which("pwsh")
-    assert pwsh is not None
-    folder = commands(tmp_path)
-    monkeypatch.setenv("LEGION_STATUS_BIN", str(folder))
-    # Get-SetupPlan and Python status must agree about percent variables in PATH.
-    script = """param($Setup, $FixtureHome)
-. $Setup -NoRun
-function Get-LegionUserPath { return '%LEGION_STATUS_BIN%' }
-(Get-SetupPlan -HomeRoot $FixtureHome).NeedsPath
-"""
-    probe = write(tmp_path / "parity.ps1", script)
-    result = subprocess.run([pwsh, "-NoProfile", "-File", str(probe), str(REPO / "plugins/legion/bin/legion-setup.ps1"), str(tmp_path)], capture_output=True, text=True, check=False)
-    assert result.returncode == 0, result.stderr
-    monkeypatch.setenv("PATH", "%LEGION_STATUS_BIN%")
-    assert result.stdout.strip() == ("False" if _status.on_path(folder) else "True")
-
-
 def test_unchanged_integration_status_step_uses_the_console_entry_point(tmp_path: Path) -> None:
     pwsh = shutil.which("pwsh")
     assert pwsh is not None
@@ -430,3 +412,11 @@ def test_non_windows_does_not_inspect_processes(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(_process, "owner_process", fail)
     assert _status._session() is None
+
+
+def test_command_states_name_each_file_with_its_state(tmp_path: Path) -> None:
+    folder = commands(tmp_path)
+    write(folder / "legion", "owner command")
+    states = _status.command_states(folder)
+    assert states[0] == (folder / "legion", "blocked")
+    assert all(path.name.startswith("legion") for path, _state in states)

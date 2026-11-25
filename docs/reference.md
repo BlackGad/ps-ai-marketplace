@@ -157,8 +157,8 @@ The footprint index is `~/.legion/footprints.json`. Without an index, uninstall 
 
 After installing legion, ask any tool to add accounts, or run setup from a clone or installed plugin folder:
 
-```powershell
-pwsh -NoProfile -File <plugin>/bin/legion-setup.ps1 -Add claude
+```text
+legion add claude
 ```
 
 This prints a plan and changes nothing. Example Windows output, with the temporary home abbreviated as `~` and path separators shown as `/`:
@@ -170,10 +170,10 @@ Plan (nothing changed yet):
   install  legion into ~/.legion/agents/claude1
   commands write legion in ~/.legion/bin
   path     add ~/.legion/bin to your user PATH
-Run again with -Yes to apply.
+Run again with --yes to apply.
 ```
 
-After approving the plan, run it again with `-Yes`. Setup installs a missing CLI first, then adds the account and installs legion before login. If CLI installation fails or needs a new terminal, that account is not recorded; retry the add after resolving the reported next step. Setup writes:
+After approving the plan (an interactive terminal asks `Apply? [Y/n]`), run it again with `--yes`. Setup installs a missing CLI first, then adds the account and installs legion before login. If CLI installation fails or needs a new terminal, that account is not recorded; retry the add after resolving the reported next step. Setup writes:
 
 - `~/.legion/configuration/personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/legion/schemas/personalisation.schema.json`. It never holds tokens.
 - `~/.legion/configuration/notes.md`: free-form preferences and lessons.
@@ -189,7 +189,7 @@ commands: missing legion
 repo none
 ```
 
-`legion setup` finishes setup for recorded accounts. A completed plan prints `Nothing to do.` The plan shows prerequisite repairs, such as a Node.js that is on PATH but does not run, on its `cli` line, so apply does nothing the plan did not show. With `-HomeRoot <home>`, the commands setup writes carry that home, so `legion` reads that home and not the real one. A default-home install is unchanged. Adding the same tool again without an explicit id creates another account; adopting the same folder again reuses its account. When the plan needs the remote installer, it names the download.
+`legion setup` finishes setup for recorded accounts. A completed plan prints `Nothing to do.` The plan shows prerequisite repairs, such as a Node.js that is on PATH but does not run, on its `cli` line, so apply does nothing the plan did not show. With `legion --home <home> setup`, the commands setup writes carry that home, so `legion` reads that home and not the real one. A default-home install is unchanged. Adding the same tool again without an explicit id creates another account; adopting the same folder again reuses its account. When the plan needs the remote installer, it names the download.
 
 ### Legion commands
 

@@ -103,7 +103,7 @@ def test_foundry_add_discovers_before_settings_lock(tmp_path: Path, monkeypatch:
 
     monkeypatch.setattr(_discovery, "discover", discover)
     monkeypatch.setattr(_settings_io, "writer", writer)
-    monkeypatch.setattr(_accounts, "_check_new_id", lambda *_args: None)
+    monkeypatch.setattr(_accounts, "check_new_id", lambda *_args: None)
     monkeypatch.setattr("legion.foundry.claude.configure", lambda *_args: False)
     monkeypatch.setattr("legion._launchers.write_foundry", lambda *_args: [])
     monkeypatch.setattr("legion._launchers.plan_foundry", lambda *_args: {})

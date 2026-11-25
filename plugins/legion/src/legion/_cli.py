@@ -436,6 +436,36 @@ def account_models(context: click.Context, account_id: str, deployments: tuple[s
     _report_account(context, lambda: _accounts.models(_home.legion_home(context.obj), account_id, list(deployments), default_model, selected_aliases, standard, list_only))
 
 
+# Runs setup (or add) and prints its lines, or its refusal on stderr with exit code 1.
+def _run_setup(context: click.Context, adds: list[str], account_id: Optional[str], source: Optional[str], yes: bool) -> None:
+    from . import _setup
+
+    try:
+        _setup.run(_home.legion_home(context.obj), adds, account_id, source, yes, click.echo)
+    except _setup.ERRORS as error:
+        click.echo(" ".join(str(error).split()), err=True)
+        context.exit(1)
+
+
+@main.command("setup", help="Finish setup: settings, commands, legion in every account")
+@click.option("--yes", is_flag=True, help="Apply without asking.")
+@click.pass_context
+def setup(context: click.Context, yes: bool) -> None:
+    _run_setup(context, [], None, None, yes)
+
+
+@main.command("add", help="Add a claude, codex or copilot account")
+@click.argument("tool")
+@click.argument("folder", required=False)
+@click.option("--yes", is_flag=True, help="Apply without asking.")
+@click.option("--id", "account_id", hidden=True, help="the account id, for one add")
+@click.option("--source", hidden=True, help="where the plugin installer takes legion from")
+@click.pass_context
+def add(context: click.Context, tool: str, folder: Optional[str], yes: bool, account_id: Optional[str], source: Optional[str]) -> None:
+    # The setup code splits the item on its first colon, so a folder may contain colons.
+    _run_setup(context, [f"{tool}:{folder}" if folder is not None else tool], account_id, source, yes)
+
+
 @main.group(help="Check and install the CLI tools legion needs")
 def tool() -> None:
     pass
@@ -447,11 +477,10 @@ def tool() -> None:
 @click.option("--method", type=click.Choice(["winget", "msi", "zip"]), help="Windows only: how to install")
 @click.pass_context
 def tool_install(context: click.Context, tool_id: str, yes: bool, method: Optional[str]) -> None:
-    from ._tool_install import ToolInstaller, ToolInstallError
+    from ._tool_install import ToolInstaller, ToolInstallError, current_platform
 
-    platform = {"win32": "windows", "darwin": "macos"}.get(sys.platform, "linux")
     try:
-        context.exit(ToolInstaller(_home.legion_home(context.obj), platform, yes, click.echo).install(tool_id, method))
+        context.exit(ToolInstaller(_home.legion_home(context.obj), current_platform(), yes, click.echo).install(tool_id, method))
     except (ToolInstallError, ValueError, OSError) as error:
         click.echo(" ".join(str(error).split()), err=True)
         context.exit(1)

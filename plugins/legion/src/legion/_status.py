@@ -91,20 +91,28 @@ def installed_version(folder: Path, tool: ToolDescriptor) -> Optional[str]:
     return highest
 
 
-def command_line(folder: Path) -> str:
+# The state of each legion command file: missing, blocked (another file is there), permission or owned.
+def command_states(folder: Path) -> list[tuple[Path, str]]:
     states = []
     for suffix in ("", ".cmd") if sys.platform == "win32" else ("",):
         path = folder / f"legion{suffix}"
         if not path.exists():
-            states.append("missing")
+            states.append((path, "missing"))
             continue
         try:
             if not is_owned(path, "owner command"):
-                states.append("blocked")
+                states.append((path, "blocked"))
             elif sys.platform != "win32" and not path.stat().st_mode & stat.S_IXUSR:
-                states.append("permission")
+                states.append((path, "permission"))
+            else:
+                states.append((path, "owned"))
         except (OSError, ValueError):
-            states.append("blocked")
+            states.append((path, "blocked"))
+    return states
+
+
+def command_line(folder: Path) -> str:
+    states = [state for _path, state in command_states(folder)]
     for state, label in (("blocked", "blocked"), ("missing", "missing"), ("permission", "not executable")):
         if state in states:
             return f"commands: {label} legion"
