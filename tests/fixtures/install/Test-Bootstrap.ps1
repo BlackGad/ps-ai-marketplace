@@ -53,6 +53,7 @@ function Invoke-InstallDownload {
 function Invoke-InstallUv {
     param([string]$Uv, [string[]]$Arguments)
     $script:uvUsed = $Uv
+    $script:pathHead = ($env:PATH -split [regex]::Escape([string][IO.Path]::PathSeparator))[0]
     & (Join-Path (Join-Path $Scratch 'fake-uv-source') $uvName) @Arguments
     return $LASTEXITCODE
 }
@@ -69,6 +70,7 @@ function Show-Result {
     Write-Output "prompts=$($script:prompts)"
     Write-Output "exit=$($script:bootstrapExitCode)"
     Write-Output "uvUsed=$($script:uvUsed)"
+    Write-Output "pathHead=$($script:pathHead)"
     if (Test-Path -LiteralPath $uvLog) { Get-Content -LiteralPath $uvLog | ForEach-Object { Write-Output "uv:$_" } }
     $left = @(Get-ChildItem -LiteralPath $systemTemp -Force -ErrorAction SilentlyContinue)
     Write-Output "tempLeft=$($left.Count)"
@@ -81,10 +83,12 @@ switch ($Mode) {
     'remote-main' { $parameters.Ref = 'main'; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot '' }
     'no-release' { Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot '' }
     'exit-code' { $env:FAKE_UV_EXIT = '3'; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
-    { $_ -in 'uv-missing-yes', 'uv-bad-digest', 'uv-no-digest', 'uv-broken' } {
+    { $_ -in 'uv-missing-yes', 'uv-missing-uninstall', 'uv-missing-purge', 'uv-bad-digest', 'uv-no-digest', 'uv-broken' } {
         # No uv on PATH: -Yes downloads and verifies the uv release, then the hand-over runs.
         $env:OS = 'Windows_NT'
         Set-NoUvPath
+        if ($Mode -in @('uv-missing-uninstall', 'uv-missing-purge')) { $parameters.Uninstall = [switch]$true }
+        if ($Mode -eq 'uv-missing-purge') { $parameters.Purge = [switch]$true }
         Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
     }
     'uv-missing-dry' {
@@ -100,6 +104,16 @@ switch ($Mode) {
         Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
     }
     'purge' { $parameters.Purge = [switch]$true; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
+    'purge-home-uv' {
+        $env:OS = 'Windows_NT'
+        Set-NoUvPath
+        $folder = Join-Path $Scratch '.legion/bin'
+        New-Item -ItemType Directory -Path $folder -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $folder 'uv.exe') -Value 'uv placeholder'
+        $parameters.Uninstall = [switch]$true
+        $parameters.Purge = [switch]$true
+        Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
+    }
     'no-python-dry' { $parameters.DryRun = [switch]$true; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
     'no-python-declined' { $parameters.Remove('Yes'); Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
     'no-python-yes' { Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }

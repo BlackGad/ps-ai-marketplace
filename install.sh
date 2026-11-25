@@ -33,7 +33,7 @@ find_uv() {
     [ -n "$uv" ]
 }
 
-# Downloads the latest uv release for this system, checks its SHA-256 digest and publishes it to ~/.legion/bin.
+# Downloads and verifies uv, then puts it in the home for install or a temporary folder for cleanup.
 install_uv() {
     case "$(uname -s)-$(uname -m)" in
         Darwin-arm64) triple=aarch64-apple-darwin ;;
@@ -61,6 +61,7 @@ install_uv() {
     mkdir "$temporary/uv"
     tar -xzf "$temporary/uv.tar.gz" -C "$temporary/uv" --strip-components=1
     "$temporary/uv/uv" --version >/dev/null 2>&1 || fail 'The downloaded uv does not run; nothing was installed.'
+    if [ "$cleanup" = 1 ]; then uv=$temporary/uv/uv; return; fi
     mkdir -p "$HOME/.legion/bin"
     # Copy beside the target, then rename: an interrupted run never leaves a partial uv.
     cp "$temporary/uv/uv" "$HOME/.legion/bin/uv.new"
@@ -68,7 +69,7 @@ install_uv() {
 }
 
 main() {
-    yes=0; dry_run=0; ref=stable
+    yes=0; dry_run=0; cleanup=0; ref=stable
     # Rotate the original arguments once, appending their `legion install` spelling.
     remaining=$#
     while [ "$remaining" -gt 0 ]; do
@@ -78,8 +79,8 @@ main() {
             --dry-run) dry_run=1; set -- "$@" --dry-run ;;
             --main) ref=main; set -- "$@" --ref main ;;
             --update) set -- "$@" --update ;;
-            --uninstall) set -- "$@" --uninstall ;;
-            --purge) set -- "$@" --purge ;;
+            --uninstall) cleanup=1; set -- "$@" --uninstall ;;
+            --purge) cleanup=1; set -- "$@" --purge ;;
             --tools|--config-dir)
                 [ "$remaining" -gt 0 ] || fail "Missing value for $option"
                 value=$1; shift; remaining=$((remaining - 1))
@@ -96,8 +97,12 @@ main() {
     if find_uv; then
         printf '%s\n' 'skip: uv (already done)'
     else
-        printf '%s\n' 'uv is missing.' \
-            'Install uv: download the latest official uv release, verified with its SHA-256 digest, to ~/.legion/bin/, which the legion install then puts on your PATH.'
+        printf '%s\n' 'uv is missing.'
+        if [ "$cleanup" = 1 ]; then
+            printf '%s\n' 'Use temporary uv: download the latest official uv release, verified with its SHA-256 digest, outside the home for cleanup.'
+        else
+            printf '%s\n' 'Install uv: download the latest official uv release, verified with its SHA-256 digest, to ~/.legion/bin/, which the legion install then puts on your PATH.'
+        fi
         [ "$dry_run" = 0 ] || return 0
         confirm 'Install uv now?' || return 0
     fi
@@ -110,7 +115,11 @@ main() {
 
     if ! find_uv; then
         install_uv
-        find_uv || fail 'uv was installed but could not be found; open a new terminal and run the bootstrap again.'
+        [ "$cleanup" = 1 ] || find_uv || fail 'uv was installed but could not be found; open a new terminal and run the bootstrap again.'
+    fi
+    if [ "$cleanup" = 1 ] && [ "$uv" != "$temporary/uv/uv" ]; then
+        cp "$uv" "$temporary/uv-copy"
+        uv=$temporary/uv-copy
     fi
     PATH=$(dirname "$uv"):$PATH
     export PATH

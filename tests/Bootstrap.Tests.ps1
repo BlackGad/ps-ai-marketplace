@@ -210,6 +210,36 @@ Invoke-InstallTestCase 'BootstrapObtainsUvFirst' {
     } finally { Remove-InstallTestFolder $scratch }
 }
 
+Invoke-InstallTestCase 'BootstrapCleanupWithMissingUvKeepsHomeClean' {
+    $scratch = New-BootstrapScratch
+    try {
+        foreach ($mode in @('uv-missing-uninstall', 'uv-missing-purge')) {
+            foreach ($invocation in 1..2) {
+                $result = Invoke-BootstrapFixture -Runtime (Get-InstallTestPwsh) -Mode $mode -Scratch $scratch -UvOnPath $false
+                $text = $result.Lines -join "`n"
+                Assert-Equal 0 $result.ExitCode "$mode invocation ${invocation}: $text"
+                Assert-True ($text.Contains('temporary')) "Cleanup explains temporary uv on $mode invocation ${invocation}: $text"
+                Assert-True ($result.Lines -contains 'uv:--uninstall') "Cleanup reaches Python on $mode invocation ${invocation}: $text"
+                Assert-True ($result.Lines -contains 'uvInstalled=False') "Cleanup leaves no uv in the home on $mode invocation ${invocation}: $text"
+                Assert-True (-not (Test-Path -LiteralPath (Join-Path $scratch '.legion'))) "Cleanup leaves a clean home on $mode invocation ${invocation}: $text"
+                Assert-True (@($result.Lines | Where-Object { $_ -like 'uvUsed=*' -and $_.Contains((Join-Path $scratch 'tmp')) }).Count -eq 1) "Cleanup runs temporary uv on $mode invocation ${invocation}: $text"
+                Assert-True ($result.Lines -contains 'tempLeft=0') "Cleanup removes temporary uv on $mode invocation ${invocation}: $text"
+            }
+        }
+    } finally { Remove-InstallTestFolder $scratch }
+}
+
+Invoke-InstallTestCase 'BootstrapCleanupUsesTemporaryUvOnChildPath' {
+    $scratch = New-BootstrapScratch
+    try {
+        $result = Invoke-BootstrapFixture -Runtime (Get-InstallTestPwsh) -Mode 'purge-home-uv' -Scratch $scratch -UvOnPath $false
+        $text = $result.Lines -join "`n"
+        Assert-Equal 0 $result.ExitCode $text
+        Assert-True (@($result.Lines | Where-Object { $_ -like 'uvUsed=*' -and $_.Contains((Join-Path $scratch 'tmp')) }).Count -eq 1) "Purge runs temporary uv: $text"
+        Assert-True (@($result.Lines | Where-Object { $_ -like 'pathHead=*' -and $_.Contains((Join-Path $scratch 'tmp')) }).Count -eq 1) "Purge children resolve temporary uv: $text"
+    } finally { Remove-InstallTestFolder $scratch }
+}
+
 Invoke-InstallTestCase 'ShellBootstrap' {
     if ($IsWindows) { return }
     $scratch = New-InstallTestFolder 'shell-bootstrap'
@@ -219,7 +249,7 @@ Invoke-InstallTestCase 'ShellBootstrap' {
         New-Item -ItemType Directory -Path (Join-Path $fakeHome 'checkout/plugins/legion'), $fakeBin -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $fakeHome 'checkout/plugins/legion/pyproject.toml') -Value '[project]'
         $log = Join-Path $scratch 'uv-log.txt'
-        $uvLines = @('#!/bin/sh', '[ "$1" != python ] || exit "${FAKE_UV_PYTHON:-0}"', ': > "$FAKE_UV_LOG"', 'for word in "$@"; do echo "$word" >> "$FAKE_UV_LOG"; done', 'echo "env=$UV_PROJECT_ENVIRONMENT" >> "$FAKE_UV_LOG"', 'exit "${FAKE_UV_EXIT:-0}"')
+        $uvLines = @('#!/bin/sh', '[ "$1" != python ] || exit "${FAKE_UV_PYTHON:-0}"', ': > "$FAKE_UV_LOG"', 'for word in "$@"; do echo "$word" >> "$FAKE_UV_LOG"; done', 'echo "env=$UV_PROJECT_ENVIRONMENT" >> "$FAKE_UV_LOG"', 'echo "path=$PATH" >> "$FAKE_UV_LOG"', 'exit "${FAKE_UV_EXIT:-0}"')
         Set-Content -LiteralPath (Join-Path $fakeBin 'uv') -Value $uvLines
         # A fake curl serves a source archive and a uv installer stand-in, and logs the URLs.
         $archiveSource = Join-Path $scratch 'archive/legion-stable/plugins/legion'
@@ -363,8 +393,24 @@ Invoke-InstallTestCase 'ShellBootstrap' {
             Assert-True (Test-Path -LiteralPath (Join-Path $fakeHome '.legion/bin/uv')) 'The verified uv is published to the legion bin folder'
             Assert-True ((Get-Content -LiteralPath $log) -contains 'install') 'Then legion install runs'
 
+            $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --uninstall --purge --yes 2>&1) -join "`n"
+            Assert-Equal 0 $LASTEXITCODE "Shell cleanup with installed uv: $text"
+            Assert-True (@(Get-Content -LiteralPath $log | Where-Object { $_ -like "path=$systemTemp*" }).Count -eq 1) 'Cleanup children resolve temporary uv'
+
+            # Cleanup from a clean home may download uv twice, but each run must leave the home clean.
+            Remove-Item -LiteralPath (Join-Path $fakeHome '.legion') -Recurse -Force
+            foreach ($invocation in 1..2) {
+                $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --uninstall --purge --yes 2>&1) -join "`n"
+                Assert-Equal 0 $LASTEXITCODE "Shell cleanup invocation ${invocation}: $text"
+                Assert-True ($text.Contains('temporary')) "Cleanup explains temporary uv on invocation ${invocation}: $text"
+                Assert-True ((Get-Content -LiteralPath $log) -contains '--purge') "Cleanup reaches Python on invocation ${invocation}"
+                Assert-True (@(Get-Content -LiteralPath $log | Where-Object { $_ -like "path=$systemTemp*" }).Count -eq 1) "Cleanup children resolve temporary uv on invocation ${invocation}"
+                Assert-True (-not (Test-Path -LiteralPath (Join-Path $fakeHome '.legion'))) "Cleanup leaves a clean home on invocation ${invocation}"
+                Assert-True (@(Get-ChildItem -LiteralPath $systemTemp -Force).Count -eq 0) "Cleanup removes temporary uv on invocation ${invocation}"
+            }
+
             # A digest mismatch deletes the download, extracts nothing and never runs uv.
-            Remove-Item -LiteralPath (Join-Path $fakeHome '.legion/bin') -Recurse -Force
+            Remove-Item -LiteralPath (Join-Path $fakeHome '.legion/bin') -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item $log
             $env:FAKE_UV_DIGEST = '0' * 64
             $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --yes 2>&1) -join "`n"

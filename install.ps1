@@ -102,8 +102,9 @@ function Remove-InstallTemporary {
     if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop }
 }
 
-# Downloads the latest uv release for this system, checks its SHA-256 digest and publishes it to ~/.legion/bin.
+# Downloads and verifies uv, then puts it in the home for install or a temporary folder for cleanup.
 function Install-InstallUvRelease {
+    param([string]$TemporaryUv)
     $architecture = 'x86_64'
     if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $architecture = 'aarch64' }
     $temporary = New-InstallTemporary
@@ -127,11 +128,15 @@ function Install-InstallUvRelease {
         Expand-Archive -LiteralPath $archive -DestinationPath $staging -Force -ErrorAction Stop
         $staged = Join-Path $staging 'uv.exe'
         if (-not (Test-InstallUv -Uv $staged)) { throw 'The downloaded uv does not run; nothing was installed.' }
-        $folder = Get-InstallLegionPath 'bin'
-        New-Item -ItemType Directory -Path $folder -Force -ErrorAction Stop | Out-Null
-        # Copy beside the target, then rename: an interrupted run never leaves a partial uv.exe.
-        Copy-Item -LiteralPath $staged -Destination (Join-Path $folder 'uv.exe.new') -Force -ErrorAction Stop
-        Move-Item -LiteralPath (Join-Path $folder 'uv.exe.new') -Destination (Join-Path $folder 'uv.exe') -Force -ErrorAction Stop
+        if ($TemporaryUv) {
+            Copy-Item -LiteralPath $staged -Destination $TemporaryUv -ErrorAction Stop
+        } else {
+            $folder = Get-InstallLegionPath 'bin'
+            New-Item -ItemType Directory -Path $folder -Force -ErrorAction Stop | Out-Null
+            # Copy beside the target, then rename: an interrupted run never leaves a partial uv.exe.
+            Copy-Item -LiteralPath $staged -Destination (Join-Path $folder 'uv.exe.new') -Force -ErrorAction Stop
+            Move-Item -LiteralPath (Join-Path $folder 'uv.exe.new') -Destination (Join-Path $folder 'uv.exe') -Force -ErrorAction Stop
+        }
     } finally {
         Remove-InstallTemporary -Path $temporary
     }
@@ -139,7 +144,7 @@ function Install-InstallUvRelease {
 
 # Returns the path of uv, or $null when the owner has to act first (dry run, or no consent).
 function Ensure-InstallUv {
-    param([bool]$OnWindows = ($env:OS -eq 'Windows_NT'), [switch]$DryRun, [switch]$Yes)
+    param([bool]$OnWindows = ($env:OS -eq 'Windows_NT'), [switch]$DryRun, [switch]$Yes, [string]$TemporaryUv)
     $uv = Get-InstallUv
     if ($uv) {
         Write-Host 'skip: uv (already done)'
@@ -150,13 +155,18 @@ function Ensure-InstallUv {
         Write-Host 'On macOS and Linux run install.sh instead: https://github.com/BlackGad/ps-legion-marketplace'
         return $null
     }
-    Write-Host 'Install uv: download the latest official uv release, verified with its SHA-256 digest, to ~/.legion/bin/, which the legion install then puts on your PATH.'
+    if ($TemporaryUv) {
+        Write-Host 'Use temporary uv: download the latest official uv release, verified with its SHA-256 digest, outside the home for cleanup.'
+    } else {
+        Write-Host 'Install uv: download the latest official uv release, verified with its SHA-256 digest, to ~/.legion/bin/, which the legion install then puts on your PATH.'
+    }
     if ($DryRun) { return $null }
     if (-not (Confirm-InstallChange -Yes:$Yes -Question 'Install uv now? [y/N]')) {
         Write-Host 'Nothing changed. Run again with -Yes to apply.'
         return $null
     }
-    Install-InstallUvRelease
+    Install-InstallUvRelease -TemporaryUv $TemporaryUv
+    if ($TemporaryUv) { return $TemporaryUv }
     $uv = Get-InstallUv
     if (-not $uv) { throw 'uv was installed but could not be found; open a new terminal and run the bootstrap again.' }
     return $uv
@@ -217,27 +227,30 @@ function Invoke-InstallBootstrap {
     $script:bootstrapExitCode = 0
     $script:installHomeRoot = $Parameters.HomeRoot
     $dryRun = [bool]$Parameters.DryRun
-    $uv = Ensure-InstallUv -DryRun:$dryRun -Yes:([bool]$Parameters.Yes)
-    if (-not $uv) { return }
-    $folder = Split-Path $uv -Parent
-    if (($env:PATH -split [regex]::Escape([string][IO.Path]::PathSeparator)) -notcontains $folder) {
-        $env:PATH = $folder + [IO.Path]::PathSeparator + $env:PATH
-    }
-    if (-not (Confirm-InstallPython -Uv $uv -DryRun:$dryRun -Yes:([bool]$Parameters.Yes))) { return }
     $temporary = New-InstallTemporary
     $savedEnvironment = $env:UV_PROJECT_ENVIRONMENT
     try {
+        $cleanup = [bool]$Parameters.Uninstall -or [bool]$Parameters.Purge
+        $temporaryUv = $null
+        if ($cleanup) { $temporaryUv = Join-Path $temporary 'uv.exe' }
+        $uv = Ensure-InstallUv -DryRun:$dryRun -Yes:([bool]$Parameters.Yes) -TemporaryUv $temporaryUv
+        if (-not $uv) { return }
+        $folder = Split-Path $uv -Parent
+        if (($env:PATH -split [regex]::Escape([string][IO.Path]::PathSeparator)) -notcontains $folder) {
+            $env:PATH = $folder + [IO.Path]::PathSeparator + $env:PATH
+        }
+        if (-not (Confirm-InstallPython -Uv $uv -DryRun:$dryRun -Yes:([bool]$Parameters.Yes))) { return }
         $branch = 'stable'
         if ($Parameters.Ref -eq 'main') { $branch = 'main' }
         $project = Get-InstallProject -CheckoutRoot $CheckoutRoot -Branch $branch -Temporary $temporary
         # The project environment lives beside the downloaded copy and goes with it.
         $env:UV_PROJECT_ENVIRONMENT = Join-Path $temporary 'env'
-        if ($Parameters.Purge) {
-            # A purge deletes .legion, where uv.exe may live, and Windows cannot delete a running program.
-            $copy = Join-Path $temporary (Split-Path $uv -Leaf)
-            Copy-Item -LiteralPath $uv -Destination $copy -ErrorAction Stop
-            $uv = $copy
+        if ($cleanup -and $uv -ne $temporaryUv) {
+            # Cleanup may remove an installed uv; Windows cannot delete a running program.
+            Copy-Item -LiteralPath $uv -Destination $temporaryUv -ErrorAction Stop
+            $uv = $temporaryUv
         }
+        if ($cleanup) { $env:PATH = $temporary + [IO.Path]::PathSeparator + $env:PATH }
         $script:bootstrapExitCode = Invoke-InstallUv -Uv $uv -Arguments (@('run', '--project', $project, '--frozen', '--quiet', 'legion') + @(Get-InstallArguments -Parameters $Parameters))
     } finally {
         $env:UV_PROJECT_ENVIRONMENT = $savedEnvironment
