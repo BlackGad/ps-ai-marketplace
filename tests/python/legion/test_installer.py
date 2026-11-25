@@ -413,6 +413,44 @@ def test_purge_waits_for_writer_and_removes_lock_last(tmp_path: Path, monkeypatc
     assert [(entry.kind, entry.value) for entry in _footprints.read(home).entries] == [("path-entry", "new")]
 
 
+def test_idle_purge_leaves_no_lock_or_folder_and_repeat_skips(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    (home / ".legion/configuration").mkdir(parents=True)
+    _installer.apply_purge(_installer.purge_plan(home, catalog()))
+    assert not (home / ".legion").exists()
+    assert _installer.purge_plan(home, catalog()).lines == ["skip: purge (already done)"]
+
+
+def test_purge_keeps_folder_a_writer_refilled_before_removal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    (home / ".legion/configuration").mkdir(parents=True)
+    plan = _installer.purge_plan(home, catalog())
+    original = Path.rmdir
+
+    def refilled(path: Path) -> None:
+        if path == plan.legion:
+            (path / "footprints.json").write_text("{}", encoding="utf-8")
+        original(path)
+
+    monkeypatch.setattr(Path, "rmdir", refilled)
+    _installer.apply_purge(plan)
+    assert (home / ".legion/footprints.json").read_text(encoding="utf-8") == "{}"
+
+
+def test_purge_reports_an_unrelated_folder_removal_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    (home / ".legion/configuration").mkdir(parents=True)
+    plan = _installer.purge_plan(home, catalog())
+
+    def refuse(_path: Path) -> None:
+        raise PermissionError("denied")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "rmdir", refuse)
+        with pytest.raises(PermissionError):
+            _installer.apply_purge(plan)
+
+
 def test_self_purge_keeps_running_copy_and_clears_other_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
     app = home / ".legion/app/1.2.3"
