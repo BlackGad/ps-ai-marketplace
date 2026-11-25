@@ -171,6 +171,8 @@ suppress-dummy-args = true
 suppress-none-returning = true
 
 [lint.per-file-ignores]
+# timeout is the approved MCP argument and bounds the synchronous probe, not an async wait.
+"plugins/legion/src/legion/mcp/server.py" = ["ASYNC109"]
 "plugins/legion/src/legion/cli/__init__.py" = ["PLC0415"]
 "plugins/legion/src/legion/services/installation/_update.py" = ["PLC0415"]
 "plugins/legion/src/legion/services/installation/installer/__init__.py" = ["C901", "PLC0415"]

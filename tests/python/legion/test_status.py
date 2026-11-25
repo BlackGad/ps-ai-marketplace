@@ -10,6 +10,7 @@ from typing import Optional
 
 import pytest
 from cli_runner import run
+from legion.core._run import RunResult
 
 from legion.services.repository import _lease
 from legion.services.status import _status
@@ -143,7 +144,7 @@ def test_configured_status_preserves_home_and_never_launches_a_cli(tmp_path: Pat
     def refuse(*_args: object, **_kwargs: object) -> None:
         pytest.fail("status started a process without a tracked repository")
 
-    monkeypatch.setattr(status_service.subprocess, "run", refuse)
+    monkeypatch.setattr(status_service, "run_command", refuse)
     before = snapshot(home)
     assert run(["--home", str(home), "status"]) == 0
     assert capsys.readouterr().out.splitlines() == [
@@ -254,12 +255,13 @@ def test_repository_git_probe_is_read_only(tmp_path: Path, monkeypatch: pytest.M
     executable = shutil.which("git")
     assert executable is not None
 
-    def probe(words: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        assert words == [executable, "-C", str(tmp_path), "ls-files", "--error-unmatch", "--", *[f".legion/{file}" for file in REQUIRED]]
-        assert kwargs["stdin"] == subprocess.DEVNULL
-        return subprocess.CompletedProcess(words, 0)
+    def probe(command: str, words: list[str], timeout: float) -> RunResult:
+        assert command == executable
+        assert words == ["-C", str(tmp_path), "ls-files", "--error-unmatch", "--", *[f".legion/{file}" for file in REQUIRED]]
+        assert timeout == 5
+        return RunResult(exit_code=0, output="", error="", timed_out=False)
 
-    monkeypatch.setattr(status_service.subprocess, "run", probe)
+    monkeypatch.setattr(status_service, "run_command", probe)
     assert _status.repository_line(status_service.repository_status(tmp_path)) == "repo Shared   lease: free   handoff: no"
 
 

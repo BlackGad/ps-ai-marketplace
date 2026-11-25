@@ -65,10 +65,10 @@ jobs:
         run: |
           $pwsh = (Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
           "LEGION_TEST_PWSH=$pwsh" >> $env:GITHUB_ENV
-      - run: uv run --project plugins/legion --frozen --group dev ruff check plugins/legion/src tests/python tests/integration
-      - run: uv run --project plugins/legion --frozen --group dev ruff format --check plugins/legion/src tests/python tests/integration
-      - run: uv run --project plugins/legion --frozen --group dev pyright
-      - run: uv run --project plugins/legion --frozen --group dev pytest
+      - run: uv run --project plugins/legion --frozen --extra mcp --group dev ruff check plugins/legion/src tests/python tests/integration
+      - run: uv run --project plugins/legion --frozen --extra mcp --group dev ruff format --check plugins/legion/src tests/python tests/integration
+      - run: uv run --project plugins/legion --frozen --extra mcp --group dev pyright
+      - run: uv run --project plugins/legion --frozen --extra mcp --group dev pytest
 
   parse-5-1:
     runs-on: windows-2025

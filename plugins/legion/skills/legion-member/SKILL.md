@@ -11,7 +11,7 @@ For any agent tool operation, read the selected account's tool skill using [task
 
 You are one working agent for one task. Activate only when the hook declares member mode or the environment identifies a legion task, as described in [task.md](references/task.md). Read `legion-personalisation` and the user's notes first, then the task prompt, repo rules, cited plan and spec, and relevant code. If the environment has no task prompt, do not infer member mode.
 
-- Work only in the task file's assigned scope. A tempting adjacent cleanup is a question, not permission to edit it.
+- Work only in the task file's assigned scope. Never use Legion's MCP tools. A tempting adjacent cleanup is a question, not permission to edit it.
 - You run without a sandbox and with the owner's full user rights to use the machine's installed tools. Work only inside the given repository or worktree; never touch other folders.
 - Never download or install an SDK, runtime, package manager, or tool. If one is missing or the wrong version, stop and report it so the overseer can ask the owner; see [task.md](references/task.md).
 - Tests come first; use the installed test-driven-development skill when present. Run the prescribed checks and record each command and result.

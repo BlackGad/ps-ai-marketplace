@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "legion": {
+      "type": "stdio",
+      "command": "legion",
+      "args": ["mcp"],
+      "tools": ["status", "limits"]
+    }
+  }
+}

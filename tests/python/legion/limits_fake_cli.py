@@ -36,6 +36,7 @@ def write_session(codex_home: Path) -> None:
 def main() -> int:
     name = setting("NAME")
     call = {
+        "pid": os.getpid(),
         "arguments": sys.argv[1:],
         "folder": str(Path.cwd()),
         "stdin": sys.stdin.read(),
@@ -73,10 +74,15 @@ def main() -> int:
         return 0
     if own_setting(name, "SLEEP"):
         marker = Path(setting("LOG")) / "grandchild.pid"
-        subprocess.Popen([sys.executable, "-c", SLEEPER, str(marker)])
+        subprocess.Popen([sys.executable, "-c", SLEEPER, str(marker)], start_new_session=bool(own_setting(name, "DETACH")))
         deadline = time.monotonic() + 20
         while not marker.is_file() and time.monotonic() < deadline:
             time.sleep(0.05)
+        if own_setting(name, "REPARENT"):
+            # Give the owner a poll to observe the detached child, then leave it holding
+            # the output pipes so cancellation must use its retained process identity.
+            time.sleep(0.5)
+            return 0
         time.sleep(float(own_setting(name, "SLEEP")))
     if own_setting(name, "STDOUT"):
         sys.stdout.write(Path(own_setting(name, "STDOUT")).read_text(encoding="utf-8"))

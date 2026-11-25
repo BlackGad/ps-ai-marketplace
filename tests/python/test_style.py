@@ -1,6 +1,8 @@
 import ast
 import io
 import tokenize
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -8,6 +10,20 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / "plugins/legion/src"
 HOOKS = REPO / "plugins/legion/hooks"
+
+
+def test_mcp_sdk_imports_stay_in_mcp_package() -> None:
+    for path in SOURCE.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8-sig"))):
+            names = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""] if isinstance(node, ast.ImportFrom) else []
+            if any(name == "mcp" or name.startswith("mcp.") for name in names):
+                assert path.is_relative_to(SOURCE / "legion/mcp"), path
+
+
+def test_hook_and_cli_import_no_mcp() -> None:
+    script = "import sys, legion.cli, legion.hook\nassert not any(name == 'mcp' or name.startswith('mcp.') for name in sys.modules)"
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
 
 
 def test_python_files_have_no_inline_suppressions() -> None:
