@@ -749,3 +749,26 @@ def test_an_interrupted_extraction_publishes_nothing_and_a_retry_succeeds(bench:
 def test_the_saved_user_folders_honor_the_test_path_file(bench: Bench) -> None:
     bench.user_path_file.write_text(r"C:\only-in-the-test-file", encoding="utf-8")
     assert r"C:\only-in-the-test-file" in _user_path.persistent_folders()
+
+
+# --- the install hints the setup plan shows ---
+
+
+def test_hints_list_a_missing_prerequisite_before_the_tool(bench: Bench) -> None:
+    assert _tool_install.install_hints("codex", "macos") == ["brew install node", "npm install -g @openai/codex"]
+    bench.installed.add("node")
+    assert _tool_install.install_hints("codex", "macos") == ["npm install -g @openai/codex"]
+
+
+def test_hints_follow_the_platform_recipe(bench: Bench) -> None:
+    for platform in ("linux", "macos"):
+        assert _tool_install.install_hints("claude", platform) == [" ".join(recipe("claude").linux.commands[0] if platform == "linux" else recipe("claude").macos.commands[0])]
+    assert _tool_install.install_hints("copilot", "windows") == [f"winget install --id GitHub.Copilot -e{WINGET_FLAGS}"]
+    bench.available.add("node")
+    assert _tool_install.install_hints("copilot", "windows") == ["npm install -g @github/copilot"]
+
+
+def test_hints_fall_back_to_the_docs_when_there_is_no_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    item = fourth(lambda data: data["linux"].update(commands=[], needs=[]))
+    monkeypatch.setattr(_tool_install, "find_recipe", lambda _tool: item)
+    assert _tool_install.install_hints("fourth", "linux") == [item.linux.docs]

@@ -11,8 +11,6 @@ from . import _plugin
 ENTRY_SCRIPT = "bin/legion.ps1"
 FORWARDED_VERBS = {
     "pick": "Choose which account leads the overseer",
-    "setup": "Finish setup: settings, commands, legion in every account",
-    "add": "Add a claude, codex or copilot account",
     "help": "Show the legion commands",
 }
 PWSH_MISSING = "pwsh is missing. Ask the owner before installing PowerShell 7, then run the legion installer again."

@@ -10,10 +10,10 @@ from typing import Literal
 
 from filelock import FileLock, Timeout
 
-from ._generated import is_owned
 from . import _plugin
+from ._generated import is_owned
 from ._home import footprint_index, full_path, home_path, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
-from ._settings_models import SchemaVersion, SettingsModel, Text
+from ._settings_models import SchemaVersion, SettingsModel, Text, ToolDescriptor
 
 FootprintKind = Literal["file", "folder", "link", "path-entry", "edit", "app", "app-version"]
 
@@ -35,8 +35,19 @@ class FootprintError(Exception):
     pass
 
 
-def target_owner(tool_id: str, folder: Path) -> str:
-    owner = f"{tool_id}:{str(resolve_directory(folder)).rstrip('/\\')}"
+def target_owner(tool: ToolDescriptor | str, folder: Path | str | None, home: Path | None = None) -> str:
+    if isinstance(tool, ToolDescriptor):
+        if home is None:
+            raise ValueError("home is required for a tool descriptor")
+        folder = folder or tool.plugin.default_config_dir or ""
+        path = home_path(str(folder), home)
+        tool_id = tool.id
+    else:
+        if folder is None:
+            raise ValueError("folder is required for a tool id")
+        path = Path(folder)
+        tool_id = tool
+    owner = f"{tool_id}:{str(resolve_directory(path)).rstrip('/\\')}"
     return owner.lower() if sys.platform == "win32" else owner
 
 
@@ -94,7 +105,7 @@ def _write(home: Path, data: FootprintIndex) -> None:
             temporary.unlink(missing_ok=True)
 
 
-def _stored_path(home: Path, path: Path | str) -> str:
+def stored_path(home: Path, path: Path | str) -> str:
     if str(path) == "user PATH":
         return "user PATH"
     full = full_path(home_path(str(path), home))
@@ -104,7 +115,7 @@ def _stored_path(home: Path, path: Path | str) -> str:
 
 
 def add(home: Path, kind: FootprintKind, path: Path | str, owner: str, key: str = "", value: str = "") -> None:
-    stored = _stored_path(home, path)
+    stored = stored_path(home, path)
     with lock(home):
         data = read(home)
         for entry in data.entries:

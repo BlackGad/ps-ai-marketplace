@@ -11,6 +11,8 @@ from filelock import FileLock
 
 from legion import _footprints
 from legion._generated import header
+from legion._settings_models import ToolDescriptor
+from legion._validate import load_descriptors
 
 if sys.platform == "win32":
     import _winapi
@@ -201,3 +203,15 @@ def test_powershell_and_python_share_footprint_lock(tmp_path: Path, pwsh_path: P
     with _footprints.lock(tmp_path):
         script = ". $args[0]; $lock = Open-LegionLockFile -Path $args[1]; if ($null -eq $lock) { 'busy' } else { $lock.Dispose(); 'free' }"
         assert powershell(pwsh_path, script, LIB / "footprints.ps1", str(index) + ".lock").stdout.strip() == "busy"
+
+
+def test_the_target_owner_names_the_tool_and_the_resolved_folder(tmp_path: Path) -> None:
+    claude = next(tool for tool in load_descriptors(ToolDescriptor, "tool.json") if tool.id == "claude")
+    folder = tmp_path / "account folder"
+    folder.mkdir()
+    expected = f"claude:{folder.resolve()}"
+    assert _footprints.target_owner(claude, str(folder) + os.sep, tmp_path) == (expected.lower() if sys.platform == "win32" else expected)
+    assert _footprints.target_owner(claude, "~/account folder", tmp_path) == _footprints.target_owner(claude, str(folder), tmp_path)
+    default = _footprints.target_owner(claude, None, tmp_path)
+    assert default.startswith("claude:")
+    assert default.endswith(".claude".lower() if sys.platform == "win32" else ".claude")
