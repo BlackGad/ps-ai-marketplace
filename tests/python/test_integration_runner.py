@@ -87,7 +87,7 @@ def test_repeat_snapshot_reports_omitted_count() -> None:
 
 def test_windows_zip_retry_uses_exact_exit_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     instance = make_runner(tmp_path)
-    monkeypatch.setattr(runner.sys, "platform", "win32")
+    monkeypatch.setattr(runner, "WINDOWS", True)
     calls = []
 
     def fail(*args: str) -> str:

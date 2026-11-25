@@ -9,6 +9,7 @@ import zipfile
 from collections.abc import Callable
 from email.message import Message
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import pytest
@@ -659,7 +660,8 @@ def test_a_vendor_command_in_local_bin_counts_as_installed(platform: str, tmp_pa
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
-    monkeypatch.setattr(_tool_install.sys, "platform", platform)
+    monkeypatch.setattr(_tool_install, "sys", SimpleNamespace(platform=platform))
+    monkeypatch.setattr(_tool_install.shutil, "which", lambda _name, path=None: str(command) if path == str(folder) else None)
 
     def fake_check(found: str, _arguments: list[str], **_kwargs: object) -> RunResult:
         assert Path(found) == command

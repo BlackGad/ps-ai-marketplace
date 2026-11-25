@@ -13,6 +13,7 @@ from click.testing import CliRunner
 from legion import _app, _cli, _footprints, _installer, _user_path
 from legion._generated import header
 from legion._run import RunResult
+from app_fakes import FakeUv, make_source
 
 if os.name == "nt":
     import _winapi
@@ -20,6 +21,36 @@ if os.name == "nt":
 
 def catalog() -> dict:
     return json.loads((Path(__file__).resolve().parents[3] / "plugins/legion/tools.json").read_text(encoding="utf-8"))
+
+
+def test_no_coding_cli_installs_owner_command_without_plugin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    source = make_source(tmp_path)
+    uv = FakeUv(monkeypatch)
+    monkeypatch.setattr(_installer, "PLUGIN_ROOT", source)
+    monkeypatch.setattr(_installer, "ensure_path", lambda _home, _dry_run, _lines: None)
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: "uv" if name == "uv" else None)
+
+    first = _installer.install(home, yes=True, catalog=catalog())
+    command = home / ".legion/bin" / ("legion.cmd" if sys.platform == "win32" else "legion")
+    assert command.is_file()
+    assert "No coding CLI is installed." in "\n".join(first)
+    assert "legion setup" in "\n".join(first)
+    assert not (home / ".claude").exists()
+    assert not (home / ".codex").exists()
+    assert not (home / ".copilot").exists()
+    assert len(uv.calls) == 1
+    second = _installer.install(home, yes=True, catalog=catalog())
+    assert "skip: legion generated runtimes and launchers (already done)" in second
+    assert len(uv.calls) == 1
+
+
+def test_no_coding_cli_declined_command_install_changes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_installer.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(_installer, "_confirm", lambda _question, _lines: False)
+    lines = _installer.install(tmp_path / "home", catalog=catalog())
+    assert "Nothing changed. Run again with --yes to apply." in lines
+    assert not (tmp_path / "home").exists()
 
 
 def test_purge_preview_keeps_home_and_outside_files(tmp_path: Path) -> None:

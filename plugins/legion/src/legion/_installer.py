@@ -842,7 +842,13 @@ def install(
                 lines.append("Purge needs the manual steps above.")
         return lines
     if not selected:
-        return ["No coding CLI is installed. Install one, then run this script again:", *(entry.get("installHint", "") for entry in catalog["tools"])]
+        lines.extend(["No coding CLI is installed. Run legion setup to install one.", *(entry.get("installHint", "") for entry in catalog["tools"])])
+        if not dry_run and not (yes or _confirm("Install the legion command and add ~/.legion/bin to your PATH? [y/N]", lines)):
+            return [*lines, "Nothing changed. Run again with --yes to apply."]
+        ensure_path(home, dry_run, lines)
+        if not dry_run:
+            lines.extend(_refresh.refresh(home, source=PLUGIN_ROOT))
+        return lines
     if update:
         targets = [(entry, folder) for tool_id in selected for entry in [_tool(catalog, tool_id)] for folder in _folders(home, entry, config_dir) if shutil.which(entry["command"])]
         for entry, folder in targets:

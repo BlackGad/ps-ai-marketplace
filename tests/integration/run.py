@@ -21,6 +21,7 @@ from typing import Any
 TOOLS = ("claude", "codex", "copilot")
 MARKETPLACE = "BlackGad/ps-legion-marketplace"
 ENDPOINT = "https://example-resource.cognitiveservices.azure.com"
+WINDOWS = sys.platform == "win32"
 
 
 @dataclass
@@ -316,7 +317,7 @@ class Runner:
         try:
             return self.legion(*args)
         except RuntimeError as error:
-            if sys.platform != "win32" or not re.search(r"\bexited 2(?:\n|$)", str(error)):
+            if not WINDOWS or not re.search(r"\bexited 2(?:\n|$)", str(error)):
                 raise
             return self.legion(*args, "--method", "zip")
 
@@ -342,7 +343,7 @@ class Runner:
         else:
             output = self.run(["sh", str(self.checkout / "install.sh"), "--yes"])
         contains(output, "skip: uv (already done)")
-        uv = self.home / ".legion/tools/uv" / ("uv.exe" if sys.platform == "win32" else "uv")
+        uv = self.home / ".legion/bin" / ("uv.exe" if sys.platform == "win32" else "uv")
         require(uv.is_file(), f"bootstrap did not install uv at {uv}")
         return output + "\n" + self.run([str(uv), "--version"])
 

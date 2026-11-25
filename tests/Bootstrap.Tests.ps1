@@ -263,6 +263,7 @@ Invoke-InstallTestCase 'ShellBootstrap' {
         # Temporary folders go to the system temp folder; keep that inside the scratch folder.
         $systemTemp = Join-Path $scratch 'tmp'
         New-Item -ItemType Directory -Path $systemTemp -Force | Out-Null
+        $savedTempDir = $env:TMPDIR
         $env:TMPDIR = $systemTemp
         $savedUvFolders = @($env:UV_INSTALL_DIR, $env:XDG_BIN_HOME)
         Remove-Item Env:UV_INSTALL_DIR, Env:XDG_BIN_HOME -ErrorAction SilentlyContinue
@@ -376,7 +377,8 @@ Invoke-InstallTestCase 'ShellBootstrap' {
         } finally {
             $env:PATH = $savedPath
             $env:HOME = $savedHome
-            Remove-Item Env:TMPDIR -ErrorAction SilentlyContinue
+            if ($null -eq $savedTempDir) { Remove-Item Env:TMPDIR -ErrorAction SilentlyContinue }
+            else { $env:TMPDIR = $savedTempDir }
             if ($savedUvFolders[0]) { $env:UV_INSTALL_DIR = $savedUvFolders[0] }
             if ($savedUvFolders[1]) { $env:XDG_BIN_HOME = $savedUvFolders[1] }
             foreach ($name in @('FAKE_UV_LOG', 'FAKE_CURL_LOG', 'FAKE_UV_SOURCE', 'FAKE_UV_ASSET', 'FAKE_UV_DIGEST', 'FAKE_CURL_FAIL', 'FAKE_UV_EXIT', 'FAKE_UV_PYTHON', 'FAKE_CURL_ARGS')) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
