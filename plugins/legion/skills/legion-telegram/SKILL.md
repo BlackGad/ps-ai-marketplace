@@ -5,7 +5,9 @@ description: Use when the owner wants to talk using Telegram or add a Telegram d
 
 # Telegram
 
-Read the owner's notes first. Reuse known answers.
+Read the [owner's notes](../legion-personalisation/references/fields.md) first. Reuse known answers.
+
+Follow [sending](references/send.md) for every owner-facing Telegram update, including receipts, progress, decisions, completions, handoffs and spontaneous updates. Use the owner's voice and formatting preferences each time.
 
 Choose supported accounts. Check what is already ready. Preview missing work and wait for yes. Follow [installation](references/install.md).
 
@@ -23,7 +25,5 @@ A bot set up before this change lives in the account's default folder. The owner
 Check each account and destination. Record only verified bindings. Keep unfinished work in the notes. Do not claim a failed connection is ready.
 
 Agree on a short test. Send the text and bundled image using [sending](references/send.md). Ask the owner to confirm both arrived.
-
-Read [formats](references/formats.md) before sending. Owner preferences win. Offer a supported choice when needed.
 
 Offer to continue oversight in the chosen account. Name it before a relaunch. A session can oversee without a channel.

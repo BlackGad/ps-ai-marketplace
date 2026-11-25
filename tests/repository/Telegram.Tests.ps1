@@ -32,3 +32,8 @@ foreach ($payload in $payloads) {
 Assert-Equal '123|456' ($sent.Target -join '|') 'ExplicitFormatAndPngDelivery separate targets'
 Assert-Equal 'markdownv2|text' ($sent.Format -join '|') 'Notes-selected text stays explicit'
 Assert-Equal 'Connection test\.' $sent[0].Text 'MarkdownV2 escapes punctuation'
+
+# The generic CLI may default to text, but the owner-facing usage must require a format.
+$codexUsage = [regex]::Match($send, '(?m)^legion telegram send .+$').Value
+$requiredArguments = $codexUsage -replace '\[[^\]]*\]', ''
+Assert-True ($requiredArguments -cmatch '(?:^|\s)--format\s') 'Codex owner sends specify format explicitly'
