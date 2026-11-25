@@ -1,3 +1,4 @@
+# milestone 4 removes this after install.ps1, bin/legion-install-tool.ps1 and the PowerShell integration runner switch to Python.
 . (Join-Path $PSScriptRoot 'paths.ps1')
 
 function Get-LegionTargetOwner {

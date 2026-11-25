@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from cli_runner import run
 
-from legion import _forward, _plugin
+from legion import _forward, _installer, _plugin
 
 # A stand-in for the PowerShell entry point: it records how it was called and exits with a chosen code.
 FAKE_ENTRY = """param([Parameter(Position = 0, ValueFromRemainingArguments = $true)][string[]]$Words, [string]$HomeRoot)
@@ -27,24 +27,24 @@ def read_call(app_root: Path) -> dict[str, object]:
 
 
 def test_forwarded_verb_keeps_arguments_and_exit_code(app_root: Path) -> None:
-    assert run(["uninstall", "two words", 'say "hi"', "--yes"]) == 7
+    assert run(["pick", "two words", 'say "hi"', "--yes"]) == 7
     call = read_call(app_root)
-    assert call["words"] == ["uninstall", "two words", 'say "hi"', "--yes"]
+    assert call["words"] == ["pick", "two words", 'say "hi"', "--yes"]
     assert not call["home"]
 
 
 def test_home_is_passed_as_one_home_root(app_root: Path, tmp_path: Path) -> None:
     home = tmp_path / "alternate home"
-    assert run(["--home", str(home), "uninstall"]) == 7
+    assert run(["--home", str(home), "pick"]) == 7
     call = read_call(app_root)
-    assert call["words"] == ["uninstall"]
+    assert call["words"] == ["pick"]
     assert call["home"] == str(home)
 
 
 # The Windows command passes its home as <home>/.legion/bin/../..; legion takes it as plain <home>.
 def test_home_with_parent_steps_is_normalised(app_root: Path, tmp_path: Path) -> None:
     home = tmp_path / "alternate home"
-    assert run(["--home", str(home / ".legion" / "bin" / ".." / ".."), "uninstall"]) == 7
+    assert run(["--home", str(home / ".legion" / "bin" / ".." / ".."), "pick"]) == 7
     assert read_call(app_root)["home"] == str(home)
 
 
@@ -58,13 +58,13 @@ def test_working_directory_is_the_callers(app_root: Path, tmp_path: Path, monkey
     repo = tmp_path / "unrelated repo"
     repo.mkdir()
     monkeypatch.chdir(repo)
-    assert run(["--home", str(tmp_path / "home"), "uninstall"]) == 7
+    assert run(["--home", str(tmp_path / "home"), "pick"]) == 7
     assert Path(str(read_call(app_root)["cwd"])).resolve() == repo.resolve()
 
 
 def test_missing_pwsh_is_one_line_and_exit_127(app_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
-    assert run(["uninstall"]) == 127
+    assert run(["pick"]) == 127
     assert capsys.readouterr().err == "pwsh is missing. Ask the owner before installing PowerShell 7, then run the legion installer again.\n"
     assert not (app_root / "bin" / "call.json").exists()
 
@@ -77,12 +77,20 @@ def test_help_lists_python_and_forwarded_verbs(capsys: pytest.CaptureFixture[str
 
 
 @pytest.mark.parametrize("words", [[], ["--yes"]])
-def test_update_explicitly_forwards_installer_arguments_home_and_exit(app_root: Path, tmp_path: Path, words: list[str]) -> None:
+def test_update_routes_to_python_installer(app_root: Path, tmp_path: Path, words: list[str], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     assert "update" not in _forward.FORWARDED_VERBS
     home = tmp_path / "update home"
-    assert run(["--home", str(home), "update", *words]) == 7
-    assert read_call(app_root)["words"] == ["update", *(["--yes"] if words else [])]
-    assert read_call(app_root)["home"] == str(home)
+    calls: list[tuple[Path, bool, bool]] = []
+
+    def fake_install(selected: Path, **options: object) -> list[str]:
+        calls.append((selected, bool(options["update"]), bool(options["yes"])))
+        return ["updated"]
+
+    monkeypatch.setattr(_installer, "install", fake_install)
+    assert run(["--home", str(home), "update", *words]) == 0
+    assert calls == [(home, True, bool(words))]
+    assert capsys.readouterr().out == "updated\n"
+    assert not (app_root / "bin" / "call.json").exists()
 
 
 @pytest.mark.parametrize("words", [["--check", "--yes"], ["-Yes"], ["--force"], ["--check", "extra"], ["--check", "--unknown"], ["--check=yes"], ["--unknown"]])
