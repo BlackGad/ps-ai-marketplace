@@ -188,7 +188,9 @@ Invoke-InstallTestCase 'BootstrapObtainsUvFirst' {
         Assert-Equal 0 $result.ExitCode "uv-missing-yes: $text"
         Assert-True ($result.Lines -contains 'prompts=0') '-Yes never asks'
         Assert-True ($result.Lines -contains 'uvInstalled=True') 'The verified uv release is published to the legion bin folder, which install puts on PATH'
-        Assert-True ($result.Lines -contains 'downloads=https://api.github.com/repos/astral-sh/uv/releases/latest,https://example.invalid/uv.zip') "Only the uv release is downloaded for a checkout: $text"
+        $asset = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'uv-aarch64-pc-windows-msvc.zip' } else { 'uv-x86_64-pc-windows-msvc.zip' }
+        $url = "https://github.com/astral-sh/uv/releases/latest/download/$asset"
+        Assert-True ($result.Lines -contains "downloads=$url.sha256,$url") "Only the uv release and its checksum are downloaded for a checkout: $text"
         Assert-True ($result.Lines -contains 'uv:install') 'Then legion install runs through the new uv'
         Assert-True ($result.Lines -contains 'tempLeft=0') 'The temporary folder is gone afterwards'
 
@@ -226,21 +228,13 @@ Invoke-InstallTestCase 'ShellBootstrap' {
         & tar -czf (Join-Path $scratch 'plugin.tar.gz') -C (Join-Path $scratch 'archive') legion-stable
         $curlLines = @(
             '#!/bin/sh'
+            'printf ''%s\n'' "$*" >> "$FAKE_CURL_ARGS"'
             'out=; url='
             'while [ $# -gt 0 ]; do case "$1" in -o) out=$2; shift ;; -*) ;; *) url=$1 ;; esac; shift; done'
             'echo "$url" >> "$FAKE_CURL_LOG"'
-            'echo "$*" >> "$FAKE_CURL_ARGS"'
             'case "$url" in'
             ('  */archive/*) [ -z "$FAKE_CURL_FAIL" ] || exit 22; cp "' + $scratch + '/plugin.tar.gz" "$out" ;;')
-            '  */releases/latest) printf ''{
-  "assets": [
-    {
-      "name": "%s",
-      "digest": "sha256:%s"
-    }
-  ]
-}
-'' "$FAKE_UV_ASSET" "$FAKE_UV_DIGEST" > "$out" ;;'
+            '  */releases/latest/download/*.sha256) printf ''%s  %s\n'' "$FAKE_UV_DIGEST" "$FAKE_UV_ASSET" > "$out" ;;'
             ('  */releases/latest/download/*) cp "' + $scratch + '/uv-release.tar.gz" "$out" ;;')
             'esac'
         )
@@ -362,7 +356,10 @@ Invoke-InstallTestCase 'ShellBootstrap' {
             }
             $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --yes 2>&1) -join "`n"
             Assert-Equal 0 $LASTEXITCODE "Shell uv install: $text"
-            Assert-True ((Get-Content -LiteralPath $env:FAKE_CURL_LOG) -contains 'https://api.github.com/repos/astral-sh/uv/releases/latest') 'The uv release is looked up'
+            $uvUrl = "https://github.com/astral-sh/uv/releases/latest/download/$env:FAKE_UV_ASSET"
+            Assert-True ((Get-Content -LiteralPath $env:FAKE_CURL_LOG) -contains $uvUrl) 'The uv release is downloaded'
+            Assert-True ((Get-Content -LiteralPath $env:FAKE_CURL_LOG) -contains "$uvUrl.sha256") 'The uv checksum is downloaded'
+            Assert-True (-not ((Get-Content -LiteralPath $env:FAKE_CURL_LOG) -match 'api.github.com')) 'The GitHub API is not needed'
             Assert-True (Test-Path -LiteralPath (Join-Path $fakeHome '.legion/bin/uv')) 'The verified uv is published to the legion bin folder'
             Assert-True ((Get-Content -LiteralPath $log) -contains 'install') 'Then legion install runs'
 

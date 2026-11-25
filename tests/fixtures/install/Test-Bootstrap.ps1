@@ -20,7 +20,7 @@ function Set-NoUvPath {
     if ($onWindows) { $env:PATH = Join-Path $env:SystemRoot 'System32' } else { $env:PATH = Join-Path $Scratch 'empty' }
 }
 
-# A fake uv release: metadata with the digest of a small ZIP, and the ZIP itself (a placeholder uv.exe).
+# A fake uv release: a ZIP and its checksum sidecar.
 $uvAsset = 'uv-x86_64-pc-windows-msvc.zip'
 if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $uvAsset = 'uv-aarch64-pc-windows-msvc.zip' }
 $uvZip = Join-Path $Scratch 'uv-release.zip'
@@ -39,15 +39,13 @@ function Invoke-InstallDownload {
     if ($Url -like '*/archive/refs/heads/*') {
         if ($script:Mode -eq 'no-release') { throw 'HTTP 404' }
         Copy-Item -LiteralPath $script:Archive -Destination $OutFile
-    } elseif ($Url -like 'https://api.github.com/repos/astral-sh/uv/*') {
+    } elseif ($Url -like 'https://github.com/astral-sh/uv/releases/latest/download/*.sha256') {
         New-UvRelease
         $hash = (Get-FileHash -LiteralPath $uvZip -Algorithm SHA256).Hash
         if ($script:Mode -eq 'uv-bad-digest') { $hash = '0' * 64 }
-        $digest = "sha256:$hash"
-        if ($script:Mode -eq 'uv-no-digest') { $digest = $null }
-        $release = @{ assets = @(@{ name = $script:uvAsset; browser_download_url = 'https://example.invalid/uv.zip'; digest = $digest }) }
-        Set-Content -LiteralPath $OutFile -Value ($release | ConvertTo-Json -Depth 4)
-    } elseif ($Url -eq 'https://example.invalid/uv.zip') {
+        if ($script:Mode -eq 'uv-no-digest') { $hash = '' }
+        Set-Content -LiteralPath $OutFile -Value "$hash  $script:uvAsset"
+    } elseif ($Url -like 'https://github.com/astral-sh/uv/releases/latest/download/*.zip') {
         Copy-Item -LiteralPath $uvZip -Destination $OutFile
     } else { throw "unexpected download $Url" }
 }

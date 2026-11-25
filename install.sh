@@ -42,11 +42,13 @@ install_uv() {
         Linux-x86_64) triple=x86_64-unknown-linux-gnu ;;
         *) fail "No uv release is known for $(uname -s) $(uname -m)." ;;
     esac
-    fetch https://api.github.com/repos/astral-sh/uv/releases/latest -o "$temporary/release.json"
-    # Hand-built, reason: this runs before uv and Python exist, so the release JSON is read with sed; the asset name and digest are on separate lines.
-    expected=$(sed -n "/\"name\": *\"uv-$triple.tar.gz\"/,/\"digest\"/s/.*\"digest\": *\"sha256:\([a-fA-F0-9]\{64\}\)\".*/\1/p" "$temporary/release.json" | head -n 1)
-    [ -n "$expected" ] || fail 'The uv asset or its SHA-256 digest is missing from the official release.'
-    fetch "https://github.com/astral-sh/uv/releases/latest/download/uv-$triple.tar.gz" -o "$temporary/uv.tar.gz"
+    asset="uv-$triple.tar.gz"
+    url="https://github.com/astral-sh/uv/releases/latest/download/$asset"
+    fetch "$url.sha256" -o "$temporary/uv.tar.gz.sha256"
+    read -r expected filename < "$temporary/uv.tar.gz.sha256" || :
+    case "$expected" in *[!0-9a-fA-F]*|'') fail 'The uv asset or its SHA-256 digest is missing from the official release.' ;; esac
+    [ "${#expected}" -eq 64 ] && [ "$filename" = "$asset" ] || fail 'The uv asset or its SHA-256 digest is missing from the official release.'
+    fetch "$url" -o "$temporary/uv.tar.gz"
     if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$temporary/uv.tar.gz")
     elif command -v shasum >/dev/null 2>&1; then actual=$(shasum -a 256 "$temporary/uv.tar.gz")
     else fail 'sha256sum or shasum is required.'; fi

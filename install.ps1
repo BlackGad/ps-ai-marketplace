@@ -108,16 +108,17 @@ function Install-InstallUvRelease {
     if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $architecture = 'aarch64' }
     $temporary = New-InstallTemporary
     try {
-        $metadata = Join-Path $temporary 'release.json'
         $archive = Join-Path $temporary 'uv.zip'
-        Invoke-InstallDownload -Url 'https://api.github.com/repos/astral-sh/uv/releases/latest' -OutFile $metadata
-        $release = Get-Content -LiteralPath $metadata -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-        $asset = $release.assets | Where-Object { $_.name -eq "uv-$architecture-pc-windows-msvc.zip" } | Select-Object -First 1
-        if (-not $asset -or $asset.digest -notmatch '^sha256:([a-fA-F0-9]{64})$') {
+        $asset = "uv-$architecture-pc-windows-msvc.zip"
+        $url = "https://github.com/astral-sh/uv/releases/latest/download/$asset"
+        $checksum = Join-Path $temporary 'uv.zip.sha256'
+        Invoke-InstallDownload -Url "$url.sha256" -OutFile $checksum
+        $digest = (Get-Content -LiteralPath $checksum -Raw -ErrorAction Stop).Trim()
+        if ($digest -notmatch "^([a-fA-F0-9]{64})\s+\*?$([regex]::Escape($asset))$") {
             throw 'The uv asset or its SHA-256 digest is missing from the official release.'
         }
         $expectedHash = $Matches[1]
-        Invoke-InstallDownload -Url $asset.browser_download_url -OutFile $archive
+        Invoke-InstallDownload -Url $url -OutFile $archive
         if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256 -ErrorAction Stop).Hash -ine $expectedHash) {
             Remove-Item -LiteralPath $archive -Force
             throw 'uv SHA-256 digest mismatch; download deleted.'

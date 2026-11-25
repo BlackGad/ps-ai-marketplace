@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from filelock import FileLock
 
 from legion import _app, _cli, _footprints, _installer, _user_path
 from legion._generated import header
@@ -424,6 +425,33 @@ def test_last_owner_removes_recorded_app_version_and_environment(tmp_path: Path)
     assert _footprints.remove_owner(tmp_path, ["codex:two"]) == [f"Remove app version: {app}"]
     assert not app.exists()
     assert not environment.exists()
+
+
+def test_last_owner_removes_app_folder_and_sync_lock(tmp_path: Path) -> None:
+    app = tmp_path / ".legion/app/1.2.3"
+    app.mkdir(parents=True)
+    (app.parent / ".sync.lock").touch()
+    (app / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
+    _footprints.add(tmp_path, "app-version", app, "legion")
+    _footprints.add(tmp_path, "app", app.parent, "codex:one")
+
+    assert _footprints.remove_owner(tmp_path, ["codex:one"]) == [f"Remove app version: {app}"]
+    assert not app.exists()
+    assert not app.parent.exists()
+
+
+def test_busy_app_lock_remains_recorded_for_the_next_uninstall(tmp_path: Path) -> None:
+    app_folder = tmp_path / ".legion/app"
+    app_folder.mkdir(parents=True)
+    sync_lock = app_folder / ".sync.lock"
+    _footprints.add(tmp_path, "app", app_folder, "codex:one")
+
+    with FileLock(str(sync_lock)):
+        assert _footprints.remove_owner(tmp_path, ["codex:one"]) == [f"Kept app lock in use: {sync_lock}"]
+        assert app_folder.exists()
+        assert [(entry.kind, entry.owners) for entry in _footprints.read(tmp_path).entries] == [("app", [])]
+    assert _footprints.remove_owner(tmp_path, []) == []
+    assert not app_folder.exists()
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])

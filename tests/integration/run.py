@@ -664,7 +664,9 @@ class Runner:
 
     def uninstall(self, repeat: bool) -> str:
         targets = self.targets_for_uninstall() if not repeat else []
-        output = self.legion("uninstall", "--yes", owner=not repeat)
+        # The installed owner command runs from the app it would remove. Use the checkout's
+        # public CLI so Windows can release its interpreter before deleting the app.
+        output = self.legion("uninstall", "--yes")
         if repeat:
             contains(output, "Nothing to uninstall.")
             return output
