@@ -171,26 +171,53 @@ def uninstall(context: click.Context, tools: tuple[str, ...], config_dir: Option
 
 
 @main.command("status", help="Show accounts, commands, channels and this repository")
+@click.option("--json", "as_json", is_flag=True, help="Print the typed status report as JSON.")
 @click.pass_obj
-def status(home: Optional[Path]) -> None:
+def status(home: Optional[Path], as_json: bool) -> None:
     from . import _status
+    from .services.status import status as status_report
 
-    for line in _status.status_lines(Path.cwd(), home):
+    report = status_report(Path.cwd(), home)
+    if as_json:
+        click.echo(report.model_dump_json())
+        return
+    for line in _status.status_lines(report):
         click.echo(line)
 
 
-@main.command("limits", help="Show each account's usage windows and reset times (or one account)")
-@click.option("--id", "account", help="one account instead of every account")
+@main.command(
+    "limits",
+    help=(
+        "Show each account's usage windows and reset times. Each named account runs a real minimal ping through its launcher, consuming quota and billable on paid accounts. "
+        "A ping creates a disposable folder; Codex leaves a session record. Foundry runs az account get-access-token instead. Each account can take up to 120 seconds. "
+        "A manual bare call selects all accounts. JSON and Legion automation require explicit --id values."
+    ),
+)
+@click.option("--id", "accounts", multiple=True, help="Account to ping; repeat for each selected account.")
+@click.option("--json", "as_json", is_flag=True, help="Print typed limits as JSON; requires explicit --id values.")
 @click.pass_context
-def limits(context: click.Context, account: Optional[str]) -> None:
+def limits(context: click.Context, accounts: tuple[str, ...], as_json: bool) -> None:
+    from pydantic import TypeAdapter
+
     from .limits import LimitsError, report_lines
+    from .services.limits import AccountLimits, configured_accounts, limits as limits_report
 
     try:
-        lines = report_lines(context.obj, account)
+        # Only the manual text command owns the historical all-accounts default.
+        # Services and automated interfaces always pass their explicit selection.
+        if not accounts and not as_json and not os.environ.get("LEGION_ROLE") and not os.environ.get("LEGION_TASK"):
+            accounts = tuple(agent.id for agent in configured_accounts(context.obj))
+            if not accounts:
+                click.echo("No accounts yet; run legion add.")
+                return
+        reports = limits_report(context.obj, accounts)
     except LimitsError as error:
         click.echo(str(error), err=True)
         context.exit(1)
-    for line in lines:
+    if as_json:
+        click.echo(TypeAdapter(list[AccountLimits]).dump_json(reports).decode("utf-8"))
+        return
+    for line in report_lines(reports):
         click.echo(line)
 
 

@@ -1,23 +1,18 @@
+from __future__ import annotations
+
 import ctypes
 import os
 import re
-import shutil
 import stat
-import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from pydantic import BaseModel, Field, JsonValue
 
-from . import _lease, _process
+from . import _process
 from ._generated import is_owned
-from ._home import (
-    bin_folder,
-    home_path,
-    legion_home,
-    settings_path,
-)
+from ._home import home_path
 from ._settings_models import (
     ChannelDescriptor,
     PersonalisationSettings,
@@ -26,6 +21,9 @@ from ._settings_models import (
 )
 from ._update import compare_versions
 from ._validate import load_descriptors, read_text
+
+if TYPE_CHECKING:
+    from .services.status import RepositoryStatus, StatusReport
 
 
 class MarketplaceSource(BaseModel):
@@ -111,12 +109,20 @@ def command_states(folder: Path) -> list[tuple[Path, str]]:
     return states
 
 
-def command_line(folder: Path) -> str:
+def command_status(folder: Path) -> Literal["yes", "blocked", "missing", "not executable"]:
     states = [state for _path, state in command_states(folder)]
-    for state, label in (("blocked", "blocked"), ("missing", "missing"), ("permission", "not executable")):
-        if state in states:
-            return f"commands: {label} legion"
-    return "commands: yes"
+    if "blocked" in states:
+        return "blocked"
+    if "missing" in states:
+        return "missing"
+    if "permission" in states:
+        return "not executable"
+    return "yes"
+
+
+def command_line(folder: Path) -> str:
+    value = command_status(folder)
+    return "commands: yes" if value == "yes" else f"commands: {value} legion"
 
 
 def _path_key(path: Path) -> str:
@@ -134,25 +140,10 @@ def on_path(folder: Path) -> bool:
     return False
 
 
-def repository_line(repo: Path) -> str:
-    legion = repo / ".legion"
-    required = ["configuration/project.json", "configuration/workflow.md", "scripts/index.md"]
-    if any(not (legion / file).is_file() for file in required):
+def repository_line(repository: RepositoryStatus) -> str:
+    if repository.mode == "none":
         return "repo none"
-    private = (legion / ".git").exists()
-    root = legion if private else repo
-    paths = required if private else [f".legion/{file}" for file in required]
-    git = shutil.which("git")
-    if git is None:
-        return "repo none"
-    try:
-        result = subprocess.run([git, "-C", str(root), "ls-files", "--error-unmatch", "--", *paths], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        if result.returncode:
-            return "repo none"
-    except OSError:
-        return "repo none"
-    handoff = "yes" if (legion / "state" / "handoff.md").is_file() else "no"
-    return f"repo {'Private' if private else 'Shared'}   lease: {_lease.state(repo).state}   handoff: {handoff}"
+    return f"repo {repository.mode}   lease: {repository.lease}   handoff: {'yes' if repository.handoff else 'no'}"
 
 
 class _UnicodeString(ctypes.Structure):
@@ -223,35 +214,17 @@ def channel_warnings(settings: PersonalisationSettings, home: Path, tools: list[
         return []  # Uncertain sessions and descriptors must never interrupt status or warn.
 
 
-def status_lines(repo: Path, home: Optional[Path] = None) -> list[str]:
-    home = legion_home(home)
-    file = settings_path(home)
-    settings = None
-    # The file's contents stay private: a broken file is named, never quoted.
-    settings_line = "no legion settings yet"
-    try:
-        settings = PersonalisationSettings.model_validate_json(read_text(file))
-    except FileNotFoundError:
-        pass
-    except OSError:
-        settings_line = f"legion settings cannot be read: {file}; run legion setup"
-    except ValueError:
-        settings_line = f"legion settings are not valid: {file}; run legion setup"
-    try:
-        tools = load_descriptors(ToolDescriptor, "tool.json")
-    except (OSError, ValueError):
-        tools = []
-    lines = ["accounts"] if settings is not None else [settings_line]
-    if settings is not None:
-        for agent in settings.agents:
-            matches = [tool for tool in tools if tool.id == agent.tool]
-            version = installed_version(home_path(agent.config_dir, home), matches[0]) if len(matches) == 1 else None
-            lines.append(f"  {agent.id}  {agent.tool}  {agent.config_dir}  legion {version or 'missing'}")
-    commands = bin_folder(home)
-    lines.extend([f"path ~/.legion/bin on PATH: {'yes' if on_path(commands) else 'no'}", command_line(commands)])
-    if settings is not None:
-        lines.extend(f"channels {channel.id} ({channel.kind}) -> {', '.join(channel.accounts)}" for channel in settings.channels)
-    lines.append(repository_line(repo))
-    if settings is not None:
-        lines.extend(channel_warnings(settings, home, tools))
+def status_lines(report: StatusReport) -> list[str]:
+    settings = report.settings
+    if settings.state == "ok":
+        lines = ["accounts", *(f"  {agent.id}  {agent.tool}  {agent.config_dir}  legion {agent.legion_version or 'missing'}" for agent in report.accounts)]
+    elif settings.state == "missing":
+        lines = ["no legion settings yet"]
+    else:
+        problem = "cannot be read" if settings.state == "unreadable" else "are not valid"
+        lines = [f"legion settings {problem}: {settings.path}; run legion setup"]
+    commands = "yes" if report.commands == "yes" else f"{report.commands} legion"
+    lines.extend([f"path ~/.legion/bin on PATH: {'yes' if report.on_path else 'no'}", f"commands: {commands}"])
+    lines.extend(f"channels {channel.id} ({channel.kind}) -> {', '.join(channel.accounts)}" for channel in report.channels)
+    lines.extend([repository_line(report.repository), *report.warnings])
     return lines

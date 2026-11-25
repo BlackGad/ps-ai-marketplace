@@ -1,19 +1,15 @@
 # Account limits: each tool's recipe is chosen by its tool id; Foundry accounts report the Azure token check.
 
+from __future__ import annotations
+
 import stat
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING
 
-from .._home import (
-    home_path,
-    legion_home,
-    settings_path,
-    wrapper_command,
-)
-from .._settings_models import Agent, PersonalisationSettings
-from .._validate import read_text
+from .._home import home_path, wrapper_command
+from .._settings_models import Agent
 from . import (
     claude,
     codex,
@@ -24,6 +20,9 @@ from ._ping import (
     LimitRow,
     first_line,
 )
+
+if TYPE_CHECKING:
+    from ..services.limits import AccountLimits
 
 __all__ = ["LimitRow", "LimitsError", "account_rows", "report_lines"]
 
@@ -37,21 +36,8 @@ class LimitsError(Exception):
     pass
 
 
-# The limits table of every account, or of one.
-def report_lines(home: Optional[Path], account: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT) -> list[str]:
-    home = legion_home(home)
-    file = settings_path(home)
-    if not file.is_file():
-        raise LimitsError("No legion settings yet; run legion setup.")
-    try:
-        agents = PersonalisationSettings.model_validate_json(read_text(file)).agents
-    except (OSError, ValueError) as error:
-        raise LimitsError("legion settings are not valid: " + first_line(str(error))) from None
-    if account is not None:
-        agents = [agent for agent in agents if agent.id == account]
-        if not agents:
-            raise LimitsError(f"unknown account '{account}'")
-    rows = [[agent.id, agent.tool, row.window, row.used, row.resets, row.status] for agent in agents for row in account_rows(agent, home, timeout)]
+def report_lines(reports: list[AccountLimits]) -> list[str]:
+    rows = [[item.account, item.tool, row.window, row.used, row.resets, row.status] for item in reports for row in item.rows]
     if not rows:
         return ["No accounts yet; run legion add."]
     return table_lines(rows)
