@@ -39,6 +39,6 @@ def test_fixed_file_entries_exist() -> None:
 
 
 def test_hook_import_stays_in_standard_library() -> None:
-    script = "import sys; import legion.hook; assert not {'pydantic', 'click', 'filelock', 'mcp'} & sys.modules.keys()"
+    script = "import sys; import legion.hook; assert not {'pydantic', 'click', 'filelock', 'mcp', 'psutil'} & sys.modules.keys()"
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr

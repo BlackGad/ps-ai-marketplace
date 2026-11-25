@@ -1,4 +1,5 @@
 import io
+import math
 import os
 import sys
 from collections.abc import Callable
@@ -211,6 +212,8 @@ def status(home: Optional[Path], as_json: bool) -> None:
 @click.option("--json", "as_json", is_flag=True, help="Print typed limits as JSON; requires explicit --id values.")
 @click.pass_context
 def limits(context: click.Context, accounts: tuple[str, ...], timeout: float, as_json: bool) -> None:
+    if not math.isfinite(timeout):
+        raise click.BadParameter("must be finite", param_hint="--timeout")
     from pydantic import TypeAdapter
 
     from legion.services.limits.limit_probes import LimitsError, report_lines

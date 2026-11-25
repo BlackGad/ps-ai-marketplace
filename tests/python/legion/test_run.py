@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 import pytest
+import psutil
 from process_ready import timeout_after_ready
 
 from legion.core import _run
@@ -123,11 +124,11 @@ def test_tree_stop_is_retried_when_a_descendant_keeps_pipes_open(tmp_path: Path,
     attempts = 0
 
     # Hand-built, reason: a missed first stop makes the existing drain fallback observable.
-    def miss_once(process: "subprocess.Popen[bytes]", job: Optional[int]) -> None:
+    def miss_once(process: "subprocess.Popen[bytes]", job: Optional[int], owned: dict[int, psutil.Process]) -> None:
         nonlocal attempts
         attempts += 1
         if attempts > 1:
-            kill_tree(process, job)
+            kill_tree(process, job, owned)
 
     monkeypatch.setattr(_run, "_kill_tree", miss_once)
     grandchild = None
@@ -146,8 +147,8 @@ def test_tree_stop_is_retried_when_a_descendant_keeps_pipes_open(tmp_path: Path,
 
 # A survivor that keeps the pipes open must not keep the caller waiting past the drain bound.
 def test_drain_after_a_timeout_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def kill_only_the_child(process: "subprocess.Popen[bytes]", job: Optional[int]) -> None:
-        del job
+    def kill_only_the_child(process: "subprocess.Popen[bytes]", job: Optional[int], owned: dict[int, psutil.Process]) -> None:
+        del job, owned
         process.kill()
 
     monkeypatch.setattr(_run, "_kill_tree", kill_only_the_child)

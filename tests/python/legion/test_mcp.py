@@ -20,6 +20,7 @@ from mcp_protocol_fake import Connection
 from test_limits import (
     ACCOUNTS,
     Bench,
+    FIXTURES,
     write_executable,
     write_settings,
 )
@@ -64,16 +65,19 @@ def assert_dead(pid: int) -> None:
         time.sleep(0.01)
 
 
-def test_mcp_lists_exactly_status_and_limits() -> None:
-    async def check() -> None:
-        async with create_connected_server_and_client_session(build()) as session:
-            tools = (await session.list_tools()).tools
-        assert {tool.name for tool in tools} == {"status", "limits"}
-        assert all(tool.description and "\n" not in tool.description for tool in tools)
-        assert all(tool.outputSchema for tool in tools)
-        assert "accounts" in next(tool for tool in tools if tool.name == "limits").inputSchema["required"]
-
-    anyio.run(check)
+def test_mcp_lists_exactly_status_and_limits(connection: Connection) -> None:
+    connection.send("tools/list", request=3)
+    tools = connection.receive(3)["result"]["tools"]
+    assert {tool["name"] for tool in tools} == {"status", "limits"}
+    assert all(tool["description"] and "\n" not in tool["description"] for tool in tools)
+    assert all(tool["outputSchema"] for tool in tools)
+    limits = next(tool for tool in tools if tool["name"] == "limits")
+    status = next(tool for tool in tools if tool["name"] == "status")
+    assert "accounts" in limits["inputSchema"]["required"]
+    assert limits["annotations"]["readOnlyHint"] is False
+    assert limits["annotations"]["idempotentHint"] is False
+    assert limits["annotations"]["openWorldHint"] is True
+    assert status["annotations"]["readOnlyHint"] is True
 
 
 def test_all_hosts_register_same_installed_command() -> None:
@@ -92,9 +96,14 @@ def test_all_hosts_register_same_installed_command() -> None:
 
 def test_mcp_status_equals_cli_and_writes_nothing(parity_home: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     repo, home = parity_home
-    only_on_path(monkeypatch, tmp_path)
+    git = shutil.which("git")
+    assert git is not None
+    only_on_path(monkeypatch, tmp_path, Path(git).parent)
     assert run(["--home", str(home), "status", "--json"]) == 0
     expected = json.loads(capsys.readouterr().out)
+    assert expected["repository"]["mode"] == "Shared"
+    assert expected["repository"]["lease"] == "free"
+    assert expected["repository"]["handoff"] is True
     before = {str(path): path.read_bytes() for path in home.rglob("*") if path.is_file()}
 
     async def check() -> None:
@@ -140,21 +149,25 @@ def test_stdio_limits_equals_cli_explicit_accounts(bench: Bench, capsys: pytest.
         ({}, "accounts"),
         ({"accounts": []}, "name at least one account"),
         ({"accounts": ["claude-a", "unknown"], "timeout": 1}, "unknown account"),
-        ({"accounts": "claude-a"}, "accounts"),
+        ({"accounts": "claude-a"}, "array"),
+        ({"accounts": '["claude-a"]'}, "array"),
+        ({"accounts": '["codex-a"]'}, "array"),
+        ({"accounts": {"0": "claude-a"}}, "array"),
+        ({"accounts": [42]}, "string"),
+        ({"accounts": ["claude-a"], "timeout": "1"}, "number"),
+        ({"accounts": ["claude-a"], "timeout": True}, "number"),
         ({"accounts": ["claude-a", "copilot-a"]}, "call limits once per account"),
-        ({"accounts": ["claude-a"], "timeout": 0}, "greater than"),
-        ({"accounts": ["claude-a"], "timeout": -1}, "greater than"),
-        ({"accounts": ["claude-a"], "timeout": float("inf")}, "timeout"),
+        ({"accounts": ["claude-a"], "timeout": 0}, "minimum"),
+        ({"accounts": ["claude-a"], "timeout": -1}, "minimum"),
+        ({"accounts": ["claude-a"], "timeout": None}, "number"),
+        ({"accounts": ["claude-a"], "timeout": float("inf")}, "number"),
     ],
 )
-def test_invalid_limits_never_start_probes(bench: Bench, arguments: dict[str, Any], message: str) -> None:
-    async def check() -> None:
-        async with create_connected_server_and_client_session(build(bench.home)) as session:
-            result = await session.call_tool("limits", arguments)
-            assert result.isError
-            assert message in str(result.content)
-
-    anyio.run(check)
+def test_invalid_limits_never_start_probes(connection: Connection, bench: Bench, arguments: dict[str, Any], message: str) -> None:
+    connection.send("tools/call", {"name": "limits", "arguments": arguments}, 3)
+    result = connection.receive(3)["result"]
+    assert result["isError"]
+    assert message in str(result["content"])
     assert not list(bench.logs.iterdir())
 
 
@@ -199,6 +212,111 @@ def test_interrupted_limits_kills_tree_and_removes_folder(connection: Connection
         while ping_folder.exists():
             assert time.monotonic() < deadline, "ping folder survived cancellation"
             time.sleep(0.01)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix process sessions")
+@pytest.mark.parametrize("stop", ["eof", "cancel", "timeout"])
+@pytest.mark.parametrize("target", ["claude", "codex", "copilot", "az", "git"])
+@pytest.mark.parametrize("reparent", [False, True], ids=["parent-alive", "parent-exited"])
+def test_detached_descendant_is_stopped(connection: Connection, bench: Bench, stop: str, target: str, reparent: bool) -> None:
+    folder = bench.path if target in {"az", "git"} else bench.home / ".legion/bin"
+    name = target if target in {"az", "git"} else f"{target}-a"
+    account = "foundry-a" if target == "az" else "codex-a" if target == "git" else name
+    write_executable(folder, name, {f"LEGION_FAKE_{target.upper()}_SLEEP": "60", f"LEGION_FAKE_{target.upper()}_DETACH": "1", f"LEGION_FAKE_{target.upper()}_REPARENT": "1" if reparent else ""})
+    arguments: dict[str, Any] = {"accounts": [account]}
+    if stop == "timeout":
+        arguments["timeout"] = 3
+    connection.send("tools/call", {"name": "limits", "arguments": arguments}, 3)
+    pid = int(wait_file(bench.logs / "grandchild.pid"))
+    call = bench.calls(target)[0]
+    # Establish that the fixture really left the launcher's process group and session.
+    if sys.platform != "win32":
+        assert os.getpgid(pid) == os.getsid(pid) == pid
+        assert os.getpgid(call["pid"]) != os.getpgid(pid)
+    if reparent:
+        assert_dead(call["pid"])
+    if stop == "eof":
+        connection.eof()
+        assert connection.process.wait(timeout=5) == 0
+    elif stop == "cancel":
+        connection.send("notifications/cancelled", {"requestId": 3})
+    else:
+        assert "timed out" in str(connection.receive(3))
+    assert_dead(pid)
+    assert_dead(call["pid"])
+    if target != "az":
+        ping_folder = Path(call["arguments"][1] if target == "git" else call["folder"])
+        deadline = time.monotonic() + 5
+        while ping_folder.exists():
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+    if stop != "eof":
+        connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["copilot-a" if target != "copilot" else "claude-a"], "timeout": 1}}, 4)
+        assert not connection.receive(4)["result"].get("isError", False)
+
+
+@pytest.mark.parametrize(
+    ("phase", "stop", "budget"),
+    [
+        ("enumerate", "eof", 2),
+        ("enumerate", "cancel", 2),
+        ("enumerate", "deadline", 2),
+        ("records", "eof", 2),
+        ("records", "cancel", 2),
+        ("records", "deadline", 2),
+        ("records", "deadline", 20),
+    ],
+)
+def test_session_lookup_is_bounded_and_cancellable(bench: Bench, phase: str, stop: str, budget: int) -> None:
+    sessions = bench.config("codex-a") / "sessions"
+    sessions.mkdir(parents=True)
+    if phase == "enumerate":
+        for index in range(500):
+            (sessions / f"foreign-{index}.jsonl").write_text('{"type":"session_meta","payload":{"cwd":"/foreign"}}\n', encoding="utf-8")
+    seed = bench.home / "session-seed.jsonl"
+    seed.write_text((FIXTURES / "codex-session.jsonl").read_text(encoding="utf-8") * 2000, encoding="utf-8")
+    write_executable(bench.home / ".legion/bin", "codex-a", {"CODEX_HOME": str(bench.config("codex-a")), "LEGION_FAKE_CODEX_SESSION": str(seed)})
+    command = [sys.executable, str(Path(__file__).with_name("mcp_lookup_fake.py")), str(bench.home), str(bench.logs), phase, str(budget)]
+    connection = Connection(bench.home, command)
+    try:
+        connection.ready()
+        started = time.monotonic()
+        connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["codex-a"]}}, 3)
+        wait_file(bench.logs / "lookup.started")
+        call = bench.calls("codex")[0]
+        assert_dead(call["pid"])
+        assert not Path(call["folder"]).exists()
+        if stop == "eof":
+            interrupted = time.monotonic()
+            connection.eof()
+            assert connection.process.wait(timeout=5) == 0
+        elif stop == "cancel":
+            interrupted = time.monotonic()
+            connection.send("notifications/cancelled", {"requestId": 3})
+        else:
+            interrupted = started
+            result = connection.receive(3)["result"]
+            assert "deadline exceeded" in str(result)
+            assert time.monotonic() - started < budget + 5
+        outcome = wait_file(bench.logs / "lookup.finished")
+        assert time.monotonic() - interrupted < (budget + 5 if stop == "deadline" else 5)
+        assert outcome in {"CommandCancelled", "CommandDeadlineError"}
+        if stop != "deadline":
+            assert outcome == "CommandCancelled"
+        if stop != "eof":
+            connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["copilot-a"]}}, 4)
+            assert not connection.receive(4)["result"].get("isError", False)
+        assert len(bench.calls("codex")) == 1
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("timeout", ["nan", "NaN", "inf", "+inf", "-inf"])
+def test_cli_rejects_nonfinite_timeout_without_probes(bench: Bench, timeout: str) -> None:
+    result = subprocess.run([sys.executable, "-m", "legion.cli", "--home", str(bench.home), "limits", "--id", "claude-a", "--timeout", timeout], capture_output=True, text=True, check=False)
+    assert result.returncode == 2
+    assert "--timeout" in result.stderr
+    assert not list(bench.logs.iterdir())
 
 
 def test_limits_bounds_single_account_default(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
