@@ -196,6 +196,7 @@ ${{ (inputs.sha != '' || (github.event_name == 'pull_request' && github.event.pu
         Require-Workflow ($run -match 'os: \[windows-2025, macos-15, ubuntu-24.04\]' -and $run -match 'fail-fast: false' -and $run -match 'timeout-minutes: 30') 'integration matrix uses all three systems with independent timeouts'
         Require-Workflow ($run.Contains('ref: ${{ inputs.sha || github.sha }}')) 'matrix tests the supplied immutable SHA'
         Require-Workflow ($run.Contains('ALLOW_SOURCE_FALLBACK: ${{ github.event_name == ''push'' && github.ref == ''refs/heads/main'' && inputs.sha == '''' }}')) 'published-source fallback is allowed only on direct main pushes without a checkout input'
+        Require-Workflow ($run -match 'python tests/integration/run.py --out results' -and $run -notmatch 'tests/integration/run.ps1') 'matrix runs the Python integration runner'
         Require-Workflow ($run -match "if: github.event_name == 'pull_request'\r?\n        uses: actions/cache/restore@" -and $run -match "if: github.event_name == 'schedule' && github.ref == 'refs/heads/main' && inputs.sha == ''\r?\n        uses: actions/cache/save@") 'npm downloads restore only on PRs and save only on the weekly main run'
         Require-Workflow ($run -match 'if: always\(\)' -and $run -match 'retention-days: 90') 'matrix preserves reports and logs for 90 days even on failure'
         $report = ($integrationJobs | Where-Object Id -eq 'report').Lines -join "`n"
@@ -214,7 +215,7 @@ ${{ (inputs.sha != '' || (github.event_name == 'pull_request' && github.event.pu
         $integrationGate = $integrationJobs | Where-Object Id -eq 'integration'
         $integrationName = $gateName.Replace('release PR tests', 'release PR integration').Replace("|| 'gate'", "|| 'integration'")
         Require-Workflow ($integrationGate.Name -ceq $integrationName) 'ordinary PRs display integration and bot release PRs reserve the required status context'
-        Require-Workflow (($integrationGate.Lines -join "`n") -match 'needs: run' -and ($integrationGate.Lines -join "`n") -match "RUN_RESULT -ne 'success'") 'integration gate fails when the matrix fails or is cancelled'
+        Require-Workflow (($integrationGate.Lines -join "`n") -match 'needs: run' -and ($integrationGate.Lines -join "`n") -match 'RUN_RESULT" != success') 'integration gate fails when the matrix fails or is cancelled'
         $integrationCall = ($releaseJobs | Where-Object Id -eq 'integration-release-pr').Lines -join "`n"
         Require-Workflow ($integrationCall -match 'needs: resolve-release-pr' -and $integrationCall.Contains('sha: ${{ needs.resolve-release-pr.outputs.sha }}') -and $integrationCall -match 'uses: \./.github/workflows/integration.yml') 'release integration uses the same trusted resolved head SHA'
         Require-Workflow ($integrationCall -match 'contents: write' -and $integrationCall -match 'pages: write' -and $integrationCall -notmatch 'steps:|runs-on:') 'release caller grants only the callee permission ceiling and cannot execute code itself'
@@ -225,6 +226,7 @@ ${{ (inputs.sha != '' || (github.event_name == 'pull_request' && github.event.pu
         })
         foreach ($script in $scripts) {
             Require-Workflow ($script -notmatch '\$\{\{') 'integration shell source must use env values instead of expression substitution'
+            if ($script -match '(?m)^(echo "npm_config_cache=|args=\(\)|if \[ "\$RUN_RESULT")') { continue }
             $parseErrors = $null
             [Management.Automation.Language.Parser]::ParseInput($script, [ref]$null, [ref]$parseErrors) | Out-Null
             Require-Workflow ($parseErrors.Count -eq 0) 'inline integration PowerShell parses cleanly'
