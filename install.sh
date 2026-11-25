@@ -5,18 +5,35 @@ set -eu
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 
-# uv is found on PATH, in the legion tools folder, or in the folder its own installer uses.
+# Every download, and every redirect it follows, must be HTTPS.
+fetch() { curl --proto '=https' --proto-redir '=https' -fsSL "$@"; }
+
+# Asks the owner in the terminal; --yes answers for them.
+confirm() {
+    [ "$yes" = 1 ] && return 0
+    answer=
+    # The one-line command consumes stdin; consent comes from the terminal.
+    if ( : </dev/tty ) 2>/dev/null; then
+        printf '%s' "$1 [y/N] " >/dev/tty
+        read -r answer </dev/tty || :
+    fi
+    case "$answer" in y|Y|yes|YES|Yes) return 0 ;; esac
+    printf '%s\n' 'Nothing changed. Run again with --yes to apply.'
+    return 1
+}
+
+# uv is found on PATH, in the legion bin folder (which `legion install` puts on the shell PATH), or in the folder its own installer uses.
 find_uv() {
     uv=$(command -v uv || :)
     if [ -z "$uv" ]; then
-        for folder in "$HOME/.legion/tools/uv" "${UV_INSTALL_DIR:-}" "${XDG_BIN_HOME:-}" "$HOME/.local/bin"; do
+        for folder in "$HOME/.legion/bin" "${UV_INSTALL_DIR:-}" "${XDG_BIN_HOME:-}" "$HOME/.local/bin"; do
             if [ -n "$folder" ] && [ -x "$folder/uv" ]; then uv=$folder/uv; break; fi
         done
     fi
     [ -n "$uv" ]
 }
 
-# Downloads the latest uv release for this system, checks its SHA-256 digest and extracts it to ~/.legion/tools/uv.
+# Downloads the latest uv release for this system, checks its SHA-256 digest and publishes it to ~/.legion/bin.
 install_uv() {
     case "$(uname -s)-$(uname -m)" in
         Darwin-arm64) triple=aarch64-apple-darwin ;;
@@ -25,11 +42,11 @@ install_uv() {
         Linux-x86_64) triple=x86_64-unknown-linux-gnu ;;
         *) fail "No uv release is known for $(uname -s) $(uname -m)." ;;
     esac
-    curl -fsSL https://api.github.com/repos/astral-sh/uv/releases/latest -o "$temporary/release.json"
+    fetch https://api.github.com/repos/astral-sh/uv/releases/latest -o "$temporary/release.json"
     # Hand-built, reason: this runs before uv and Python exist, so the release JSON is read with sed; the asset name and digest are on separate lines.
     expected=$(sed -n "/\"name\": *\"uv-$triple.tar.gz\"/,/\"digest\"/s/.*\"digest\": *\"sha256:\([a-fA-F0-9]\{64\}\)\".*/\1/p" "$temporary/release.json" | head -n 1)
     [ -n "$expected" ] || fail 'The uv asset or its SHA-256 digest is missing from the official release.'
-    curl -fsSL "https://github.com/astral-sh/uv/releases/latest/download/uv-$triple.tar.gz" -o "$temporary/uv.tar.gz"
+    fetch "https://github.com/astral-sh/uv/releases/latest/download/uv-$triple.tar.gz" -o "$temporary/uv.tar.gz"
     if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$temporary/uv.tar.gz")
     elif command -v shasum >/dev/null 2>&1; then actual=$(shasum -a 256 "$temporary/uv.tar.gz")
     else fail 'sha256sum or shasum is required.'; fi
@@ -39,8 +56,13 @@ install_uv() {
         rm -f "$temporary/uv.tar.gz"
         fail 'uv SHA-256 digest mismatch; download deleted.'
     fi
-    mkdir -p "$HOME/.legion/tools/uv"
-    tar -xzf "$temporary/uv.tar.gz" -C "$HOME/.legion/tools/uv" --strip-components=1
+    mkdir "$temporary/uv"
+    tar -xzf "$temporary/uv.tar.gz" -C "$temporary/uv" --strip-components=1
+    "$temporary/uv/uv" --version >/dev/null 2>&1 || fail 'The downloaded uv does not run; nothing was installed.'
+    mkdir -p "$HOME/.legion/bin"
+    # Copy beside the target, then rename: an interrupted run never leaves a partial uv.
+    cp "$temporary/uv/uv" "$HOME/.legion/bin/uv.new"
+    mv -f "$HOME/.legion/bin/uv.new" "$HOME/.legion/bin/uv"
 }
 
 main() {
@@ -73,22 +95,14 @@ main() {
         printf '%s\n' 'skip: uv (already done)'
     else
         printf '%s\n' 'uv is missing.' \
-            'Install uv: download the latest official uv release, verified with its SHA-256 digest, to ~/.legion/tools/uv/.'
+            'Install uv: download the latest official uv release, verified with its SHA-256 digest, to ~/.legion/bin/, which the legion install then puts on your PATH.'
         [ "$dry_run" = 0 ] || return 0
-        if [ "$yes" = 0 ]; then
-            answer=
-            # The one-line command consumes stdin; consent comes from the terminal.
-            if ( : </dev/tty ) 2>/dev/null; then
-                printf '%s' 'Install uv now? [y/N] ' >/dev/tty
-                read -r answer </dev/tty || :
-            fi
-            case "$answer" in y|Y|yes|YES|Yes) ;; *) printf '%s\n' 'Nothing changed. Run again with --yes to apply.'; return 0 ;; esac
-        fi
+        confirm 'Install uv now?' || return 0
     fi
 
-    mkdir -p "$HOME/.legion/temp"
-    temporary=$(mktemp -d "$HOME/.legion/temp/install-shell.XXXXXX")
-    # mktemp supplies the exact directory under HOME; never delete a caller path.
+    # In the system temp folder, outside .legion, so a purge can delete .legion while this is in use.
+    temporary=$(mktemp -d "${TMPDIR:-/tmp}/legion-install.XXXXXX")
+    # mktemp supplies the exact directory; never delete a caller path.
     trap 'rm -rf "$temporary"' 0
     trap 'exit 1' 1 2 3 15
 
@@ -99,6 +113,13 @@ main() {
     PATH=$(dirname "$uv"):$PATH
     export PATH
 
+    # Previews never let uv download Python; an ordinary run asks first.
+    if ! "$uv" python find '>=3.12' >/dev/null 2>&1; then
+        printf '%s\n' 'Python 3.12 is missing. uv can download it for legion.'
+        [ "$dry_run" = 0 ] || return 0
+        confirm 'Download Python with uv now?' || return 0
+    fi
+
     # The plugin folder that holds the Python project: this checkout, or the archive from the fixed legion repository.
     project=
     if [ -f "$0" ]; then
@@ -107,7 +128,7 @@ main() {
     fi
     if [ -z "$project" ]; then
         mkdir "$temporary/source"
-        if ! curl -fsSL "https://github.com/BlackGad/ps-legion-marketplace/archive/refs/heads/$ref.tar.gz" -o "$temporary/legion.tar.gz"; then
+        if ! fetch "https://github.com/BlackGad/ps-legion-marketplace/archive/refs/heads/$ref.tar.gz" -o "$temporary/legion.tar.gz"; then
             [ "$ref" != stable ] || fail 'could not find the latest release; try again or run with --main'
             fail "could not download the $ref code"
         fi
@@ -122,8 +143,8 @@ main() {
     # The one-line command consumes stdin; the installer's questions come from the terminal.
     status=0
     if ( : </dev/tty ) 2>/dev/null; then
-        "$uv" run --project "$project" --frozen --quiet legion install "$@" </dev/tty || status=$?
-    else "$uv" run --project "$project" --frozen --quiet legion install "$@" || status=$?; fi
+        "$uv" run --project "$project" --frozen --quiet legion --home "$HOME" install "$@" </dev/tty || status=$?
+    else "$uv" run --project "$project" --frozen --quiet legion --home "$HOME" install "$@" || status=$?; fi
     return "$status"
 }
 
