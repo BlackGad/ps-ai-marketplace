@@ -5,15 +5,42 @@ set -eu
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 
-# uv is found on PATH, or in the folder its own installer uses.
+# uv is found on PATH, in the legion tools folder, or in the folder its own installer uses.
 find_uv() {
     uv=$(command -v uv || :)
     if [ -z "$uv" ]; then
-        for folder in "${UV_INSTALL_DIR:-}" "${XDG_BIN_HOME:-}" "$HOME/.local/bin"; do
+        for folder in "$HOME/.legion/tools/uv" "${UV_INSTALL_DIR:-}" "${XDG_BIN_HOME:-}" "$HOME/.local/bin"; do
             if [ -n "$folder" ] && [ -x "$folder/uv" ]; then uv=$folder/uv; break; fi
         done
     fi
     [ -n "$uv" ]
+}
+
+# Downloads the latest uv release for this system, checks its SHA-256 digest and extracts it to ~/.legion/tools/uv.
+install_uv() {
+    case "$(uname -s)-$(uname -m)" in
+        Darwin-arm64) triple=aarch64-apple-darwin ;;
+        Darwin-x86_64) triple=x86_64-apple-darwin ;;
+        Linux-aarch64|Linux-arm64) triple=aarch64-unknown-linux-gnu ;;
+        Linux-x86_64) triple=x86_64-unknown-linux-gnu ;;
+        *) fail "No uv release is known for $(uname -s) $(uname -m)." ;;
+    esac
+    curl -fsSL https://api.github.com/repos/astral-sh/uv/releases/latest -o "$temporary/release.json"
+    # Hand-built, reason: this runs before uv and Python exist, so the release JSON is read with sed; the asset name and digest are on separate lines.
+    expected=$(sed -n "/\"name\": *\"uv-$triple.tar.gz\"/,/\"digest\"/s/.*\"digest\": *\"sha256:\([a-fA-F0-9]\{64\}\)\".*/\1/p" "$temporary/release.json" | head -n 1)
+    [ -n "$expected" ] || fail 'The uv asset or its SHA-256 digest is missing from the official release.'
+    curl -fsSL "https://github.com/astral-sh/uv/releases/latest/download/uv-$triple.tar.gz" -o "$temporary/uv.tar.gz"
+    if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$temporary/uv.tar.gz")
+    elif command -v shasum >/dev/null 2>&1; then actual=$(shasum -a 256 "$temporary/uv.tar.gz")
+    else fail 'sha256sum or shasum is required.'; fi
+    actual=${actual%% *}
+    expected=$(printf '%s' "$expected" | tr 'A-F' 'a-f')
+    if [ "$actual" != "$expected" ]; then
+        rm -f "$temporary/uv.tar.gz"
+        fail 'uv SHA-256 digest mismatch; download deleted.'
+    fi
+    mkdir -p "$HOME/.legion/tools/uv"
+    tar -xzf "$temporary/uv.tar.gz" -C "$HOME/.legion/tools/uv" --strip-components=1
 }
 
 main() {
@@ -46,7 +73,7 @@ main() {
         printf '%s\n' 'skip: uv (already done)'
     else
         printf '%s\n' 'uv is missing.' \
-            'Install uv: download the official uv installer (https://astral.sh/uv/install.sh), which checks its download and adds uv to your shell profile.'
+            'Install uv: download the latest official uv release, verified with its SHA-256 digest, to ~/.legion/tools/uv/.'
         [ "$dry_run" = 0 ] || return 0
         if [ "$yes" = 0 ]; then
             answer=
@@ -66,8 +93,7 @@ main() {
     trap 'exit 1' 1 2 3 15
 
     if ! find_uv; then
-        curl -fsSL https://astral.sh/uv/install.sh -o "$temporary/uv-install.sh"
-        sh "$temporary/uv-install.sh"
+        install_uv
         find_uv || fail 'uv was installed but could not be found; open a new terminal and run the bootstrap again.'
     fi
     PATH=$(dirname "$uv"):$PATH

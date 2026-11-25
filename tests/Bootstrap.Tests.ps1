@@ -116,23 +116,34 @@ Invoke-InstallTestCase 'BootstrapObtainsUvFirst' {
         $text = $result.Lines -join "`n"
         Assert-True ($result.Lines -contains 'uv is missing.') "Missing uv is reported: $text"
         Assert-True ($result.Lines -contains 'downloads=') 'A dry run downloads nothing'
-        Assert-True ($result.Lines -contains 'scriptRuns=0') 'A dry run never runs the uv installer'
+        Assert-True ($result.Lines -contains 'uvInstalled=False') 'A dry run installs no uv'
         Assert-True ($result.Lines -contains 'prompts=0') 'A dry run never asks'
         Assert-True (-not ($result.Lines -contains 'uv:run')) 'A dry run never reaches legion'
 
         $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'uv-missing-declined' -Scratch $scratch -UvOnPath $false
         Assert-True ($result.Lines -contains 'prompts=1') 'Without -Yes it asks once'
-        Assert-True ($result.Lines -contains 'scriptRuns=0') 'A no changes nothing'
+        Assert-True ($result.Lines -contains 'downloads=') 'A no downloads nothing'
         Assert-True (($result.Lines -join ' ').Contains('Nothing changed. Run again with -Yes to apply.')) 'A no says how to apply'
 
         $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'uv-missing-yes' -Scratch $scratch -UvOnPath $false
         $text = $result.Lines -join "`n"
         Assert-Equal 0 $result.ExitCode "uv-missing-yes: $text"
         Assert-True ($result.Lines -contains 'prompts=0') '-Yes never asks'
-        Assert-True ($result.Lines -contains 'scriptRuns=1') 'uv is installed through its own script'
-        Assert-True ($result.Lines -contains 'downloads=https://astral.sh/uv/install.ps1') 'Only the uv installer is downloaded for a checkout'
+        Assert-True ($result.Lines -contains 'uvInstalled=True') 'The verified uv release is extracted to the legion tools folder'
+        Assert-True ($result.Lines -contains 'downloads=https://api.github.com/repos/astral-sh/uv/releases/latest,https://example.invalid/uv.zip') "Only the uv release is downloaded for a checkout: $text"
         Assert-True ($result.Lines -contains 'uv:install') 'Then legion install runs through the new uv'
         Assert-True ($result.Lines -contains 'tempLeft=0') 'The temporary folder is gone afterwards'
+
+        Remove-Item -LiteralPath (Join-Path $scratch '.legion/tools/uv') -Recurse -Force
+        foreach ($mode in @('uv-bad-digest', 'uv-no-digest')) {
+            $result = Invoke-BootstrapFixture -Runtime $runtime -Mode $mode -Scratch $scratch -UvOnPath $false
+            $text = $result.Lines -join "`n"
+            Assert-True ($result.ExitCode -ne 0) "$mode fails: $text"
+            Assert-True ($text.Contains('digest')) "$mode says why: $text"
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path $scratch '.legion/tools/uv'))) "$mode extracts nothing"
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path $scratch '.legion/temp')) -or @(Get-ChildItem -LiteralPath (Join-Path $scratch '.legion/temp') -Force).Count -eq 0) "$mode deletes the download"
+            Assert-True (-not ($result.Lines -contains 'uv:run')) "$mode never reaches legion"
+        }
 
         $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'find-folder' -Scratch $scratch -UvOnPath $false
         Assert-True (@($result.Lines | Where-Object { $_ -like 'found=*uv*' }).Count -eq 1) "uv is found in its own folder: $($result.Lines -join ' ')"
@@ -162,10 +173,29 @@ Invoke-InstallTestCase 'ShellBootstrap' {
             'echo "$url" >> "$FAKE_CURL_LOG"'
             'case "$url" in'
             ('  */archive/*) [ -z "$FAKE_CURL_FAIL" ] || exit 22; cp "' + $scratch + '/plugin.tar.gz" "$out" ;;')
-            '  *uv/install.sh) printf ''mkdir -p "%s/.local/bin"; cp "%s" "%s/.local/bin/uv"\n'' "$HOME" "$FAKE_UV_SOURCE" "$HOME" > "$out" ;;'
+            '  */releases/latest) printf ''{
+  "assets": [
+    {
+      "name": "%s",
+      "digest": "sha256:%s"
+    }
+  ]
+}
+'' "$FAKE_UV_ASSET" "$FAKE_UV_DIGEST" > "$out" ;;'
+            ('  */releases/latest/download/*) cp "' + $scratch + '/uv-release.tar.gz" "$out" ;;')
             'esac'
         )
         Set-Content -LiteralPath (Join-Path $fakeBin 'curl') -Value $curlLines
+        # The fake uv release: a tar.gz with one top folder holding the fake uv, as the real ones do.
+        $releaseFolder = Join-Path $scratch 'uv-release/uv-triple'
+        New-Item -ItemType Directory -Path $releaseFolder -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $fakeBin 'uv') -Destination (Join-Path $releaseFolder 'uv')
+        Set-TestExecutable (Join-Path $releaseFolder 'uv')
+        & tar -czf (Join-Path $scratch 'uv-release.tar.gz') -C (Join-Path $scratch 'uv-release') uv-triple
+        $platform = (& uname -s) + '-' + (& uname -m)
+        $triples = @{ 'Linux-x86_64' = 'x86_64-unknown-linux-gnu'; 'Linux-aarch64' = 'aarch64-unknown-linux-gnu'; 'Darwin-x86_64' = 'x86_64-apple-darwin'; 'Darwin-arm64' = 'aarch64-apple-darwin' }
+        $env:FAKE_UV_ASSET = 'uv-' + $triples[$platform] + '.tar.gz'
+        $env:FAKE_UV_DIGEST = (Get-FileHash -LiteralPath (Join-Path $scratch 'uv-release.tar.gz') -Algorithm SHA256).Hash
         foreach ($tool in @('uv', 'curl')) { Set-TestExecutable (Join-Path $fakeBin $tool) }
         $shell = (Get-Command sh -CommandType Application | Select-Object -First 1).Source
         $env:FAKE_UV_LOG = $log
@@ -224,15 +254,26 @@ Invoke-InstallTestCase 'ShellBootstrap' {
             Assert-True ($text.Contains('Nothing changed. Run again with --yes to apply.')) 'Without a terminal and without --yes nothing changes'
             $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --yes 2>&1) -join "`n"
             Assert-Equal 0 $LASTEXITCODE "Shell uv install: $text"
-            Assert-True ((Get-Content -LiteralPath $env:FAKE_CURL_LOG) -contains 'https://astral.sh/uv/install.sh') 'uv is installed through its own script'
+            Assert-True ((Get-Content -LiteralPath $env:FAKE_CURL_LOG) -contains 'https://api.github.com/repos/astral-sh/uv/releases/latest') 'The uv release is looked up'
+            Assert-True (Test-Path -LiteralPath (Join-Path $fakeHome '.legion/tools/uv/uv')) 'The verified uv is extracted to the legion tools folder'
             Assert-True ((Get-Content -LiteralPath $log) -contains 'install') 'Then legion install runs'
+
+            # A digest mismatch deletes the download, extracts nothing and never runs uv.
+            Remove-Item -LiteralPath (Join-Path $fakeHome '.legion/tools/uv') -Recurse -Force
+            Remove-Item $log
+            $env:FAKE_UV_DIGEST = '0' * 64
+            $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --yes 2>&1) -join "`n"
+            Assert-True ($LASTEXITCODE -ne 0 -and $text.Contains('uv SHA-256 digest mismatch; download deleted.')) "A digest mismatch fails: $text"
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path $fakeHome '.legion/tools/uv'))) 'A digest mismatch extracts nothing'
+            Assert-True (-not (Test-Path $log)) 'uv never runs after a digest mismatch'
+            Assert-True (@(Get-ChildItem -LiteralPath (Join-Path $fakeHome '.legion/temp') -Force).Count -eq 0) 'A digest mismatch leaves no download'
 
             $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --bogus 2>&1) -join "`n"
             Assert-True ($LASTEXITCODE -ne 0 -and $text.Contains('Unknown option: --bogus')) 'An unknown option is refused'
         } finally {
             $env:PATH = $savedPath
             $env:HOME = $savedHome
-            foreach ($name in @('FAKE_UV_LOG', 'FAKE_CURL_LOG', 'FAKE_UV_SOURCE', 'FAKE_CURL_FAIL', 'FAKE_UV_EXIT')) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
+            foreach ($name in @('FAKE_UV_LOG', 'FAKE_CURL_LOG', 'FAKE_UV_SOURCE', 'FAKE_UV_ASSET', 'FAKE_UV_DIGEST', 'FAKE_CURL_FAIL', 'FAKE_UV_EXIT')) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
         }
     } finally { Remove-InstallTestFolder $scratch }
 }

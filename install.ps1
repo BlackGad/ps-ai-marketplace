@@ -32,11 +32,11 @@ function Get-InstallLegionPath {
     return Join-Path (Join-Path (Get-InstallHome) '.legion') $Path
 }
 
-# uv is found on PATH, or in the folder its own installer uses.
+# uv is found on PATH, in the legion tools folder, or in the folder its own installer uses.
 function Get-InstallUv {
     $found = Get-Command uv -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($found) { return $found.Source }
-    $folders = @($env:UV_INSTALL_DIR, $env:XDG_BIN_HOME, (Join-Path (Join-Path (Get-InstallHome) '.local') 'bin'))
+    $folders = @((Get-InstallLegionPath 'tools/uv'), $env:UV_INSTALL_DIR, $env:XDG_BIN_HOME, (Join-Path (Join-Path (Get-InstallHome) '.local') 'bin'))
     foreach ($folder in $folders) {
         if (-not $folder) { continue }
         foreach ($name in @('uv.exe', 'uv')) {
@@ -53,10 +53,10 @@ function Invoke-InstallDownload {
     Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
 }
 
-# Runs uv's own installer script, which checks the checksum of the uv build it downloads.
-function Invoke-InstallUvScript {
-    param([string]$Script)
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Script | Out-Host
+# Runs uv with the given arguments.
+function Invoke-InstallUv {
+    param([string]$Uv, [string[]]$Arguments)
+    & $Uv @Arguments
     return $LASTEXITCODE
 }
 
@@ -76,6 +76,32 @@ function New-InstallTemporary {
     return $temporary
 }
 
+# Downloads the latest uv release for this system, checks its SHA-256 digest and extracts it to ~/.legion/tools/uv.
+function Install-InstallUvRelease {
+    $architecture = 'x86_64'
+    if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $architecture = 'aarch64' }
+    $temporary = New-InstallTemporary
+    try {
+        $metadata = Join-Path $temporary 'release.json'
+        $archive = Join-Path $temporary 'uv.zip'
+        Invoke-InstallDownload -Url 'https://api.github.com/repos/astral-sh/uv/releases/latest' -OutFile $metadata
+        $release = Get-Content -LiteralPath $metadata -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $asset = $release.assets | Where-Object { $_.name -eq "uv-$architecture-pc-windows-msvc.zip" } | Select-Object -First 1
+        if (-not $asset -or $asset.digest -notmatch '^sha256:([a-fA-F0-9]{64})$') {
+            throw 'The uv asset or its SHA-256 digest is missing from the official release.'
+        }
+        $expectedHash = $Matches[1]
+        Invoke-InstallDownload -Url $asset.browser_download_url -OutFile $archive
+        if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256 -ErrorAction Stop).Hash -ine $expectedHash) {
+            Remove-Item -LiteralPath $archive -Force
+            throw 'uv SHA-256 digest mismatch; download deleted.'
+        }
+        Expand-Archive -LiteralPath $archive -DestinationPath (Get-InstallLegionPath 'tools/uv') -Force -ErrorAction Stop
+    } finally {
+        Remove-InstallTemporary -Path $temporary
+    }
+}
+
 # Returns the path of uv, or $null when the owner has to act first (dry run, or no consent).
 function Ensure-InstallUv {
     param([bool]$OnWindows = ($env:OS -eq 'Windows_NT'), [switch]$DryRun, [switch]$Yes)
@@ -89,20 +115,13 @@ function Ensure-InstallUv {
         Write-Host 'On macOS and Linux run install.sh instead: https://github.com/BlackGad/ps-legion-marketplace'
         return $null
     }
-    Write-Host 'Install uv: download the official uv installer (https://astral.sh/uv/install.ps1), which checks its download and adds uv to your user PATH.'
+    Write-Host 'Install uv: download the latest official uv release, verified with its SHA-256 digest, to ~/.legion/tools/uv/.'
     if ($DryRun) { return $null }
     if (-not (Confirm-InstallChange -Yes:$Yes -Question 'Install uv now? [y/N]')) {
         Write-Host 'Nothing changed. Run again with -Yes to apply.'
         return $null
     }
-    $temporary = New-InstallTemporary
-    try {
-        $script = Join-Path $temporary 'uv-install.ps1'
-        Invoke-InstallDownload -Url 'https://astral.sh/uv/install.ps1' -OutFile $script
-        if ((Invoke-InstallUvScript -Script $script) -ne 0) { throw 'The uv installer failed.' }
-    } finally {
-        Remove-InstallTemporary -Path $temporary
-    }
+    Install-InstallUvRelease
     $uv = Get-InstallUv
     if (-not $uv) { throw 'uv was installed but could not be found; open a new terminal and run the bootstrap again.' }
     return $uv
@@ -165,8 +184,7 @@ function Invoke-InstallBootstrap {
         $project = Get-InstallProject -CheckoutRoot $CheckoutRoot -Branch $branch -Temporary $temporary
         # The project environment lives beside the downloaded copy and goes with it.
         $env:UV_PROJECT_ENVIRONMENT = Join-Path $temporary 'env'
-        & $uv run --project $project --frozen --quiet legion @(Get-InstallArguments -Parameters $Parameters)
-        $script:bootstrapExitCode = $LASTEXITCODE
+        $script:bootstrapExitCode = Invoke-InstallUv -Uv $uv -Arguments (@('run', '--project', $project, '--frozen', '--quiet', 'legion') + @(Get-InstallArguments -Parameters $Parameters))
     } finally {
         $env:UV_PROJECT_ENVIRONMENT = $savedEnvironment
         Remove-InstallTemporary -Path $temporary
