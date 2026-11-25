@@ -74,7 +74,7 @@ def target(agent: Agent, tool: ToolDescriptor, home: Path) -> Path:
 
 # Hand-built, reason: cmd.exe has no quoting the standard library offers (subprocess.list2cmdline targets the C runtime).
 # Disable delayed expansion for literal !; expand a batch target variable only on CALL's second pass for literal %.
-def subscription_text(account: str, variable: str, folder: str, target: str, windows: bool) -> str:
+def subscription_text(account: str, variable: str, folder: str, target: str, windows: bool, home: Path) -> str:
     extension = Path(target).suffix.lower()
     if windows:
         escaped = cmd_escape(target)
@@ -84,12 +84,23 @@ def subscription_text(account: str, variable: str, folder: str, target: str, win
             run = f'@set "LEGION_ACCOUNT_TARGET={escaped}"\r\n@call "%%LEGION_ACCOUNT_TARGET%%" %*'
         else:
             run = f'@"{escaped}" %*'
-        lines = [header(_owner_name(account), True), "@setlocal DisableDelayedExpansion", f'@set "{variable}={cmd_escape(folder)}"', run, "@exit /b %errorlevel%"]
+        lines = [
+            header(_owner_name(account), True),
+            "@setlocal DisableDelayedExpansion",
+            r'@for %%D in ("%~dp0..\..") do @set "LEGION_HOME=%%~fD"',
+            f'@set "{variable}={cmd_escape(folder)}"',
+            run,
+            "@exit /b %errorlevel%",
+        ]
         return "\r\n".join(lines) + "\r\n"
     literal = shell_literal(target)
     if extension == ".ps1":
         literal = "pwsh -NoProfile -File " + literal
-    lines = ["#!/bin/sh", header(_owner_name(account), False), f'{variable}={shell_literal(folder)} exec {literal} "$@"']
+    lines = [
+        "#!/bin/sh",
+        header(_owner_name(account), False),
+        f'LEGION_HOME={shell_literal(str(full_path(home)))} {variable}={shell_literal(folder)} exec {literal} "$@"',
+    ]
     return "\n".join(lines) + "\n"
 
 
@@ -126,7 +137,7 @@ def plan_subscription(agent: Agent, tool: ToolDescriptor, home: Path) -> dict[Pa
         if os.path.lexists(path) and not is_owned(path, _owner_name(agent.id)):
             raise LauncherError(f"wrapper collision '{path}'")
     folder = str(full_path(home_path(agent.config_dir, home)))
-    return {path: subscription_text(agent.id, tool.config_env, folder, str(real), windows=path.suffix == ".cmd") for path in paths}
+    return {path: subscription_text(agent.id, tool.config_env, folder, str(real), windows=path.suffix == ".cmd", home=home) for path in paths}
 
 
 # Writes the launchers from settings and returns the files that changed.

@@ -256,7 +256,9 @@ A hook at session start decides the mode:
 
 A session you start yourself is never a legion member.
 
-The session-start hook runs the plugin copy's Python script in the ready app environment for that plugin version. The hook uses the login home by default. When starting a host for an alternate `legion --home` installation, set `LEGION_HOME` in that host's environment to the same absolute path. If the environment is missing or has been pruned, the hook prints the installer diagnostic and the session starts normally. Update notices use the local cache.
+The session-start hook runs the plugin copy's Python script in the ready app environment for that plugin version. Refresh fills empty ready markers for recorded versions whose Python is still installed. Before refresh, the hook can derive the environment ID for an empty marker from the installed app path. If the environment is missing or has been pruned, the hook prints the installer diagnostic and the session starts normally. Update notices use the local cache.
+
+Legion passes the configured home when it launches a host through the overseer, Foundry runner, or a newly generated subscription launcher. The hook uses the login home by default. When starting a host directly for an alternate `legion --home` installation, set `LEGION_HOME` to the same absolute path. Use the same setting for an older subscription launcher that refresh preserved. After the hook command changes, use `/hooks` in Codex to review and trust it again.
 
 The hook reports whether a repository lease file is present. `legion lease status`, `legion lease take`, and `legion status` check whether the process in the lease is still live.
 

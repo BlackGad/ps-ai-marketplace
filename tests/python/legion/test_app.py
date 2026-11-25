@@ -1,5 +1,6 @@
 import shutil
 import sys
+import venv
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +46,7 @@ def test_fresh_sync_copies_syncs_in_the_versions_environment_marks_and_records(t
     assert ready == target
     assert (target / "src" / "module.py").read_text(encoding="utf-8") == "x = 1\n"
     assert uv.calls == [("uv", ["sync", "--project", str(target), "--frozen", "--extra", "mcp", "--quiet"], str(_installed_runtime.python_environment(target, home)))]
-    assert (target / MARKER).is_file()
+    assert (target / MARKER).read_text(encoding="utf-8") == Path(uv.calls[0][2]).name
     assert [entry.path for entry in _footprints.read(home).entries if entry.kind == "app-version"] == [f"~/.legion/app/{VERSION}"]
     assert [path.name for path in (home / ".legion" / "app").iterdir()] == [VERSION]
     assert [item.path for item in _installed_runtime.ready_versions(home)] == [target]
@@ -72,6 +73,49 @@ def test_same_version_again_skips_without_running_uv(tmp_path: Path, uv: FakeUv)
     lines, ready = _installed_runtime.sync_app(home, source)
     assert lines == [f"skip: legion app {VERSION} (already done)"]
     assert ready == home / ".legion" / "app" / VERSION
+    assert len(uv.calls) == 1
+
+
+def test_sync_migrates_recorded_legacy_markers_once(tmp_path: Path, uv: FakeUv) -> None:
+    home = tmp_path / "alternate home ü"
+    source = make_source(tmp_path)
+    for version in ("0.9.0", VERSION):
+        app, environment = old_app(home, version)
+        venv.EnvBuilder(with_pip=False).create(environment)
+        assert (app / MARKER).read_bytes() == b""
+    expected = [f"skip: legion app {VERSION} (already done)"]
+    with _installed_runtime.app_lock(home) as held:
+        assert held
+        assert _installed_runtime.sync_app(home, source)[0][-1:] == expected
+        app = home / ".legion" / "app"
+        markers = [app / version / MARKER for version in ("0.9.0", VERSION)]
+        for marker in markers:
+            assert marker.read_text(encoding="utf-8") == _installed_runtime.python_environment(marker.parent, home).name
+        stamps = [marker.stat().st_mtime_ns for marker in markers]
+        assert _installed_runtime.sync_app(home, source)[0] == expected
+        assert [marker.stat().st_mtime_ns for marker in markers] == stamps
+    assert uv.calls == []
+
+
+@pytest.mark.parametrize("state", ["unrecorded", "nonempty", "missing python", "linked bin"])
+def test_sync_leaves_ineligible_legacy_markers_alone(tmp_path: Path, uv: FakeUv, state: str) -> None:
+    home = tmp_path / "home"
+    app, environment = old_app(home, "0.9.0", recorded=state != "unrecorded")
+    marker = app / MARKER
+    if state == "linked bin":
+        elsewhere = tmp_path / "outside"
+        venv.EnvBuilder(with_pip=False).create(elsewhere)
+        folder = "Scripts" if sys.platform == "win32" else "bin"
+        make_link(environment / folder, elsewhere / folder)
+    elif state != "missing python":
+        venv.EnvBuilder(with_pip=False).create(environment)
+    if state == "nonempty":
+        marker.write_text("unexpected content", encoding="utf-8")
+    original = marker.read_bytes(), marker.stat().st_mtime_ns
+    with _installed_runtime.app_lock(home) as held:
+        assert held
+        _installed_runtime.sync_app(home, make_source(tmp_path))
+    assert (marker.read_bytes(), marker.stat().st_mtime_ns) == original
     assert len(uv.calls) == 1
 
 

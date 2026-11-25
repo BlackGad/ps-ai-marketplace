@@ -11,11 +11,30 @@ from pathlib import Path
 
 import pytest
 
+from legion.core._settings_models import Agent
 from legion.hook._hook import MEMBER
+from legion.services.accounts._accounts import get_tool
+from legion.services.accounts._launchers import write_subscription
+from legion.services.installation._installed_runtime import MARKER, app_lock, python_environment, sync_app
+
+from app_fakes import FakeUv, make_link
 
 PLUGIN = Path(__file__).resolve().parents[3] / "plugins" / "legion"
 FALLBACK = "legion: uv or Python 3.12 is missing, so mode detection did not run; run the legion installer. If LEGION_ROLE=member is set, load the legion-member skill."
-CASES = ["default", "configured", "member", "missing", "pruned", "bad marker", "absolute marker", "legacy marker", "missing root"]
+CASES = [
+    "default",
+    "configured",
+    "member",
+    "missing",
+    "pruned",
+    "bad marker",
+    "absolute marker",
+    "legacy marker",
+    "legacy default",
+    "legacy foreign",
+    "legacy linked",
+    "missing root",
+]
 
 
 def manifest_commands() -> dict[str, str]:
@@ -87,33 +106,72 @@ def shell_cases() -> list[tuple[str, str, Path, str]]:
 SHELL_CASES = shell_cases()
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Uses a native Windows host through Git Bash")
+def test_git_bash_launcher_passes_configured_home_to_windows_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "owner O'Brien ü"
+    script = tmp_path / "probe.py"
+    script.write_text('import json, os\nprint(json.dumps(os.environ["LEGION_HOME"]))\n', encoding="utf-8")
+    account = Agent.model_validate({"id": "codex-a", "tool": "codex", "configDir": str(home / "config"), "command": sys.executable})
+    wrapper = next(path for path in write_subscription(account, get_tool(account.tool), home) if not path.suffix)
+    monkeypatch.setenv("LEGION_HOME", str(tmp_path / "different home"))
+    result = subprocess.run([str(posix_shells()["bash"]), str(wrapper), str(script)], cwd=tmp_path, capture_output=True, text=True, timeout=10, check=True)
+    assert Path(json.loads(result.stdout)).resolve() == home.resolve()
+
+
+def prepare_runtime(home: Path, plugin: Path, version: str, case: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    name = "env-abcdef012345"
+    if case in ("legacy marker", "legacy default"):
+        name = python_environment(home / ".legion" / "app" / version, home).name
+        ready(home, version, name).write_bytes(b"")
+        ready(home, "999.0.0", "env-111111111111")
+    if case == "legacy foreign":
+        ready(home, version, name).write_bytes(b"")
+    if case == "legacy linked":
+        environment = python_environment(home / ".legion" / "app" / version, home)
+        name = environment.name
+        ready(home, version, name, pruned=True).write_bytes(b"")
+        outside = tmp_path / "outside"
+        venv.EnvBuilder(with_pip=False).create(outside)
+        make_link(environment, outside)
+    if case == "configured":
+        uv = FakeUv(monkeypatch)
+        uv.effect = lambda app: venv.EnvBuilder(with_pip=False).create(python_environment(app, home))
+        with app_lock(home) as held:
+            assert held
+            _, published = sync_app(home, plugin)
+        assert published is not None
+        name = Path(uv.calls[0][2]).name
+        assert (published / MARKER).read_text(encoding="utf-8") == name
+    if case in ("default", "member"):
+        ready(home, version, name)
+    elif case in ("pruned", "bad marker", "absolute marker"):
+        marker = ready(home, version, name, pruned=True)
+        marker_contents = {"bad marker": "../outside", "absolute marker": str(tmp_path / "outside")}
+        if case in marker_contents:
+            marker.write_text(marker_contents[case], encoding="utf-8")
+    if case == "configured":
+        # The highest ready version is intentionally unusable. The loaded plugin owns version selection.
+        ready(home, "999.0.0", "env-111111111111", pruned=True)
+    return name
+
+
 @pytest.mark.parametrize(("key", "shell_name", "shell", "flag"), SHELL_CASES, ids=[f"{key}-{name}" for key, name, _, _ in SHELL_CASES])
 @pytest.mark.parametrize("case", CASES)
-def test_manifest_hook_command(plugin: Path, tmp_path: Path, key: str, shell_name: str, shell: Path, flag: str, case: str) -> None:
+def test_manifest_hook_command(plugin: Path, tmp_path: Path, key: str, shell_name: str, shell: Path, flag: str, case: str, monkeypatch: pytest.MonkeyPatch) -> None:
     login = Path.home()
     configured = tmp_path / "owner O'Brien ü"
     root_name = "CLAUDE_PLUGIN_ROOT" if key in ("command", "commandWindows") else "COPILOT_PLUGIN_ROOT"
-    env = {key: value for key, value in os.environ.items() if not key.startswith(("LEGION_", "UV_PYTHON"))}
+    env = {key: value for key, value in os.environ.items() if not key.startswith(("LEGION_", "UV_PYTHON")) and key not in ("CLAUDE_PLUGIN_ROOT", "COPILOT_PLUGIN_ROOT")}
     if case != "missing root":
         env[root_name] = str(plugin)
-    if case != "default":
-        env["LEGION_HOME"] = str(configured)
+    home = login if case in ("default", "legacy default") else configured
+    if home != login:
+        env["LEGION_HOME"] = str(home)
     version = json.loads((plugin / "plugin.json").read_text(encoding="utf-8"))["version"]
-    name = "env-abcdef012345"
-    home = login if case == "default" else configured
-    if case in ("default", "configured", "member"):
-        ready(home, version, name)
-    elif case in ("pruned", "bad marker", "absolute marker", "legacy marker"):
-        marker = ready(home, version, name, pruned=True)
-        marker_contents = {"bad marker": "../outside", "absolute marker": str(tmp_path / "outside"), "legacy marker": ""}
-        if case in marker_contents:
-            marker.write_text(marker_contents[case], encoding="utf-8")
-    if case != "default":
+    name = prepare_runtime(home, plugin, version, case, tmp_path, monkeypatch)
+    if home != login:
         # Any fallback to the login home would find a valid runtime and a different update notice.
         ready(login, version, "env-012345abcdef")
-    if case == "configured":
-        # The highest ready version is intentionally unusable. The loaded plugin owns version selection.
-        ready(configured, "999.0.0", "env-111111111111", pruned=True)
     cache_update(login, "777.0.0")
     cache_update(configured, "888.0.0")
     hook = plugin / "hooks" / "session_start.py"
@@ -154,9 +212,9 @@ sys.addaudithook(reject_network)
     # Exercise stdin cwd, separate from the directory where the shell starts.
     hook_input = json.dumps({"cwd": str(repo), "hook_event_name": "SessionStart"})
     args = [str(shell), "-NoProfile", flag, COMMANDS[key]] if flag == "-Command" else [str(shell), flag, COMMANDS[key]]
-    expected_version = "777.0.0" if case == "default" else "888.0.0"
+    expected_version = "777.0.0" if home == login else "888.0.0"
     expected = f'legion: this repo is orchestrated. Say continue to act as the overseer. legion {expected_version} is available (installed {version}); say "update legion" to update.'
-    if case not in ("default", "configured"):
+    if case not in ("default", "configured", "legacy marker", "legacy default"):
         env.update(LEGION_ROLE="member", LEGION_TASK="task.md")
         expected = MEMBER if case == "member" else FALLBACK
     if key in ("bash", "powershell"):

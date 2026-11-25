@@ -268,7 +268,8 @@ def test_bare_restores_arguments_channels_and_resume(home: Path, repo: Path, lau
     assert _overseer.run(repo, home, no_channel=no_channel) == 0
     launch = launched[0][1]
     assert launch.arguments == ["resume", "--last", "--model", "keep", "", "continue as the overseer"]
-    assert bool(launch.environment) != no_channel
+    assert launch.environment["LEGION_HOME"] == str(home)
+    assert bool(launch.bot_folder) != no_channel
     assert saved_launch(repo, home).channels == ([] if no_channel else ["main"])
     assert launched[0][3]
 

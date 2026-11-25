@@ -138,7 +138,7 @@ def _session(last: Optional[LastLaunch], agent: Agent, home: Path) -> tuple[str,
 
 def _launch(settings: PersonalisationSettings, agent: Agent, channels: tuple[str, ...], arguments: tuple[str, ...], session: str, resume: bool, repo: Path, home: Path) -> Launch:
     tool = get_tool(agent.tool)
-    launch = Launch(command=str(_home.wrapper_command(agent.id, home)), arguments=[])
+    launch = Launch(command=str(_home.wrapper_command(agent.id, home)), arguments=[], environment={"LEGION_HOME": str(_home.full_path(home))})
     bindings = [_channel.binding(settings, channel) for channel in channels]
     if bindings and not set.intersection(*(set(binding.accounts) for binding in bindings)):
         raise OverseerError("selected channels cannot share one launch")

@@ -29,12 +29,35 @@ legion_session_start() {
 '
     case "$version" in ''|*"$newline"*) return 1 ;; esac
 
-    {
-        IFS= read -r name || [ -n "$name" ] || return 1
-        if IFS= read -r extra || [ -n "$extra" ]; then
-            return 1
+    legion=$home/.legion
+    app=$legion/app/$version
+    marker=$app/.legion-app-ready
+    for path in "$legion" "$legion/app" "$app" "$marker" "$legion/python"; do
+        [ ! -L "$path" ] || return 1
+    done
+    [ -f "$marker" ] && [ -r "$marker" ] || return 1
+    if [ -s "$marker" ]; then
+        {
+            IFS= read -r name || [ -n "$name" ] || return 1
+            if IFS= read -r extra || [ -n "$extra" ]; then
+                return 1
+            fi
+        } < "$marker" || return 1
+        name=${name%"$(printf '\r')"}
+    else
+        # 0.17.0 published empty markers. Recreate its hash of the resolved installed app path.
+        key=$(CDPATH= cd -P -- "$app" && pwd -P) || return 1
+        if [ "${OS:-}" = Windows_NT ]; then
+            key=$(cygpath -w "$key") || return 1
+            key=$(printf '%s' "$key" | LC_ALL=C.UTF-8 awk '{ printf "%s", tolower($0) }') || return 1
         fi
-    } < "$home/.legion/app/$version/.legion-app-ready" || return 1
+        if command -v sha256sum >/dev/null 2>&1; then
+            digest=$(printf '%s' "$key" | sha256sum) || return 1
+        else
+            digest=$(printf '%s' "$key" | shasum -a 256) || return 1
+        fi
+        name=env-$(printf '%.12s' "$digest")
+    fi
     case "$name" in
         env-????????????)
             case "${name#env-}" in *[!0123456789abcdef]*) return 1 ;; esac
@@ -42,7 +65,12 @@ legion_session_start() {
         *) return 1 ;;
     esac
 
-    python=$home/.legion/python/$name/$executable
+    environment=$legion/python/$name
+    python=$environment/$executable
+    [ ! -L "$environment" ] && [ ! -L "${python%/*}" ] || return 1
+    if [ "${OS:-}" = Windows_NT ]; then
+        [ ! -L "$python" ] || return 1
+    fi
     [ -f "$python" ] && [ -x "$python" ] || return 1
     "$python" -I -B -S "$entry" --home "$home" --format "$format"
 }
