@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from legion import _app, _cli, _footprints, _forward, _installer, _user_path
+from legion import _app, _cli, _footprints, _installer, _user_path
 from legion._generated import header
 from legion._run import RunResult
 
@@ -371,8 +371,8 @@ def test_uninstall_purge_asks_twice_and_dry_run_neither_prompts_nor_runs_cli(tmp
     assert len(questions) == 2
 
 
-def test_cli_uninstall_is_python_not_forwarded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(_forward, "run", lambda *_: pytest.fail("forwarded to PowerShell"))
+def test_cli_uninstall_runs_without_pwsh(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     result = CliRunner().invoke(_cli.main, ["--home", str(tmp_path), "uninstall", "--yes"])
     assert result.exit_code == 0, result.output
     assert "Nothing to uninstall." in result.output
@@ -957,18 +957,6 @@ def test_uninstall_preview_refuses_linked_settings_folder(tmp_path: Path) -> Non
     assert not any(line.startswith("Remove entry:") for line in _installer.preview_owned(tmp_path, ["claude:one"]))
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows portable PATH")
-def test_portable_path_record_only_accepts_path_inside_legion_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    home = tmp_path / "home"
-    monkeypatch.setenv("LEGION_PORTABLE_PATH_ADDED", str(tmp_path / "outside"))
-    _installer.record_portable_path(home)
-    assert _footprints.read(home).entries == []
-    portable = home / ".legion/tools/pwsh/7.4"
-    monkeypatch.setenv("LEGION_PORTABLE_PATH_ADDED", str(portable))
-    _installer.record_portable_path(home)
-    assert [(entry.kind, entry.value) for entry in _footprints.read(home).entries] == [("path-entry", str(portable))]
-
-
 def test_plain_install_entry_accepts_bootstrap_lifecycle_options(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[dict[str, object]] = []
 
@@ -1005,3 +993,152 @@ def test_invalid_toml_is_left_for_manual_purge(tmp_path: Path, monkeypatch: pyte
     path.write_text('[plugins."legion@ps-legion-marketplace"\n', encoding="utf-8")
     plan = _installer.purge_plan(home, catalog())
     assert any("Manual step:" in line for line in plan.lines)
+
+
+def _fake_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str = "") -> None:
+    root = tmp_path / "plugin"
+    root.mkdir()
+    (root / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: None if name == "copilot" else name)
+    monkeypatch.setattr(_installer, "_install_steps", lambda *_args: None)
+    monkeypatch.setattr(_installer, "_step", lambda *_args: None)
+    monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: root)
+    monkeypatch.setenv("LEGION_TEST_USER_PATH_FILE", str(tmp_path / "saved-path.txt"))
+    (tmp_path / "saved-path.txt").write_text("", encoding="utf-8")
+
+    def refresh(entry: dict, *_args: object) -> list[str]:
+        if entry["id"] == failing:
+            raise RuntimeError("broken refresh")
+        return []
+
+    monkeypatch.setattr(_installer, "_refresh_target", refresh)
+
+
+def _table_rows(lines: list[str], count: int) -> list[list[str]]:
+    start = lines.index("Results:")
+    return [line.split() for line in lines[start + 2 : start + 2 + count]]
+
+
+def test_install_ends_with_one_result_row_per_tool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_targets(tmp_path, monkeypatch, failing="codex")
+    lines = _installer.install(tmp_path, ["claude", "codex", "copilot"], config_dir=tmp_path / "config", yes=True, catalog=catalog())
+    assert lines[lines.index("Results:") + 1].split() == ["Tool", "Folder", "Result"]
+    rows = _table_rows(lines, 3)
+    assert [row[0] for row in rows] == ["claude", "codex", "copilot"]
+    assert rows[0][2:] == ["installed", "legion", "1.2.3"]
+    assert "not refreshed" in " ".join(rows[1][2:])
+    assert rows[2][2:] == ["skipped", "(not", "installed)"]
+
+
+def test_update_ends_with_one_result_row_per_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_targets(tmp_path, monkeypatch, failing="claude")
+    lines = _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
+    rows = _table_rows(lines, 2)
+    assert [row[0] for row in rows] == ["claude", "codex"]
+    assert "not refreshed" in " ".join(rows[0][2:])
+    assert " ".join(rows[1][2:]) == "already up to date (1.2.3)"
+
+
+def test_a_dry_run_prints_no_results_table(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_targets(tmp_path, monkeypatch)
+    assert "Results:" not in _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", dry_run=True, catalog=catalog())
+
+
+def test_install_never_links_a_portable_pwsh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_targets(tmp_path, monkeypatch)
+    _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", yes=True, catalog=catalog())
+    assert not (tmp_path / ".legion/bin/pwsh").exists()
+    assert not hasattr(_installer, "record_portable_path")
+
+
+def test_ref_main_with_the_default_source_reads_the_remote_catalog_not_the_local_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    urls: list[str] = []
+    remote = catalog()
+    remote["tools"][0]["installHint"] = "remote main catalog"
+
+    class FakeResponse:
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(remote).encode("utf-8")
+
+    def fake_open(url: str, **_kwargs: object) -> FakeResponse:
+        urls.append(url)
+        return FakeResponse()
+
+    monkeypatch.setattr(_installer, "urlopen", fake_open)
+    assert _installer._catalog("BlackGad/ps-legion-marketplace", "main", None)["tools"][0]["installHint"] == "remote main catalog"
+    assert urls == ["https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/plugins/legion/tools.json"]
+    urls.clear()
+    monkeypatch.setattr(_installer, "urlopen", lambda *_a, **_k: pytest.fail("the release track reads the shipped catalog"))
+    assert _installer._catalog("BlackGad/ps-legion-marketplace", "release", None)["schemaVersion"] == 1
+
+
+def test_kept_lines_do_not_mention_powershell(tmp_path: Path) -> None:
+    assert "PowerShell" not in " ".join(_installer._kept_lines(tmp_path, catalog(), None))
+
+
+# Consent and next steps, ported from the PowerShell installer tests that went with it.
+def _steps_run(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    ran: list[str] = []
+    monkeypatch.setattr(_installer, "_install_steps", lambda entry, *_args: ran.append(entry["id"]))
+    return ran
+
+
+def test_install_without_consent_changes_nothing_and_says_how_to_apply(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_targets(tmp_path, monkeypatch)
+    ran = _steps_run(monkeypatch)
+
+    def closed_stdin(_question: str) -> str:
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", closed_stdin)
+    lines = _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", catalog=catalog())
+    assert lines[-1] == "Nothing changed. Run again with --yes to apply."
+    assert ran == []
+    assert not (tmp_path / "config").exists()
+    assert not (tmp_path / ".legion").exists()
+
+
+def test_the_owner_can_say_yes_at_the_install_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_targets(tmp_path, monkeypatch)
+    ran = _steps_run(monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda _question: "yes")
+    lines = _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", catalog=catalog())
+    assert ran == ["claude"]
+    assert "Nothing changed. Run again with --yes to apply." not in lines
+
+
+def test_a_dry_run_never_prompts_and_changes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_targets(tmp_path, monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda _question: pytest.fail("a dry run asked"))
+    lines = _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", dry_run=True, catalog=catalog())
+    assert not (tmp_path / "config").exists()
+    assert not (tmp_path / ".legion").exists()
+    assert lines[0] == "Install legion for claude"
+
+
+def test_install_names_the_installed_version_track_and_next_step(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_targets(tmp_path, monkeypatch)
+    lines = _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", ref="main", yes=True, catalog=catalog())
+    assert "installed: legion 1.2.3 (main)" in lines
+    assert "next: legion add claude (or legion in a repository)" in lines
+
+
+def test_install_prints_the_tool_hook_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_targets(tmp_path, monkeypatch)
+    hint = next(tool for tool in catalog()["tools"] if tool["id"] == "codex")["hooks"]["hint"]
+    assert hint
+    assert hint in _installer.install(tmp_path, ["codex"], config_dir=tmp_path / "config", yes=True, catalog=catalog())
+
+
+def test_update_asks_once_across_folders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_targets(tmp_path, monkeypatch)
+    questions: list[str] = []
+    monkeypatch.setattr("builtins.input", lambda question: questions.append(question) or "y")
+    _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", update=True, catalog=catalog())
+    assert questions == ["Update legion? [y/N] "]

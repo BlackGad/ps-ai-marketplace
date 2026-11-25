@@ -8,9 +8,6 @@ try {
     Copy-Item (Join-Path $PSScriptRoot 'run.ps1') $testRoot
     Copy-Item (Join-Path $PSScriptRoot 'Assert.ps1') $testRoot
     Copy-Item (Join-Path $PSScriptRoot 'lib') $testRoot -Recurse
-    $pathLibrary = Join-Path $fixtureRepo 'plugins/legion/bin/lib'
-    New-Item -ItemType Directory -Path $pathLibrary -Force | Out-Null
-    Copy-Item (Join-Path $repo 'plugins/legion/bin/lib/paths.ps1') $pathLibrary
     $fakeReal = Join-Path $tempRoot 'fake-real'
     $childEnvironment = @{
         HOME = Join-Path $tempRoot 'home'; USERPROFILE = Join-Path $tempRoot 'home'
@@ -48,7 +45,7 @@ try {
     New-Item -ItemType Directory -Path $directHome | Out-Null
     $childEnvironment.HOME = $directHome
     $childEnvironment.USERPROFILE = $directHome
-    foreach ($name in @('InstallFlow', 'TestFixtures')) {
+    foreach ($name in @('Bootstrap', 'TestFixtures')) {
         $realTest = Join-Path $repo "tests/$name.Tests.ps1"
         $runTest = "try { & '" + $realTest.Replace("'", "''") + "' } catch { [Console]::Error.WriteLine(`$_.Exception.Message); exit 1 }"
         $directRun = Invoke-RunnerChild -Arguments @('-Command', $runTest)
@@ -87,7 +84,7 @@ Assert-True ($null -eq (Get-Command fixture-leak -ErrorAction SilentlyContinue))
     New-Item -ItemType Directory -Path $catalogFolder -Force | Out-Null
     Copy-Item (Join-Path $repo 'plugins/legion/tools.json') $catalogFolder
     @'
-. (Join-Path $PSScriptRoot '../plugins/legion/bin/lib/paths.ps1')
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
 $catalog = Get-Content (Join-Path $PSScriptRoot '../plugins/legion/tools.json') -Raw | ConvertFrom-Json
 Assert-Equal $env:HOME $env:USERPROFILE 'Both profile variables use the same home'
 Assert-Equal $env:HOME $HOME 'The PowerShell HOME variable follows the fenced home'
@@ -136,12 +133,12 @@ foreach ($name in @('TMPDIR', 'TEMP', 'TMP')) {
     }
     $before = Get-RunnerFixtureSnapshot
     try {
-        $profile = Invoke-RunnerChild -Arguments @('-File', (Join-Path $repo 'tests/run.ps1'), '-Name', 'ShellProfilePath*')
+        $profile = Invoke-RunnerChild -Arguments @('-File', (Join-Path $repo 'tests/run.ps1'), '-Name', 'Paths*')
     } finally {
         Assert-True ($before -ceq (Get-RunnerFixtureSnapshot)) 'Inherited fake-real account bytes and directory entries are unchanged'
     }
-    Assert-Equal 0 $profile.ExitCode 'Profile regression succeeds with inherited fixture account overrides'
-    Assert-Equal '1 passed, 0 failed' $profile.Output[-1] 'Profile regression runs only ShellProfilePath'
+    Assert-Equal 0 $profile.ExitCode 'Paths regression succeeds with inherited fixture account overrides'
+    Assert-Equal '1 passed, 0 failed' $profile.Output[-1] 'Paths regression runs only Paths'
 } finally {
     $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/'))
     if (-not [IO.Path]::GetFullPath($tempRoot).StartsWith($allowed)) { throw 'Unsafe runner fixture cleanup' }

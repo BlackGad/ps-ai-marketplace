@@ -6,11 +6,11 @@ Deduplicate setup by kind/account, and installation by normalized config folder.
 
 Approved missing Bun uses the existing helper:
 
-```powershell
-pwsh -NoProfile -File <plugin>/bin/legion-install-tool.ps1 -Tool bun -Yes
+```text
+legion tool install --tool bun --yes
 ```
 
-Windows offers winget or the official vendor-verified installer. Never install a package manager implicitly.
+Windows offers winget or the official vendor-verified installer. Never install a package manager implicitly. If `legion` says uv is missing, ask the owner, then run the root bootstrap from the README Install section; it installs uv after the owner's yes and leaves nothing else to do.
 
 Inside the chosen Claude account, after approval:
 

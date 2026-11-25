@@ -22,7 +22,7 @@ Checked 2026-11-18; these downloads target Windows x64. `msi` selects the vendor
 
 GitHub release metadata comes from `https://api.github.com/repos/<repo>/releases/latest`; the asset's `browser_download_url` supplies the download URL and its `digest` supplies `sha256:<hex>`. A missing hash stops the install. Node uses its vendor checksum file. A mismatch deletes the download before extraction or execution.
 
-The root installer bootstraps PowerShell through winget or its verified ZIP; helper installs already run in PowerShell 7.
+The root bootstrap installs only uv, through uv's own installer after the owner's yes; helper installs run in Python (`legion tool install`).
 
 | Tool | Latest release and URL pattern | SHA-256 source | Executable folder in ZIP / installer arguments |
 | --- | --- | --- | --- |

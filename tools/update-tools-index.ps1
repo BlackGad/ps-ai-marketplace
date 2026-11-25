@@ -1,6 +1,68 @@
 param([switch]$Check, [switch]$NoRun)
 
-. (Join-Path $PSScriptRoot '../plugins/legion/bin/lib/channels.ps1')
+function ConvertFrom-LegionJsonElement {
+    param([System.Text.Json.JsonElement]$Element)
+
+    switch ($Element.ValueKind) {
+        Object {
+            $values = [ordered]@{}
+            foreach ($property in $Element.EnumerateObject()) {
+                $values[$property.Name] = ConvertFrom-LegionJsonElement -Element $property.Value
+            }
+            return [pscustomobject]$values
+        }
+        Array {
+            $items = [System.Collections.Generic.List[object]]::new()
+            foreach ($item in $Element.EnumerateArray()) { $items.Add((ConvertFrom-LegionJsonElement -Element $item)) }
+            return ,$items.ToArray()
+        }
+        String { return $Element.GetString() }
+        Number {
+            $integer = 0L
+            if ($Element.TryGetInt64([ref]$integer)) { return $integer }
+            return $Element.GetDouble()
+        }
+        True { return $true }
+        False { return $false }
+        Null { return $null }
+    }
+}
+
+function ConvertFrom-LegionToolJson {
+    param([string]$Json)
+
+    # Keep argv strings intact on all PowerShell 7 versions, including date-like text.
+    $document = [System.Text.Json.JsonDocument]::Parse($Json)
+    try { return ConvertFrom-LegionJsonElement -Element $document.RootElement }
+    finally { $document.Dispose() }
+}
+
+# Descriptors are validated by tools/update-tools-index.ps1 before shipping.
+function Get-LegionTools {
+    param([string]$SkillsRoot = (Join-Path $PSScriptRoot '../plugins/legion/skills'))
+
+    $tools = [System.Collections.Generic.List[object]]::new()
+    foreach ($folder in (Get-ChildItem -LiteralPath $SkillsRoot -Directory -Filter 'legion-*' -ErrorAction Stop)) {
+        $path = Join-Path $folder.FullName 'tool.json'
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        $tool = ConvertFrom-LegionToolJson -Json ([IO.File]::ReadAllText($path))
+        $tool | Add-Member -NotePropertyName SkillRoot -NotePropertyValue $folder.FullName
+        $tools.Add($tool)
+    }
+    $tools.Sort([Comparison[object]]{ param($left, $right) [StringComparer]::Ordinal.Compare($left.id, $right.id) })
+    $tools
+}
+
+function Get-LegionChannels {
+    param([string]$SkillsRoot = (Join-Path $PSScriptRoot '../plugins/legion/skills'))
+    foreach ($folder in (Get-ChildItem -LiteralPath $SkillsRoot -Directory -Filter 'legion-*' | Sort-Object Name)) {
+        $path = Join-Path $folder.FullName 'channel.json'
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        $data = ConvertFrom-LegionToolJson ([IO.File]::ReadAllText($path))
+        $data | Add-Member SkillRoot $folder.FullName
+        $data
+    }
+}
 
 function Assert-LegionRegex {
     param([string]$Pattern, [string]$Field)
@@ -101,7 +163,7 @@ function Get-ToolsIndexChannels {
 function Get-ToolsIndexRecipes {
     param(
         [string]$SkillsRoot = (Join-Path $PSScriptRoot '../plugins/legion/skills'),
-        [string]$HelpersPath = (Join-Path $PSScriptRoot '../plugins/legion/bin/install-tool/helpers.json')
+        [string]$HelpersPath = (Join-Path $PSScriptRoot '../plugins/legion/helpers.json')
     )
 
     $tools = @(Get-ToolsIndexTools -SkillsRoot $SkillsRoot)
@@ -139,7 +201,7 @@ function Get-ToolsIndexRecipes {
 }
 
 function Get-ToolsIndexContent {
-    param([object[]]$Tools, $Bootstrap)
+    param([object[]]$Tools)
 
     $sorted = [System.Collections.Generic.List[object]]::new()
     foreach ($tool in $Tools) { $sorted.Add($tool) }
@@ -156,15 +218,7 @@ function Get-ToolsIndexContent {
             }
         }
     )
-    # Bootstrap entry points consume only these PowerShell download recipes.
-    $bootstrapEntry = [ordered]@{
-        windows = [ordered]@{
-            wingetId = $Bootstrap.windows.wingetId
-            portableCommand = $Bootstrap.windows.portableCommand
-            download = [ordered]@{ zip = $Bootstrap.windows.download.zip }
-        }
-    }
-    $index = [ordered]@{ schemaVersion = 1; bootstrap = $bootstrapEntry; tools = $entries }
+    $index = [ordered]@{ schemaVersion = 1; tools = $entries }
     return ($index | ConvertTo-Json -Depth 100).Replace("`r`n", "`n") + "`n"
 }
 
@@ -173,21 +227,7 @@ if ($NoRun) { return }
 $tools = @(Get-ToolsIndexTools)
 $null = Get-ToolsIndexChannels
 $null = Get-ToolsIndexRecipes
-# Only the standalone installer consumes this bootstrap recipe.
-$bootstrapJson = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'bootstrap.json') -Raw
-$schema = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../plugins/legion/schemas/tool.schema.json') -Raw | ConvertFrom-Json -AsHashtable
-$windows = $schema.'$defs'.install.properties.windows
-$windows.type = 'object'
-$windows.properties.download.required = @('zip')
-$windows.properties.download.properties.Remove('msi')
-$bootstrapSchema = @{
-    '$defs' = $schema.'$defs'; type = 'object'; required = @('windows'); additionalProperties = $false
-    properties = @{windows = $windows}
-} | ConvertTo-Json -Depth 100
-if (-not (Test-Json -Json $bootstrapJson -Schema $bootstrapSchema -ErrorAction SilentlyContinue)) { throw 'invalid PowerShell bootstrap recipe' }
-$bootstrap = ConvertFrom-LegionToolJson -Json $bootstrapJson
-Assert-LegionInstallPatterns -Install $bootstrap
-$content = Get-ToolsIndexContent -Tools $tools -Bootstrap $bootstrap
+$content = Get-ToolsIndexContent -Tools $tools
 $bytes = [Text.UTF8Encoding]::new($false).GetBytes($content)
 $path = Join-Path $PSScriptRoot '../plugins/legion/tools.json'
 if ((Test-Path -LiteralPath $path) -and

@@ -13,7 +13,6 @@ import pytest
 from cli_runner import run
 
 from legion import (
-    _forward,
     _lease,
     _process,
     _status,
@@ -69,7 +68,6 @@ def scaffold(repo: Path) -> Path:
 def test_status_without_settings_is_native_and_exits_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
-    assert "status" not in _forward.FORWARDED_VERBS
     assert run(["--home", str(tmp_path / "home"), "status"]) == 0
     assert capsys.readouterr().out.splitlines() == ["no legion settings yet", "path ~/.legion/bin on PATH: no", "commands: missing legion", "repo none"]
 
