@@ -43,3 +43,12 @@ $legion = Get-Content (Join-Path $skills 'legion-member/SKILL.md') -Raw
 Assert-True ($legion.Contains('A summoned unit cannot summon')) 'Legion cannot summon other agents'
 $update = Get-Content (Join-Path $skills 'legion-update/SKILL.md') -Raw
 Assert-True ($update -match "owner.s yes" -and $update -match 'run .legion. in the repository') 'Updates require approval and a legion run in the repository'
+$taskLoop = Get-Content (Join-Path $skills 'legion-overseer/references/task-loop.md') -Raw
+$routing = [regex]::Match($taskLoop, '(?s)## Default routing.*?## First legion dispatch').Value
+Assert-True ($routing -match 'no favorite account and no fixed rotation' -and $routing -match 'distinct agents' -and $routing -match 'different provider' -and $routing -match 'same provider' -and $routing -match 'tool-enforced read-only') 'Default routing keeps one rule for distinct, provider-diverse reviews'
+Assert-True ($routing -match 'always win') 'Default routing keeps owner choices first'
+foreach ($file in @('SKILL.md', 'references/reviews.md', 'references/task-loop.md')) {
+    $text = Get-Content (Join-Path $skills "legion-overseer/$file") -Raw
+    Assert-True ($text.Contains('default routing')) "Overseer $file points to default routing"
+    Assert-True ($text -notmatch 'spread (work|reviews)|prefer cheaper accounts|choose a different tool/provider') "Overseer $file has no contradictory routing default"
+}

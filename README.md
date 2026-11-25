@@ -36,7 +36,7 @@ The bootstrap offers to install uv if it is missing, then installs legion for yo
 
 ## Why mix tools
 
-Different tools and providers give independent reviews another perspective. The overseer spreads work across your available accounts and says which account it chose. Each CLI uses that account's own default model. Preferences you state later are saved in notes and take priority.
+Different tools and providers give independent reviews another perspective. Without a stated preference, the overseer picks among your eligible accounts by task, capacity and cost, never reviews code with the agent that wrote it, and says which account it chose. Each CLI uses that account's own default model. Preferences you state later are saved in notes and take priority.
 
 ## First-time setup
 
