@@ -1,4 +1,6 @@
 import shutil
+import site
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -73,6 +75,47 @@ def test_same_version_again_skips_without_running_uv(tmp_path: Path, uv: FakeUv)
     assert lines == [f"skip: legion app {VERSION} (already done)"]
     assert ready == home / ".legion" / "app" / VERSION
     assert len(uv.calls) == 1
+
+
+def test_same_version_again_repairs_an_environment_that_cannot_start(tmp_path: Path, uv: FakeUv) -> None:
+    # The Windows owner command starts the environment directly, so only setup or the installer can repair it.
+    home, source = tmp_path / "home", make_source(tmp_path)
+    _installed_runtime.sync_app(home, source)
+    uv.usable = False
+    target = home / ".legion" / "app" / VERSION
+    lines, ready = _installed_runtime.sync_app(home, source)
+    assert lines == [f"legion app {VERSION} ready"]
+    assert ready == target
+    assert len(uv.calls) == 2
+    assert uv.calls[-1][1] == ["sync", "--project", str(target), "--frozen", "--extra", "mcp", "--quiet"]
+    assert (target / MARKER).is_file()
+
+
+def test_a_damaged_environment_that_uv_cannot_repair_keeps_the_app_and_says_so(tmp_path: Path, uv: FakeUv) -> None:
+    home, source = tmp_path / "home", make_source(tmp_path)
+    _installed_runtime.sync_app(home, source)
+    uv.usable = False
+    uv.exit_code = 3
+    lines, ready = _installed_runtime.sync_app(home, source)
+    assert lines[-1] == f"legion app {VERSION} not ready (uv sync exited 3); run legion setup again"
+    assert ready == home / ".legion" / "app" / VERSION
+
+
+@pytest.mark.parametrize("damage", [None, "missing python", "missing module"])
+def test_environment_usable_starts_the_environments_own_python(tmp_path: Path, damage: str | None) -> None:
+    # A real interpreter stands in for the version environment; the check imports the CLI and the MCP server.
+    home = tmp_path / "home"
+    app = home / ".legion" / "app" / VERSION
+    app.mkdir(parents=True)
+    environment = _installed_runtime.python_environment(app, home)
+    if damage != "missing python":
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(environment)], check=True, capture_output=True)
+    if damage is None:
+        # The app's sources and this test environment's packages, as uv's editable install provides them.
+        packages = next(environment.glob("Lib/site-packages" if sys.platform == "win32" else "lib/python*/site-packages"))
+        lines = [str(Path(_installed_runtime.__file__).parents[3]), *(f"import site; site.addsitedir({folder!r})" for folder in site.getsitepackages())]
+        (packages / "legion-app.pth").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert _installed_runtime.environment_usable(app, home) is (damage is None)
 
 
 def test_an_unfinished_version_is_synced_again_in_place(tmp_path: Path, uv: FakeUv) -> None:

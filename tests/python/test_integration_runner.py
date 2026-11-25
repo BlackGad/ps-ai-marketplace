@@ -285,16 +285,76 @@ def test_a_stale_launcher_does_not_stop_the_other_candidate_checks(tmp_path: Pat
     upgrade.prove_mcp_without_uv = without_uv
     upgrade.prove_clients = lambda: called.append("clients") or ["copilot"]
     upgrade.home_snapshot = lambda **_kwargs: {"snapshot": "taken"}
+    # The old update command failed for one host; that too is only one observation among the others.
+    upgrade.version = lambda tool, _folder: "0.17.0" if tool == "codex" else upgrade.candidate_version
+    for path in upgrade.owner_shims():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"targets {upgrade.candidate_version}", encoding="utf-8")
+    instance.state.update(
+        {
+            "update_output": "\n".join(f"Update legion for {tool}" for tool in runner.TOOLS),
+            "update_error": "legion.cmd exited 1",
+            "old_shims": {path.name: b"old launcher" for path in upgrade.owner_shims()},
+        }
+    )
     with pytest.raises(AssertionError) as raised:
         instance.verify_candidate()
     message = str(raised.value)
-    assert message.splitlines()[0].startswith("owner launchers: legion.cmd: launcher is the exact 0.17.0")
+    assert message.splitlines()[0] == "update command: legion.cmd exited 1"
+    assert "owner launchers: legion.cmd: launcher is the exact 0.17.0" in message
     assert "owner MCP without uv: MCP without uv did not start or answer (exit 127)" in message
     assert {"owner-version", "mcp", "client-command", "without-uv", "clients", "listing-claude", "listing-codex", "listing-copilot"} <= set(called)
     assert instance.state["client_missing"] == ["copilot"]
     assert instance.state["candidate_snapshot"] == {"snapshot": "taken"}
     checks = json.loads((upgrade.out / "checks.json").read_text(encoding="utf-8"))
-    assert [item["check"] for item in checks if item["result"] == "failed"] == ["owner launchers", "owner MCP without uv"]
+    assert [item["check"] for item in checks if item["result"] == "failed"] == ["update command", "codex updated", "owner launchers", "owner MCP without uv"]
+
+
+def test_the_nested_candidate_runner_expects_the_staged_version(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    instance.prepare_candidate()
+    upgrade = instance.state["candidate"]
+    staged = json.loads((upgrade.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
+    assert staged == instance.candidate_version
+    assert upgrade.candidate_version == instance.candidate_version
+    app = upgrade.home / ".legion/app" / staged
+    upgrade.check_runtime_identity({"root": str(app), "version": staged, "cli": str(app / "cli.py"), "server": str(app / "server.py")}, app)
+
+
+def test_the_repeat_cleans_up_an_installed_candidate_after_a_failed_first_case(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    upgrade = make_runner(tmp_path / "upgrade")
+    events: list[str] = []
+
+    def first(repeat: bool) -> None:
+        if repeat:
+            events.append("repeat and purge")
+            return
+        instance.state["candidate"] = upgrade
+        upgrade.launcher("legion").parent.mkdir(parents=True)
+        upgrade.launcher("legion").write_text("owner command", encoding="utf-8")
+        raise AssertionError("owner launchers: legacy")
+
+    instance.steps = lambda: [("update-from-0.17.0", first)]
+    assert [case.result for case in instance.execute()] == ["failed", "passed"]
+    assert events == ["repeat and purge"]
+
+
+def test_purge_runs_and_is_reported_even_when_the_repeat_update_fails(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    upgrade = make_runner(tmp_path / "upgrade")
+    upgrade.out.mkdir(parents=True)
+    instance.state.update({"candidate": upgrade, "candidate_snapshot": {"launcher": "legacy"}})
+    calls: list[tuple[str, ...]] = []
+    upgrade.legion = lambda *args, **_kwargs: calls.append(args) or "already up to date\n" + "\n".join(f"Update legion for {tool}" for tool in runner.TOOLS)
+    upgrade.version = lambda *_args: instance.candidate_version
+    upgrade.home_snapshot = lambda **_kwargs: {"launcher": "current"}
+    upgrade.check_uninstalled = lambda _tool, _folder: None
+    with pytest.raises(AssertionError, match="repeat update: the home changed on the repeat run"):
+        instance.finish_candidate()
+    assert calls[-1] == ("uninstall", "--purge", "--yes")
+    checks = json.loads((upgrade.out / "repeat-checks.json").read_text(encoding="utf-8"))
+    assert [(item["check"], item["result"]) for item in checks] == [("repeat update", "failed"), ("purge", "passed")]
 
 
 FAKE_MCP_SERVER = """
@@ -433,6 +493,9 @@ def test_claude_discovery_requires_exact_identity_and_ready_state(tmp_path: Path
     assert evidence["discovered"]
     assert not evidence["launched"]
     instance.cli = lambda *_args: "Checking MCP server health…\n\nplugin:legion:legion: legion mcp - √ Connected"
+    assert instance.probe_client("claude")["launched"]
+    # Hosted Claude on 9f6f3fa printed the heavy check mark (U+2714) on all three systems.
+    instance.cli = lambda *_args: "Checking MCP server health…\n\nplugin:legion:legion: legion mcp - ✔ Connected"
     assert instance.probe_client("claude")["launched"]
 
 

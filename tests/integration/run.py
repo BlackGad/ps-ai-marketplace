@@ -584,6 +584,8 @@ class Runner:
     def prepare_candidate(self) -> None:
         candidate = self.stage_candidate()
         upgrade = Runner(candidate, self.work / "upgrade/home", self.out / "candidate", False)
+        # The staged manifests already carry the candidate version; deriving it again would expect the one after.
+        upgrade.candidate_version = self.candidate_version
         upgrade.base_path = os.pathsep.join((str(upgrade.home / ".legion/bin"), self.env["PATH"]))
         upgrade.env["PATH"] = upgrade.base_path
         upgrade.out.mkdir(parents=True, exist_ok=True)
@@ -673,13 +675,12 @@ class Runner:
             "candidate origin did not advance",
         )
         # This is deliberately the installed old command. No checkout CLI or repair runs first.
-        output = upgrade.legion("update", "--yes", owner=True)
-        for tool in TOOLS:
-            contains(output, f"Update legion for {tool}")
-            require(upgrade.version(tool, upgrade.folder(tool)) == self.candidate_version, f"{tool}: upgrade was skipped")
-        for path in upgrade.owner_shims():
-            require(path.read_bytes() != self.state["old_shims"][path.name], f"{path.name}: old launcher remains")
-            contains(path.read_text(encoding="utf-8"), self.candidate_version)
+        # Its result is judged with the other observations, so one stale host cannot hide the rest.
+        try:
+            self.state["update_output"] = upgrade.legion("update", "--yes", owner=True)
+        except RuntimeError as error:
+            self.state["update_output"] = ""
+            self.state["update_error"] = str(error)
 
     def check_runtime_identity(self, identity: dict[str, Any], app: Path) -> None:
         require(Path(identity["root"]).resolve() == app.resolve(), f"runtime is from the wrong checkout: {identity}")
@@ -781,8 +782,20 @@ class Runner:
         def clients() -> None:
             self.state["client_missing"] = upgrade.prove_clients()
 
-        # A stale launcher must not hide what the owner command, MCP and the clients do, so every check runs.
+        def updated(tool: str) -> None:
+            contains(self.state.get("update_output", ""), f"Update legion for {tool}")
+            require(upgrade.version(tool, upgrade.folder(tool)) == self.candidate_version, f"{tool}: upgrade was skipped")
+
+        def launchers_moved() -> None:
+            for path in upgrade.owner_shims():
+                require(path.is_file() and path.read_bytes() != self.state["old_shims"][path.name], f"{path.name}: old launcher remains")
+                contains(path.read_text(encoding="utf-8"), self.candidate_version)
+
+        # A stale host or launcher must not hide what the owner command, MCP and the clients do, so every check runs.
         checks = [
+            ("update command", lambda: require("update_error" not in self.state, self.state.get("update_error", ""))),
+            *((f"{tool} updated", lambda tool=tool: updated(tool)) for tool in TOOLS),
+            ("owner launchers target the candidate", launchers_moved),
             ("candidate app", ready),
             ("owner launchers", lambda: upgrade.check_candidate_launchers(app)),
             ("runtime identity", runtime),
@@ -797,7 +810,7 @@ class Runner:
         self.state["candidate_snapshot"] = upgrade.home_snapshot(update=True)
         require(not failures, "\n".join(failures))
 
-    def collect(self, checks: list[tuple[str, Any]]) -> list[str]:
+    def collect(self, checks: list[tuple[str, Any]], report: str = "checks.json") -> list[str]:
         results = []
         for name, check in checks:
             try:
@@ -805,7 +818,8 @@ class Runner:
                 results.append({"check": name, "result": "passed", "message": ""})
             except Exception as error:
                 results.append({"check": name, "result": "failed", "message": str(error) or type(error).__name__})
-        (self.out / "checks.json").write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
+        self.out.mkdir(parents=True, exist_ok=True)
+        (self.out / report).write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
         self.log.extend(f"{item['check']}: {item['result']}" for item in results)
         return [f"{item['check']}: {item['message']}" for item in results if item["result"] == "failed"]
 
@@ -854,7 +868,7 @@ class Runner:
             evidence["output"] = output
             lines = [line.strip() for line in output.splitlines() if re.match(r"^\s*(?:plugin:legion:)?legion\s*:", line, re.IGNORECASE)]
             evidence["discovered"] = bool(lines)
-            evidence["launched"] = any(re.search(r"(?:-|:)\s*[√✓]\s*Connected\s*$", line, re.IGNORECASE) for line in lines)
+            evidence["launched"] = any(re.search(r"(?:-|:)\s*[√✓✔]\s*Connected\s*$", line, re.IGNORECASE) for line in lines)
             evidence["limitation"] = "mcp list health check proves initialization only; no nonbillable direct tool-call API exercised"
         elif tool == "copilot":
             output = self.cli(tool, ["mcp", "list", "--json"])
@@ -942,22 +956,33 @@ class Runner:
         require("client_missing" in self.state, "client evidence was not collected; see update-from-0.17.0")
         require(not self.state.get("client_missing"), "client discovery/launch remains unproven: " + ", ".join(self.state.get("client_missing", [])) + "; see candidate/clients.json")
 
+    def candidate_installed(self) -> bool:
+        # Once the disposable home has an owner command, the repeat case runs to clean it up whatever failed before.
+        return "candidate" in self.state and any(path.exists() for path in self.state["candidate"].owner_shims())
+
     def finish_candidate(self) -> None:
         upgrade = self.state["candidate"]
-        output = upgrade.legion("update", "--yes", owner=True)
-        for tool in TOOLS:
-            contains(output, f"Update legion for {tool}")
-            require(upgrade.version(tool, upgrade.folder(tool)) == self.candidate_version, f"{tool}: repeat changed version")
-        contains(output, "already up to date")
-        unchanged(self.state["candidate_snapshot"], upgrade.home_snapshot(update=True))
-        upgrade.legion("uninstall", "--purge", "--yes", owner=True)
-        require(not any(path.exists() for path in upgrade.owner_shims()), "candidate launcher remains after uninstall")
-        require(not (upgrade.home / ".legion/app").exists(), "candidate app remains after uninstall")
-        footprints = upgrade.home / ".legion/footprints.json"
-        require(not footprints.exists() or not json.loads(footprints.read_text(encoding="utf-8"))["entries"], "candidate footprints remain")
-        for tool in TOOLS:
-            upgrade.check_uninstalled(tool, upgrade.folder(tool))
-        unchanged(self.state["outside_snapshot"], snapshot(self.state["outside"]))
+
+        def repeat() -> None:
+            output = upgrade.legion("update", "--yes", owner=True)
+            for tool in TOOLS:
+                contains(output, f"Update legion for {tool}")
+                require(upgrade.version(tool, upgrade.folder(tool)) == self.candidate_version, f"{tool}: repeat changed version")
+            contains(output, "already up to date")
+            require("candidate_snapshot" in self.state, "no snapshot after the first update")
+            unchanged(self.state["candidate_snapshot"], upgrade.home_snapshot(update=True))
+
+        def purge() -> None:
+            upgrade.legion("uninstall", "--purge", "--yes", owner=True)
+            require(not any(path.exists() for path in upgrade.owner_shims()), "candidate launcher remains after uninstall")
+            require(not (upgrade.home / ".legion/app").exists(), "candidate app remains after uninstall")
+            footprints = upgrade.home / ".legion/footprints.json"
+            require(not footprints.exists() or not json.loads(footprints.read_text(encoding="utf-8"))["entries"], "candidate footprints remain")
+            for tool in TOOLS:
+                upgrade.check_uninstalled(tool, upgrade.folder(tool))
+
+        failures = upgrade.collect([("repeat update", repeat), ("purge", purge)], "repeat-checks.json")
+        require(not failures, "\n".join(failures))
 
     def update_from_0_17_0(self, repeat: bool) -> None:
         try:
@@ -1372,7 +1397,7 @@ class Runner:
                 self.log = []
                 result, message = "passed", ""
                 if name == "update-from-0.17.0":
-                    reason = candidate_blocked
+                    reason = "" if repeat and self.candidate_installed() else candidate_blocked
                 elif name == "candidate-client-evidence":
                     reason = ""
                 else:

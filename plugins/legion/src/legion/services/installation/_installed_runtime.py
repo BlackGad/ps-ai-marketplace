@@ -71,6 +71,14 @@ def find_uv() -> Optional[str]:
     return shutil.which("uv")
 
 
+def environment_usable(app: Path, home: Path) -> bool:
+    environment = python_environment(app, home)
+    python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python3")
+    if not python.is_file():
+        return False
+    return run_command(str(python), ["-I", "-c", "import legion.cli, legion.mcp.server"], timeout=60).exit_code == 0
+
+
 def _recorded(path: Path, home: Path) -> bool:
     return any(entry.kind == "app-version" and same_path(full_path(home_path(entry.path, home)), path) for entry in read(home).entries)
 
@@ -113,7 +121,8 @@ def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> tuple[list[str], Optiona
     ready_path = ready[0].path if ready else None
     if ready and compare_versions(ready[0].version, version) > 0:
         return [f"skip: legion app {version} (newer {ready[0].version} in place)"], ready_path
-    if ready and same_path(ready[0].path, target):
+    # The Windows owner command starts the environment directly, without uv's repair; a damaged one is synced again.
+    if ready and same_path(ready[0].path, target) and environment_usable(target, home):
         return [f"skip: legion app {version} (already done)"], ready_path
     if os.path.lexists(target) and not _recorded(target, home):
         return [f"skip: {target} (not legion's)"], ready_path

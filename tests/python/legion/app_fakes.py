@@ -42,8 +42,11 @@ class FakeUv:
         self.exit_code = 0
         self.error = ""
         self.effect: Callable[[Path], None] | None = None
+        # A synced environment imports legion unless a test damages it.
+        self.usable = True
         monkeypatch.setattr(_installed_runtime, "find_uv", lambda: "uv")
         monkeypatch.setattr(_installed_runtime, "run_command", self.run)
+        monkeypatch.setattr(_installed_runtime, "environment_usable", lambda _app, _home: self.usable)
 
     def run(self, command: str, arguments: list[str], timeout: float | None = None, env: Mapping[str, str] | None = None) -> RunResult:
         assert env is not None
