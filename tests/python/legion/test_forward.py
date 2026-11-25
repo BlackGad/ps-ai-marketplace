@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from cli_runner import run
 
-from legion import _forward, _plugin
+from legion import _forward, _installer, _plugin
 
 # A stand-in for the PowerShell entry point: it records how it was called and exits with a chosen code.
 FAKE_ENTRY = """param([Parameter(Position = 0, ValueFromRemainingArguments = $true)][string[]]$Words, [string]$HomeRoot)
@@ -77,12 +77,20 @@ def test_help_lists_python_and_forwarded_verbs(capsys: pytest.CaptureFixture[str
 
 
 @pytest.mark.parametrize("words", [[], ["--yes"]])
-def test_update_explicitly_forwards_installer_arguments_home_and_exit(app_root: Path, tmp_path: Path, words: list[str]) -> None:
+def test_update_routes_to_python_installer(app_root: Path, tmp_path: Path, words: list[str], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     assert "update" not in _forward.FORWARDED_VERBS
     home = tmp_path / "update home"
-    assert run(["--home", str(home), "update", *words]) == 7
-    assert read_call(app_root)["words"] == ["update", *(["--yes"] if words else [])]
-    assert read_call(app_root)["home"] == str(home)
+    calls: list[tuple[Path, bool, bool]] = []
+
+    def fake_install(selected: Path, **options: object) -> list[str]:
+        calls.append((selected, bool(options["update"]), bool(options["yes"])))
+        return ["updated"]
+
+    monkeypatch.setattr(_installer, "install", fake_install)
+    assert run(["--home", str(home), "update", *words]) == 0
+    assert calls == [(home, True, bool(words))]
+    assert capsys.readouterr().out == "updated\n"
+    assert not (app_root / "bin" / "call.json").exists()
 
 
 @pytest.mark.parametrize("words", [["--check", "--yes"], ["-Yes"], ["--force"], ["--check", "extra"], ["--check", "--unknown"], ["--check=yes"], ["--unknown"]])

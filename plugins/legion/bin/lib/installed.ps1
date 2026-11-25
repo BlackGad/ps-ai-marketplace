@@ -1,3 +1,4 @@
+# milestone 4 removes this after bin/legion-setup.ps1 and tests/integration/run.ps1 switch to Python.
 param()
 
 $ErrorActionPreference = 'Stop'

@@ -1,3 +1,4 @@
+import importlib
 import re
 import shutil
 import sys
@@ -10,6 +11,7 @@ from typing import Literal
 from filelock import FileLock, Timeout
 
 from ._generated import is_owned
+from . import _plugin
 from ._home import footprint_index, full_path, home_path, is_under, owner_path_safe, same_path, tree_has_reparse
 from ._settings_models import SchemaVersion, SettingsModel, Text
 
@@ -98,6 +100,15 @@ def remove_entry(home: Path, kind: FootprintKind, path: Path | str) -> None:
             _write(home, data.model_copy(update={"entries": kept}))
 
 
+def remove_exact(home: Path, kind: FootprintKind, path: Path | str, key: str, value: str) -> None:
+    target = full_path(home_path(str(path), home))
+    with lock(home):
+        data = read(home)
+        kept = [entry for entry in data.entries if entry.kind != kind or not same_path(full_path(home_path(entry.path, home)), target) or entry.key != key or entry.value != value]
+        if len(kept) != len(data.entries):
+            _write(home, data.model_copy(update={"entries": kept}))
+
+
 def is_safe(entry: Footprint, home: Path) -> bool:
     if re.search(r"(^|[/\\])\.\.([/\\]|$)|[?*]", entry.path):
         return False
@@ -122,6 +133,39 @@ def is_safe(entry: Footprint, home: Path) -> bool:
         return False
     # A linked child can escape the recorded folder, so inspect without following links.
     return not tree_has_reparse(path)
+
+
+# Hand-built, reason: an app version and its uv environment must be removed as one safe unit after the last target owner leaves.
+def _remove_orphan_app(home: Path, kept: list[Footprint], lines: list[str]) -> bool:
+    orphan_app = [entry for entry in kept if entry.kind == "app" and not entry.owners]
+    if not orphan_app:
+        return False
+    # Import at use time because app imports footprint helpers while its module is initialized.
+    app = importlib.import_module("legion._app")
+    changed = False
+    versions = [entry for entry in kept if entry.kind == "app-version"]
+    for entry in versions:
+        path = full_path(home_path(entry.path, home))
+        if is_under(_plugin.PLUGIN_ROOT, path, allow_equal=True):
+            lines.append(f"Kept app version in use: {path} (close legion, then run uninstall again)")
+            continue
+        if not app.version_safe(path, home):
+            lines.append(f"skip: {path} (linked or not legion's)")
+            continue
+        if not app._remove_version(path, home):
+            lines.append(f"Kept app version in use: {path} (close legion, then run uninstall again)")
+            continue
+        kept.remove(entry)
+        lines.append(f"Remove app version: {path}")
+        changed = True
+    if not any(entry.kind == "app-version" for entry in kept):
+        for entry in orphan_app:
+            kept.remove(entry)
+            changed = True
+        app_folder = home / ".legion" / "app"
+        if app_folder.is_dir() and not any(app_folder.iterdir()):
+            app_folder.rmdir()
+    return changed
 
 
 def remove_owner(home: Path, owners: list[str]) -> list[str]:
@@ -154,6 +198,7 @@ def remove_owner(home: Path, owners: list[str]) -> list[str]:
                     shutil.rmtree(full_path(path))
                 else:
                     path.unlink()
+        changed = _remove_orphan_app(home, kept, lines) or changed
         if changed:
             _write(home, data.model_copy(update={"entries": kept}))
     return lines
