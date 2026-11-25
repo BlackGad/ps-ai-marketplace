@@ -10,8 +10,8 @@ from typing import Literal
 from filelock import FileLock, Timeout
 
 from ._generated import is_owned
-from ._home import footprint_index, full_path, home_path, is_under, owner_path_safe, same_path, tree_has_reparse
-from ._settings_models import SchemaVersion, SettingsModel, Text
+from ._home import footprint_index, full_path, home_path, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
+from ._settings_models import SchemaVersion, SettingsModel, Text, ToolDescriptor
 
 FootprintKind = Literal["file", "folder", "link", "path-entry", "edit", "app", "app-version"]
 
@@ -66,7 +66,7 @@ def _write(home: Path, data: FootprintIndex) -> None:
             temporary.unlink(missing_ok=True)
 
 
-def _stored_path(home: Path, path: Path | str) -> str:
+def stored_path(home: Path, path: Path | str) -> str:
     if str(path) == "user PATH":
         return "user PATH"
     full = full_path(home_path(str(path), home))
@@ -75,8 +75,17 @@ def _stored_path(home: Path, path: Path | str) -> str:
     return str(full)
 
 
+# Who owns what is installed in a tool's config folder: the tool and the physical folder, so a linked
+# and a plain spelling of one folder are one target.
+def target_owner(tool: ToolDescriptor, folder: Path | str | None, home: Path) -> str:
+    folder = folder or tool.plugin.default_config_dir or ""
+    physical = str(resolve_directory(home_path(str(folder), home))).rstrip("\\/")
+    owner = f"{tool.id}:{physical}"
+    return owner.lower() if sys.platform == "win32" else owner
+
+
 def add(home: Path, kind: FootprintKind, path: Path | str, owner: str, key: str = "", value: str = "") -> None:
-    stored = _stored_path(home, path)
+    stored = stored_path(home, path)
     with lock(home):
         data = read(home)
         for entry in data.entries:

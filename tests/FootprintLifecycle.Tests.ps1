@@ -6,8 +6,36 @@ $savedPath = $env:PATH
 try {
     # Account ids must not already be commands; keep the machine PATH out of the fake setup.
     $env:PATH = Split-Path (Get-Process -Id $PID).Path
-    . (Join-Path $repo 'plugins/legion/bin/legion-setup.ps1') -NoRun
-    . (Join-Path $PSScriptRoot 'lib/legacy-account-fixture.ps1')
+    . (Join-Path $repo 'plugins/legion/bin/lib/footprints.ps1')
+    . (Join-Path $repo 'plugins/legion/bin/lib/settings.ps1')
+    # Stand-ins for what setup and its Python verbs leave behind: owned launchers, settings, and the allow rule.
+    function Get-LegionShimText {
+        param([string]$App, [switch]$Windows)
+        $header = Get-LegionHeader -Name 'owner command' -Windows:$Windows
+        $lines = if ($Windows) { @($header, '@exit /b 0') } else { @('#!/bin/sh', $header, 'exit 0') }
+        return ($lines -join $(if ($Windows) { "`r`n" } else { "`n" })) + $(if ($Windows) { "`r`n" } else { "`n" })
+    }
+    function New-LegionWrappers {
+        param([string]$Id, [string]$Tool, [string]$HomeRoot, [string]$ConfigDir, [string]$RealCommand)
+        $bin = Join-Path $HomeRoot '.legion/bin'
+        New-Item -ItemType Directory -Path $bin, $ConfigDir -Force | Out-Null
+        $header = Get-LegionHeader -Name "account $Id"
+        [IO.File]::WriteAllText((Join-Path $bin $Id), "#!/bin/sh`n$header`nexit 0`n")
+        if ($IsWindows) { [IO.File]::WriteAllText((Join-Path $bin "$Id.cmd"), ((Get-LegionHeader -Name "account $Id" -Windows), '@exit /b 0' -join "`r`n") + "`r`n") }
+    }
+    function Write-LegionPersonalisation {
+        param($Data, [string]$Path)
+        New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
+        [IO.File]::WriteAllText($Path, ($Data | ConvertTo-Json -Depth 100) + "`n", [Text.UTF8Encoding]::new($false))
+    }
+    function Add-FixtureAllowRule {
+        param($Tool, [string]$Folder)
+        foreach ($rule in @($Tool.allowRules | Where-Object { $_ })) {
+            Add-LegionFootprint -HomeRoot $sandbox -Kind edit -Path (Join-Path $Folder 'settings.json') -Key permissions.allow -Value $rule -Owner (Get-LegionTargetOwner -Tool $Tool -Folder $Folder -HomeRoot $sandbox)
+            New-Item -ItemType Directory -Path $Folder -Force | Out-Null
+            Write-LegionPersonalisation -Data ([pscustomobject]@{ permissions = [pscustomobject]@{ allow = @($rule) } }) -Path (Join-Path $Folder 'settings.json')
+        }
+    }
     $bin = Join-Path $sandbox '.legion/bin'
     New-Item -ItemType Directory -Path $bin -Force | Out-Null
     $commandNames = if ($IsWindows) { @('legion', 'legion.cmd') } else { @('legion') }
@@ -63,7 +91,7 @@ try {
         $folder = Join-Path $sandbox ".legion/agents/$id"
         New-LegionWrappers -Id $id -Tool $accounts[$id] -HomeRoot $sandbox -ConfigDir $folder -RealCommand (Get-Process -Id $PID).Path
         Install-FixtureTarget -Tool ($catalog.tools | Where-Object id -CEQ $accounts[$id]) -Folder $folder
-        $null = Add-SetupAllowRules -Plan @{ HomeRoot = $sandbox; Accounts = @(@{ Usable = $true; Tool = (Get-LegionTool -Tool $accounts[$id]); Folder = $folder }) }
+        Add-FixtureAllowRule -Tool (Get-LegionTool -Tool $accounts[$id]) -Folder $folder
     }
     $edits = @(Get-LegionFootprints -HomeRoot $sandbox -Kind edit)
     Assert-Equal 'claude|claude' (@($edits | ForEach-Object { ($_.owners -split ':')[0] }) -join '|') 'Only Claude targets record the allow rule; Codex and Copilot declare none'

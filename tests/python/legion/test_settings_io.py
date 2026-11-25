@@ -1,6 +1,5 @@
 import json
 import os
-import subprocess
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -344,31 +343,3 @@ def test_models_list_does_not_wait_for_settings_writer(tmp_path: Path, monkeypat
     with FileLock(str(settings_path(tmp_path)) + ".lock", timeout=0):
         lines = _accounts.models(tmp_path, "claude-f", [], None, None, False, True)
     assert '"deployments"' in lines[0]
-
-
-def test_powershell_setup_plans_under_the_settings_lock_and_runs_the_account_add_without_it(tmp_path: Path, pwsh_path: Path) -> None:
-    write_settings(tmp_path, {"schemaVersion": 1, "agents": [ACCOUNT], "channels": []})
-    setup = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "bin" / "legion-setup.ps1"
-    probe = tmp_path / "setup-lock.ps1"
-    probe.write_text(
-        ". $args[0] -NoRun\n"
-        "function Get-SetupPlan { param($Add, $Id, $HomeRoot) "
-        "$file = Get-LegionOwnerPath -HomeRoot $HomeRoot -Name Settings; "
-        "$held = Open-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $file); "
-        "if ($held) { $held.Dispose(); throw 'settings were read without the lock' }; return @{ HomeRoot = $HomeRoot } }\n"
-        "function Initialize-SetupFiles { param($Plan) }\n"
-        "function Assert-Unlocked { param($Plan) $file = Get-LegionOwnerPath -HomeRoot $Plan.HomeRoot -Name Settings; "
-        "$held = Open-LegionLockFile -Path (Get-LegionSettingsLockPath -Path $file); "
-        "if (-not $held) { throw 'settings lock held during external work' }; $held.Dispose() }\n"
-        "function Install-SetupTools { param($Plan) Assert-Unlocked $Plan }\n"
-        "function Add-SetupAccounts { param($Plan) Assert-Unlocked $Plan }\n"
-        "function Add-SetupAllowRules { param($Plan) Assert-Unlocked $Plan }\n"
-        "function Set-SetupPath { param($Plan) }\n"
-        "function Install-SetupPlugins { param($Plan) Assert-Unlocked $Plan }\n"
-        "function Write-SetupCommands { param($Plan) Assert-Unlocked $Plan }\n"
-        "function Write-SetupTable { param($Plan) }\n"
-        "Invoke-Setup -Yes -HomeRoot $args[1]\n",
-        encoding="utf-8",
-    )
-    result = subprocess.run([str(pwsh_path), "-NoProfile", "-File", str(probe), str(setup), str(tmp_path)], capture_output=True, text=True, timeout=60, check=False)
-    assert result.returncode == 0, result.stderr

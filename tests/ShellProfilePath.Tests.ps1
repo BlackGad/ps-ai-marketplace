@@ -9,8 +9,7 @@ try {
         # Exercise the Unix branch on every host, without touching a real profile or registry.
         Set-Variable IsWindows $false -Force
         $env:OS = 'Unix'
-        . (Join-Path $repo 'plugins/legion/bin/legion-setup.ps1') -NoRun
-        function Write-SetupCommands { }
+        . (Join-Path $repo 'plugins/legion/bin/lib/footprints.ps1')
         function Get-LegionUserPath { throw 'Unix must not read the registry' }
         function Set-LegionUserPath { throw 'Unix must not write the registry' }
         foreach ($shell in @('zsh', 'bash', 'fish')) {
@@ -20,24 +19,21 @@ try {
             $name = switch ($shell) { zsh { '.zshrc' } bash { '.bashrc' } default { '.profile' } }
             $profilePath = Join-Path $fixtureHome $name
             $bin = Join-Path $fixtureHome '.legion/bin'
-            $plan = @(Invoke-Setup -HomeRoot $fixtureHome)
-            Assert-True (($plan -join "`n").Contains($profilePath)) "$shell preview names the selected profile"
-            Assert-True (-not (Test-Path $profilePath)) "$shell no consent leaves the profile absent"
             $preview = @(Add-LegionUserPath -Folder $bin -HomeRoot $fixtureHome -DryRun)
             Assert-True (($preview -join "`n").Contains('export PATH="$HOME/.legion/bin:$PATH"')) "$shell dry run shows the export"
             Assert-True (-not (Test-Path (Join-Path $fixtureHome '.legion'))) "$shell dry run records nothing"
-            $null = Invoke-Setup -HomeRoot $fixtureHome -Yes
+            $null = Add-LegionUserPath -Folder $bin -HomeRoot $fixtureHome
             Assert-Equal ("# Added by legion`n" + 'export PATH="$HOME/.legion/bin:$PATH"' + "`n") ([IO.File]::ReadAllText($profilePath)) "$shell yes writes the two lines"
             $entry = Get-LegionFootprints -HomeRoot $fixtureHome -Kind path-entry
             Assert-Equal "~/$name" $entry.path "$shell footprint names the profile"
             Assert-Equal 'legion' ($entry.owners -join '|') "$shell footprint is purge only"
             $stamp = (Get-Item -Force $profilePath).LastWriteTimeUtc.Ticks
             $index = [IO.File]::ReadAllText((Get-LegionOwnerPath -HomeRoot $fixtureHome -Name Index))
-            $repeat = @(Invoke-Setup -HomeRoot $fixtureHome -Yes)
+            $repeat = @(Add-LegionUserPath -Folder $bin -HomeRoot $fixtureHome)
             Assert-True ($repeat -contains 'skip: shell profile PATH (already done)') "$shell repeat reports the skip"
             Assert-Equal $stamp (Get-Item -Force $profilePath).LastWriteTimeUtc.Ticks "$shell repeat does not rewrite the profile"
             Assert-Equal $index ([IO.File]::ReadAllText((Get-LegionOwnerPath -HomeRoot $fixtureHome -Name Index))) "$shell repeat keeps the index bytes"
-            Assert-Equal $false (Get-SetupPlan -HomeRoot $fixtureHome).NeedsPath "$shell plan reads the profile before a new terminal"
+            Assert-True (Get-LegionShellProfile -HomeRoot $fixtureHome).HasPath "$shell profile is read before a new terminal"
             Remove-Item -LiteralPath (Get-LegionOwnerPath -HomeRoot $fixtureHome -Name Index)
             $null = Add-LegionUserPath -Folder $bin -HomeRoot $fixtureHome
             Assert-Equal 'legion' ((Get-LegionFootprints -HomeRoot $fixtureHome -Kind path-entry).owners -join '|') "$shell repair re-records an existing line"
