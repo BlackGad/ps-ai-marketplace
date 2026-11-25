@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from cli_runner import run
 
-from legion.services.app import installer as _installer
+from legion.services.installation import installer as _installer
 from legion.core import _plugin
 from legion.services import status as status_service
 from legion.services.status import StatusReport, status

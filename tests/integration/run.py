@@ -303,7 +303,7 @@ class Runner:
         return max(versions, key=lambda value: tuple(int(part) for part in value.split(".")[:3]), default=None)
 
     def installed_source_matches(self, tool: str, folder: Path) -> bool:
-        expected = (self.checkout / "plugins/legion/src/legion/services/app/_app.py").read_bytes()
+        expected = (self.checkout / "plugins/legion/src/legion/services/installation/_installed_runtime.py").read_bytes()
         if tool == "copilot":
             try:
                 settings = json.loads((folder / "settings.json").read_text(encoding="utf-8"))
@@ -322,7 +322,7 @@ class Runner:
                 continue
             try:
                 if json.loads(manifest.read_text(encoding="utf-8-sig")).get("name") == "legion":
-                    files.append(manifest.parent / "src/legion/services/app/_app.py")
+                    files.append(manifest.parent / "src/legion/services/installation/_installed_runtime.py")
             except (OSError, ValueError):
                 continue
         return bool(files) and all(path.is_file() and path.read_bytes() == expected for path in files)

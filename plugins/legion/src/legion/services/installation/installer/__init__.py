@@ -16,8 +16,8 @@ import tomlkit
 from tomlkit.items import InlineTable
 
 from legion.services.repository import _footprints
-from legion.services.app import _user_path
-from legion.services.app import _refresh
+from legion.services.installation import _user_path
+from legion.services.installation import _refresh
 from legion.core._generated import is_owned
 from legion.core._home import bin_folder, footprint_index, full_path, home_path, is_reparse, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
 from legion.core._plugin import PLUGIN_ROOT

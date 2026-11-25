@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from legion.services.repository import _footprints
-from legion.services.app import _user_path
+from legion.services.installation import _user_path
 
 LINE = 'export PATH="$HOME/.legion/bin:$PATH"'
 MARKER = "# Added by legion"

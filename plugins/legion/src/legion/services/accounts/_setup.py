@@ -16,11 +16,11 @@ import click
 from pydantic import ValidationError
 
 from legion.services.accounts import _accounts, _launchers
-from legion.services.app import _app, _refresh, _tool_install, installer as _installer
+from legion.services.installation import _installed_runtime, _refresh, _tool_install, installer as _installer
 from legion.services.status import _status
 from legion.services.repository import _footprints
 from legion.core import _generated, _settings_io
-from legion.services.app import _user_path
+from legion.services.installation import _user_path
 from legion.core._home import bin_folder, full_path, home_path, resolve_directory, same_path, settings_path
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._settings_models import Agent, PersonalisationSettings, ToolDescriptor
@@ -268,7 +268,7 @@ def build_plan(home: Path, adds: list[str], account_id: Optional[str]) -> Plan:
     tools = {tool.id: tool for tool in _tool_install.load_tools()}
     accounts = _accounts_plan(adds, account_id, settings, tools, home)
     # Without uv no Python work can run: an account that needs some waits, and the owner is told as its next step.
-    uv_missing = _app.find_uv() is None
+    uv_missing = _installed_runtime.find_uv() is None
     if uv_missing:
         for row in accounts:
             if row.usable and (row.requested or row.missing_launchers):

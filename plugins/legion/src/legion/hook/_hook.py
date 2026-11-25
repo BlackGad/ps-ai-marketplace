@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional, TextIO
 
 from legion.services.repository import _lease
-from legion.services.app import _update
+from legion.services.installation import _update
 from legion.core._plugin import PLUGIN_ROOT
 
 MEMBER = (

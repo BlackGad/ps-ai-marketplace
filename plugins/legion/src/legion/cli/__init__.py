@@ -111,18 +111,18 @@ def update(context: click.Context, check: bool, force: bool, yes: bool) -> None:
     if check and yes:
         raise click.UsageError("--yes cannot be used with --check")
     if check:
-        from legion.services.app import _update
+        from legion.services.installation import _update
 
         for line in _update.check_lines(_plugin.PLUGIN_ROOT, context.obj, force=force):
             click.echo(line)
         return
-    from legion.services.app import installer as _installer
+    from legion.services.installation import installer as _installer
 
     _report_installer(context, lambda: _installer.install(_home.legion_home(context.obj), update=True, yes=yes))
 
 
 def _report_installer(context: click.Context, change: Callable[[], list[str]]) -> None:
-    from legion.services.app.installer import InstallerError
+    from legion.services.installation.installer import InstallerError
     from legion.services.repository._footprints import FootprintError
     from legion.services.accounts._launchers import LauncherError
     from legion.core._settings_io import SettingsError
@@ -147,7 +147,7 @@ def _report_installer(context: click.Context, change: Callable[[], list[str]]) -
 @click.option("--purge", is_flag=True, help="Also remove recorded settings and data; requires --uninstall.")
 @click.pass_context
 def install(context: click.Context, tools: tuple[str, ...], source: str, ref: str, config_dir: Optional[Path], dry_run: bool, yes: bool, update: bool, uninstall: bool, purge: bool) -> None:
-    from legion.services.app import installer as _installer
+    from legion.services.installation import installer as _installer
 
     _report_installer(
         context,
@@ -165,7 +165,7 @@ def install(context: click.Context, tools: tuple[str, ...], source: str, ref: st
 @click.option("--yes", is_flag=True)
 @click.pass_context
 def uninstall(context: click.Context, tools: tuple[str, ...], config_dir: Optional[Path], purge: bool, dry_run: bool, yes: bool) -> None:
-    from legion.services.app import installer as _installer
+    from legion.services.installation import installer as _installer
 
     _report_installer(context, lambda: _installer.install(_home.legion_home(context.obj), list(tools), config_dir=config_dir, dry_run=dry_run, yes=yes, uninstall=True, purge=purge))
 
@@ -546,7 +546,7 @@ def tool() -> None:
 @click.option("--method", type=click.Choice(["winget", "msi", "zip"]), help="Windows only: how to install")
 @click.pass_context
 def tool_install(context: click.Context, tool_id: str, yes: bool, method: Optional[str]) -> None:
-    from legion.services.app._tool_install import ToolInstaller, ToolInstallError, current_platform
+    from legion.services.installation._tool_install import ToolInstaller, ToolInstallError, current_platform
 
     try:
         context.exit(ToolInstaller(_home.legion_home(context.obj), current_platform(), yes, click.echo).install(tool_id, method))
@@ -578,7 +578,7 @@ def foundry_run(context: click.Context, account: str, arguments: tuple[str, ...]
 @main.command("refresh", hidden=True)
 @click.pass_context
 def refresh(context: click.Context) -> None:
-    from legion.services.app._refresh import refresh as change
+    from legion.services.installation._refresh import refresh as change
 
     _report_account(context, lambda: change(_home.legion_home(context.obj)))
 

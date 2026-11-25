@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from legion.services.accounts import _accounts, _launchers
-from legion.services.app import _app
+from legion.services.installation import _installed_runtime
 from legion.core import _settings_io
 from legion.core._home import owner_path_safe, settings_path
 from legion.core._plugin import PLUGIN_ROOT
@@ -28,7 +28,7 @@ def _repair_subscription(agent: Agent, home: Path) -> list[str]:
 
 
 def _write_foundry(agent: Agent, home: Path) -> list[str]:
-    if not _app.ready_versions(home):
+    if not _installed_runtime.ready_versions(home):
         return [f"skip: account {agent.id} ({NOT_READY})"]
     try:
         return _wrote(_launchers.write_foundry(agent, home))
@@ -48,18 +48,18 @@ def refresh(home: Path, source: Path = PLUGIN_ROOT, lock_timeout: float = 60, sk
         for agent in settings.agents if settings else []:
             if agent.provider is None and agent.id not in skip:
                 lines.extend(_repair_subscription(agent, home))
-    with _app.app_lock(home, lock_timeout) as held:
+    with _installed_runtime.app_lock(home, lock_timeout) as held:
         ready = None
         if not held:
             lines.append("skip: legion app sync (another sync is still running; run legion setup again)")
         else:
-            sync_lines, ready = _app.sync_app(home, source)
+            sync_lines, ready = _installed_runtime.sync_app(home, source)
             lines.extend(sync_lines)
             changed = any(line.endswith(" ready") for line in sync_lines)
             if ready is None:
                 lines.append("skip: command legion (the legion app is not ready)")
             else:
-                changed = bool(_app.write_owner_commands(ready, home)) or changed
+                changed = bool(_installed_runtime.write_owner_commands(ready, home)) or changed
             # A failed publish can return the old ready app. Its launchers must keep calling the old runner.
             published = any(line.endswith((" ready", "(already done)", " in place)")) for line in sync_lines)
             with _settings_io.writer(home, require_existing=False):
@@ -68,7 +68,7 @@ def refresh(home: Path, source: Path = PLUGIN_ROOT, lock_timeout: float = 60, sk
                     if agent.provider is not None and agent.provider.kind == "foundry":
                         lines.extend(_write_foundry(agent, home) if published else [f"skip: account {agent.id} ({NOT_READY})"])
         if ready is not None:
-            pruned = _app.prune_old_versions(ready, home)
+            pruned = _installed_runtime.prune_old_versions(ready, home)
             lines.extend(pruned)
             changed = changed or any(line.startswith("removed ") for line in pruned)
     changed = changed or any(line.startswith("wrote:") for line in lines)

@@ -10,13 +10,14 @@ def test_runtime_modules_live_in_packages() -> None:
     assert sorted(path.name for path in PACKAGE.glob("_*.py")) == ["__init__.py", "_self_uninstall.py"]
     assert (PACKAGE / "cli/__init__.py").is_file()
     assert (PACKAGE / "hook/__init__.py").is_file()
-    assert (PACKAGE / "services/app/installer/__init__.py").is_file()
+    assert (PACKAGE / "services/installation/installer/__init__.py").is_file()
+    assert (PACKAGE / "services/installation/_installed_runtime.py").is_file()
 
 
 def test_services_are_grouped_by_area() -> None:
     services = PACKAGE / "services"
     assert sorted(path.name for path in services.glob("*.py")) == ["__init__.py"]
-    for area in ("accounts", "app", "repository", "channels", "foundry", "limits", "status"):
+    for area in ("accounts", "installation", "repository", "channels", "foundry", "limits", "status"):
         assert (services / area / "__init__.py").is_file()
 
 

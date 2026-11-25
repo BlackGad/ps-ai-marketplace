@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from legion.services.app import _app
+from legion.services.installation import _installed_runtime
 
 from conftest import REPO
 
@@ -117,7 +117,7 @@ def home_with_shim(root: Path, name: str, windows: bool) -> tuple[Path, Path, Pa
     bin_folder = home / ".legion" / "bin"
     bin_folder.mkdir(parents=True)
     shim = bin_folder / name
-    shim.write_bytes(_app.shim_text(app, home, windows).encode("utf-8"))
+    shim.write_bytes(_installed_runtime.shim_text(app, home, windows).encode("utf-8"))
     shim.chmod(0o755)
     return home, app, shim
 
@@ -152,7 +152,7 @@ def test_a_batch_command_deleted_while_it_runs_exits_with_uvs_status(tmp_path: P
         "arg:",
         "arg:100%",
         f"arg:{UNICODE}",
-        f"env:{bin_folder}\\..\\python\\{_app.python_environment(app, home).name}",
+        f"env:{bin_folder}\\..\\python\\{_installed_runtime.python_environment(app, home).name}",
         "stdin:typed input",
     ]
     assert log.read_text(encoding="utf-8").splitlines() == expected
@@ -349,7 +349,7 @@ def test_git_bash_uninstall_uses_a_temp_uv_outside_legion_home(tmp_path: Path, f
         pytest.skip("Git Bash was not found")
     home, _, shim = home_with_shim(tmp_path, "legion", False)
     batch = shim.with_name("legion.cmd")
-    batch.write_bytes(_app.shim_text(home / ".legion/app/1.2.3", home, True).encode("utf-8"))
+    batch.write_bytes(_installed_runtime.shim_text(home / ".legion/app/1.2.3", home, True).encode("utf-8"))
     installed_uv = shim.parent / "uv.exe"
     shutil.copy2(fake_uv_folder / "uv.exe", installed_uv)
     temp = tmp_path / "temp with spaces"
@@ -389,7 +389,7 @@ def test_the_shell_command_runs_uv_and_passes_the_status_on(tmp_path: Path, fake
     assert result.stdout.decode().strip() == "live output"
     lines = [line for line in log.read_text(encoding="utf-8").splitlines() if not line.startswith("stdin:")]
     expected = ["arg:run", "arg:--project", f"arg:{app}", "arg:--frozen", "arg:--quiet", "arg:legion", "arg:--home", f"arg:{home}", "arg:status", "arg:two words"]
-    assert lines == [*expected, f"env:{_app.python_environment(app, home)}"]
+    assert lines == [*expected, f"env:{_installed_runtime.python_environment(app, home)}"]
 
 
 @pytest.mark.skipif(WINDOWS, reason="the shell command's uv lookup is proven by Git Bash on Windows through the same text")
@@ -424,7 +424,7 @@ def test_public_command_preserves_failed_overseer_launch_exit(tmp_path: Path, pw
     bin_folder = home / ".legion" / "bin"
     bin_folder.mkdir(parents=True)
     shim = bin_folder / ("legion.cmd" if WINDOWS else "legion")
-    shim.write_bytes(_app.shim_text(app, home, WINDOWS).encode("utf-8"))
+    shim.write_bytes(_installed_runtime.shim_text(app, home, WINDOWS).encode("utf-8"))
     shim.chmod(0o755)
     uv_folder = tmp_path / "fake-uv"
     uv_folder.mkdir()

@@ -14,7 +14,7 @@ from legion.core import _process
 from legion.core._generated import is_owned
 from legion.core._home import home_path
 from legion.core._settings_models import ChannelDescriptor, PersonalisationSettings, PluginManifest, ToolDescriptor
-from legion.services.app._update import compare_versions
+from legion.services.installation._update import compare_versions
 from legion.core._validate import load_descriptors, read_text
 
 if TYPE_CHECKING:

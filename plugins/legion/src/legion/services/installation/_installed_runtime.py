@@ -18,7 +18,7 @@ from legion.core._generated import header, is_owned, shell_literal, write_genera
 from legion.core._home import bin_folder, full_path, home_path, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import run_command
-from legion.services.app._update import compare_versions
+from legion.services.installation._update import compare_versions
 
 UV_MISSING = "uv is missing. Ask the owner before installing it, then run the legion installer again."
 MARKER = ".legion-app-ready"

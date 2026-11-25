@@ -201,9 +201,9 @@ def remove_owner(home: Path, owners: list[str]) -> list[str]:
                     shutil.rmtree(full_path(path))
                 else:
                     path.unlink()
-        # App imports footprint helpers, so load its cleanup only after the index is ready.
-        app = importlib.import_module("legion.services.app._app")
-        changed = app._remove_orphan_app(home, kept, lines) or changed
+        # Installed runtime imports footprint helpers, so load its cleanup only after the index is ready.
+        installed_runtime = importlib.import_module("legion.services.installation._installed_runtime")
+        changed = installed_runtime._remove_orphan_app(home, kept, lines) or changed
         if changed:
             _write(home, data.model_copy(update={"entries": kept}))
     return lines

@@ -9,7 +9,7 @@ from app_fakes import MARKER, VERSION, FakeUv, make_link, make_source, old_app
 from filelock import FileLock
 from launcher_fakes import ready_app
 
-from legion.services.app import _app, _refresh
+from legion.services.installation import _installed_runtime, _refresh
 from legion.services.accounts import _launchers
 from legion.core import _settings_io
 from legion.core._home import settings_path
@@ -129,16 +129,16 @@ def test_refresh_does_the_steps_in_order_so_launchers_move_before_the_old_versio
 
         return call
 
-    monkeypatch.setattr(_refresh._app, "sync_app", recorded("sync", _app.sync_app))
-    monkeypatch.setattr(_refresh._app, "write_owner_commands", recorded("commands", _app.write_owner_commands))
+    monkeypatch.setattr(_refresh._installed_runtime, "sync_app", recorded("sync", _installed_runtime.sync_app))
+    monkeypatch.setattr(_refresh._installed_runtime, "write_owner_commands", recorded("commands", _installed_runtime.write_owner_commands))
     monkeypatch.setattr(_refresh._launchers, "write_foundry", recorded("foundry", _refresh._launchers.write_foundry))
-    monkeypatch.setattr(_refresh._app, "prune_old_versions", recorded("prune", _app.prune_old_versions))
+    monkeypatch.setattr(_refresh._installed_runtime, "prune_old_versions", recorded("prune", _installed_runtime.prune_old_versions))
     lines = run(tmp_path)
     assert order == ["sync", "commands", "foundry", "prune"]
     assert "removed legion app 0.0.1" in lines
     new = tmp_path / ".legion" / "app" / VERSION
     launcher = (tmp_path / ".legion" / "bin" / "claude-a").read_text(encoding="utf-8")
-    assert str(_app.python_environment(new, tmp_path)) in launcher
+    assert str(_installed_runtime.python_environment(new, tmp_path)) in launcher
     assert len(uv.calls) == 1
 
 
@@ -195,7 +195,7 @@ def test_failed_first_upgrade_keeps_a_working_old_foundry_launcher(tmp_path: Pat
 def test_refresh_uses_current_settings_after_sync(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ready_app(tmp_path)
     foundry_settings(tmp_path, ["claude-a"])
-    real = _app.sync_app
+    real = _installed_runtime.sync_app
 
     def remove_during_sync(home: Path, source: Path) -> tuple[list[str], Path | None]:
         with _settings_io.writer(home):
@@ -204,7 +204,7 @@ def test_refresh_uses_current_settings_after_sync(tmp_path: Path, monkeypatch: p
             _settings_io.save_locked(home, settings)
         return real(home, source)
 
-    monkeypatch.setattr(_refresh._app, "sync_app", remove_during_sync)
+    monkeypatch.setattr(_refresh._installed_runtime, "sync_app", remove_during_sync)
     run(tmp_path)
     assert not (tmp_path / ".legion" / "bin" / "claude-a").exists()
 
@@ -230,7 +230,7 @@ def test_a_linked_app_folder_is_refused_before_anything_is_written(tmp_path: Pat
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     make_link(tmp_path / "home" / ".legion" / "app", elsewhere)
-    with pytest.raises(_app.AppError, match="link"):
+    with pytest.raises(_installed_runtime.AppError, match="link"):
         run(tmp_path / "home")
     assert list(elsewhere.iterdir()) == []
 
@@ -239,7 +239,7 @@ def test_a_linked_legion_folder_is_refused_before_settings_lock(tmp_path: Path) 
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     make_link(tmp_path / "home" / ".legion", elsewhere)
-    with pytest.raises((_app.AppError, _settings_io.SettingsError), match="link"):
+    with pytest.raises((_installed_runtime.AppError, _settings_io.SettingsError), match="link"):
         run(tmp_path / "home")
     assert list(elsewhere.iterdir()) == []
 
@@ -248,13 +248,13 @@ def test_refresh_repairs_subscription_launchers_before_the_app_is_published(tmp_
     ready_app(tmp_path)
     foundry_settings(tmp_path, [])
     order: list[str] = []
-    real = _app.sync_app
+    real = _installed_runtime.sync_app
 
     def sync(*arguments: Any, **keywords: Any) -> Any:
         order.append("sync")
         return real(*arguments, **keywords)
 
-    monkeypatch.setattr(_refresh._app, "sync_app", sync)
+    monkeypatch.setattr(_refresh._installed_runtime, "sync_app", sync)
     monkeypatch.setattr(_refresh, "_repair_subscription", lambda *_arguments: order.append("repair") or [])
     settings_path(tmp_path).write_text(json.dumps({"schemaVersion": 1, "agents": [{"id": "codex-a", "tool": "codex", "configDir": str(tmp_path / "c")}], "channels": []}), encoding="utf-8")
     run(tmp_path)

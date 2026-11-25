@@ -15,10 +15,10 @@ from filelock import FileLock, Timeout
 from launcher_fakes import WINDOWS, fake_cli, only_on_path
 
 from legion.services.accounts import _accounts, _launchers, _setup
-from legion.services.app import _app, installer as _installer, _refresh, _tool_install
+from legion.services.installation import _installed_runtime, installer as _installer, _refresh, _tool_install
 from legion.services.status import _status
 from legion.services.repository import _footprints
-from legion.services.app import _user_path
+from legion.services.installation import _user_path
 from legion.core._home import bin_folder, footprint_index, settings_path
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._settings_models import ToolDescriptor
@@ -286,7 +286,7 @@ def test_missing_uv_is_a_plan_line_and_a_next_step_but_no_python_work(bench: Ben
     for path in bench.launcher_paths("broken-a"):
         path.unlink()
     calls: list[str] = []
-    bench.monkeypatch.setattr(_app, "find_uv", lambda: None)
+    bench.monkeypatch.setattr(_installed_runtime, "find_uv", lambda: None)
     bench.monkeypatch.setattr(_accounts, "add_subscription", lambda *args: calls.append(args[1]) or [])
     assert "  uv       missing; ask the owner before installing it" in bench.preview()
     output = bench.apply()
@@ -612,7 +612,7 @@ def test_a_cli_found_only_on_the_saved_path_counts_as_installed(bench: Bench) ->
 def test_the_owner_command_is_published_and_rewritten_when_it_is_ours_and_old(bench: Bench) -> None:
     command = bin_folder(bench.home)
     command.mkdir(parents=True)
-    stale = _app.shim_text(Path("/gone/app/0.0.1"), bench.home, windows=False).replace(' "$@"', ' --keep "$@"')
+    stale = _installed_runtime.shim_text(Path("/gone/app/0.0.1"), bench.home, windows=False).replace(' "$@"', ' --keep "$@"')
     (command / "legion").write_text(stale, encoding="utf-8")
     bench.apply()
     rewritten = (command / "legion").read_text(encoding="utf-8")
