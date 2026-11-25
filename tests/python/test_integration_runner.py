@@ -506,6 +506,44 @@ def test_upgrade_advances_origin_without_changing_reader(tmp_path: Path) -> None
     assert instance.run(["git", "--git-dir", str(origin), "show", "stable:new.py"]) == "candidate source"
 
 
+def test_old_install_runs_from_seed_checkout(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    candidate = instance.checkout
+    upgrade = runner.Runner(candidate, instance.work / "upgrade/home", instance.out / "candidate", False)
+    instance.state["candidate"] = upgrade
+    seed = upgrade.work / "old-seed"
+    app = upgrade.home / ".legion/app/0.17.0"
+    projects = []
+
+    def fixture_git(argv: list[str], **_kwargs: Any) -> str:
+        if argv[:2] == ["git", "clone"]:
+            (seed / "plugins/legion").mkdir(parents=True)
+        return "old-revision\trefs/heads/stable" if "ls-remote" in argv else ""
+
+    def fixture_cli(argv: list[str], **_kwargs: Any) -> str:
+        if "--project" in argv:
+            projects.append(Path(argv[argv.index("--project") + 1]))
+            (app / ".legion-app-ready").parent.mkdir(parents=True, exist_ok=True)
+            (app / ".legion-app-ready").touch()
+            return "installed"
+        if "ls-remote" in argv:
+            return "old-revision\trefs/heads/stable"
+        if "-I" in argv:
+            return json.dumps({"root": str(app)})
+        return "Install legion"
+
+    instance.run = fixture_git
+    upgrade.run = fixture_cli
+    upgrade.command = lambda _name: "uv"
+    upgrade.listing = lambda *_args: True
+    upgrade.version = lambda *_args: "0.17.0"
+    upgrade.owner_shims = list
+    instance.install_old()
+
+    assert projects == [seed / "plugins/legion"] * len(runner.TOOLS)
+    assert upgrade.checkout == candidate
+
+
 def test_client_command_rejects_another_installed_home(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
     outside = instance.work / "another-home/bin"

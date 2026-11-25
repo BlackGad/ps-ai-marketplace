@@ -602,11 +602,16 @@ class Runner:
         upgrade.configure_disposable_origin(origin)
         require(upgrade.run(["git", "ls-remote", "https://github.com/BlackGad/ps-legion-marketplace.git", "refs/heads/stable"]).endswith("refs/heads/stable"), "disposable Git URL did not resolve")
         self.state["origin"] = origin
-        for tool in TOOLS:
-            upgrade.targets[tool] = (MARKETPLACE, "release")
-            upgrade.install_legion(tool)
-            require(upgrade.listing(tool, upgrade.folder(tool)), f"{tool}: old plugin not enabled")
-            require(upgrade.version(tool, upgrade.folder(tool)) == "0.17.0", f"{tool}: old install not proven")
+        candidate_checkout = upgrade.checkout
+        upgrade.checkout = seed
+        try:
+            for tool in TOOLS:
+                upgrade.targets[tool] = (MARKETPLACE, "release")
+                upgrade.install_legion(tool)
+                require(upgrade.listing(tool, upgrade.folder(tool)), f"{tool}: old plugin not enabled")
+                require(upgrade.version(tool, upgrade.folder(tool)) == "0.17.0", f"{tool}: old install not proven")
+        finally:
+            upgrade.checkout = candidate_checkout
         app = upgrade.home / ".legion/app/0.17.0"
         require((app / ".legion-app-ready").is_file(), "old app not ready")
         python = upgrade.app_python(app)
