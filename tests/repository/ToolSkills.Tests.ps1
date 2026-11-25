@@ -47,6 +47,8 @@ $taskLoop = Get-Content (Join-Path $skills 'legion-overseer/references/task-loop
 $routing = [regex]::Match($taskLoop, '(?s)## Default routing.*?## First legion dispatch').Value
 Assert-True ($routing -match 'no favorite account and no fixed rotation' -and $routing -match 'distinct agents' -and $routing -match 'different provider' -and $routing -match 'same provider' -and $routing -match 'tool-enforced read-only') 'Default routing keeps one rule for distinct, provider-diverse reviews'
 Assert-True ($routing -match 'always win') 'Default routing keeps owner choices first'
+Assert-True ($routing -match 'only for the roles they name' -and $routing -match 'names only the coding agent' -and $routing -match 'must be distinct' -and $routing -match 'resolve the conflict') 'Reviewer independence applies when the owner names only the coding agent'
+Assert-True ($reviews -match 'settle only the roles they name' -and $reviews -notmatch 'Without preferences' -and $reviews -match 'always distinct') 'Reviews apply defaults to roles the owner left open'
 foreach ($file in @('SKILL.md', 'references/reviews.md', 'references/task-loop.md')) {
     $text = Get-Content (Join-Path $skills "legion-overseer/$file") -Raw
     Assert-True ($text.Contains('default routing')) "Overseer $file points to default routing"
