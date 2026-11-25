@@ -949,7 +949,8 @@ def _confirm(question: str, lines: list[str]) -> bool:
         print(line)
     lines.clear()
     try:
-        return input(question + " ").strip().lower() in ("y", "yes")
+        print(question, flush=True)
+        return input().strip().lower() in ("y", "yes")
     except EOFError:
         return False
 

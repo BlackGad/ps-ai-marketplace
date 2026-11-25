@@ -109,6 +109,7 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "install-cli-codex",
         "install-cli-copilot",
         "install-legion",
+        "update-legion",
         "setup",
         "add",
         "remove",
@@ -122,6 +123,57 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "restore-launchers",
         "purge",
     ]
+
+
+def test_update_uses_owner_command_and_checkout_on_both_runs(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    expected = json.loads((instance.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
+    calls = []
+    instance.active = lambda: ["codex"]
+    instance.legion = lambda *args, **kwargs: calls.append((args, kwargs)) or f"Update legion for codex\nskip: legion {expected} (already up to date)"
+    instance.version = lambda _tool, _folder: expected
+    instance.installed_source_matches = lambda _tool, _folder: True
+    instance.home_snapshot = dict
+    instance.update(False)
+    instance.update(True)
+    assert calls == [
+        (("install", "--update", "--source", str(instance.checkout), "--yes"), {"owner": True}),
+        (("install", "--update", "--source", str(instance.checkout), "--yes"), {"owner": True}),
+    ]
+
+
+def test_update_rejects_a_release_instead_of_the_checkout(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    expected = json.loads((instance.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
+    instance.active = lambda: ["codex"]
+    instance.legion = lambda *_args, **_kwargs: f"Update legion for codex\nskip: legion {expected} (already up to date)"
+    instance.version = lambda _tool, _folder: expected
+    instance.installed_source_matches = lambda _tool, _folder: False
+    with pytest.raises(AssertionError, match="checkout"):
+        instance.update(False)
+
+
+def test_installed_source_check_rejects_different_plugin_bytes(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    root = instance.folder("codex") / instance.catalog["codex"]["plugin"]["installedRoot"] / "1.2.3"
+    source = root / "src/legion/_app.py"
+    source.parent.mkdir(parents=True)
+    (root / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
+    source.write_bytes((instance.checkout / "plugins/legion/src/legion/_app.py").read_bytes())
+    assert instance.installed_source_matches("codex", instance.folder("codex"))
+    source.write_text("release copy", encoding="utf-8")
+    assert not instance.installed_source_matches("codex", instance.folder("codex"))
+
+
+def test_first_purge_uses_owner_command_repeat_uses_bootstrap(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    instance.targets_for_uninstall = lambda **_kwargs: []
+    instance.legion = lambda *args, **kwargs: "done: purge" if args == ("uninstall", "--purge", "--yes") and kwargs == {"owner": True} else pytest.fail("wrong first purge")
+    instance.run = lambda argv, **_kwargs: "skip: purge (already done)" if "--purge" in argv or "-Purge" in argv else pytest.fail("wrong repeat purge")
+    instance.profile_count = lambda: 0
+    instance.cli = lambda *_args, **_kwargs: ""
+    instance.purge(False)
+    instance.purge(True)
 
 
 def test_no_ci_writes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -261,17 +313,17 @@ def test_repeat_purge_uses_bootstrap_after_owned_uv_was_removed(tmp_path: Path) 
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows cannot delete a running uv.exe")
-def test_first_windows_purge_uses_bootstrap_uv_copy(tmp_path: Path) -> None:
+def test_first_windows_purge_uses_owner_command(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
     instance.targets_for_uninstall = lambda **_kwargs: []
     instance.profile_count = lambda: 0
     instance.cli = lambda *_args: ""
     calls: list[list[str]] = []
-    instance.run = lambda argv, **_kwargs: calls.append(argv) or "done: purge"
-    instance.legion = lambda *_args, **_kwargs: pytest.fail("purge ran the installed uv.exe")
+    instance.run = lambda *_args, **_kwargs: pytest.fail("first purge ran bootstrap")
+    instance.legion = lambda *args, **kwargs: calls.append([*args, str(kwargs)]) or "done: purge"
     instance.purge(False)
     assert len(calls) == 1
-    assert Path(calls[0][0]).name == "powershell.exe"
+    assert calls[0] == ["uninstall", "--purge", "--yes", "{'owner': True}"]
 
 
 def test_version_orders_semantic_parts(tmp_path: Path) -> None:
