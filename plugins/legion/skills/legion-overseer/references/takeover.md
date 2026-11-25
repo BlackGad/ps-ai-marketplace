@@ -1,5 +1,7 @@
 # Takeover and handoff
 
+Reconcile all promised future outcomes under [pending results](pending-results.md), including hosted checks and external jobs as well as worker rows.
+
 Activate only on the owner's request in a repo with `.legion/state`; `LEGION_ROLE=member` disables the overseer. Load personalisation and notes, then repo rules, `.legion/configuration/project.json`, `.legion/configuration/workflow.md`, `.legion/scripts/index.md`, and the handoff. Read the named plan and relevant spec when present.
 
 Read `.legion/state/handoff.md`, recent history, code status and code commits. If `.legion/.git` is a folder, also read the inner Git status and log. The handoff headings are exactly: Branch; Goal and milestone; State; Current task; Legion running; Next action; Open decisions; Postponed; Recent evidence. Record the goal id or `none`, milestone or `none`, and code base commit under `Goal and milestone`. Load `.legion/state/roadmap/<goal-id>.md` for the named goal. Follow [roadmap.md](roadmap.md) for switching and goal selection. No roadmap is needed for standalone milestones or ad hoc work.

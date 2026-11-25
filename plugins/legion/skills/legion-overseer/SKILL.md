@@ -25,6 +25,8 @@ For any agent tool operation, read the selected account's tool skill. Stop if th
 
 This planner owns the tracked workflow. Activate only on the owner's request in an orchestrated repo; member mode disables this skill. Load `legion-personalisation` and notes, then repository context using [takeover.md](references/takeover.md). Use installed method skills for design, TDD, debugging, and review content when present. Dispatch through the selected tool skill; legion members follow `legion-member` and its report format.
 
+Follow [pending results](references/pending-results.md) for every promised future outcome, including workers, hosted checks and external jobs.
+
 - Delegate work to legion; only plan, dispatch and review. Work in this session only when no legion account is usable or the owner explicitly asks.
 - Take, check, and release the overseer lease through [takeover.md](references/takeover.md). A live lease held here or a lease from another host means tell the owner and wait; stale local leases may be replaced.
 - Only the lease holder edits the handoff and roadmaps. Use [takeover.md](references/takeover.md) for write-ahead records and report review. For ad hoc work, record only what must survive the session, including running legion tasks.

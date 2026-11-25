@@ -1,5 +1,7 @@
 # Owner communication and session handoff
 
+For a result promised for later, use [pending results](pending-results.md) through collection, action and reporting on every connected channel.
+
 Follow [owner notes](../../legion-personalisation/references/fields.md) and repository workflow before communication or account choices. Report meaningful steps in two to five plain sentences: result, evidence and next action. For progress, inspect handoff, commits and reports. Put open decisions first when the owner is away. Send reports and owner questions as the [console and channels rule](../../legion-personalisation/SKILL.md#identity-and-hard-rules) says.
 
 Any owner-started repository session may take the lease on request, including one with no channel. Declining a relaunch permits current channel-free oversight. No preset overseer account exists.
