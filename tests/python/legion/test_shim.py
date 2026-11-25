@@ -176,7 +176,7 @@ def test_uninstall_runs_a_temp_copy_when_uv_is_in_legion_home(tmp_path: Path, fa
     _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
     installed_uv = shim.parent / "uv.exe"
     shutil.copy2(fake_uv_folder / "uv.exe", installed_uv)
-    temp = tmp_path / "temp"
+    temp = tmp_path / "temp with spaces"
     temp.mkdir()
     log = tmp_path / "uv.log"
     environment = child_environment(shim.parent, log, code, delete=installed_uv) | {"TEMP": str(temp), "TMP": str(temp), "FAKE_UV_NO_STDIN": "1", "LEGION_UV_COPY": "caller value"}
@@ -185,7 +185,66 @@ def test_uninstall_runs_a_temp_copy_when_uv_is_in_legion_home(tmp_path: Path, fa
     assert not installed_uv.exists()
     assert "_self_uninstall.py" in log.read_text(encoding="utf-8")
     assert list(temp.iterdir()) == []
-    assert environment["LEGION_UV_COPY"] == "caller value"
+
+
+@pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
+@pytest.mark.parametrize("code", [0, 3])
+@pytest.mark.parametrize("prior_copy", [None, "caller value"])
+def test_uninstall_preserves_the_calling_cmd_environment(tmp_path: Path, fake_uv_folder: Path, code: int, prior_copy: str | None) -> None:
+    _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
+    temp = tmp_path / "temp with spaces"
+    temp.mkdir()
+    environment = child_environment(fake_uv_folder, tmp_path / "uv.log", code) | {
+        "TEMP": str(temp),
+        "TMP": str(temp),
+        "FAKE_UV_NO_STDIN": "1",
+        "ERRORLEVEL": "9",
+        "LEGION_TEST_SHIM": str(shim),
+    }
+    if prior_copy is None:
+        environment.pop("LEGION_UV_COPY", None)
+    else:
+        environment["LEGION_UV_COPY"] = prior_copy
+    script = '"%LEGION_TEST_SHIM%" uninstall --yes <nul\r\necho after %errorlevel% copy=[%LEGION_UV_COPY%] project=[%UV_PROJECT_ENVIRONMENT%]\r\nexit'
+    result = cmd("cmd /d /q /k", environment, script)
+    observed_copy = prior_copy if prior_copy is not None else "%LEGION_UV_COPY%"
+    assert f"after 9 copy=[{observed_copy}] project=[caller value]".encode() in result.stdout
+    assert result.returncode == code
+    assert (tmp_path / "uv.log").is_file()
+    assert list(temp.iterdir()) == []
+
+
+@pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
+def test_concurrent_uninstalls_use_separate_temporary_uv_copies(tmp_path: Path, fake_uv_folder: Path) -> None:
+    _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
+    temp = tmp_path / "temp with spaces"
+    temp.mkdir()
+    processes: list[subprocess.Popen[bytes]] = []
+    logs = [tmp_path / f"uv-{index}.log" for index in range(2)]
+    for log in logs:
+        environment = child_environment(fake_uv_folder, log, 0) | {"TEMP": str(temp), "TMP": str(temp), "FAKE_UV_NO_STDIN": "1"}
+        processes.append(subprocess.Popen(f'"{COMSPEC}" /d /s /c ""{shim}" uninstall --yes"', stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment))
+    for process in processes:
+        output, error = process.communicate(timeout=10)
+        assert process.returncode == 0, output + error
+    assert all(log.is_file() for log in logs)
+    copies = [log.read_text(encoding="utf-8").split("arg:--uv-copy\narg:", 1)[1].splitlines()[0] for log in logs]
+    assert copies[0] != copies[1]
+    assert list(temp.iterdir()) == []
+
+
+@pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
+def test_uninstall_reports_an_unusable_temp_folder(tmp_path: Path, fake_uv_folder: Path) -> None:
+    _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
+    temp = tmp_path / "not a directory"
+    temp.write_text("foreign file", encoding="utf-8")
+    log = tmp_path / "uv.log"
+    environment = child_environment(fake_uv_folder, log, 0) | {"TEMP": str(temp), "TMP": str(temp)}
+    result = cmd(f'"{shim}" uninstall --yes', environment)
+    assert result.returncode == 1, (result.stdout, result.stderr)
+    assert b"Cannot create temporary uv folder" in result.stderr
+    assert not log.exists()
+    assert temp.read_text(encoding="utf-8") == "foreign file"
 
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
@@ -280,6 +339,35 @@ def git_bash() -> Path | None:
     # Named from the install folders, not searched on PATH, so a lookup regression cannot reach a tool by accident.
     roots = [os.environ.get(name) for name in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)")]
     return next((path for path in (Path(root) / "Git" / "bin" / "bash.exe" for root in roots if root) if path.is_file()), None)
+
+
+@pytest.mark.skipif(not WINDOWS, reason="Git Bash purge is Windows only")
+@pytest.mark.parametrize("code", [0, 3])
+def test_git_bash_uninstall_uses_a_temp_uv_outside_legion_home(tmp_path: Path, fake_uv_folder: Path, code: int) -> None:
+    bash = git_bash()
+    if bash is None:
+        pytest.skip("Git Bash was not found")
+    home, _, shim = home_with_shim(tmp_path, "legion", False)
+    batch = shim.with_name("legion.cmd")
+    batch.write_bytes(_app.shim_text(home / ".legion/app/1.2.3", home, True).encode("utf-8"))
+    installed_uv = shim.parent / "uv.exe"
+    shutil.copy2(fake_uv_folder / "uv.exe", installed_uv)
+    temp = tmp_path / "temp with spaces"
+    temp.mkdir()
+    log = tmp_path / "uv.log"
+    environment = child_environment(shim.parent, log, code, delete=installed_uv) | {
+        "TEMP": str(temp),
+        "TMP": str(temp),
+        "FAKE_UV_NO_STDIN": "1",
+        "LEGION_UV_COPY": "caller value",
+        "ERRORLEVEL": "9",
+    }
+    script = f'PATH="$(cygpath -u "{shim.parent}"):$PATH"; "$(cygpath -u "{shim}")" uninstall --purge --yes'
+    result = subprocess.run([str(bash), "-c", script], capture_output=True, stdin=subprocess.DEVNULL, env=environment, check=False)
+    assert result.returncode == code, result.stdout + result.stderr
+    assert not installed_uv.exists()
+    assert "_self_uninstall.py" in log.read_text(encoding="utf-8")
+    assert list(temp.iterdir()) == []
 
 
 @pytest.mark.parametrize("code", [0, 3])
