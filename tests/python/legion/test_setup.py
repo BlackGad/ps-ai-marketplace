@@ -14,11 +14,12 @@ from cli_runner import run
 from filelock import FileLock, Timeout
 from launcher_fakes import WINDOWS, fake_cli, only_on_path
 
-from legion import _accounts, _app, _footprints, _installer, _launchers, _refresh, _setup, _status, _tool_install, _user_path
-from legion._home import bin_folder, footprint_index, settings_path
-from legion._plugin import PLUGIN_ROOT
-from legion._settings_models import ToolDescriptor
-from legion._validate import load_descriptors
+from legion.services import _accounts, _app, installer as _installer, _launchers, _refresh, _setup, _status, _tool_install
+from legion.core import _footprints, _user_path
+from legion.core._home import bin_folder, footprint_index, settings_path
+from legion.core._plugin import PLUGIN_ROOT
+from legion.core._settings_models import ToolDescriptor
+from legion.core._validate import load_descriptors
 
 REAL_INSTALL_TOOL = _setup.install_tool
 REAL_INSTALL_PLUGIN = _setup.install_plugin

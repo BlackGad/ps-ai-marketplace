@@ -11,9 +11,11 @@ import pytest
 from click.testing import CliRunner
 from filelock import FileLock
 
-from legion import _app, _cli, _footprints, _installer, _user_path
-from legion._generated import header
-from legion._run import RunResult
+from legion.services import _app, installer as _installer
+from legion import cli as _cli
+from legion.core import _footprints, _user_path
+from legion.core._generated import header
+from legion.core._run import RunResult
 from app_fakes import FakeUv, make_source
 
 if os.name == "nt":

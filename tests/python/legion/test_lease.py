@@ -12,16 +12,9 @@ from typing import Optional
 
 import pytest
 
-from legion import _lease
-from legion._lease import (
-    Lease,
-    LeaseError,
-    lease_path,
-    release,
-    state,
-    take,
-)
-from legion._process import process_started_at
+from legion.services import _lease
+from legion.services._lease import Lease, LeaseError, lease_path, release, state, take
+from legion.core._process import process_started_at
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEAD_PID = 99_999_999

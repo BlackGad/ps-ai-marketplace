@@ -5,8 +5,8 @@ from typing import Any, Optional
 
 import pytest
 
-from legion import _bridge
-from legion._telegram import TelegramError
+from legion.services import _bridge
+from legion.services._telegram import TelegramError
 
 BOT_KEY = "123456:secret-token"
 

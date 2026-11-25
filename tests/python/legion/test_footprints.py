@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from legion import _footprints
-from legion._settings_models import ToolDescriptor
-from legion._validate import load_descriptors
+from legion.core import _footprints
+from legion.core._settings_models import ToolDescriptor
+from legion.core._validate import load_descriptors
 
 if sys.platform == "win32":
     import _winapi

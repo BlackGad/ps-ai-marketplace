@@ -15,9 +15,11 @@ from typing import Any, cast
 import pytest
 from cli_runner import run
 
-from legion import _bridge, _channel, _cli, _home, _lease, _overseer, _repository, _run, _settings_io, _validate
-from legion._settings_models import Agent, PersonalisationSettings
-from legion.limits import LimitRow
+from legion.services import _bridge, _channel, _lease, _overseer, _repository
+from legion import cli as _cli
+from legion.core import _home, _run, _settings_io, _validate
+from legion.core._settings_models import Agent, PersonalisationSettings
+from legion.services.limit_probes import LimitRow
 from legion.services import limits as limits_service
 
 
@@ -467,7 +469,7 @@ def test_launched_overseer_requires_limits_ids_and_preserves_owner_shell(home: P
         calls.append((command, kwargs))
         if command[0] == "wt.exe":
             # Exercise the actual module entry used by a new terminal tab.
-            assert command[1:7] == ["new-tab", "-d", str(repo), sys.executable, "-m", "legion._overseer"]
+            assert command[1:7] == ["new-tab", "-d", str(repo), sys.executable, "-m", "legion.services._overseer"]
             assert command[7] == str(repo)
             assert _overseer.Launch.model_validate_json(base64.urlsafe_b64decode(command[8])) == launch
             with monkeypatch.context() as entry:
@@ -618,7 +620,7 @@ def test_windows_batch_uses_existing_literal_transport(repo: Path, monkeypatch: 
 
 def test_python_module_bridge_needs_no_uv(home: Path, repo: Path) -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "legion._cli", "--home", str(home), "telegram", "bridge", "--channel", "main", "--repo", str(repo)],
+        [sys.executable, "-m", "legion.cli", "--home", str(home), "telegram", "bridge", "--channel", "main", "--repo", str(repo)],
         env={**os.environ, "PATH": ""},
         capture_output=True,
         text=True,

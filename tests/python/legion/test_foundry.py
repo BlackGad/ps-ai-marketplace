@@ -11,19 +11,20 @@ from pathlib import Path
 import pytest
 from cli_runner import run
 
-from legion import _accounts, _launchers, _settings_io
-from legion._home import settings_path
-from legion._settings_models import Agent, Deployment, Provider, ToolDescriptor
-from legion._settings_io import SettingsError
-from legion._validate import load_descriptors
-from legion.foundry import _discovery, claude, codex
-from legion.foundry import _run
-from legion.foundry._az import AzAccessToken
-from legion.foundry import _az, copilot
-from legion.foundry._types import Launch, ProviderFile
+from legion.services import _accounts, _launchers
+from legion.core import _settings_io
+from legion.core._home import settings_path
+from legion.core._settings_models import Agent, Deployment, Provider, ToolDescriptor
+from legion.core._settings_io import SettingsError
+from legion.core._validate import load_descriptors
+from legion.services.foundry import _discovery, claude, codex
+from legion.services.foundry import _run
+from legion.services.foundry._az import AzAccessToken
+from legion.services.foundry import _az, copilot
+from legion.services.foundry._types import Launch, ProviderFile
 from launcher_fakes import ready_app
 from test_limits import write_executable
-from legion.foundry._discovery import DiscoveredDeployment, FoundryDiscovery, listing, standard
+from legion.services.foundry._discovery import DiscoveredDeployment, FoundryDiscovery, listing, standard
 
 
 def codex_agent(folder: Path) -> Agent:
@@ -104,9 +105,9 @@ def test_foundry_add_discovers_before_settings_lock(tmp_path: Path, monkeypatch:
     monkeypatch.setattr(_discovery, "discover", discover)
     monkeypatch.setattr(_settings_io, "writer", writer)
     monkeypatch.setattr(_accounts, "check_new_id", lambda *_args: None)
-    monkeypatch.setattr("legion.foundry.claude.configure", lambda *_args: False)
-    monkeypatch.setattr("legion._launchers.write_foundry", lambda *_args: [])
-    monkeypatch.setattr("legion._launchers.plan_foundry", lambda *_args: {})
+    monkeypatch.setattr("legion.services.foundry.claude.configure", lambda *_args: False)
+    monkeypatch.setattr("legion.services._launchers.write_foundry", lambda *_args: [])
+    monkeypatch.setattr("legion.services._launchers.plan_foundry", lambda *_args: {})
     _accounts.add_foundry(home, "claude-a", "claude", "https://example.test", ["gpt-4"], "gpt-4", [], False, False)
     assert events[:2] == ["discover", "lock"]
 
@@ -322,7 +323,7 @@ def test_invalid_foundry_alias_does_not_write_tool_config(tmp_path: Path, monkey
         ],
     )
     monkeypatch.setattr(_discovery, "discover", lambda *_args: discovery)
-    monkeypatch.setattr("legion._launchers.plan_foundry", lambda *_args: {})
+    monkeypatch.setattr("legion.services._launchers.plan_foundry", lambda *_args: {})
     with pytest.raises(SettingsError, match="alias"):
         _accounts.add_foundry(home, "claude-a", "claude", "https://example.test", ["claude-opus-1", "claude-opus-2"], "claude-opus-1", ["claude-opus-1=opus", "claude-opus-2=opus"], False, False)
     assert not (home / ".legion" / "agents" / "claude-a" / "settings.json").exists()
@@ -506,7 +507,7 @@ def test_models_uses_fresh_settings_after_discovery(tmp_path: Path, monkeypatch:
 
     monkeypatch.setattr(_discovery, "discover", discover)
     monkeypatch.setattr(_accounts, "recipe", lambda _agent: SimpleNamespace(configure=lambda *_args: False))
-    monkeypatch.setattr("legion._launchers.write_foundry", lambda *_args: [])
+    monkeypatch.setattr("legion.services._launchers.write_foundry", lambda *_args: [])
     _accounts.models(home, "claude-a", ["claude-a"], "claude-a", None, False, False)
     assert json.loads(path.read_text(encoding="utf-8"))["agents"][0]["provider"]["deployments"][0]["alias"] == "sonnet"
 

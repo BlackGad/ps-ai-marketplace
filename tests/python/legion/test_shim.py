@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from legion import _app
+from legion.services import _app
 
 from conftest import REPO
 
@@ -414,7 +414,7 @@ def test_public_command_preserves_failed_overseer_launch_exit(tmp_path: Path, pw
     (repo / ".legion" / "configuration").mkdir(parents=True)
     (settings / "personalisation.json").write_text(json.dumps({"schemaVersion": 1, "agents": [{"id": "codex-a", "tool": "codex", "configDir": "~/.codex"}], "channels": []}), encoding="utf-8")
     (repo / ".legion" / "configuration" / "project.json").write_text('{"schemaVersion":1}', encoding="utf-8")
-    overseer = app / "src" / "legion" / "_overseer.py"
+    overseer = app / "src" / "legion" / "services" / "_overseer.py"
     source = overseer.read_text(encoding="utf-8")
     # The fixture changes only the installed copy's launch, so the public command still crosses both real entry points.
     source = source.replace("    process = start_bridge(launch, repo)", "    return 5\n    process = start_bridge(launch, repo)")

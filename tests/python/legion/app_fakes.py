@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from legion import _app, _footprints
-from legion._run import RunResult
+from legion.services import _app
+from legion.core import _footprints
+from legion.core._run import RunResult
 
 if sys.platform == "win32":
     import _winapi

@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 from cli_runner import run
 
-from legion import _installer, _plugin
+from legion.services import installer as _installer
+from legion.core import _plugin
 from legion.services import status as status_service
 from legion.services.status import StatusReport, status
 
@@ -84,12 +85,13 @@ def test_relative_home_is_absolute_before_a_verb_receives_it(tmp_path: Path, mon
 def test_help_does_not_import_command_modules() -> None:
     script = (
         "import sys\n"
-        "from legion import _cli\n"
+        "from legion import cli as _cli\n"
         "try:\n"
         "    _cli.main(['--help'])\n"
         "except SystemExit:\n"
         "    pass\n"
-        "loaded = [name for name in ('legion._bridge', 'legion._telegram', 'legion._inbox', 'legion._validate', 'legion._settings_models', 'pydantic', 'asyncio') if name in sys.modules]\n"
+        "loaded = [name for name in ('legion.services._bridge', 'legion.services._telegram', 'legion.services._inbox', "
+        "'legion.core._validate', 'legion.core._settings_models', 'pydantic', 'asyncio') if name in sys.modules]\n"
         "assert not loaded, loaded\n"
     )
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)

@@ -11,15 +11,9 @@ from typing import Any
 
 import pytest
 
-from legion import _hook, _lease, _update
-from legion._hook import (
-    FAILURE,
-    MEMBER,
-    MEMBER_WITHOUT_TASK,
-    HookInput,
-    mode_text,
-    session_folder,
-)
+from legion.hook import _hook
+from legion.services import _lease, _update
+from legion.hook._hook import FAILURE, MEMBER, MEMBER_WITHOUT_TASK, HookInput, mode_text, session_folder
 
 HOOK = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "hooks" / "session_start.py"
 ORCHESTRATED = "legion: this repo is orchestrated. Say continue to act as the overseer."
@@ -233,7 +227,7 @@ def test_cached_hook_does_not_import_filelock(repo: Path) -> None:
         json.dumps({"Source": "BlackGad/ps-legion-marketplace", "CheckedAt": datetime.now(UTC).isoformat(), "Available": "0.0.0", "Failed": False}),
         encoding="utf-8",
     )
-    script = "import sys; from legion._hook import mode_text; from pathlib import Path; mode_text(Path(sys.argv[1]), {}); print('filelock' in sys.modules)"
+    script = "import sys; from legion.hook._hook import mode_text; from pathlib import Path; mode_text(Path(sys.argv[1]), {}); print('filelock' in sys.modules)"
     result = subprocess.run([sys.executable, "-c", script, str(repo)], capture_output=True, text=True, check=True)
     assert result.stdout == "False\n"
 

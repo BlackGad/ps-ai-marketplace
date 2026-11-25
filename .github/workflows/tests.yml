@@ -68,7 +68,7 @@ jobs:
       - run: uv run --project plugins/legion --frozen --group dev ruff check plugins/legion/src tests/python tests/integration
       - run: uv run --project plugins/legion --frozen --group dev ruff format --check plugins/legion/src tests/python tests/integration
       - run: uv run --project plugins/legion --frozen --group dev pyright
-      - run: uv run --project plugins/legion --frozen --group dev pytest --rootdir=. -c plugins/legion/pyproject.toml
+      - run: uv run --project plugins/legion --frozen --group dev pytest
 
   parse-5-1:
     runs-on: windows-2025

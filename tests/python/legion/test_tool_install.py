@@ -15,12 +15,13 @@ from typing import Any, Optional
 import pytest
 from cli_runner import run
 
-from legion import _tool_install, _user_path
-from legion._footprints import read as read_footprints
-from legion._plugin import PLUGIN_ROOT
-from legion._run import RunResult
-from legion._settings_models import InstallRecipe, ScriptDownload, ToolDescriptor
-from legion._tool_install import ToolInstaller, ToolInstallError
+from legion.services import _tool_install
+from legion.core import _user_path
+from legion.core._footprints import read as read_footprints
+from legion.core._plugin import PLUGIN_ROOT
+from legion.core._run import RunResult
+from legion.core._settings_models import InstallRecipe, ScriptDownload, ToolDescriptor
+from legion.services._tool_install import ToolInstaller, ToolInstallError
 
 if os.name == "nt":
     import _winapi

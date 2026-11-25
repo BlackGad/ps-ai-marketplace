@@ -11,13 +11,9 @@ from typing import Optional
 import pytest
 from cli_runner import run
 
-from legion import (
-    _lease,
-    _process,
-    _status,
-    _validate,
-)
-from legion._settings_models import ChannelDescriptor, PersonalisationSettings, ToolDescriptor
+from legion.services import _lease, _status
+from legion.core import _process, _validate
+from legion.core._settings_models import ChannelDescriptor, PersonalisationSettings, ToolDescriptor
 from legion.services.status import status
 from legion.services import status as status_service
 

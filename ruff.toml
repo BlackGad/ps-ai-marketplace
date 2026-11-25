@@ -171,8 +171,8 @@ suppress-dummy-args = true
 suppress-none-returning = true
 
 [lint.per-file-ignores]
-"plugins/legion/src/legion/_cli.py" = ["PLC0415"]
-"plugins/legion/src/legion/_update.py" = ["PLC0415"]
-"plugins/legion/src/legion/_installer.py" = ["C901", "PLC0415"]
+"plugins/legion/src/legion/cli/__init__.py" = ["PLC0415"]
+"plugins/legion/src/legion/services/_update.py" = ["PLC0415"]
+"plugins/legion/src/legion/services/installer/__init__.py" = ["C901", "PLC0415"]
 "plugins/legion/src/**" = ["S603"]
 "tests/python/**" = ["S603"]

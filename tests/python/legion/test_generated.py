@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from legion import _generated
+from legion.core import _generated
 
 
 def test_generated_file_ownership_and_repeat(tmp_path: Path) -> None:

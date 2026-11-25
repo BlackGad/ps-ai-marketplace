@@ -14,13 +14,10 @@ import pytest
 
 from cli_runner import run
 from launcher_fakes import agent, tool
-from legion import _inbox, _launchers
-from legion._home import wrapper_command
-from legion._inbox import (
-    InboxMessage,
-    repo_key,
-)
-from legion._run import RunResult, _cmd_line
+from legion.services import _inbox, _launchers
+from legion.core._home import wrapper_command
+from legion.services._inbox import InboxMessage, repo_key
+from legion.core._run import RunResult, _cmd_line
 
 windows_only = pytest.mark.skipif(os.name != "nt", reason="account launchers are .cmd files on Windows only")
 

@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from cli_runner import run
-from legion import _lease
-from legion._lease import lease_path
+from legion.services import _lease
+from legion.services._lease import lease_path
 
 DEAD_PID = 99_999_999
 

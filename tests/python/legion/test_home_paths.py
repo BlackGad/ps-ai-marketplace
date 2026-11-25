@@ -7,8 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from legion import _app, _footprints
-from legion._home import full_path, is_under, owner_path_safe, resolve_directory, same_path
+from legion.services import _app
+from legion.core import _footprints
+from legion.core._home import full_path, is_under, owner_path_safe, resolve_directory, same_path
 
 if sys.platform == "win32":
     import _winapi

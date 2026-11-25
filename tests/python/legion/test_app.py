@@ -6,8 +6,9 @@ from typing import Any
 import pytest
 from filelock import FileLock
 
-from legion import _app, _footprints
-from legion._generated import is_owned, shell_literal
+from legion.services import _app
+from legion.core import _footprints
+from legion.core._generated import is_owned, shell_literal
 
 from app_fakes import MARKER, VERSION, FakeUv, make_link, make_source, old_app
 

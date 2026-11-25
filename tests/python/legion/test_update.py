@@ -14,7 +14,8 @@ from typing import Any
 import pytest
 from cli_runner import run
 
-from legion import _plugin, _update
+from legion.core import _plugin
+from legion.services import _update
 
 SOURCE = "BlackGad/ps-legion-marketplace"
 URL = f"https://raw.githubusercontent.com/{SOURCE}/stable/plugins/legion/plugin.json"
@@ -267,7 +268,8 @@ def test_stalled_download_deadline_through_process_exit(plugin: Path, tmp_path: 
     script = """
 import sys, time, urllib.request
 from pathlib import Path
-from legion import _cli, _plugin
+from legion import cli as _cli
+from legion.core import _plugin
 class Response:
     def __enter__(self): return self
     def __exit__(self, *args): pass
@@ -302,7 +304,7 @@ import sys
 import threading
 from pathlib import Path
 before = set(sys.modules)
-from legion._update import get_update
+from legion.services._update import get_update
 assert get_update(Path(sys.argv[1]), Path(sys.argv[2])) is not None
 assert not any(name in sys.modules for name in ('urllib.request', 'click', 'pydantic'))
 assert not any(name.startswith('urllib') for name in set(sys.modules) - before)
