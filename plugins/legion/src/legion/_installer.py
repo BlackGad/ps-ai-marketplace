@@ -16,12 +16,15 @@ import tomlkit
 from tomlkit.items import InlineTable
 
 from . import _footprints, _refresh, _user_path
+from ._generated import is_owned
 from ._home import bin_folder, footprint_index, full_path, home_path, is_reparse, is_under, owner_path_safe, same_path, tree_has_reparse
 from ._plugin import PLUGIN_ROOT
 from ._run import run_command
 
 
 DEFAULT_SOURCE = "BlackGad/ps-legion-marketplace"
+# Owns the command and app that install published when no coding CLI exists, so a full uninstall can retire them.
+STANDALONE_OWNER = "standalone"
 
 
 class InstallerError(ValueError):
@@ -781,11 +784,28 @@ def _owner(entry: dict[str, Any], folder: Path) -> str:
     return _footprints.target_owner(entry["id"], folder)
 
 
-def _refresh_target(entry: dict[str, Any], folder: Path, home: Path, root: Path) -> list[str]:
-    owner = _owner(entry, folder)
-    for name in ["legion", "legion.cmd"] if sys.platform == "win32" else ["legion"]:
+def _command_names() -> list[str]:
+    return ["legion", "legion.cmd"] if sys.platform == "win32" else ["legion"]
+
+
+def _record_commands(home: Path, owner: str) -> None:
+    for name in _command_names():
         _footprints.add(home, "file", bin_folder(home) / name, owner)
     _footprints.add(home, "app", home / ".legion/app", owner)
+
+
+# Older releases published the command without an owner. Returns its generated files so a full uninstall can retire them.
+def _unrecorded_commands(home: Path) -> list[Path]:
+    records = _footprints.read(home).entries
+    if not any(entry.kind == "app-version" for entry in records) or any(entry.kind == "app" for entry in records):
+        return []
+    recorded = [home_path(entry.path, home) for entry in records if entry.kind == "file"]
+    commands = [bin_folder(home) / name for name in _command_names()]
+    return [path for path in commands if path.is_file() and is_owned(path, "owner command") and not any(same_path(path, item) for item in recorded)]
+
+
+def _refresh_target(entry: dict[str, Any], folder: Path, home: Path, root: Path) -> list[str]:
+    _record_commands(home, _owner(entry, folder))
     return _refresh.refresh(home, source=root)
 
 
@@ -877,6 +897,7 @@ def install(
             return [*lines, "Nothing changed. Run again with --yes to apply."]
         ensure_path(home, dry_run, lines)
         if not dry_run:
+            _record_commands(home, STANDALONE_OWNER)
             lines.extend(_refresh.refresh(home, source=PLUGIN_ROOT))
         return lines
     if update:
@@ -1047,10 +1068,21 @@ def _uninstall(home: Path, catalog: dict[str, Any], selected: list[str], config_
             lines.extend(_command_line(entry, arguments, folder) for _, arguments in steps)
             if cache:
                 lines.append(f"Remove cache folder: {cache}")
+    adopted: list[Path] = []
+    if {entry["id"] for entry in catalog["tools"]} <= set(selected):
+        # A full uninstall also retires the command that install published without a coding CLI.
+        owners.append(STANDALONE_OWNER)
+        adopted = _unrecorded_commands(home)
+        if adopted and not dry_run:
+            for path in adopted:
+                _footprints.add(home, "file", path, STANDALONE_OWNER)
+            _footprints.add(home, "app", home / ".legion/app", STANDALONE_OWNER)
+        elif adopted:
+            lines.extend(f"Remove file: {path}" for path in adopted)
     recorded = [record for record in _footprints.read(home).entries if not record.owners or any(_footprints.same_owner(owner, selected_owner) for owner in record.owners for selected_owner in owners)]
     lines.extend(preview_owned(home, owners))
     lines.append("Channel plugins and their state remain in place.")
-    if not targets and not recorded:
+    if not targets and not recorded and not adopted:
         lines.append("Nothing to uninstall.")
         return
     if dry_run:
@@ -1075,10 +1107,11 @@ def _uninstall(home: Path, catalog: dict[str, Any], selected: list[str], config_
 
 
 def refresh_remaining(home: Path, catalog: dict[str, Any], lines: list[str]) -> None:
-    commands = [entry for entry in _footprints.read(home).entries if entry.kind == "file" and entry.path == "~/.legion/bin/legion" and entry.owners]
-    if not commands:
+    commands = [entry for entry in _footprints.read(home).entries if entry.kind == "file" and entry.path == "~/.legion/bin/legion"]
+    target_owners = [owner for entry in commands for owner in entry.owners if owner != STANDALONE_OWNER]
+    if not target_owners:
         return
-    owner = commands[0].owners[0]
+    owner = target_owners[0]
     if ":" not in owner:
         raise InstallerError("Invalid target owner in footprint record")
     tool_id, folder = owner.split(":", 1)

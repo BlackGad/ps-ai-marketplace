@@ -46,6 +46,77 @@ def test_no_coding_cli_installs_owner_command_without_plugin(tmp_path: Path, mon
     assert len(uv.calls) == 1
 
 
+def _command_only_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    home = tmp_path / "home"
+    source = make_source(tmp_path)
+    FakeUv(monkeypatch)
+    monkeypatch.setattr(_installer, "PLUGIN_ROOT", source)
+    monkeypatch.setattr(_installer, "ensure_path", lambda _home, _dry_run, _lines: None)
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: "uv" if name == "uv" else None)
+    _installer.install(home, yes=True, catalog=catalog())
+    command = home / ".legion/bin" / ("legion.cmd" if sys.platform == "win32" else "legion")
+    return home, command
+
+
+def test_command_only_install_uninstalls_purges_and_repeats(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    assert any(entry.kind == "file" and entry.owners for entry in _footprints.read(home).entries)
+    preview = _installer.install(home, uninstall=True, dry_run=True, catalog=catalog())
+    assert command.is_file()
+    assert any(f"Remove file: {command}" in line for line in preview)
+
+    lines = _installer.install(home, uninstall=True, purge=True, yes=True, catalog=catalog())
+    assert not command.exists()
+    assert not (home / ".legion/app").exists()
+    assert not (home / ".legion").exists()
+    assert "done: purge" in lines
+    repeat = _installer.install(home, uninstall=True, purge=True, yes=True, catalog=catalog())
+    assert "Nothing to uninstall." in repeat
+
+
+def test_command_only_install_from_an_older_release_is_adopted_by_uninstall(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    # Older releases recorded the app version and PATH entry but no owner for the command or the app folder.
+    for entry in _footprints.read(home).entries:
+        if entry.kind in ("file", "app"):
+            _footprints.remove_entry(home, entry.kind, entry.path)
+    assert not [entry for entry in _footprints.read(home).entries if entry.kind in ("file", "app")]
+    _installer.install(home, uninstall=True, purge=True, yes=True, catalog=catalog())
+    assert not command.exists()
+    assert not (home / ".legion").exists()
+
+
+def test_older_record_with_a_foreign_command_file_removes_nothing_foreign(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    for entry in _footprints.read(home).entries:
+        if entry.kind in ("file", "app"):
+            _footprints.remove_entry(home, entry.kind, entry.path)
+    command.write_text("owner script", encoding="utf-8")
+    _installer.install(home, uninstall=True, yes=True, catalog=catalog())
+    assert command.read_text(encoding="utf-8") == "owner script"
+
+
+def test_partial_uninstall_keeps_the_command_a_command_only_install_owns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    lines = _installer.install(home, tools=["codex"], uninstall=True, yes=True, catalog=catalog())
+    assert command.is_file()
+    assert any(entry.kind == "app-version" for entry in _footprints.read(home).entries)
+    assert not any("Remove app version" in line for line in lines)
+
+
+def test_command_only_uninstall_keeps_another_owners_command_and_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, command = _command_only_install(tmp_path, monkeypatch)
+    owner = f"claude:{tmp_path / 'claude-a'}"
+    _footprints.add(home, "file", command, owner)
+    _footprints.add(home, "app", home / ".legion/app", owner)
+    _installer.install(home, tools=["codex"], uninstall=True, yes=True, catalog=catalog())
+    assert command.is_file()
+    # Only the standalone owner leaves; the other owner keeps the command and the app version.
+    _footprints.remove_owner(home, [_installer.STANDALONE_OWNER])
+    assert command.is_file()
+    assert any(entry.kind == "app-version" for entry in _footprints.read(home).entries)
+
+
 def test_no_coding_cli_declined_command_install_changes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_installer.shutil, "which", lambda _name: None)
     monkeypatch.setattr(_installer, "_confirm", lambda _question, _lines: False)
