@@ -595,15 +595,15 @@ class Runner:
         upgrade = self.state["candidate"]
         seed = upgrade.work / "old-seed"
         origin = upgrade.work / "origin.git"
-        reader = upgrade.work / "old-source"
-        self.run(["git", "clone", "--quiet", "--depth", "1", "--branch", "v0.17.0", "https://github.com/BlackGad/ps-legion-marketplace.git", str(seed)])
+        self.run(["git", "clone", "--quiet", "--branch", "v0.17.0", "https://github.com/BlackGad/ps-legion-marketplace.git", str(seed)])
         self.run(["git", "init", "--bare", "--quiet", str(origin)])
         self.run(["git", "--git-dir", str(origin), "config", "core.longpaths", "true"])
         self.run(["git", "--git-dir", str(origin), "fetch", "--quiet", str(seed), "HEAD:refs/heads/stable"])
-        self.run(["git", "-c", "core.longpaths=true", "clone", "--quiet", "--branch", "stable", str(origin), str(reader)])
-        upgrade.checkout = reader
+        upgrade.configure_disposable_origin(origin)
+        require(upgrade.run(["git", "ls-remote", "https://github.com/BlackGad/ps-legion-marketplace.git", "refs/heads/stable"]).endswith("refs/heads/stable"), "disposable Git URL did not resolve")
         self.state["origin"] = origin
         for tool in TOOLS:
+            upgrade.targets[tool] = (MARKETPLACE, "release")
             upgrade.install_legion(tool)
             require(upgrade.listing(tool, upgrade.folder(tool)), f"{tool}: old plugin not enabled")
             require(upgrade.version(tool, upgrade.folder(tool)) == "0.17.0", f"{tool}: old install not proven")
@@ -614,6 +614,13 @@ class Runner:
         require(Path(identity["root"]).resolve() == app.resolve(), "old launcher environment uses the wrong checkout")
         contains(upgrade.legion("--help", owner=True), "Install legion")
         self.state["old_shims"] = {path.name: path.read_bytes() for path in upgrade.owner_shims()}
+
+    def configure_disposable_origin(self, origin: Path) -> None:
+        remote = "https://github.com/BlackGad/ps-legion-marketplace"
+        for index, suffix in enumerate((".git", "")):
+            self.env[f"GIT_CONFIG_KEY_{index}"] = f"url.{origin.as_uri()}.insteadOf"
+            self.env[f"GIT_CONFIG_VALUE_{index}"] = remote + suffix
+        self.env["GIT_CONFIG_COUNT"] = "2"
 
     def owner_shims(self) -> list[Path]:
         return [self.launcher("legion"), self.launcher("legion").with_suffix("")] if WINDOWS else [self.launcher("legion")]
@@ -649,12 +656,16 @@ class Runner:
         self.run(["git", "-C", str(publisher), "add", "-A"])
         self.run(["git", "-C", str(publisher), "commit", "--quiet", "-m", "candidate fixture"])
         self.run(["git", "--git-dir", str(self.state["origin"]), "fetch", "--quiet", str(publisher), "+HEAD:refs/heads/stable"])
+        require(
+            upgrade.run(["git", "ls-remote", "https://github.com/BlackGad/ps-legion-marketplace.git", "refs/heads/stable"]).split()[0]
+            == self.run(["git", "--git-dir", str(self.state["origin"]), "rev-parse", "stable"]),
+            "candidate origin did not advance",
+        )
         # This is deliberately the installed old command. No checkout CLI or repair runs first.
         output = upgrade.legion("update", "--yes", owner=True)
         for tool in TOOLS:
             contains(output, f"Update legion for {tool}")
             require(upgrade.version(tool, upgrade.folder(tool)) == self.candidate_version, f"{tool}: upgrade was skipped")
-            upgrade.targets[tool] = (str(upgrade.checkout), "release")
         for path in upgrade.owner_shims():
             require(path.read_bytes() != self.state["old_shims"][path.name], f"{path.name}: old launcher remains")
             contains(path.read_text(encoding="utf-8"), self.candidate_version)
@@ -670,12 +681,12 @@ class Runner:
             settings = json.loads((self.folder(tool) / "settings.json").read_text(encoding="utf-8"))
             require(settings["enabledPlugins"].get("legion@ps-legion-marketplace") is True, "Copilot candidate is not enabled")
             source = settings["extraKnownMarketplaces"]["ps-legion-marketplace"]["source"]
-            require(source["source"] == "directory", "Copilot live marketplace root is not a directory")
-            root = Path(source["path"])
-            manifest = json.loads((root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
-            plugins = [root / item["source"] for item in manifest["plugins"] if item.get("name") == "legion"]
-            require(len(plugins) == 1, f"Copilot candidate root is ambiguous: {plugins}")
-            return plugins[0]
+            if source["source"] == "directory":
+                root = Path(source["path"])
+                manifest = json.loads((root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+                plugins = [root / item["source"] for item in manifest["plugins"] if item.get("name") == "legion"]
+                require(len(plugins) == 1, f"Copilot candidate root is ambiguous: {plugins}")
+                return plugins[0]
         root = self.folder(tool) / self.catalog[tool]["plugin"]["installedRoot"]
         matches = []
         for path in root.rglob("plugin.json"):
@@ -688,7 +699,8 @@ class Runner:
         return matches[0]
 
     def check_candidate_bytes(self, root: Path) -> None:
-        source = self.checkout / "plugins/legion"
+        source = self.state.get("candidate_source", self.checkout / "plugins/legion")
+        require(root.resolve() != source.resolve(), "candidate reader is the staged source")
         files = [*source.rglob("*.py"), source / ".mcp.json", source / "plugin.json", *source.glob("hooks/*.json")]
         for path in files:
             target = root / path.relative_to(source)
@@ -706,6 +718,7 @@ class Runner:
 
     def verify_candidate(self) -> None:
         upgrade = self.state["candidate"]
+        upgrade.state["candidate_source"] = self.work / "candidate/plugins/legion"
         app = upgrade.home / ".legion/app" / self.candidate_version
         require((app / ".legion-app-ready").is_file(), "candidate app not ready")
         upgrade.check_candidate_bytes(app)
@@ -759,9 +772,9 @@ class Runner:
         if tool == "claude":
             output = self.cli(tool, ["mcp", "list"])
             evidence["output"] = output
-            lines = [line.strip() for line in output.splitlines() if re.match(r"^\s*legion\s*:", line, re.IGNORECASE)]
+            lines = [line.strip() for line in output.splitlines() if re.match(r"^\s*(?:plugin:legion:)?legion\s*:", line, re.IGNORECASE)]
             evidence["discovered"] = bool(lines)
-            evidence["launched"] = any(re.search(r":\s*connected\s*$", line, re.IGNORECASE) for line in lines)
+            evidence["launched"] = any(re.search(r"(?:-|:)\s*[√✓]\s*Connected\s*$", line, re.IGNORECASE) for line in lines)
             evidence["limitation"] = "mcp list health check proves initialization only; no nonbillable direct tool-call API exercised"
         elif tool == "copilot":
             output = self.cli(tool, ["mcp", "list", "--json"])
@@ -788,12 +801,7 @@ class Runner:
                     updates = [item["params"]["update"] for item in connection.pending if item.get("method") == "session/update" and item.get("params", {}).get("sessionId") == session_id]
                     health = "".join(update.get("content", {}).get("text", "") for update in updates if update.get("sessionUpdate") == "agent_message_chunk")
                     evidence["session_health"] = health
-                    evidence["launched"] = result.get("stopReason") == "end_turn" and any(
-                        re.match(r"^\s*(?:[-*]\s*)?legion(?:\s|:|\()", line, re.IGNORECASE)
-                        and re.search(r"\b(?:connected|ready)\b", line, re.IGNORECASE)
-                        and not re.search(r"\bnot\s+(?:connected|ready)\b", line, re.IGNORECASE)
-                        for line in health.splitlines()
-                    )
+                    evidence["launched"] = result.get("stopReason") == "end_turn" and self.copilot_health(health)
                     evidence["limitation"] = "ACP /mcp list health proves initialization only; no client status tool call"
                 else:
                     evidence["limitation"] += "; ACP /mcp command was not advertised for this session"
@@ -829,6 +837,14 @@ class Runner:
             finally:
                 connection.close()
         return evidence
+
+    def copilot_health(self, health: str) -> bool:
+        return any(
+            re.match(r"^\s*(?:[-*]\s*)?legion(?:\s|:|\()", line, re.IGNORECASE)
+            and re.search(r"\b(?:connected|ready)\b", line, re.IGNORECASE)
+            and not re.search(r"\b(?:not|never)\s+(?:yet\s+)?(?:connected|ready)\b", line, re.IGNORECASE)
+            for line in health.splitlines()
+        )
 
     def prove_clients(self) -> list[str]:
         evidence = []
@@ -1271,13 +1287,16 @@ class Runner:
         candidate_blocked = ""
         (self.out / "logs").mkdir(parents=True, exist_ok=True)
         for name, action in self.steps():
-            if name == "install-legion":
-                blocked = ""
             for repeat in (False, True):
                 start = time.monotonic()
                 self.log = []
                 result, message = "passed", ""
-                reason = candidate_blocked if name == "update-from-0.17.0" else blocked
+                if name == "update-from-0.17.0":
+                    reason = candidate_blocked
+                elif name == "candidate-client-evidence":
+                    reason = ""
+                else:
+                    reason = blocked
                 if reason:
                     result, message = "skipped", reason
                 else:

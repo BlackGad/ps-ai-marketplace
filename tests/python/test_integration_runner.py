@@ -74,6 +74,7 @@ def test_command_path_survives_trap(tmp_path: Path) -> None:
         assert Path(instance.command("vendor")).parent == folder
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows cmd shim")
 def test_windows_npm_prefix_shim_is_on_child_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runner, "WINDOWS", True)
     instance = make_runner(tmp_path)
@@ -83,6 +84,18 @@ def test_windows_npm_prefix_shim_is_on_child_path(tmp_path: Path, monkeypatch: p
     assert str(prefix) in instance.env["PATH"].split(os.pathsep)
     instance.env["PATH"] = str(prefix)
     assert Path(instance.command("copilot")).parent == prefix
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX executable shim")
+def test_posix_npm_shim_requires_executable_file(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    prefix = instance.home / ".local/bin"
+    prefix.mkdir(parents=True)
+    shim = prefix / "copilot"
+    shim.write_text("#!/bin/sh\n", encoding="utf-8")
+    shim.chmod(0o755)
+    instance.env["PATH"] = str(prefix)
+    assert Path(instance.command("copilot")) == shim
 
 
 def test_candidate_version_advances_a_release_checkout() -> None:
@@ -321,10 +334,17 @@ def test_copilot_candidate_root_comes_from_enabled_host_setting(tmp_path: Path) 
 
 def test_claude_discovery_requires_exact_identity_and_ready_state(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
-    instance.cli = lambda *_args: "other-legion: connected\nlegion: disconnected"
+    instance.cli = lambda *_args: "other-legion: legion mcp - √ Connected\nplugin:legion:legion: legion mcp - × Failed to connect"
     evidence = instance.probe_client("claude")
     assert evidence["discovered"]
     assert not evidence["launched"]
+    instance.cli = lambda *_args: "Checking MCP server health…\n\nplugin:legion:legion: legion mcp - √ Connected"
+    assert instance.probe_client("claude")["launched"]
+
+
+def test_copilot_health_rejects_not_yet_connected(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    assert not instance.copilot_health("legion not yet connected")
 
 
 def test_codex_inventory_requires_exact_ready_legion() -> None:
@@ -339,6 +359,13 @@ def test_candidate_client_failure_does_not_block_repeat_or_install(tmp_path: Pat
     instance.steps = lambda: [("update-from-0.17.0", lambda _repeat: (_ for _ in ()).throw(AssertionError("first command failed"))), ("install-legion", lambda _repeat: "installed")]
     cases = instance.execute()
     assert [case.result for case in cases] == ["failed", "skipped", "passed", "passed"]
+
+
+def test_candidate_evidence_is_reported_after_independent_purge_failure(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    instance.state["client_missing"] = ["copilot"]
+    instance.steps = lambda: [("purge", lambda _repeat: (_ for _ in ()).throw(AssertionError("purge failed"))), ("candidate-client-evidence", instance.candidate_client_evidence)]
+    assert [case.result for case in instance.execute()] == ["failed", "skipped", "failed", "failed"]
 
 
 def test_client_gap_is_reported_after_independent_candidate_checks(tmp_path: Path) -> None:
@@ -360,6 +387,45 @@ def test_same_version_wrong_hook_or_server_bytes_are_rejected(tmp_path: Path, re
     (root / relative).write_text("foreign source", encoding="utf-8")
     with pytest.raises(AssertionError, match="checkout mismatch"):
         instance.check_candidate_bytes(root)
+
+
+def test_candidate_bytes_use_independent_staging(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    staged = instance.work / "candidate/plugins/legion"
+    shutil.copytree(instance.checkout / "plugins/legion", staged)
+    reader = instance.work / "reader"
+    shutil.copytree(staged, reader)
+    (reader / "hooks/session_start.py").write_text("wrong reader", encoding="utf-8")
+    instance.state["candidate_source"] = staged
+    instance.checkout = reader
+    with pytest.raises(AssertionError, match="checkout mismatch"):
+        instance.check_candidate_bytes(reader)
+
+
+def test_supported_git_source_rewrites_to_disposable_origin_and_fetches(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    seed = instance.work / "seed"
+    seed.mkdir()
+    instance.run(["git", "-C", str(seed), "init", "--quiet"])
+    instance.run(["git", "-C", str(seed), "config", "user.name", "fixture"])
+    instance.run(["git", "-C", str(seed), "config", "user.email", "fixture@example.invalid"])
+    (seed / "sentinel").write_text("old", encoding="utf-8")
+    instance.run(["git", "-C", str(seed), "add", "sentinel"])
+    instance.run(["git", "-C", str(seed), "commit", "--quiet", "-m", "old"])
+    origin = instance.work / "origin.git"
+    instance.run(["git", "init", "--bare", "--quiet", str(origin)])
+    instance.run(["git", "--git-dir", str(origin), "fetch", str(seed), "HEAD:refs/heads/stable"])
+    instance.configure_disposable_origin(origin)
+    result = instance.run(["git", "ls-remote", "https://github.com/BlackGad/ps-legion-marketplace.git", "refs/heads/stable"])
+    assert result.endswith("refs/heads/stable")
+    reader = instance.work / "reader"
+    instance.run(["git", "clone", "--quiet", "--branch", "stable", "https://github.com/BlackGad/ps-legion-marketplace.git", str(reader)])
+    assert (reader / "sentinel").read_text(encoding="utf-8") == "old"
+    (seed / "sentinel").write_text("new", encoding="utf-8")
+    instance.run(["git", "-C", str(seed), "commit", "--quiet", "-am", "new"])
+    instance.run(["git", "--git-dir", str(origin), "fetch", str(seed), "+HEAD:refs/heads/stable"])
+    instance.run(["git", "-C", str(reader), "fetch", "origin", "stable"])
+    assert instance.run(["git", "-C", str(reader), "show", "FETCH_HEAD:sentinel"]) == "new"
 
 
 def test_client_readiness_notifications_are_not_lost_while_awaiting_rpc() -> None:
@@ -416,6 +482,7 @@ def test_upgrade_advances_origin_without_changing_reader(tmp_path: Path) -> None
     reader = upgrade.work / "old-source"
     instance.run(["git", "clone", "--quiet", "--branch", "stable", str(origin), str(reader)])
     upgrade.checkout = reader
+    upgrade.configure_disposable_origin(origin)
     instance.state["origin"] = origin
     upgrade.launcher("legion").parent.mkdir(parents=True)
     for path in upgrade.owner_shims():
