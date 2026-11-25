@@ -153,11 +153,9 @@ def shim_home_argument(home: Path, windows: bool) -> str:
 # Windows: cmd reads a batch file in the console code page, so the text stays ASCII: the command lives in
 # <home>/.legion/bin and finds the app, its environment and the home from its own folder (%~dp0).
 # One line sets the environment, runs uv and ends the batch with (goto), so a command that an
-# update rewrites while it runs still ends cleanly. Then, in the caller's context, it restores the caller's
-# value and a child cmd exits with uv's code. `exit /b` there would close an interactive console, and
-# %errorlevel% can be a caller's variable; the hidden %=ExitCode% (uv's code in hex) is neither. No
-# setlocal: its end would reset %=ExitCode%.
-# Uninstall uses the same-line tail because its child removes this batch file before returning.
+# update rewrites while it runs still ends cleanly. The hidden %=ExitCode% is uv's real code even
+# when the caller has an ERRORLEVEL variable. The shell command on Windows delegates uninstall
+# to the batch cleanup path. Its FOR variable keeps the copied uv out of the caller's environment.
 def shim_text(app: Path, home: Path, windows: bool) -> str:
     environment = python_environment(app, home)
     home_argument = shim_home_argument(home, windows)
@@ -165,27 +163,36 @@ def shim_text(app: Path, home: Path, windows: bool) -> str:
         lines = [
             header("owner command", True),
             f"@where /q uv || (>&2 echo {UV_MISSING}& exit /b 127)",
-            '@if /i "%~1"=="uninstall" set "LEGION_UV_COPY=%TEMP%\\legion-uninstall-%RANDOM%-%RANDOM%.exe"',
-            '@if /i "%~1"=="uninstall" if exist "%LEGION_UV_COPY%" (>&2 echo Temporary uv path already exists & exit /b 1)',
-            '@if /i "%~1"=="uninstall" for %%U in (uv.exe) do @copy /b "%%~$PATH:U" "%LEGION_UV_COPY%" >nul',
-            (
-                f'@if /i "%~1"=="uninstall" ("%LEGION_UV_COPY%" run --no-project --python ">=3.12" "%~dp0..\\app\\{app.name}\\src\\legion\\_self_uninstall.py" "%~dp0..\\app\\{app.name}" %* & '
-                '(goto) 2>nul & "%COMSPEC%" /d /c "set /a LEGION_EXIT=0x%%=ExitCode%% >nul & del /q ""%LEGION_UV_COPY%"" & call exit %%^LEGION_EXIT%%")'
-            ),
+            '@if /i "%~1"=="uninstall" goto uninstall',
             (
                 f'@set "UV_PROJECT_ENVIRONMENT=%~dp0..\\python\\{environment.name}" & uv run --project "%~dp0..\\app\\{app.name}" --frozen --quiet legion{home_argument} %* & (goto) 2>nul & '
                 'set "UV_PROJECT_ENVIRONMENT=%UV_PROJECT_ENVIRONMENT%" & "%COMSPEC%" /d /c "set /a LEGION_EXIT=0x%%=ExitCode%% >nul & call exit %%^LEGION_EXIT%%"'
             ),
+            ":uninstall",
+            (
+                '@for %%T in ("%TEMP%\\legion-uninstall-%RANDOM%-%RANDOM%") do @(md "%%~T" 2>nul || (if exist "%%~T" (goto uninstall) else (goto temp_error)) & '
+                'for %%U in (uv.exe) do @copy /b "%%~$PATH:U" "%%~T\\uv.exe" >nul & '
+                f'"%%~T\\uv.exe" run --no-project --python ">=3.12" "%~dp0..\\app\\{app.name}\\src\\legion\\_self_uninstall.py" "%~dp0..\\app\\{app.name}" --uv-copy "%%~T\\uv.exe" %* & '
+                '(goto) 2>nul & "%COMSPEC%" /d /c "set /a LEGION_EXIT=0x%%=ExitCode%% >nul & del /q """%%~T\\uv.exe""" & rd """%%~T""" & call exit %%^LEGION_EXIT%%")'
+            ),
+            ":temp_error",
+            "@>&2 echo Cannot create temporary uv folder & exit /b 1",
         ]
         return "\r\n".join(lines) + "\r\n"
     lines = [
         "#!/bin/sh",
         header("owner command", False),
-        f"command -v uv >/dev/null 2>&1 || {{ echo '{UV_MISSING}' >&2; exit 127; }}",
-        f'if [ "$1" = uninstall ]; then exec uv run --no-project --python ">=3.12" {shell_literal(str(app / "src/legion/_self_uninstall.py"))} {shell_literal(str(app))} "$@"; fi',
-        f"export UV_PROJECT_ENVIRONMENT={shell_literal(str(environment))}",
-        f'exec uv run --project {shell_literal(str(app))} --frozen --quiet legion{home_argument} "$@"',
     ]
+    if sys.platform == "win32":
+        lines.append('if [ "$1" = uninstall ]; then exec "$(dirname "$0")/legion.cmd" "$@"; fi')
+    lines.extend(
+        [
+            f"command -v uv >/dev/null 2>&1 || {{ echo '{UV_MISSING}' >&2; exit 127; }}",
+            f'if [ "$1" = uninstall ]; then exec uv run --no-project --python ">=3.12" {shell_literal(str(app / "src/legion/_self_uninstall.py"))} {shell_literal(str(app))} "$@"; fi',
+            f"export UV_PROJECT_ENVIRONMENT={shell_literal(str(environment))}",
+            f'exec uv run --project {shell_literal(str(app))} --frozen --quiet legion{home_argument} "$@"',
+        ]
+    )
     return "\n".join(lines) + "\n"
 
 
