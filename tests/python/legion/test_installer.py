@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from legion import _app, _cli, _footprints, _forward, _installer
+from legion import _app, _cli, _footprints, _forward, _installer, _user_path
 from legion._generated import header
 from legion._run import RunResult
 
@@ -442,6 +442,18 @@ def test_install_records_path_once_and_purge_removes_only_its_entry(tmp_path: Pa
     _installer.apply_purge(plan)
     assert saved.read_text(encoding="utf-8") == "other"
     assert os.environ["PATH"] == "fixture-only"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows saved PATH")
+def test_installer_uses_shared_user_path_functions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    saved = "other"
+    writes: list[str] = []
+    monkeypatch.setattr(_user_path, "user_path", lambda: saved)
+    monkeypatch.setattr(_user_path, "set_user_path", writes.append)
+    _installer.ensure_path(home, False, [])
+    assert writes == [f"other;{home / '.legion/bin'}"]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX shell profile")

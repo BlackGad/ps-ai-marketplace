@@ -15,7 +15,7 @@ from urllib.request import urlopen
 import tomlkit
 from tomlkit.items import InlineTable
 
-from . import _footprints, _refresh
+from . import _footprints, _refresh, _user_path
 from ._home import bin_folder, footprint_index, full_path, home_path, is_reparse, is_under, owner_path_safe, same_path, tree_has_reparse
 from ._plugin import PLUGIN_ROOT
 from ._run import run_command
@@ -378,42 +378,6 @@ def _profile_path(home: Path) -> Path:
     return home / (".zshrc" if shell == "zsh" else ".bashrc" if shell == "bash" else ".profile")
 
 
-def _get_user_path() -> str:
-    test_file = os.getenv("LEGION_TEST_USER_PATH_FILE")
-    if test_file:
-        return Path(test_file).read_text(encoding="utf-8")
-    if sys.platform != "win32":
-        return ""
-    import winreg
-
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
-            return str(winreg.QueryValueEx(key, "Path")[0])
-    except FileNotFoundError:
-        return ""
-
-
-# milestone 4: replace with _user_path from task 2 once #77 merges
-def _set_user_path(value: str) -> None:
-    test_file = os.getenv("LEGION_TEST_USER_PATH_FILE")
-    if test_file:
-        Path(test_file).write_text(value, encoding="utf-8")
-        return
-    assert sys.platform == "win32"
-    import ctypes
-    import winreg
-
-    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
-        try:
-            _, kind = winreg.QueryValueEx(key, "Path")
-        except FileNotFoundError:
-            kind = winreg.REG_EXPAND_SZ
-        winreg.SetValueEx(key, "Path", 0, kind, value)
-    # Hand-built, reason: notify running Windows shells after a saved user PATH edit without invoking PowerShell.
-    result = ctypes.c_size_t()
-    ctypes.WinDLL("user32").SendMessageTimeoutW(0xFFFF, 0x1A, 0, "Environment", 2, 5000, ctypes.byref(result))
-
-
 def _path_equal(left: str, right: str) -> bool:
     first = os.path.expandvars(left).rstrip("/\\")
     second = os.path.expandvars(right).rstrip("/\\")
@@ -425,14 +389,14 @@ def ensure_path(home: Path, dry_run: bool, lines: list[str]) -> None:
     if sys.platform == "win32":
         if not dry_run and not any(_path_equal(part, str(bin_path)) for part in os.environ.get("PATH", "").split(os.pathsep)):
             os.environ["PATH"] = str(bin_path) + os.pathsep + os.environ.get("PATH", "")
-        saved = _get_user_path()
-        if any(_path_equal(part, str(bin_path)) for part in saved.split(";")):
+        saved = _user_path.user_path()
+        if _user_path.has_entry(saved, str(bin_path)):
             lines.append("skip: path (already done)")
             return
         lines.append(f"add {bin_path} to your user PATH")
         if not dry_run:
             _footprints.add(home, "path-entry", "user PATH", "legion", value=str(bin_path))
-            _set_user_path((saved.rstrip(";") + ";" if saved else "") + str(bin_path))
+            _user_path.set_user_path((saved.rstrip(";") + ";" if saved else "") + str(bin_path))
         return
     profile = _profile_path(home)
     line = 'export PATH="$HOME/.legion/bin:$PATH"'
@@ -513,7 +477,7 @@ def purge_plan(home: Path, catalog: dict[str, Any], config_dir: Path | None = No
     path_entries = [entry for entry in records if entry.kind == "path-entry"]
     user_owned = [entry.value for entry in path_entries if entry.path == "user PATH"]
     if user_owned and sys.platform == "win32":
-        plan.user_path_before = _get_user_path()
+        plan.user_path_before = _user_path.user_path()
         plan.user_path_after, removed = _path_removal(plan.user_path_before, ";", user_owned)
         plan.lines.extend(f"Remove user PATH entry: {part}" for part in removed)
         plan.process_path_before = os.environ.get("PATH", "")
@@ -633,7 +597,7 @@ def apply_purge(plan: PurgePlan) -> None:
         index = footprint_index(plan.home)
         if (index.read_bytes() if index.is_file() else b"") != plan.index_bytes:
             raise InstallerError("Legion records changed after preview; run purge again.")
-        if plan.user_path_after is not None and _get_user_path() != plan.user_path_before:
+        if plan.user_path_after is not None and _user_path.user_path() != plan.user_path_before:
             raise InstallerError("User PATH changed after preview; run purge again.")
         if plan.process_path_after is not None and os.environ.get("PATH", "") != plan.process_path_before:
             raise InstallerError("Process PATH changed after preview; run purge again.")
@@ -644,7 +608,7 @@ def apply_purge(plan: PurgePlan) -> None:
         for edit in plan.edits:
             edit.path.write_bytes(edit.after)
         if plan.user_path_after is not None and plan.user_path_after != plan.user_path_before:
-            _set_user_path(plan.user_path_after)
+            _user_path.set_user_path(plan.user_path_after)
         if plan.process_path_after is not None and plan.process_path_after != plan.process_path_before:
             os.environ["PATH"] = plan.process_path_after
         for path in plan.paths:
