@@ -154,6 +154,21 @@ def restore_user_path():
                 require(restored == before, "Windows user PATH was not restored")
 
 
+def windows_saved_path_folders() -> list[Path]:
+    """Find folders added by an installer after this process started."""
+    # Hand-built, reason: winget saves PATH in the registry, while the CI process keeps its old copy.
+    winreg = importlib.import_module("winreg")
+    folders = []
+    for root, key_name in ((winreg.HKEY_CURRENT_USER, "Environment"), (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment")):
+        try:
+            with winreg.OpenKey(root, key_name) as key:
+                value = str(winreg.QueryValueEx(key, "Path")[0])
+        except FileNotFoundError:
+            continue
+        folders.extend(Path(os.path.expandvars(part.strip().strip('"'))) for part in value.split(";") if part.strip())
+    return folders
+
+
 class Runner:
     def __init__(self, checkout: Path, home: Path, out: Path, fallback: bool) -> None:
         self.checkout, self.home, self.out, self.fallback = checkout, home, out, fallback
@@ -196,6 +211,7 @@ class Runner:
         candidates = [self.home / ".local/bin", self.home / ".legion/bin"]
         if sys.platform == "win32":
             candidates += [Path(folder) for folder in (self.work / "user-path.txt").read_text(encoding="utf-8").split(";") if folder]
+            candidates += windows_saved_path_folders()
         for folder in candidates:
             if folder.is_dir():
                 self.env["PATH"] += os.pathsep + str(folder)

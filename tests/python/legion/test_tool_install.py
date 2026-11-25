@@ -17,6 +17,7 @@ from cli_runner import run
 from legion import _tool_install, _user_path
 from legion._footprints import read as read_footprints
 from legion._plugin import PLUGIN_ROOT
+from legion._run import RunResult
 from legion._settings_models import InstallRecipe, ScriptDownload, ToolDescriptor
 from legion._tool_install import ToolInstaller, ToolInstallError
 
@@ -645,6 +646,27 @@ def test_a_command_only_on_the_saved_path_counts_as_installed(tmp_path: Path, mo
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     monkeypatch.setattr(_user_path, "persistent_folders", lambda: [str(tmp_path / "saved")])
     assert _tool_install.installed_version(fourth()) == "persisted PATH"
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_a_vendor_command_in_local_bin_counts_as_installed(platform: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    folder = home / ".local/bin"
+    folder.mkdir(parents=True)
+    command = folder / "fourth-cli"
+    command.write_text("fixture", encoding="utf-8")
+    command.chmod(0o755)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.setattr(_tool_install.sys, "platform", platform)
+
+    def fake_check(found: str, _arguments: list[str], **_kwargs: object) -> RunResult:
+        assert Path(found) == command
+        return RunResult(exit_code=0, output="fixture-version", error="", timed_out=False)
+
+    monkeypatch.setattr(_tool_install, "run_command", fake_check)
+    assert _tool_install.installed_version(fourth()) == "fixture-version"
 
 
 # --- the saved user PATH ---

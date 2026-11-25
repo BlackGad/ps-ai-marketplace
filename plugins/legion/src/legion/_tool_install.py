@@ -75,7 +75,11 @@ def installed_version(recipe: InstallRecipe) -> Optional[str]:
         # Installers update the saved PATH, while the running shell keeps its old copy.
         if sys.platform == "win32" and _user_path.find_persistent_command(name):
             return "persisted PATH"
-        return None
+        if sys.platform != "win32":
+            # Vendor scripts place CLIs here before a new shell adds it to PATH.
+            found = shutil.which(name, path=str(Path.home() / ".local" / "bin"))
+        if found is None:
+            return None
     try:
         result = run_command(found, arguments, timeout=60)
     except OSError:

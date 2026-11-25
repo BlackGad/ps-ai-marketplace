@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -40,3 +41,15 @@ def test_pwsh_trap_records_an_attempt(tmp_path: Path) -> None:
     with pytest.raises(AssertionError, match="a command called pwsh"), instance.without_pwsh():
         subprocess.run([str(command)], env=instance.env, capture_output=True, check=False)
     assert (instance.work / "pwsh-trap/called").exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="winget changes the Windows saved PATH")
+def test_command_finds_winget_alias_on_saved_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    checkout = Path(__file__).resolve().parents[2]
+    instance = runner.Runner(checkout, tmp_path / "home", tmp_path / "results", False)
+    folder = tmp_path / "winget-links"
+    folder.mkdir()
+    (folder / "claude.cmd").write_text("@echo off\r\necho fixture-version\r\n", encoding="utf-8")
+    instance.env["PATH"] = str(tmp_path / "empty")
+    monkeypatch.setattr(runner, "windows_saved_path_folders", lambda: [folder])
+    assert Path(instance.command("claude")).parent == folder
