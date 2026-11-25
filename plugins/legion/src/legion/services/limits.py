@@ -24,12 +24,20 @@ def configured_accounts(home: Optional[Path]) -> list[Agent]:
     if not file.is_file():
         raise LimitsError("No legion settings yet; run legion setup.")
     try:
-        return PersonalisationSettings.model_validate_json(read_text(file)).agents
+        agents = PersonalisationSettings.model_validate_json(read_text(file)).agents
     except (OSError, ValueError) as error:
         raise LimitsError("legion settings are not valid: " + first_line(str(error))) from None
+    seen: set[str] = set()
+    for agent in agents:
+        if agent.id in seen:
+            raise LimitsError(f"duplicate account id '{agent.id}' in legion settings")
+        seen.add(agent.id)
+    return agents
 
 
 def limits(home: Optional[Path], accounts: Sequence[str], timeout: float = DEFAULT_TIMEOUT) -> list[AccountLimits]:
+    if isinstance(accounts, (str, bytes)):
+        raise LimitsError("pass account ids as a list or tuple")
     if not accounts:
         raise LimitsError("name at least one account")
     home = legion_home(home)

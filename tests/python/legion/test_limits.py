@@ -127,6 +127,34 @@ def test_limits_omitted_selection_cannot_use_manual_default(bench: Bench) -> Non
     assert not list(bench.logs.iterdir())
 
 
+@pytest.mark.parametrize("selection", ["ab", "a", b"ab"])
+def test_limits_rejects_scalar_selection_without_probes(bench: Bench, selection: Any) -> None:
+    write_settings(bench.home, [{"id": account, "tool": "claude", "configDir": f"~/{account}"} for account in ("a", "b")])
+    for account in ("a", "b"):
+        write_executable(bench.home / ".legion/bin", account, {"LEGION_FAKE_NAME": "claude"})
+
+    with pytest.raises(LimitsError, match="pass account ids as a list or tuple"):
+        limits(bench.home, selection)
+    assert not list(bench.logs.iterdir())
+
+
+@pytest.mark.parametrize("interface", ["service", "text", "json", "manual"])
+def test_limits_rejects_duplicate_configured_ids_without_probes(bench: Bench, interface: str, capsys: pytest.CaptureFixture[str]) -> None:
+    # The second definition would change a subscription check into a provider check.
+    agents = [ACCOUNTS[2], ACCOUNTS[0], {**ACCOUNTS[3], "id": "claude-a"}]
+    write_settings(bench.home, agents)
+    if interface == "service":
+        with pytest.raises(LimitsError, match="duplicate account id 'claude-a'"):
+            limits(bench.home, ["copilot-a", "claude-a"])
+    else:
+        words = [] if interface == "manual" else ["--id", "copilot-a", "--id", "claude-a"]
+        if interface == "json":
+            words.append("--json")
+        assert run(["--home", str(bench.home), "limits", *words]) == 1
+        assert "duplicate account id 'claude-a'" in capsys.readouterr().err
+    assert not list(bench.logs.iterdir())
+
+
 def test_limits_returns_rows_per_account_in_requested_order(bench: Bench) -> None:
     write_settings(bench.home, ACCOUNTS)
     reports = limits(bench.home, ["copilot-a", "claude-a"], timeout=10)
