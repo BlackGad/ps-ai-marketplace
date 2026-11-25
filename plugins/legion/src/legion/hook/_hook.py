@@ -18,7 +18,7 @@ MEMBER = (
     "Do not load legion-overseer. A summoned unit cannot summon: never start other agents."
 )
 MEMBER_WITHOUT_TASK = "legion: LEGION_ROLE=member without LEGION_TASK; ignored."
-ORCHESTRATED = "legion: this repo is orchestrated. Say continue to act as the overseer."
+ORCHESTRATED = "legion: this repo is orchestrated. Say continue to act as the overseer. Reconcile pending results from the handoff on takeover."
 LEASE_NOTES = {
     "held": " Another overseer is active.",
     "foreign": " An overseer lease from another host exists; ask the owner before taking over.",
