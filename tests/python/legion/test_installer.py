@@ -813,6 +813,15 @@ def test_allow_rule_edit_leaves_the_same_text_in_deny_untouched(tmp_path: Path) 
     assert '"deny":["Bash(LEGION_ROLE=*)"]' in settings.read_text(encoding="utf-8")
 
 
+def test_allow_rule_edit_changes_nothing_else_in_nested_data(tmp_path: Path) -> None:
+    settings = tmp_path / "settings.json"
+    text = '{"a":{"x":[1,{"y":"rule"}]},"permissions":{"allow":["rule","keep"],"ask":["rule"]},"z":"rule"}'
+    settings.write_text(text, encoding="utf-8")
+    edit = _installer._allow_edit(settings, "rule")
+    assert edit is not None
+    assert edit.after.decode() == '{"a":{"x":[1,{"y":"rule"}]},"permissions":{"allow":["keep"],"ask":["rule"]},"z":"rule"}'
+
+
 def test_allow_rule_edit_refuses_an_ambiguous_allow_array(tmp_path: Path) -> None:
     settings = tmp_path / "settings.json"
     settings.write_text('{"permissions":{"allow":["rule","rule"]},"other":{"permissions":{"allow":["rule"]}}}', encoding="utf-8")

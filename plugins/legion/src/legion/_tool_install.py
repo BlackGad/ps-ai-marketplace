@@ -18,7 +18,7 @@ from typing import IO, Any, Optional, Union
 from pydantic import BaseModel
 
 from . import _user_path
-from ._home import full_path, is_reparse, is_under, owner_path_safe
+from ._home import full_path, is_under, owner_path_safe
 from ._plugin import PLUGIN_ROOT
 from ._run import run_command
 from ._settings_models import BinaryDownload, InstallRecipe, ScriptDownload, ToolDescriptor, Windows
@@ -269,23 +269,14 @@ class ToolInstaller:
             raise ToolInstallError(f"executable folder missing for {tool} download")
         _user_path.add(self.home, folder)
 
-    # Move the staged files into the tool folder. An existing owner file is kept, and a clash between a file and
-    # a folder stops everything before the first change.
+    # Move the staged folder into place. A folder that already holds files is never merged or replaced.
     def _place(self, tool: str, staging: Path, root: Path) -> None:
-        if not root.exists():
+        try:
+            if root.exists():
+                root.rmdir()  # only an empty folder can go; anything else raises
             staging.rename(root)
-            return
-        moves: list[tuple[Path, Path]] = []
-        for source in sorted(staging.rglob("*")):
-            target = root / source.relative_to(staging)
-            if is_reparse(target) or (target.exists() and source.is_dir() != target.is_dir()):
-                raise ToolInstallError(f"{tool} folder has {target} in the way; not replacing it")
-            if not target.exists():
-                moves.append((source, target))
-        for source, target in moves:
-            if not target.exists():
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(source), str(target))
+        except OSError as error:
+            raise ToolInstallError(f"{tool} folder {root} already has files; move or remove it, then run again") from error
 
     def download_install(self, tool: str, recipe: InstallRecipe, method: str) -> None:
         download = self.resolve_download(tool, method)

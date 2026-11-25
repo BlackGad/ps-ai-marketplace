@@ -416,29 +416,23 @@ def _repair(bench: Bench, files: dict[str, str]) -> None:
     bench.run("az", yes=True, method="zip")
 
 
-def test_repair_keeps_owner_files_in_a_partial_install(bench: Bench) -> None:
-    sentinel = bench.tools / "az" / "owner-notes.txt"
-    kept = bench.tools / "az" / "bin" / "settings.cfg"
-    kept.parent.mkdir(parents=True)
-    sentinel.write_text("sentinel", encoding="utf-8")
-    kept.write_text("owner value", encoding="utf-8")
-    _repair(bench, {"bin/az.cmd": "inert fixture", "bin/settings.cfg": "download value"})
-    assert (bench.tools / "az" / "bin" / "az.cmd").read_text(encoding="utf-8") == "inert fixture"
-    assert sentinel.read_text(encoding="utf-8") == "sentinel"
-    assert kept.read_text(encoding="utf-8") == "owner value"
-    assert [item.name for item in bench.tools.iterdir()] == ["az"], "the private staging folder is gone"
-
-
-def test_repair_stops_before_changing_anything_when_a_destination_conflicts(bench: Bench) -> None:
-    conflict = bench.tools / "az" / "bin"
-    conflict.parent.mkdir(parents=True)
-    conflict.write_text("owner file where the download has a folder", encoding="utf-8")
-    bench.serve(bench.serve_zip({"bin/az.cmd": "inert fixture"}), "zip")
-    with pytest.raises(ToolInstallError, match="not replacing"):
+def test_repair_refuses_a_folder_with_owner_files_and_publishes_nothing(bench: Bench) -> None:
+    sentinel = bench.tools / "az" / "bin" / "settings.cfg"
+    sentinel.parent.mkdir(parents=True)
+    sentinel.write_text("owner value", encoding="utf-8")
+    bench.serve(bench.serve_zip({"bin/az.cmd": "inert fixture", "bin/settings.cfg": "download value"}), "zip")
+    with pytest.raises(ToolInstallError, match="already has files"):
         bench.installer(yes=True).install("az", "zip")
-    assert conflict.read_text(encoding="utf-8") == "owner file where the download has a folder"
-    assert [item.name for item in bench.tools.iterdir()] == ["az"]
+    assert sentinel.read_text(encoding="utf-8") == "owner value"
+    assert not (bench.tools / "az" / "bin" / "az.cmd").exists(), "no expected executable is published early"
+    assert [item.name for item in bench.tools.iterdir()] == ["az"], "the private staging folder is gone"
     assert bench.path_writes == []
+
+
+def test_repair_replaces_an_empty_tool_folder(bench: Bench) -> None:
+    (bench.tools / "az").mkdir(parents=True)
+    _repair(bench, {"bin/az.cmd": "inert fixture"})
+    assert (bench.tools / "az" / "bin" / "az.cmd").read_text(encoding="utf-8") == "inert fixture"
 
 
 def test_repair_refuses_a_linked_tools_folder(bench: Bench) -> None:

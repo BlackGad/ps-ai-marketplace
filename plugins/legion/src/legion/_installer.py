@@ -354,7 +354,11 @@ def _allow_edit(path: Path, value: str, data: bytes | None = None) -> Edit | Non
             if prefix:
                 start = prefix.start()
         changed = text[:start] + text[end:]
-        json.loads(_strip_jsonc_comments(changed))
+        # Only the recorded item may differ; anything else means the match was wrong, so leave the file alone.
+        expected = json.loads(clean)
+        expected["permissions"]["allow"].remove(value)
+        if json.loads(_strip_jsonc_comments(changed)) != expected:
+            return None
         after = bom + changed.encode(encoding)
         return Edit(path, before, after, [f"permissions.allow: {value}"])
     except (UnicodeError, ValueError, TypeError, AttributeError):
