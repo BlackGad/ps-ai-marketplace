@@ -452,9 +452,9 @@ def install_plugins(plan: Plan, source: Optional[str], say: Callable[[str], None
                 results[key] = install_plugin(row.tool.id, row.folder, plan.home, source)
             except (OSError, ValueError):
                 results[key] = 1
-        if results[key] != 0:
-            row.next_step = f"install failed: log in with {row.id}, then finish setup"
         row.version = _status.installed_version(row.folder, row.tool)
+        if results[key] != 0 and row.version is None:
+            row.next_step = f"install failed: log in with {row.id}, then finish setup"
 
 
 def write_commands(plan: Plan, say: Callable[[str], None]) -> None:

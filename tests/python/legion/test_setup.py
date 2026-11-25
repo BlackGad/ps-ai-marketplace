@@ -532,6 +532,18 @@ def test_a_plugin_install_failure_is_a_table_row_and_the_next_folder_still_insta
     assert len(bench.plugin_installs) == 2
 
 
+def test_copilot_setup_reports_login_when_plugin_installed_despite_installer_error(bench: Bench) -> None:
+    install = bench.install_plugin
+
+    def installed_with_error(tool_id: str, folder: Path, home: Path, source: Optional[str]) -> int:
+        install(tool_id, folder, home, source)
+        return 1
+
+    bench.monkeypatch.setattr(_setup, "install_plugin", installed_with_error)
+    output = bench.apply(["copilot"])
+    assert any(line.startswith("copilot1  copilot  ") and line.endswith(f"  {VERSION}  log in: run copilot1") for line in output)
+
+
 def test_a_plugin_installer_that_raises_is_a_failure_row_for_each_target(bench: Bench) -> None:
     bench.hide("claude1")
     attempts: list[str] = []

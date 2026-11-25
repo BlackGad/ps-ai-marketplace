@@ -278,7 +278,11 @@ Invoke-InstallTestCase 'ShellBootstrap' {
             $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --yes --tools claude --config-dir '/some folder' --main --dry-run 2>&1) -join "`n"
             Assert-Equal 0 $LASTEXITCODE "Shell checkout run: $text"
             $logged = (Get-Content -LiteralPath $log) -join '|'
-            Assert-True ($logged.StartsWith('run|--project|' + (Join-Path $fakeHome 'checkout/plugins/legion') + '|--frozen|--quiet|legion|--home|' + $fakeHome + '|install|--yes|--tool|claude|--config-dir|/some folder|--ref|main|--dry-run|env=')) "Shell hand-over: $logged"
+            $words = $logged -split '\|'
+            $project = Resolve-LegionDirectoryPath (Join-Path $fakeHome 'checkout/plugins/legion')
+            $actualProject = Resolve-LegionDirectoryPath $words[2]
+            Assert-True ((Get-LegionPathComparer).Equals($actualProject, $project)) "Shell checkout project: $logged"
+            Assert-True ($logged.StartsWith('run|--project|' + $words[2] + '|--frozen|--quiet|legion|--home|' + $fakeHome + '|install|--yes|--tool|claude|--config-dir|/some folder|--ref|main|--dry-run|env=')) "Shell hand-over: $logged"
             Assert-True (-not (Test-Path $env:FAKE_CURL_LOG)) 'A checkout run downloads nothing'
             Assert-True (@(Get-ChildItem -LiteralPath $systemTemp -Force).Count -eq 0) 'The shell run removes its temporary folder'
             Assert-True (-not (Test-Path -LiteralPath (Join-Path $fakeHome '.legion/temp'))) 'Nothing temporary is made inside .legion'
