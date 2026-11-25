@@ -32,7 +32,8 @@ def next_candidate_version(version: str) -> str:
 
 
 def codex_legion_server(servers: list[dict[str, Any]]) -> dict[str, Any] | None:
-    return next((server for server in servers if server.get("name") == "legion" and server.get("runtimeStatus") == "ready" and "status" in server.get("tools", {})), None)
+    # Installed Codex lists a running server as "connected"; "ready" appears only in its startup notice.
+    return next((server for server in servers if server.get("name") == "legion" and server.get("runtimeStatus") == "connected" and "status" in server.get("tools", {})), None)
 
 
 def complete(cases: list["Case"], not_tested: dict[str, str]) -> bool:

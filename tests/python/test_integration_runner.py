@@ -594,10 +594,10 @@ def test_copilot_health_rejects_not_yet_connected(tmp_path: Path) -> None:
     assert not instance.copilot_health("legion not yet connected")
 
 
-def test_codex_inventory_requires_exact_ready_legion() -> None:
-    servers = [{"name": "other-legion", "runtimeStatus": "ready", "tools": {"status": {}}}, {"name": "legion", "runtimeStatus": "failed", "tools": {"status": {}}}]
+def test_codex_inventory_requires_exact_connected_legion() -> None:
+    servers = [{"name": "other-legion", "runtimeStatus": "connected", "tools": {"status": {}}}, {"name": "legion", "runtimeStatus": "failed", "tools": {"status": {}}}]
     assert runner.codex_legion_server(servers) is None
-    servers[1]["runtimeStatus"] = "ready"
+    servers[1]["runtimeStatus"] = "connected"
     assert runner.codex_legion_server(servers) == servers[1]
 
 

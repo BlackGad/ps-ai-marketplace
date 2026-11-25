@@ -84,8 +84,12 @@ def test_all_hosts_register_same_installed_command() -> None:
     root = Path(__file__).resolve().parents[3] / "plugins/legion"
     config = json.loads((root / ".mcp.json").read_text(encoding="utf-8"))
     assert config["mcpServers"] == {"legion": {"type": "stdio", "command": "legion", "args": ["mcp"], "tools": ["status", "limits"]}}
-    for manifest in ("plugin.json", ".codex-plugin/plugin.json"):
-        assert json.loads((root / manifest).read_text(encoding="utf-8"))["mcpServers"] == "./.mcp.json"
+    assert json.loads((root / "plugin.json").read_text(encoding="utf-8"))["mcpServers"] == "./.mcp.json"
+    # Codex silently drops a server that carries Copilot's tools list, so it reads its own file with the same command.
+    assert json.loads((root / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))["mcpServers"] == "./.codex-plugin/mcp.json"
+    codex = json.loads((root / ".codex-plugin/mcp.json").read_text(encoding="utf-8"))
+    shared = config["mcpServers"]["legion"]
+    assert codex["mcpServers"] == {"legion": {"command": shared["command"], "args": shared["args"]}}
     # Claude discovers the root .mcp.json automatically. No host user configuration is written.
     assert (root / ".claude-plugin/plugin.json").is_file()
     member = (root / "skills/legion-member/SKILL.md").read_text(encoding="utf-8")
