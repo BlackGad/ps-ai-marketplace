@@ -255,6 +255,10 @@ def test_purge_is_repeatable(tmp_path: Path) -> None:
 
 
 def test_closed_stdin_listing_and_only_needed_install_steps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    saved_path = tmp_path / "saved-path.txt"
+    saved_path.write_text("", encoding="utf-8")
+    monkeypatch.setenv("LEGION_TEST_USER_PATH_FILE", str(saved_path))
+    monkeypatch.setenv("PATH", "fixture-only")
     calls: list[list[str]] = []
 
     def fake_run(command: str, arguments: list[str], **kwargs: object) -> RunResult:
