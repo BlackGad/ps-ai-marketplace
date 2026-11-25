@@ -162,7 +162,7 @@ def shim_text(app: Path, home: Path, windows: bool) -> str:
     if windows:
         lines = [
             header("owner command", True),
-            f'@if /i "%~1"=="mcp" ("%~dp0..\\python\\{environment.name}\\Scripts\\legion.exe"{home_argument} %* & exit /b)',
+            '@if /i "%~1"=="mcp" goto mcp',
             f"@where /q uv || (>&2 echo {UV_MISSING}& exit /b 127)",
             '@if /i "%~1"=="uninstall" goto uninstall',
             (
@@ -179,6 +179,9 @@ def shim_text(app: Path, home: Path, windows: bool) -> str:
             ),
             ":temp_error",
             "@>&2 echo Cannot create temporary uv folder & exit /b 1",
+            ":mcp",
+            f'@"%~dp0..\\python\\{environment.name}\\Scripts\\legion.exe"{home_argument} %*',
+            "@exit /b %errorlevel%",
         ]
         return "\r\n".join(lines) + "\r\n"
     lines = [

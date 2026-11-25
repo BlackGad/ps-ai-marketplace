@@ -24,7 +24,15 @@ TOOLS = ("claude", "codex", "copilot")
 MARKETPLACE = "BlackGad/ps-legion-marketplace"
 ENDPOINT = "https://example-resource.cognitiveservices.azure.com"
 WINDOWS = sys.platform == "win32"
-CANDIDATE_VERSION = "0.18.0"
+
+
+def next_candidate_version(version: str) -> str:
+    major, minor, patch = (int(part) for part in version.split("."))
+    return f"{major}.{max(minor + 1, 18)}.0" if patch == 0 else f"{major}.{minor}.{patch + 1}"
+
+
+def codex_legion_server(servers: list[dict[str, Any]]) -> dict[str, Any] | None:
+    return next((server for server in servers if server.get("name") == "legion" and server.get("runtimeStatus") == "ready" and "status" in server.get("tools", {})), None)
 
 
 def complete(cases: list["Case"], not_tested: dict[str, str]) -> bool:
@@ -268,6 +276,7 @@ class Runner:
         self.work.mkdir(parents=True, exist_ok=True)
         self.home.mkdir(parents=True, exist_ok=True)
         self.catalog = {entry["id"]: entry for entry in json.loads((checkout / "plugins/legion/tools.json").read_text(encoding="utf-8"))["tools"]}
+        self.candidate_version = next_candidate_version(json.loads((checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"])
         self.targets: dict[str, tuple[str, str]] = {}
         self.not_tested: dict[str, str] = {}
         self.versions: dict[str, tuple[str, str]] = {}
@@ -307,6 +316,9 @@ class Runner:
             folder.mkdir(exist_ok=True)
             self.env[name] = str(folder)
         self.base_path = self.env["PATH"]
+        if WINDOWS:
+            self.base_path += os.pathsep + self.env["NPM_CONFIG_PREFIX"]
+            self.env["PATH"] = self.base_path
         (self.work / "user-path.txt").touch(exist_ok=True)
         for tool in TOOLS:
             self.env[self.catalog[tool]["configEnv"]] = str(self.folder(tool))
@@ -320,6 +332,8 @@ class Runner:
         if path:
             return path
         candidates = [self.home / ".local/bin", self.home / ".legion/bin"]
+        if WINDOWS:
+            candidates.insert(0, Path(self.env["NPM_CONFIG_PREFIX"]))
         if sys.platform == "win32":
             candidates += [Path(folder) for folder in (self.work / "user-path.txt").read_text(encoding="utf-8").split(";") if folder]
             candidates += windows_saved_path_folders()
@@ -556,8 +570,8 @@ class Runner:
         for name in ("plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
             path = candidate / "plugins/legion" / name
             document = json.loads(path.read_text(encoding="utf-8"))
-            require(document["version"] != CANDIDATE_VERSION, "candidate must differ from the committed version")
-            document["version"] = CANDIDATE_VERSION
+            require(document["version"] != self.candidate_version, "candidate must differ from the committed version")
+            document["version"] = self.candidate_version
             path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
         return candidate
 
@@ -579,9 +593,16 @@ class Runner:
 
     def install_old(self) -> None:
         upgrade = self.state["candidate"]
-        old = upgrade.work / "old-source"
-        self.run(["git", "clone", "--quiet", "--depth", "1", "--branch", "v0.17.0", "https://github.com/BlackGad/ps-legion-marketplace.git", str(old)])
-        upgrade.checkout = old
+        seed = upgrade.work / "old-seed"
+        origin = upgrade.work / "origin.git"
+        reader = upgrade.work / "old-source"
+        self.run(["git", "clone", "--quiet", "--depth", "1", "--branch", "v0.17.0", "https://github.com/BlackGad/ps-legion-marketplace.git", str(seed)])
+        self.run(["git", "init", "--bare", "--quiet", str(origin)])
+        self.run(["git", "--git-dir", str(origin), "config", "core.longpaths", "true"])
+        self.run(["git", "--git-dir", str(origin), "fetch", "--quiet", str(seed), "HEAD:refs/heads/stable"])
+        self.run(["git", "-c", "core.longpaths=true", "clone", "--quiet", "--branch", "stable", str(origin), str(reader)])
+        upgrade.checkout = reader
+        self.state["origin"] = origin
         for tool in TOOLS:
             upgrade.install_legion(tool)
             require(upgrade.listing(tool, upgrade.folder(tool)), f"{tool}: old plugin not enabled")
@@ -606,46 +627,62 @@ class Runner:
 
     def upgrade_candidate(self) -> None:
         upgrade = self.state["candidate"]
-        # Keep the registered local marketplace path stable, just as a published track
-        # changes its contents. --source does not retarget an existing 0.17.0 marketplace.
+        # Advance the disposable origin; the host owns the registered reader checkout.
         candidate = self.work / "candidate"
-        files = self.run(["git", "-C", str(upgrade.checkout), "ls-files", "-z"]).split("\0")
+        publisher = upgrade.work / "publisher"
+        self.run(["git", "-c", "core.longpaths=true", "clone", "--quiet", "--branch", "stable", str(self.state["origin"]), str(publisher)])
+        self.run(["git", "-C", str(publisher), "config", "core.longpaths", "true"])
+        self.run(["git", "-C", str(publisher), "config", "user.name", "integration fixture"])
+        self.run(["git", "-C", str(publisher), "config", "user.email", "integration@example.invalid"])
+        self.run(["git", "-C", str(publisher), "config", "commit.gpgsign", "false"])
+        files = self.run(["git", "-C", str(publisher), "ls-files", "-z"]).split("\0")
         for name in filter(None, files):
-            path = upgrade.checkout / name
+            path = publisher / name
             require(path.resolve().is_relative_to(upgrade.work.resolve()), "old source escaped scratch")
             if path.is_file():
                 path.unlink()
         for source in candidate.rglob("*"):
             if source.is_file():
-                target = upgrade.checkout / source.relative_to(candidate)
+                target = publisher / source.relative_to(candidate)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
+        self.run(["git", "-C", str(publisher), "add", "-A"])
+        self.run(["git", "-C", str(publisher), "commit", "--quiet", "-m", "candidate fixture"])
+        self.run(["git", "--git-dir", str(self.state["origin"]), "fetch", "--quiet", str(publisher), "+HEAD:refs/heads/stable"])
         # This is deliberately the installed old command. No checkout CLI or repair runs first.
         output = upgrade.legion("update", "--yes", owner=True)
         for tool in TOOLS:
             contains(output, f"Update legion for {tool}")
-            require(upgrade.version(tool, upgrade.folder(tool)) == CANDIDATE_VERSION, f"{tool}: upgrade was skipped")
+            require(upgrade.version(tool, upgrade.folder(tool)) == self.candidate_version, f"{tool}: upgrade was skipped")
             upgrade.targets[tool] = (str(upgrade.checkout), "release")
         for path in upgrade.owner_shims():
             require(path.read_bytes() != self.state["old_shims"][path.name], f"{path.name}: old launcher remains")
-            contains(path.read_text(encoding="utf-8"), CANDIDATE_VERSION)
+            contains(path.read_text(encoding="utf-8"), self.candidate_version)
 
     def check_runtime_identity(self, identity: dict[str, Any], app: Path) -> None:
         require(Path(identity["root"]).resolve() == app.resolve(), f"runtime is from the wrong checkout: {identity}")
-        require(identity["version"] == CANDIDATE_VERSION, "runtime version is not the candidate")
+        require(identity["version"] == self.candidate_version, "runtime version is not the candidate")
         for name in ("cli", "server"):
             require(Path(identity[name]).resolve().is_relative_to(app.resolve()), f"{name} runtime is outside the candidate app")
 
     def candidate_plugin(self, tool: str) -> Path:
         if tool == "copilot":
-            return self.checkout / "plugins/legion"
+            settings = json.loads((self.folder(tool) / "settings.json").read_text(encoding="utf-8"))
+            require(settings["enabledPlugins"].get("legion@ps-legion-marketplace") is True, "Copilot candidate is not enabled")
+            source = settings["extraKnownMarketplaces"]["ps-legion-marketplace"]["source"]
+            require(source["source"] == "directory", "Copilot live marketplace root is not a directory")
+            root = Path(source["path"])
+            manifest = json.loads((root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+            plugins = [root / item["source"] for item in manifest["plugins"] if item.get("name") == "legion"]
+            require(len(plugins) == 1, f"Copilot candidate root is ambiguous: {plugins}")
+            return plugins[0]
         root = self.folder(tool) / self.catalog[tool]["plugin"]["installedRoot"]
         matches = []
         for path in root.rglob("plugin.json"):
             if path.parent.name in (".codex-plugin", ".claude-plugin"):
                 continue
             document = json.loads(path.read_text(encoding="utf-8-sig"))
-            if document.get("name") == "legion" and document.get("version") == CANDIDATE_VERSION:
+            if document.get("name") == "legion" and document.get("version") == self.candidate_version:
                 matches.append(path.parent)
         require(len(matches) == 1, f"{tool}: expected one installed candidate, found {matches}")
         return matches[0]
@@ -669,7 +706,7 @@ class Runner:
 
     def verify_candidate(self) -> None:
         upgrade = self.state["candidate"]
-        app = upgrade.home / ".legion/app" / CANDIDATE_VERSION
+        app = upgrade.home / ".legion/app" / self.candidate_version
         require((app / ".legion-app-ready").is_file(), "candidate app not ready")
         upgrade.check_candidate_bytes(app)
         upgrade.check_candidate_launchers(app)
@@ -692,7 +729,7 @@ class Runner:
             contains(upgrade.run([str(upgrade.app_python(app)), "-I", "-c", hook_script], env=env), "you are a legion member")
         upgrade.prove_mcp()
         upgrade.check_client_command()
-        upgrade.prove_clients()
+        self.state["client_missing"] = upgrade.prove_clients()
         self.state["candidate_snapshot"] = upgrade.home_snapshot(update=True)
 
     def check_client_command(self) -> None:
@@ -722,18 +759,44 @@ class Runner:
         if tool == "claude":
             output = self.cli(tool, ["mcp", "list"])
             evidence["output"] = output
-            evidence["discovered"] = "legion" in output.lower()
-            evidence["launched"] = any("legion" in line.lower() and "connected" in line.lower() and "not connected" not in line.lower() for line in output.splitlines())
+            lines = [line.strip() for line in output.splitlines() if re.match(r"^\s*legion\s*:", line, re.IGNORECASE)]
+            evidence["discovered"] = bool(lines)
+            evidence["launched"] = any(re.search(r":\s*connected\s*$", line, re.IGNORECASE) for line in lines)
             evidence["limitation"] = "mcp list health check proves initialization only; no nonbillable direct tool-call API exercised"
         elif tool == "copilot":
             output = self.cli(tool, ["mcp", "list", "--json"])
             evidence["output"] = output
-            evidence["discovered"] = "legion" in output.lower()
+            servers = json.loads(output)["mcpServers"]
+            evidence["discovered"] = "legion" in servers and servers["legion"].get("enabled") is not False
             evidence["limitation"] = "configuration listing only; does not prove a server launch or a tool call"
             connection = JsonProcess([self.command("copilot"), "--disable-builtin-mcps", "--disable-client-telemetry", "--acp"], self.env, self.work, self.out / "copilot-client.stderr")
             try:
                 evidence["control_initialize"] = connection.rpc("initialize", {"protocolVersion": 1, "clientCapabilities": {}}, 1)
-                evidence["control_session"] = connection.rpc("session/new", {"cwd": str(self.work), "mcpServers": []}, 2)
+                session = connection.rpc("session/new", {"cwd": str(self.work), "mcpServers": []}, 2)
+                evidence["control_session"] = session
+                session_id = session["sessionId"]
+                advertised = False
+                for _ in range(5):
+                    event = connection.receive("method", "session/update")
+                    params = event.get("params", {})
+                    update = params.get("update", {})
+                    if params.get("sessionId") == session_id and update.get("sessionUpdate") == "available_commands_update":
+                        advertised = any(command.get("name") == "mcp" for command in update.get("availableCommands", []))
+                        break
+                if advertised:
+                    result = connection.rpc("session/prompt", {"sessionId": session_id, "prompt": [{"type": "text", "text": "/mcp list"}]}, 3)
+                    updates = [item["params"]["update"] for item in connection.pending if item.get("method") == "session/update" and item.get("params", {}).get("sessionId") == session_id]
+                    health = "".join(update.get("content", {}).get("text", "") for update in updates if update.get("sessionUpdate") == "agent_message_chunk")
+                    evidence["session_health"] = health
+                    evidence["launched"] = result.get("stopReason") == "end_turn" and any(
+                        re.match(r"^\s*(?:[-*]\s*)?legion(?:\s|:|\()", line, re.IGNORECASE)
+                        and re.search(r"\b(?:connected|ready)\b", line, re.IGNORECASE)
+                        and not re.search(r"\bnot\s+(?:connected|ready)\b", line, re.IGNORECASE)
+                        for line in health.splitlines()
+                    )
+                    evidence["limitation"] = "ACP /mcp list health proves initialization only; no client status tool call"
+                else:
+                    evidence["limitation"] += "; ACP /mcp command was not advertised for this session"
             except (AssertionError, queue.Empty) as error:
                 evidence["limitation"] += "; ACP session blocked: " + (str(error) or type(error).__name__)
             finally:
@@ -746,7 +809,7 @@ class Runner:
                 thread = connection.rpc("thread/start", {"cwd": str(self.work), "approvalPolicy": "never", "sandbox": "read-only"}, 2)["thread"]["id"]
                 servers = connection.rpc("mcpServerStatus/list", {"threadId": thread}, 3)
                 evidence["inventory"] = servers
-                matches = [server for server in servers["data"] if "legion" in server["name"]]
+                matches = [server for server in servers["data"] if server.get("name") == "legion"]
                 evidence["discovered"] = bool(matches)
                 for selected in matches:
                     server = selected
@@ -755,8 +818,7 @@ class Runner:
                         refreshed = connection.rpc("mcpServerStatus/list", {"threadId": thread}, 5)
                         server = next(item for item in refreshed["data"] if item["name"] == server["name"])
                         evidence["inventory"] = refreshed
-                    tools = server["tools"]
-                    if "status" not in tools:
+                    if codex_legion_server([server]) is None:
                         continue
                     evidence["launched"] = True
                     result = connection.rpc("mcpServer/tool/call", {"threadId": thread, "server": server["name"], "tool": "status", "arguments": {"repo": str(self.work)}}, 4)
@@ -768,7 +830,7 @@ class Runner:
                 connection.close()
         return evidence
 
-    def prove_clients(self) -> None:
+    def prove_clients(self) -> list[str]:
         evidence = []
         for tool in TOOLS:
             try:
@@ -777,14 +839,19 @@ class Runner:
                 evidence.append({"host": tool, "discovered": False, "launched": False, "status_called": False, "limitation": str(error) or type(error).__name__})
         (self.out / "clients.json").write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
         missing = [item["host"] for item in evidence if not item["discovered"] or not item["launched"]]
-        require(not missing, "client discovery/launch remains unproven: " + ", ".join(missing) + "; see candidate/clients.json")
+        self.state["client_missing"] = missing
+        return missing
+
+    def candidate_client_evidence(self, repeat: bool) -> None:
+        require("client_missing" in self.state, "client evidence was not collected; see update-from-0.17.0")
+        require(not self.state.get("client_missing"), "client discovery/launch remains unproven: " + ", ".join(self.state.get("client_missing", [])) + "; see candidate/clients.json")
 
     def finish_candidate(self) -> None:
         upgrade = self.state["candidate"]
         output = upgrade.legion("update", "--yes", owner=True)
         for tool in TOOLS:
             contains(output, f"Update legion for {tool}")
-            require(upgrade.version(tool, upgrade.folder(tool)) == CANDIDATE_VERSION, f"{tool}: repeat changed version")
+            require(upgrade.version(tool, upgrade.folder(tool)) == self.candidate_version, f"{tool}: repeat changed version")
         contains(output, "already up to date")
         unchanged(self.state["candidate_snapshot"], upgrade.home_snapshot(update=True))
         upgrade.legion("uninstall", "--purge", "--yes", owner=True)
@@ -1194,20 +1261,25 @@ class Runner:
             ("reinstall", self.reinstall),
             ("restore-launchers", lambda repeat: self.reinstall(repeat, restore=True)),
             ("purge", self.purge),
+            ("candidate-client-evidence", self.candidate_client_evidence),
         ]
         return steps
 
     def execute(self) -> list[Case]:
         cases = []
         blocked = ""
+        candidate_blocked = ""
         (self.out / "logs").mkdir(parents=True, exist_ok=True)
         for name, action in self.steps():
+            if name == "install-legion":
+                blocked = ""
             for repeat in (False, True):
                 start = time.monotonic()
                 self.log = []
                 result, message = "passed", ""
-                if blocked:
-                    result, message = "skipped", blocked
+                reason = candidate_blocked if name == "update-from-0.17.0" else blocked
+                if reason:
+                    result, message = "skipped", reason
                 else:
                     try:
                         if name == "bootstrap":
@@ -1220,7 +1292,11 @@ class Runner:
                             self.log.extend(line for line in returned.splitlines() if line not in logged)
                     except Exception as error:
                         result, message = "failed", str(error) or type(error).__name__
-                        blocked = f"previous step failed: {name}{' (repeat)' if repeat else ''}"
+                        reason = f"previous step failed: {name}{' (repeat)' if repeat else ''}"
+                        if name == "update-from-0.17.0":
+                            candidate_blocked = reason
+                        else:
+                            blocked = reason
                 log = "\n".join([*self.log, message]).strip()
                 case = Case(name, repeat, result, time.monotonic() - start if not blocked or result == "failed" else 0, message, log)
                 cases.append(case)

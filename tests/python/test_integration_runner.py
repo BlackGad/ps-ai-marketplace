@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from legion.services.installation._installed_runtime import shim_text
 
 
 RUNNER = Path(__file__).resolve().parents[1] / "integration" / "run.py"
@@ -73,6 +74,36 @@ def test_command_path_survives_trap(tmp_path: Path) -> None:
         assert Path(instance.command("vendor")).parent == folder
 
 
+def test_windows_npm_prefix_shim_is_on_child_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runner, "WINDOWS", True)
+    instance = make_runner(tmp_path)
+    prefix = instance.home / ".local"
+    prefix.mkdir()
+    (prefix / "copilot.cmd").write_text("@echo off\r\n", encoding="utf-8")
+    assert str(prefix) in instance.env["PATH"].split(os.pathsep)
+    instance.env["PATH"] = str(prefix)
+    assert Path(instance.command("copilot")).parent == prefix
+
+
+def test_candidate_version_advances_a_release_checkout() -> None:
+    assert runner.next_candidate_version("0.18.0") != "0.18.0"
+    assert tuple(map(int, runner.next_candidate_version("0.18.0").split("."))) > (0, 18, 0)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows cmd launcher")
+def test_windows_mcp_missing_child_exits_nonzero(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    app = home / ".legion/app/0.18.0"
+    app.mkdir(parents=True)
+    command = home / ".legion/bin/legion.cmd"
+    command.parent.mkdir(parents=True)
+    command.write_text(shim_text(app, home, True), encoding="utf-8")
+    cmd = shutil.which("cmd.exe")
+    assert cmd is not None
+    result = subprocess.run([cmd, "/d", "/c", str(command), "mcp"], capture_output=True, text=True, check=False)
+    assert result.returncode != 0
+
+
 @pytest.mark.parametrize(("new_version", "new_command"), [("2.0.0", "old"), ("1.0.0", "new")])
 def test_repeat_version_reports_both_values(tmp_path: Path, new_version: str, new_command: str) -> None:
     instance = make_runner(tmp_path)
@@ -127,6 +158,7 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "reinstall",
         "restore-launchers",
         "purge",
+        "candidate-client-evidence",
     ]
 
 
@@ -150,7 +182,7 @@ def test_candidate_staging_changes_only_disposable_versions(tmp_path: Path) -> N
     candidate = instance.stage_candidate()
     assert candidate.is_relative_to(instance.work)
     for name in ("plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
-        assert json.loads((candidate / "plugins/legion" / name).read_text(encoding="utf-8"))["version"] == runner.CANDIDATE_VERSION
+        assert json.loads((candidate / "plugins/legion" / name).read_text(encoding="utf-8"))["version"] == instance.candidate_version
     assert runner.snapshot(instance.checkout / "plugins/legion") == before
     assert (candidate / "plugins/legion/src/legion/mcp/server.py").read_bytes() == (instance.checkout / "plugins/legion/src/legion/mcp/server.py").read_bytes()
 
@@ -175,9 +207,9 @@ def test_incomplete_candidate_cannot_pass(tmp_path: Path, result: str) -> None:
 
 def test_candidate_rejects_old_or_foreign_runtime(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
-    app = instance.home / ".legion/app" / runner.CANDIDATE_VERSION
+    app = instance.home / ".legion/app" / instance.candidate_version
     app.mkdir(parents=True)
-    identity = {"root": str(instance.checkout / "plugins/legion"), "version": runner.CANDIDATE_VERSION}
+    identity = {"root": str(instance.checkout / "plugins/legion"), "version": instance.candidate_version}
     with pytest.raises(AssertionError, match="runtime"):
         instance.check_runtime_identity(identity, app)
 
@@ -191,10 +223,10 @@ def test_report_exposes_first_failure_even_when_repeat_is_skipped(tmp_path: Path
 def test_candidate_rejects_right_version_with_old_launcher_code(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
     instance.launcher("legion").parent.mkdir(parents=True)
-    instance.launcher("legion").write_text(f"old generator targeting {runner.CANDIDATE_VERSION}", encoding="utf-8")
-    instance.run = lambda *_args: json.dumps(f"candidate generator targeting {runner.CANDIDATE_VERSION}")
+    instance.launcher("legion").write_text(f"old generator targeting {instance.candidate_version}", encoding="utf-8")
+    instance.run = lambda *_args: json.dumps(f"candidate generator targeting {instance.candidate_version}")
     with pytest.raises(AssertionError, match="old runtime code"):
-        instance.check_candidate_launchers(instance.home / ".legion/app" / runner.CANDIDATE_VERSION)
+        instance.check_candidate_launchers(instance.home / ".legion/app" / instance.candidate_version)
 
 
 def test_client_probe_attempts_every_host_and_never_calls_listing_launch_proof(tmp_path: Path) -> None:
@@ -209,8 +241,7 @@ def test_client_probe_attempts_every_host_and_never_calls_listing_launch_proof(t
         return {"host": tool, "discovered": True, "launched": tool == "claude", "status_called": False}
 
     instance.probe_client = probe
-    with pytest.raises(AssertionError, match="codex, copilot"):
-        instance.prove_clients()
+    assert instance.prove_clients() == ["codex", "copilot"]
     assert calls == list(runner.TOOLS)
     evidence = json.loads((instance.out / "clients.json").read_text(encoding="utf-8"))
     assert not evidence[1]["launched"]
@@ -237,6 +268,87 @@ def test_copilot_listing_is_only_discovery_evidence(tmp_path: Path, monkeypatch:
     assert evidence["discovered"]
     assert not evidence["launched"]
     assert not evidence["status_called"]
+
+
+@pytest.mark.parametrize("session_id", ["current", "another"])
+def test_copilot_requires_session_tied_mcp_health(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, session_id: str) -> None:
+    instance = make_runner(tmp_path)
+    instance.cli = lambda *_args: '{"mcpServers":{"legion":{"command":"legion","enabled":true}}}'
+    instance.command = lambda name: name
+
+    class Client:
+        def __init__(self, *_args: Any) -> None:
+            self.pending = [{"method": "session/update", "params": {"sessionId": "current", "update": {"sessionUpdate": "available_commands_update", "availableCommands": [{"name": "mcp"}]}}}]
+
+        def rpc(self, method: str, params: dict[str, Any], _request: int) -> dict[str, Any]:
+            if method == "session/new":
+                return {"sessionId": "current"}
+            if method == "session/prompt":
+                assert params == {"sessionId": "current", "prompt": [{"type": "text", "text": "/mcp list"}]}
+                self.pending.append(
+                    {"method": "session/update", "params": {"sessionId": session_id, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "legion: connected"}}}}
+                )
+                return {"stopReason": "end_turn"}
+            return {}
+
+        def receive(self, key: str, value: str) -> dict[str, Any]:
+            assert (key, value) == ("method", "session/update")
+            return self.pending.pop(0)
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(runner, "JsonProcess", Client)
+    evidence = instance.probe_client("copilot")
+    assert evidence["launched"] is (session_id == "current")
+
+
+def test_copilot_candidate_root_comes_from_enabled_host_setting(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    folder = instance.folder("copilot")
+    folder.mkdir(parents=True)
+    live = instance.work / "host-reader"
+    (live / "plugins/legion").mkdir(parents=True)
+    (live / ".claude-plugin").mkdir()
+    (live / ".claude-plugin/marketplace.json").write_text('{"plugins":[{"name":"legion","source":"./plugins/legion"}]}', encoding="utf-8")
+    (folder / "settings.json").write_text(
+        json.dumps({"enabledPlugins": {"legion@ps-legion-marketplace": True}, "extraKnownMarketplaces": {"ps-legion-marketplace": {"source": {"source": "directory", "path": str(live)}}}}),
+        encoding="utf-8",
+    )
+    assert instance.candidate_plugin("copilot") == live / "plugins/legion"
+    assert instance.candidate_plugin("copilot") != instance.checkout / "plugins/legion"
+
+
+def test_claude_discovery_requires_exact_identity_and_ready_state(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    instance.cli = lambda *_args: "other-legion: connected\nlegion: disconnected"
+    evidence = instance.probe_client("claude")
+    assert evidence["discovered"]
+    assert not evidence["launched"]
+
+
+def test_codex_inventory_requires_exact_ready_legion() -> None:
+    servers = [{"name": "other-legion", "runtimeStatus": "ready", "tools": {"status": {}}}, {"name": "legion", "runtimeStatus": "failed", "tools": {"status": {}}}]
+    assert runner.codex_legion_server(servers) is None
+    servers[1]["runtimeStatus"] = "ready"
+    assert runner.codex_legion_server(servers) == servers[1]
+
+
+def test_candidate_client_failure_does_not_block_repeat_or_install(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    instance.steps = lambda: [("update-from-0.17.0", lambda _repeat: (_ for _ in ()).throw(AssertionError("first command failed"))), ("install-legion", lambda _repeat: "installed")]
+    cases = instance.execute()
+    assert [case.result for case in cases] == ["failed", "skipped", "passed", "passed"]
+
+
+def test_client_gap_is_reported_after_independent_candidate_checks(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    instance.out.mkdir()
+    instance.probe_client = lambda tool: {"host": tool, "discovered": True, "launched": tool != "copilot", "status_called": False, "limitation": "Authentication required" if tool == "copilot" else ""}
+    assert instance.prove_clients() == ["copilot"]
+    assert instance.steps()[-1][0] == "candidate-client-evidence"
+    with pytest.raises(AssertionError, match="copilot"):
+        instance.candidate_client_evidence(False)
 
 
 @pytest.mark.parametrize("relative", ["src/legion/mcp/server.py", "hooks/session_start.py"])
@@ -282,35 +394,49 @@ def test_candidate_fence_is_checked_even_after_a_failed_action(tmp_path: Path, r
         instance.update_from_0_17_0(repeat)
 
 
-def test_upgrade_runs_old_owner_update_after_replacing_marketplace_contents(tmp_path: Path) -> None:
+def test_upgrade_advances_origin_without_changing_reader(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
     candidate = instance.work / "candidate"
     candidate.mkdir()
     (candidate / "new.py").write_text("candidate source", encoding="utf-8")
     upgrade = runner.Runner(instance.checkout, instance.work / "upgrade/home", instance.out / "candidate", False)
-    upgrade.checkout = upgrade.work / "old-source"
-    upgrade.checkout.mkdir()
-    (upgrade.checkout / "old.py").write_text("old source", encoding="utf-8")
+    origin = upgrade.work / "origin.git"
+    seed = upgrade.work / "seed"
+    seed.mkdir()
+    instance.run(["git", "-C", str(seed), "init", "--quiet"])
+    instance.run(["git", "-C", str(seed), "config", "core.longpaths", "true"])
+    instance.run(["git", "-C", str(seed), "config", "user.name", "fixture"])
+    instance.run(["git", "-C", str(seed), "config", "user.email", "fixture@example.invalid"])
+    (seed / "old.py").write_text("old source", encoding="utf-8")
+    instance.run(["git", "-C", str(seed), "add", "."])
+    instance.run(["git", "-C", str(seed), "commit", "--quiet", "-m", "old"])
+    instance.run(["git", "init", "--bare", "--quiet", str(origin)])
+    instance.run(["git", "--git-dir", str(origin), "config", "core.longpaths", "true"])
+    instance.run(["git", "--git-dir", str(origin), "fetch", "--quiet", str(seed), "HEAD:refs/heads/stable"])
+    reader = upgrade.work / "old-source"
+    instance.run(["git", "clone", "--quiet", "--branch", "stable", str(origin), str(reader)])
+    upgrade.checkout = reader
+    instance.state["origin"] = origin
     upgrade.launcher("legion").parent.mkdir(parents=True)
     for path in upgrade.owner_shims():
         path.write_text("old launcher", encoding="utf-8")
     instance.state["candidate"] = upgrade
     instance.state["old_shims"] = {path.name: path.read_bytes() for path in upgrade.owner_shims()}
-    instance.run = lambda *_args: "old.py\0"
-    upgrade.version = lambda *_args: runner.CANDIDATE_VERSION
+    upgrade.version = lambda *_args: instance.candidate_version
     calls = []
 
     def owner(*args: str, **kwargs: bool) -> str:
         calls.append((args, kwargs))
-        assert not (upgrade.checkout / "old.py").exists()
-        assert (upgrade.checkout / "new.py").read_text(encoding="utf-8") == "candidate source"
+        assert (reader / "old.py").read_text(encoding="utf-8") == "old source"
+        assert not (reader / "new.py").exists()
         for path in upgrade.owner_shims():
-            path.write_text("candidate launcher " + runner.CANDIDATE_VERSION, encoding="utf-8")
+            path.write_text("candidate launcher " + instance.candidate_version, encoding="utf-8")
         return "\n".join(f"Update legion for {tool}" for tool in runner.TOOLS)
 
     upgrade.legion = owner
     instance.upgrade_candidate()
     assert calls == [(("update", "--yes"), {"owner": True})]
+    assert instance.run(["git", "--git-dir", str(origin), "show", "stable:new.py"]) == "candidate source"
 
 
 def test_client_command_rejects_another_installed_home(tmp_path: Path) -> None:
@@ -352,7 +478,7 @@ def test_repeat_and_purge_use_candidate_owner_command(tmp_path: Path) -> None:
     calls = []
     checked = []
     upgrade.legion = lambda *args, **kwargs: calls.append((args, kwargs)) or "already up to date\n" + "\n".join(f"Update legion for {tool}" for tool in runner.TOOLS)
-    upgrade.version = lambda *_args: runner.CANDIDATE_VERSION
+    upgrade.version = lambda *_args: instance.candidate_version
     upgrade.home_snapshot = lambda **_kwargs: {}
     upgrade.check_uninstalled = lambda tool, _folder: checked.append(tool)
     instance.finish_candidate()
