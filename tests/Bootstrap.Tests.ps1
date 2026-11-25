@@ -317,7 +317,7 @@ Invoke-InstallTestCase 'ShellBootstrap' {
             Remove-Item $log -ErrorAction SilentlyContinue
             $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --dry-run 2>&1) -join "`n"
             Assert-True ($text.Contains('Python 3.12 is missing') -and -not (Test-Path $log)) "A preview reports Python and never runs uv: $text"
-            $setsid = Get-Command setsid -CommandType Application -ErrorAction SilentlyContinue
+            $setsid = Get-Command setsid -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($setsid) {
                 # No controlling terminal, so the question cannot be answered.
                 $text = @('' | & $setsid.Source -w $shell (Join-Path $fakeHome 'checkout/install.sh') 2>&1) -join "`n"

@@ -143,6 +143,39 @@ def test_snapshot_excludes_cli_runtime_files(tmp_path: Path, tool: str, runtime:
     assert instance.home_snapshot() == first
 
 
+@pytest.mark.parametrize(("tool", "runtime"), [("codex", "tmp/arg0-linux/codex-arg0-test/apply_patch"), ("copilot", "logs/process-123-456.log")])
+def test_snapshot_excludes_account_runtime_but_detects_account_changes(tmp_path: Path, tool: str, runtime: str) -> None:
+    instance = make_runner(tmp_path)
+    account = instance.home / ".legion/agents" / f"{tool}1"
+    settings = instance.home / ".legion/configuration/personalisation.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({"agents": [{"id": f"{tool}1", "tool": tool, "configDir": str(account)}]}), encoding="utf-8")
+    runtime_path = account / runtime
+    stable = account / "config.toml"
+    runtime_path.parent.mkdir(parents=True)
+    runtime_path.write_text("one", encoding="utf-8")
+    stable.write_text("one", encoding="utf-8")
+    first = instance.home_snapshot()
+    runtime_path.write_text("two", encoding="utf-8")
+    assert instance.home_snapshot() == first
+    stable.write_text("two", encoding="utf-8")
+    with pytest.raises(AssertionError, match=rf"changed: .legion/agents/{tool}1/config.toml"):
+        runner.unchanged(first, instance.home_snapshot())
+
+
+def test_first_uninstall_runs_installed_owner_command(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    for name in ("configuration", "agents"):
+        (instance.home / ".legion" / name).mkdir(parents=True)
+    seen: list[bool] = []
+    instance.targets_for_uninstall = list
+    instance.active = list
+    instance.check_launchers = lambda: None
+    instance.legion = lambda *_args, owner=False: seen.append(owner) or "removed"
+    instance.uninstall(False)
+    assert seen == [True]
+
+
 @pytest.mark.parametrize("text", ["codex exited 1\nlocal directory source is not supported", "claude exited 1\nlocal directory source is not supported"])
 def test_local_refusal_only_skips_its_cli(tmp_path: Path, text: str) -> None:
     instance = make_runner(tmp_path)

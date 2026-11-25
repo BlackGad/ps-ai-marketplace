@@ -298,11 +298,13 @@ class Runner:
             folders += [(agent["tool"], self.resolve_folder(agent.get("configDir", ""))) for agent in self.settings()["agents"]]
         # Hand-built, reason: CLI runtime caches in HOME are unrelated to Legion repeat behavior.
         result = {}
-        for path in [self.home / ".legion", *(folder for _, folder in folders)]:
+        legion = self.home / ".legion"
+        nested = [re.escape(folder.relative_to(legion).as_posix()) + r"/.*" for _, folder in folders if folder.is_relative_to(legion) and folder != legion]
+        for path in [legion, *(folder for _, folder in folders)]:
             if path.is_dir() and path.is_relative_to(self.home):
                 prefix = path.relative_to(self.home).as_posix()
                 tool = next((tool for tool, folder in folders if folder == path), None)
-                result.update({prefix + "/" + name: value for name, value in snapshot(path, runtime[tool] if tool else []).items()})
+                result.update({prefix + "/" + name: value for name, value in snapshot(path, nested if path == legion else runtime[tool] if tool else []).items()})
         for name in (".zshrc", ".bashrc", ".profile"):
             path = self.home / name
             if path.is_file():
@@ -664,9 +666,7 @@ class Runner:
 
     def uninstall(self, repeat: bool) -> str:
         targets = self.targets_for_uninstall() if not repeat else []
-        # The installed owner command runs from the app it would remove. Use the checkout's
-        # public CLI so Windows can release its interpreter before deleting the app.
-        output = self.legion("uninstall", "--yes")
+        output = self.legion("uninstall", "--yes", owner=not repeat)
         if repeat:
             contains(output, "Nothing to uninstall.")
             return output

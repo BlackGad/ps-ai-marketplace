@@ -164,6 +164,8 @@ def shim_text(app: Path, home: Path, windows: bool) -> str:
         lines = [
             header("owner command", True),
             f"@where /q uv || (>&2 echo {UV_MISSING}& exit /b 127)",
+            f'@if /i "%~1"=="uninstall" uv run --no-project --python 3.12 "%~dp0..\\app\\{app.name}\\src\\legion\\_self_uninstall.py" "%~dp0..\\app\\{app.name}" %*',
+            '@if /i "%~1"=="uninstall" exit /b',
             (
                 f'@set "UV_PROJECT_ENVIRONMENT=%~dp0..\\python\\{environment.name}" & uv run --project "%~dp0..\\app\\{app.name}" --frozen --quiet legion{home_argument} %* & (goto) 2>nul & '
                 'set "UV_PROJECT_ENVIRONMENT=%UV_PROJECT_ENVIRONMENT%" & "%COMSPEC%" /d /c "set /a LEGION_EXIT=0x%%=ExitCode%% >nul & call exit %%^LEGION_EXIT%%"'
@@ -174,6 +176,7 @@ def shim_text(app: Path, home: Path, windows: bool) -> str:
         "#!/bin/sh",
         header("owner command", False),
         f"command -v uv >/dev/null 2>&1 || {{ echo '{UV_MISSING}' >&2; exit 127; }}",
+        f'if [ "$1" = uninstall ]; then exec uv run --no-project --python 3.12 {shell_literal(str(app / "src/legion/_self_uninstall.py"))} {shell_literal(str(app))} "$@"; fi',
         f"export UV_PROJECT_ENVIRONMENT={shell_literal(str(environment))}",
         f'exec uv run --project {shell_literal(str(app))} --frozen --quiet legion{home_argument} "$@"',
     ]
