@@ -24,7 +24,7 @@ from ._run import run_command
 from ._settings_models import BinaryDownload, InstallRecipe, ScriptDownload, ToolDescriptor, Windows
 from ._validate import load_descriptors
 
-HELPERS_PATH = PLUGIN_ROOT / "bin" / "install-tool" / "helpers.json"
+HELPERS_PATH = PLUGIN_ROOT / "helpers.json"
 CHOICE_MESSAGE = "choose --method msi (official installer, needs admin) or --method zip (user folder, no admin)"
 # An installer that asks for a restart still installed.
 INSTALLER_SUCCESS_CODES = (0, 3010)

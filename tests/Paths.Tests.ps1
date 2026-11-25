@@ -1,5 +1,5 @@
 $root = Split-Path $PSScriptRoot -Parent
-. (Join-Path $root 'plugins/legion/bin/lib/paths.ps1')
+. (Join-Path $PSScriptRoot 'lib/paths.ps1')
 
 $guard = $env:LEGION_TEST_GUARD
 Assert-True ((Get-Item -LiteralPath (Split-Path $guard) -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) 'Every test home is reached through a link'
@@ -28,14 +28,9 @@ try {
     $sameDirectory = $IsWindows -or ((Test-Path -LiteralPath $upperCase -PathType Container) -and
         ((Resolve-LegionDirectoryPath $upperCase) -ceq $physical))
     Assert-Equal $sameDirectory (Test-LegionPathUnder -Path $upperCase -Root $physical -AllowEqual) 'Resolved identity follows file system case rules'
-    Assert-True (Test-LegionOwnerPathSafe -Path (Join-Path $scratch 'missing/leaf') -StopRoot $scratch) 'Safety walks stop below linked ancestors'
-    Assert-True (Test-LegionOwnerPathSafe -Path $scratch -StopRoot $guard) 'Safety walks stop at the home below its linked ancestor'
-    Assert-Throws { Test-LegionOwnerPathSafe -Path $guard -StopRoot $scratch } 'Safety walks reject paths outside their stop root'
     $type = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
     New-Item -ItemType $type -Path $link -Target (Resolve-LegionDirectoryPath $guard) | Out-Null
     Assert-True (-not (Test-LegionPathUnder -Path $link -Root $scratch)) 'Links escaping a root fail resolved containment'
-    Assert-True (-not (Test-LegionOwnerPathSafe -Path $link -StopRoot $scratch)) 'Link refusal still returns false for an escaping link'
-    Assert-True (Test-LegionOwnerPathSafe -Path (Join-Path $link 'future') -StopRoot $link) 'A stop root that is itself a link is allowed'
 } finally {
     if (-not (Test-LegionPathUnder -Path $scratch -Root (Get-TestTempPath))) { throw 'Unsafe path fixture cleanup' }
     if (Test-Path -LiteralPath $link) { Remove-Item -LiteralPath $link -Force }

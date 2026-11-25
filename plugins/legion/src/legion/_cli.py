@@ -7,7 +7,7 @@ from typing import Literal, Optional
 
 import click
 
-from . import _forward, _home, _plugin
+from . import _home, _plugin
 
 
 def _show_version(context: click.Context, _parameter: click.Parameter, value: bool) -> None:
@@ -26,15 +26,6 @@ class _LegionGroup(click.Group):
         if args and args[0].startswith("-"):
             return "", _launch_command(""), args
         return super().resolve_command(ctx, args)
-
-
-def _forwarded(verb: str, help_text: Optional[str] = None) -> click.Command:
-    @click.pass_context
-    def forward(context: click.Context, words: tuple[str, ...]) -> None:
-        context.exit(_forward.run([verb, *words] if verb else list(words), context.obj))
-
-    words = click.Argument(["words"], nargs=-1, type=click.UNPROCESSED)
-    return click.Command(verb, callback=forward, params=[words], help=help_text, context_settings={"ignore_unknown_options": True}, add_help_option=False)
 
 
 @click.group(cls=_LegionGroup, invoke_without_command=True, context_settings={"ignore_unknown_options": True}, help="Legion commands")
@@ -610,8 +601,11 @@ def remove(context: click.Context, account_id: str) -> None:
 
 main.add_command(_launch_command("pick"))
 
-for _verb, _help in _forward.FORWARDED_VERBS.items():
-    main.add_command(_forwarded(_verb, _help))
+
+@main.command("help", help="Show the legion commands")
+@click.pass_context
+def help_command(context: click.Context) -> None:
+    click.echo(context.parent.get_help() if context.parent else "")
 
 
 if __name__ == "__main__":

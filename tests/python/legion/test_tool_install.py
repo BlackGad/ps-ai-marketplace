@@ -149,7 +149,7 @@ def test_recipe_data_comes_from_descriptors_and_helpers() -> None:
     descriptor_tools = {tool.id for tool in _tool_install.load_tools()}
     assert {"claude", "codex", "copilot"} <= descriptor_tools
     assert descriptor_tools.isdisjoint({"git", "node", "az", "uv", "bun"})
-    assert PLUGIN_ROOT.joinpath("bin/install-tool/helpers.json").is_file()
+    assert PLUGIN_ROOT.joinpath("helpers.json").is_file()
 
 
 def test_unknown_tool_is_refused(bench: Bench) -> None:

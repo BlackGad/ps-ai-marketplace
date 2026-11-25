@@ -4,19 +4,20 @@ Installer options, CLI guides and repository details for maintainers and power u
 
 ## Requirements
 
-- PowerShell 7.4 LTS or newer (`pwsh`) on every machine. The platform launchers offer to install it when it is missing or older than 7.4; the installer itself stops with a clear message on an older version.
-- On macOS and Linux: `sh`, `curl`, `awk`, `tar`, and either `sha256sum` or `shasum`. The portable PowerShell archive needs the platform's PowerShell runtime dependencies.
+- [uv](https://docs.astral.sh/uv/) on every machine. The bootstrap installs it after asking when it is missing; legion itself runs in Python through uv, and uv downloads the Python it needs. No PowerShell 7 is needed.
+- On Windows: the built-in Windows PowerShell 5.1 (or PowerShell 7) to start the bootstrap.
+- On macOS and Linux: `sh`, `curl` and `tar`.
 - At least one of: Claude Code, Codex CLI, Copilot CLI.
 
 ## Install
 
-On Windows, start the bootstrap below in Windows PowerShell 5.1 or PowerShell 7 (`pwsh`). The installer and plugin run in PowerShell 7.4 or newer; 5.1 is used only by the bootstrap to get PowerShell 7 and start the installer:
+On Windows, start the bootstrap below in Windows PowerShell 5.1 or PowerShell 7. It only obtains uv, then hands every option to the Python `legion install` command:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1)))
 ```
 
-The bootstrap downloads and expands the plugin archive from the fixed legion repository, then reads its PowerShell recipe. If PowerShell 7.4 or newer is missing on Windows (an older `pwsh` counts as missing), it shows `winget install --id Microsoft.PowerShell -e` and asks before installing. If winget is missing or fails, it uses the official per-user ZIP, verifies its SHA-256 digest, extracts it to `~/.legion/tools/pwsh/`, and adds that folder to the process and user PATH after consent. The installer then runs under PowerShell 7 and asks `Install legion for <tools> now? [y/N]`, including a PATH hint when needed. The first install can therefore ask twice. A declined question prints `Nothing changed` and stops successfully. Use `-Yes` to skip questions. Without PowerShell 7, `-DryRun` shows only the PowerShell hint. `-Update` and `-Uninstall` skip the legion install question; update asks its own question for a folder where legion is missing (see Install and update targets). The temporary archive is removed after the run. `-Source` selects marketplace and catalog data; executable installer code always comes from the fixed legion repository or the local checkout.
+If uv is missing, the bootstrap says so and asks `Install uv now? [y/N]`; after a yes it reads the latest uv release from GitHub, downloads the zip for your system, checks it against the release's SHA-256 digest (a mismatch deletes the download and stops) and extracts it to `~/.legion/tools/uv/`. Then it downloads the plugin archive from the fixed legion repository (the `stable` branch, or `main` with `-Ref main`), or uses the local checkout, and runs `legion install` through `uv run` with the same options in a throwaway environment that is removed afterwards. `legion install` asks `Install legion for <tools> now? [y/N]`, including a PATH hint, so the first install can ask twice. A declined question prints `Nothing changed` and stops successfully. Use `-Yes` to skip questions. Without uv, `-DryRun` shows only the uv hint. `-Update` and `-Uninstall` skip the legion install question. `-Source` selects marketplace and catalog data; executable code always comes from the fixed legion repository or the local checkout.
 
 macOS:
 
@@ -30,7 +31,9 @@ Linux:
 curl -fsSL https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.sh | sh
 ```
 
-The POSIX launcher reuses PowerShell 7 on PATH or in `~/.legion/tools/pwsh`. If missing, it shows a hint and asks in the terminal before installing; without a terminal it changes nothing unless `--yes` (or `-y`) was supplied. `--dry-run` never installs PowerShell. After consent, it follows the official PowerShell latest-release redirect, downloads the release archive for macOS or Linux (x64 or arm64), verifies SHA-256 against that release's `hashes.sha256`, and extracts to `~/.legion/tools/pwsh`, without sudo. It adds that folder to the current process PATH and runs the root PowerShell stub, which owns the plugin archive flow described above. A local checkout uses its own stub. Temporary downloads are removed after success or failure. A repeated run skips PowerShell installation. If the portable runtime cannot start, resolve the platform runtime dependencies and rerun.
+The POSIX launcher reuses uv on PATH, in `~/.legion/tools/uv` or in `~/.local/bin`. If missing, it shows a hint and asks in the terminal before installing; without a terminal it changes nothing unless `--yes` (or `-y`) was supplied. `--dry-run` never installs uv. After consent it reads the latest uv release from GitHub, downloads the archive for this system, checks it against the release's SHA-256 digest (a mismatch deletes the download and stops) and extracts it to `~/.legion/tools/uv/`, without sudo. Then it downloads the plugin archive (`stable`, or `main` with `--main`) with curl, or uses its own checkout, and runs `legion install` through `uv run` with the same options. Temporary downloads are removed after success or failure. A repeated run skips uv installation.
+
+On Windows, `legion` and the account launchers are `.cmd` files, so unquoted `<`, `>`, `&` or `|` in an argument passed by another program break in `cmd.exe`; quote them.
 
 By default, the script installs legion for every installed coding CLI, using the targets below. If none is installed, it prints the official CLI install commands and stops successfully. Install one and rerun the script. Repeated runs skip completed steps and preserve hook approval.
 
@@ -59,7 +62,7 @@ For macOS and Linux shell options, put arguments after `sh -s --`:
 curl -fsSL https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.sh | sh -s -- --tools codex,claude --config-dir "$HOME/account folder" --yes
 ```
 
-| Shell option | PowerShell parameter |
+| Shell option | Windows parameter |
 | --- | --- |
 | `--main` | `-Ref main` (default: release / stable) |
 | `--update` | `-Update` |
@@ -70,7 +73,7 @@ curl -fsSL https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main
 | `--tools codex,claude` | `-Tools` with an array of comma-separated ids |
 | `--config-dir <folder>` | `-ConfigDir <folder>` |
 
-For options, use the script-block form in PowerShell. This example selects an extra account:
+For options, use the script-block form in Windows PowerShell. This example selects an extra account:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Tools <tool-id> -ConfigDir <account folder>
@@ -143,7 +146,7 @@ For a full removal, run `legion uninstall --purge` or:
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Uninstall -Purge
 ```
 
-Purge runs uninstall first, then lists everything it will delete and asks a separate question. It removes all of `~/.legion`, including settings, notes, account folders, legion-made logins and launchers. It removes legion's plugin files, marketplace registration, caches, data and settings entries from every recorded tool folder and every default tool folder, even when a CLI is missing. On Windows it removes the exact recorded legion PATH entries, including portable tools, from the user and current process PATH. On macOS and Linux it removes the recorded shell profile PATH line and the `# Added by legion` line directly above it. It also removes the line break legion added before that block, but only when the block is the last thing in the file; if owner text follows, that line break stays. A line without that marker is the owner's and stays. It also removes the recorded `~/.legion/bin/pwsh` link and recorded permission rules, preserving comments and other rules. Repositories, the CLIs and other tool settings stay. Purge covers all accounts even if `-Tools` or `-ConfigDir` narrowed the preceding uninstall. `-Yes` answers both questions; `-DryRun` lists the plan and removes nothing. Settings that cannot be safely edited are left unchanged and printed as manual steps.
+Purge runs uninstall first, then lists everything it will delete and asks a separate question. It removes all of `~/.legion`, including settings, notes, account folders, legion-made logins and launchers. It removes legion's plugin files, marketplace registration, caches, data and settings entries from every recorded tool folder and every default tool folder, even when a CLI is missing. On Windows it removes the exact recorded legion PATH entries, including portable tools, from the user and current process PATH. On macOS and Linux it removes the recorded shell profile PATH line and the `# Added by legion` line directly above it. It also removes the line break legion added before that block, but only when the block is the last thing in the file; if owner text follows, that line break stays. A line without that marker is the owner's and stays. It also removes recorded permission rules, preserving comments and other rules. Repositories, the CLIs and other tool settings stay. Purge covers all accounts even if `-Tools` or `-ConfigDir` narrowed the preceding uninstall. `-Yes` answers both questions; `-DryRun` lists the plan and removes nothing. Settings that cannot be safely edited are left unchanged and printed as manual steps.
 
 Codex hook approvals for folders legion no longer knows cannot be identified and are left in place.
 
@@ -178,7 +181,7 @@ After approving the plan (an interactive terminal asks `Apply? [Y/n]`), run it a
 - `~/.legion/configuration/personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/legion/schemas/personalisation.schema.json`. It never holds tokens.
 - `~/.legion/configuration/notes.md`: free-form preferences and lessons.
 
-For every Claude account, setup also adds the permission rule `Bash(LEGION_ROLE=member *)` to its `settings.json`, so the overseer can start legion members without a prompt; other settings and rules stay. It also writes account wrappers and the four commands below. After the same yes, setup and the installer add `~/.legion/bin` to your user PATH on Windows. On macOS and Linux they append `# Added by legion` and `export PATH="$HOME/.legion/bin:$PATH"` once to the shell profile selected by `$SHELL`: `~/.zshrc` for zsh, `~/.bashrc` for bash, otherwise `~/.profile`. The plan shows the profile change before consent; a repeat skips it. Legion records only what it adds: a PATH entry, profile line or permission rule you already had stays yours. When the installer runs from the portable PowerShell in `~/.legion/tools/pwsh` on macOS or Linux, it also links `~/.legion/bin/pwsh` to it, so new terminals and PowerShell-based legion scripts find PowerShell. Purge removes the recorded line and its marker, preserving the rest of the file. Open a new terminal if needed.
+For every Claude account, setup also adds the permission rule `Bash(LEGION_ROLE=member *)` to its `settings.json`, so the overseer can start legion members without a prompt; other settings and rules stay. It also writes account wrappers and the four commands below. After the same yes, setup and the installer add `~/.legion/bin` to your user PATH on Windows. On macOS and Linux they append `# Added by legion` and `export PATH="$HOME/.legion/bin:$PATH"` once to the shell profile selected by `$SHELL`: `~/.zshrc` for zsh, `~/.bashrc` for bash, otherwise `~/.profile`. The plan shows the profile change before consent; a repeat skips it. Legion records only what it adds: a PATH entry, profile line or permission rule you already had stays yours. Purge removes the recorded line and its marker, preserving the rest of the file. Open a new terminal if needed.
 
 Run `legion status` before making changes. Before setup, outside an orchestrated repository, status prints:
 

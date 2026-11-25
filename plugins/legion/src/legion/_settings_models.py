@@ -265,7 +265,7 @@ class Windows(ToolModel):
     download: WindowsDownload
 
 
-# How to find and install one program; the helpers in bin/install-tool/helpers.json have no hint.
+# How to find and install one program; the helpers in helpers.json have no hint.
 class InstallRecipe(ToolModel):
     check: Command
     windows: Optional[Windows]

@@ -17,7 +17,6 @@ import pytest
 from cli_runner import run
 from conftest import REPO, Fence
 
-from legion import _forward
 from legion._home import home_path
 from legion._process import process_started_at
 from legion._run import RunResult
@@ -534,7 +533,6 @@ def test_limits_takes_at_most_one_named_account_and_no_other_flags(bench: Bench,
 
 
 def test_limits_is_served_by_python(capsys: pytest.CaptureFixture[str]) -> None:
-    assert "limits" not in _forward.FORWARDED_VERBS
     assert run(["limits", "--help"]) == 0
     assert "Show each account's usage windows and reset times" in capsys.readouterr().out
 

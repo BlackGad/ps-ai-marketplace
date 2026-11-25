@@ -32,7 +32,7 @@ Linux:
 curl -fsSL https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.sh | sh
 ```
 
-The launcher offers to install PowerShell 7.4 or newer if it is missing or older, then installs legion for your installed AI tools after asking. On macOS and Linux it uses a SHA-256 verified official archive in `~/.legion/tools/pwsh`, without sudo. Add `-Yes` in PowerShell to skip the questions; for macOS and Linux, replace `sh` with `sh -s -- --yes`. See [installer options](docs/reference.md#installer-parameters).
+The bootstrap offers to install uv if it is missing, then installs legion for your installed AI tools after asking. Windows needs only the built-in PowerShell; no PowerShell 7. Add `-Yes` in PowerShell to skip the questions; for macOS and Linux, replace `sh` with `sh -s -- --yes`. See [installer options](docs/reference.md#installer-parameters).
 
 ## Why mix tools
 
