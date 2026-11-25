@@ -14,3 +14,6 @@ foreach ($evidence in @('background worker', 'hosted CI', 'external job', 'Next 
     Assert-True ($rule -match [regex]::Escape($evidence)) "Pending-result rule covers $evidence"
 }
 Assert-True ($rule.Contains('report to the overseer')) 'Workers still report through the overseer'
+Assert-True ($rule -match 'bounded status waits') 'Live overseer waits in bounded intervals without a wake event'
+Assert-True ($rule -match 'session itself is ending') 'Pending result remains in handoff only at session end'
+Assert-True ($rule -match 'without pushing') 'Shared mode records CI transitions locally without another CI run'
