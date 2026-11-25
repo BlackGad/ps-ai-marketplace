@@ -90,11 +90,14 @@ def update(context: click.Context, check: bool, force: bool, yes: bool) -> None:
 
 def _report_installer(context: click.Context, change: Callable[[], list[str]]) -> None:
     from ._installer import InstallerError
+    from ._footprints import FootprintError
+    from ._launchers import LauncherError
+    from ._settings_io import SettingsError
 
     try:
         for line in change():
             click.echo(line)
-    except (InstallerError, OSError, ValueError) as error:
+    except (InstallerError, FootprintError, LauncherError, SettingsError, OSError, ValueError) as error:
         click.echo(str(error), err=True)
         context.exit(1)
 

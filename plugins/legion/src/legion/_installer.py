@@ -6,6 +6,7 @@ import re
 import shutil
 import sys
 import tempfile
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,7 @@ from urllib.request import urlopen
 import tomlkit
 from tomlkit.items import InlineTable
 
-from . import _app, _footprints, _refresh
+from . import _footprints, _refresh
 from ._home import bin_folder, footprint_index, full_path, home_path, is_reparse, is_under, owner_path_safe, same_path, tree_has_reparse
 from ._plugin import PLUGIN_ROOT
 from ._run import run_command
@@ -119,7 +120,7 @@ def _folders(home: Path, entry: dict[str, Any], selected: Path | None) -> list[P
     return folders
 
 
-def _safe_path(root: Path, relative: str, home: Path, allow_file: bool = False, exceptions: tuple[Path, ...] = ()) -> Path | None:
+def _safe_path(root: Path, relative: str, home: Path, allow_file: bool = False, exceptions: tuple[Path, ...] = (), retained: tuple[Path, ...] = ()) -> Path | None:
     # Hand-built, reason: deletion must reject lexical traversal and links before Path.resolve can hide either.
     if not relative or relative.startswith(("/", "\\", "~")) or re.search(r"(^|[/\\])\.{1,2}([/\\]|$)|[:*?]|[/\\]$|[/\\]{2}", relative):
         raise InstallerError("Unsafe relative path: expected an exact path under the root")
@@ -137,9 +138,9 @@ def _safe_path(root: Path, relative: str, home: Path, allow_file: bool = False, 
         for current, dirs, files in os.walk(path, followlinks=False):
             for name in dirs + files:
                 child = Path(current) / name
-                if child not in exceptions and is_reparse(child):
+                if child not in exceptions and not any(is_under(child, keep, allow_equal=True) for keep in retained) and is_reparse(child):
                     return None
-        if tree_has_reparse(path) and not exceptions:
+        if tree_has_reparse(path) and not exceptions and not retained:
             return None
     return path
 
@@ -203,49 +204,61 @@ def _json_edit(path: Path, kind: str) -> Edit | None:
         document = json.loads(clean)
         if not isinstance(document, dict):
             return None
-        if kind == "settings":
-            parent, key = document.get("enabledPlugins"), "legion@ps-legion-marketplace"
-        elif kind == "marketplaces":
-            parent, key = document, "ps-legion-marketplace"
-        elif kind == "claude":
-            parent, key = document.get("plugins"), "legion@ps-legion-marketplace"
-        else:
-            parent, key = None, ""
-        if kind == "copilot":
-            entries = document.get("installedPlugins")
-            if not isinstance(entries, list):
-                return None
-            if not any(isinstance(item, dict) and item.get("name") == "legion" and item.get("marketplace") == "ps-legion-marketplace" for item in entries):
-                return None
-            name = "installedPlugins: legion@ps-legion-marketplace"
-        else:
+        targets: list[tuple[str | None, dict[str, Any] | None, str]] = (
+            [(None, document, "ps-legion-marketplace")]
+            if kind == "marketplaces"
+            else [
+                ("enabledPlugins", document.get("enabledPlugins"), "legion@ps-legion-marketplace"),
+                ("extraKnownMarketplaces", document.get("extraKnownMarketplaces"), "ps-legion-marketplace"),
+            ]
+        )
+        if kind == "claude":
+            targets.append(("plugins", document.get("plugins"), "legion@ps-legion-marketplace"))
+        names: list[str] = []
+        changed = text
+        for parent_name, parent, key in targets:
             if not isinstance(parent, dict) or key not in parent:
-                return None
-            del parent[key]
-            name = key
-        # Hand-built, reason: a JSON member is removed as a span to keep the owner's unrelated bytes unchanged.
-        if kind != "copilot":
-            token = json.dumps(key)
-            matches = list(re.finditer(re.escape(token) + r"\s*:\s*", clean))
+                continue
+            # Hand-built, reason: remove only the owned JSONC member's token span, retaining other bytes.
+            clean = _strip_jsonc_comments(changed)
+            start_of_parent = 0
+            end_of_parent = len(clean)
+            if parent_name is not None:
+                parents = list(re.finditer(re.escape(json.dumps(parent_name)) + r"\s*:\s*", clean))
+                if len(parents) != 1:
+                    return None
+                start_of_parent = parents[0].end()
+                _, length = json.JSONDecoder().raw_decode(clean[start_of_parent:])
+                end_of_parent = start_of_parent + length
+            matches = list(re.finditer(re.escape(json.dumps(key)) + r"\s*:\s*", clean[start_of_parent:end_of_parent]))
             if len(matches) != 1:
                 return None
-            start = matches[0].start()
-            decoder = json.JSONDecoder()
-            _, length = decoder.raw_decode(clean[matches[0].end() :])
-            end = matches[0].end() + length
-            after_start = re.match(r"\s*,", clean[end:])
-            if after_start:
-                end += after_start.end()
+            start = start_of_parent + matches[0].start()
+            value_start = start_of_parent + matches[0].end()
+            _, length = json.JSONDecoder().raw_decode(clean[value_start:])
+            end = value_start + length
+            suffix = re.match(r"\s*,", clean[end:])
+            if suffix:
+                end += suffix.end()
             else:
                 prefix = re.search(r",\s*$", clean[:start])
                 if prefix:
                     start = prefix.start()
-            changed = text[:start] + text[end:]
+            changed = changed[:start] + changed[end:]
             json.loads(_strip_jsonc_comments(changed))
-        else:
-            changed = _remove_copilot_item(text, clean)
+            names.append(key)
+        installed_plugins = document.get("installedPlugins")
+        if (
+            kind == "copilot"
+            and isinstance(installed_plugins, list)
+            and any(isinstance(item, dict) and item.get("name") == "legion" and item.get("marketplace") == "ps-legion-marketplace" for item in installed_plugins)
+        ):
+            changed = _remove_copilot_item(changed, _strip_jsonc_comments(changed))
+            names.append("installedPlugins: legion@ps-legion-marketplace")
+        if not names:
+            return None
         after = bom + changed.encode(encoding)
-        return Edit(path, before, after, [name])
+        return Edit(path, before, after, names)
     except (UnicodeError, ValueError, TypeError):
         return None
 
@@ -314,7 +327,7 @@ def _allow_edit(path: Path, value: str, data: bytes | None = None) -> Edit | Non
 
 def remove_owned_edits(home: Path, owners: list[str], lines: list[str]) -> None:
     for entry in _footprints.read(home).entries:
-        if entry.kind != "edit" or not entry.owners or not all(owner in owners for owner in entry.owners):
+        if entry.kind != "edit" or not entry.owners or not all(any(_footprints.same_owner(owner, selected) for selected in owners) for owner in entry.owners):
             continue
         path = home_path(entry.path, home)
         if not path.is_file():
@@ -327,8 +340,6 @@ def remove_owned_edits(home: Path, owners: list[str], lines: list[str]) -> None:
         if edit is None:
             lines.append(f"skip: {path} (linked or could not match safely)")
             continue
-        if path.read_bytes() != edit.before:
-            raise InstallerError("Settings changed after preview; run again.")
         path.write_bytes(edit.after)
         _footprints.remove_exact(home, "edit", path, entry.key, entry.value)
         lines.extend(f"Remove entry: {path}: {name}" for name in edit.names)
@@ -461,11 +472,11 @@ def _path_removal(value: str, separator: str, owned: list[str]) -> tuple[str, li
 def _profile_edit(path: Path, key: str, value: str) -> Edit | None:
     before = path.read_bytes()
     text, encoding, bom = _decode_text(before)
-    match = re.search(r"# Added by legion\r?\n" + re.escape(value) + r"(?:\r?\n|$)", text)
+    match = re.search(r"(?m)^# Added by legion\r?\n" + re.escape(value) + r"(?:\r?\n|$)", text)
     if not match:
         return None
     start = match.start()
-    if key and text[:start].endswith(key):
+    if key and match.end() == len(text) and text[:start].endswith(key):
         start -= len(key)
     after = bom + (text[:start] + text[match.end() :]).encode(encoding)
     return Edit(path, before, after, [value])
@@ -521,7 +532,9 @@ def purge_plan(home: Path, catalog: dict[str, Any], config_dir: Path | None = No
                 plan.manual = True
     seen: set[Path] = set()
     for entry in catalog["tools"]:
-        folders = _folders(home, entry, config_dir)
+        folders = _folders(home, entry, None)
+        if config_dir is not None:
+            folders.append(full_path(config_dir))
         default = entry["plugin"].get("defaultConfigDir")
         if default:
             folders.append(_config_path(home, default))
@@ -583,11 +596,9 @@ def purge_plan(home: Path, catalog: dict[str, Any], config_dir: Path | None = No
             path = home_path(record.path, home)
             if is_reparse(path):
                 plan.links.append(path)
-    legion = _safe_path(home, ".legion", home, exceptions=tuple(plan.links))
-    if app_in_use:
-        plan.lines.append(f"Manual step: {home / '.legion/app'} (an app version is still in use; close legion, then run uninstall with purge again)")
-        plan.manual = True
-    elif legion:
+    retained = (home / ".legion/app", home / ".legion/python") if app_in_use else ()
+    legion = _safe_path(home, ".legion", home, exceptions=tuple(plan.links), retained=retained)
+    if legion:
         plan.legion = legion
     elif (home / ".legion").exists():
         plan.lines.append("Manual step: legion home contains linked paths; left in place.")
@@ -611,9 +622,9 @@ def purge_plan(home: Path, catalog: dict[str, Any], config_dir: Path | None = No
 
 def apply_purge(plan: PurgePlan) -> None:
     # The lock lives under .legion; keep its file until every protected deletion has finished.
-    if plan.legion is None and not plan.edits and not plan.paths and not plan.empty_paths and plan.user_path_before is None:
+    if plan.legion is None and not plan.edits and not plan.paths and not plan.empty_paths and not plan.links and plan.user_path_before is None:
         return
-    with _footprints.lock(plan.home):
+    with _footprints.lock(plan.home) if plan.legion else nullcontext():
         index = footprint_index(plan.home)
         if (index.read_bytes() if index.is_file() else b"") != plan.index_bytes:
             raise InstallerError("Legion records changed after preview; run purge again.")
@@ -645,13 +656,18 @@ def apply_purge(plan: PurgePlan) -> None:
             if (record and _footprints.is_safe(record, plan.home)) or path in _python_links(plan.home):
                 path.unlink()
         if plan.legion:
-            if _safe_path(plan.home, ".legion", plan.home) != plan.legion:
+            app_records = [entry for entry in _footprints.read(plan.home).entries if entry.kind in ("app", "app-version")]
+            app_in_use = any(entry.kind == "app-version" for entry in app_records)
+            retained = (plan.home / ".legion/app", plan.home / ".legion/python") if app_in_use else ()
+            if _safe_path(plan.home, ".legion", plan.home, retained=retained) != plan.legion:
                 raise InstallerError("Legion home changed after preview; run purge again.")
             lock_file = Path(str(index) + ".lock")
             for item in plan.legion.iterdir():
-                if item == lock_file:
+                if item == lock_file or (app_in_use and item in retained) or (app_in_use and item == index):
                     continue
                 shutil.rmtree(item) if item.is_dir() else item.unlink()
+            if app_in_use:
+                _footprints._write(plan.home, _footprints.FootprintIndex.model_validate({"schemaVersion": 1, "entries": app_records}))
     if plan.legion and plan.legion.is_dir():
         # A waiting writer can recreate the index now. Keep its new record and the shared lock if it did.
         remaining = sorted(item.name for item in plan.legion.iterdir())
@@ -666,7 +682,8 @@ def _execute(entry: dict[str, Any], arguments: list[str], folder: Path, listing:
     env[entry["configEnv"]] = str(folder)
     if listing:
         env.update(entry["plugin"].get("listingEnv") or {})
-    result = run_command(entry["command"], arguments, env=env, cwd=Path(tempfile.gettempdir()))
+    command = shutil.which(entry["command"]) or entry["command"]
+    result = run_command(command, arguments, env=env, cwd=Path(tempfile.gettempdir()))
     if result.exit_code:
         detail = result.error.strip() or result.output.strip()
         raise InstallerError(f"{entry['command']} {'listing ' if listing else ''}exited {result.exit_code}" + (f"\n{detail}" if detail else ""))
@@ -692,7 +709,8 @@ def _marketplace(entry: dict[str, Any], folder: Path, require_root: bool = False
         for item in data:
             if item.get(listing["nameField"]) == "ps-legion-marketplace":
                 if require_root and "rootField" in listing:
-                    return Path(item.get(listing["rootField"], "")).is_dir()
+                    root = item.get(listing["rootField"])
+                    return isinstance(root, str) and bool(root) and Path(root).is_dir()
                 return True
         return False
     except (ValueError, TypeError, KeyError) as error:
@@ -718,7 +736,7 @@ def _plugin_state(entry: dict[str, Any], folder: Path) -> tuple[bool, bool, list
                 paths.append(Path(item["installPath"]))
             version = item.get("version") or version
         return bool(matches), any(item[listing["enabledField"]] for item in matches), paths, version
-    lines = [line for line in output.splitlines() if "legion@ps-legion-marketplace" in line and "not installed" not in line]
+    lines = [line for line in output.splitlines() if re.search(r"legion@ps-legion-marketplace(?![\w-])", line) and "not installed" not in line]
     for line in lines:
         match = re.search(r"\b(v?\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b", line)
         if match:
@@ -734,9 +752,15 @@ def _plugin_root(entry: dict[str, Any], folder: Path) -> Path | None:
     if not listed:
         return None
     if entry["id"] == "copilot":
-        for marketplace in re.findall(r"(?m)^\s+from (.+?)\s*$", _listing(entry, folder, "plugin")):
+        is_legion = False
+        for line in _listing(entry, folder, "plugin").splitlines():
+            if not line[:1].isspace():
+                is_legion = bool(re.search(r"legion@ps-legion-marketplace(?![\w-])", line))
+            marketplace = re.match(r"^\s+from (.+?)\s*$", line) if is_legion else None
+            if marketplace is None:
+                continue
             try:
-                root = Path(marketplace)
+                root = Path(marketplace[1])
                 data = json.loads((root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8-sig"))
                 for plugin in data["plugins"]:
                     if plugin.get("name") == "legion" and isinstance(plugin.get("source"), str):
@@ -761,7 +785,7 @@ def _plugin_root(entry: dict[str, Any], folder: Path) -> Path | None:
 
 
 def _owner(entry: dict[str, Any], folder: Path) -> str:
-    return f"{entry['id']}:{full_path(folder)}"
+    return _footprints.target_owner(entry["id"], folder)
 
 
 def _refresh_target(entry: dict[str, Any], folder: Path, home: Path, root: Path) -> list[str]:
@@ -788,7 +812,10 @@ def _step(entry: dict[str, Any], arguments: list[str], folder: Path, dry_run: bo
 def _install_steps(entry: dict[str, Any], folder: Path, source: str | Path, ref: str, dry_run: bool, lines: list[str]) -> None:
     plugin = entry["plugin"]
     branch = "main" if ref == "main" else "stable"
-    template = plugin["marketplaceAdd"] if Path(source).is_dir() else plugin["marketplaceAddRef"]
+    local = Path(source).is_dir()
+    if local:
+        source = Path(source).resolve().as_posix()
+    template = plugin["marketplaceAdd"] if local else plugin["marketplaceAddRef"]
     marketplace_add = [word.replace("{source}", str(source)).replace("{ref}", branch) for word in template]
     installed = _marketplace(entry, folder)
     listed, enabled, _, _ = _plugin_state(entry, folder)
@@ -875,7 +902,8 @@ def install(
             lines.append("done: restart your sessions; run legion in the repository")
         return lines
     lines.append(f"Install legion for {', '.join(selected)}")
-    if not dry_run and not (yes or _confirm(f"Install legion for {', '.join(selected)} now? [y/N]", lines)):
+    path_description = "user PATH" if sys.platform == "win32" else "shell profile PATH"
+    if not dry_run and not (yes or _confirm(f"Install legion for {', '.join(selected)} now, and add ~/.legion/bin to your {path_description}? [y/N]", lines)):
         return [*lines, "Nothing changed. Run again with --yes to apply."]
     if not dry_run:
         record_portable_path(home)
@@ -891,7 +919,10 @@ def install(
                 folder.mkdir(parents=True, exist_ok=True)
             _install_steps(entry, folder, source, ref, dry_run, lines)
             if not dry_run:
-                root = _plugin_root(entry, folder)
+                try:
+                    root = _plugin_root(entry, folder)
+                except Exception:
+                    root = None
                 if root:
                     lines.extend(_refresh_target(entry, folder, home, root))
                     installed_version = json.loads((root / "plugin.json").read_text(encoding="utf-8"))["version"]
@@ -936,7 +967,7 @@ def preview_owned(home: Path, owners: list[str]) -> list[str]:
     records = _footprints.read(home).entries
     lines: list[str] = []
     for entry in records:
-        if entry.kind not in ("file", "folder", "edit") or not entry.owners or not all(owner in owners for owner in entry.owners):
+        if entry.kind not in ("file", "folder", "edit") or not entry.owners or not all(any(_footprints.same_owner(owner, selected) for selected in owners) for owner in entry.owners):
             continue
         path = home_path(entry.path, home)
         if entry.kind == "edit":
@@ -946,14 +977,6 @@ def preview_owned(home: Path, owners: list[str]) -> list[str]:
                 lines.extend(f"Remove entry: {path}: {name}" for name in edit.names)
         elif path.exists() and _footprints.is_safe(entry, home):
             lines.append(f"Remove {entry.kind}: {path}")
-    app_owners = [entry for entry in records if entry.kind == "app"]
-    if app_owners and all(all(owner in owners for owner in entry.owners) for entry in app_owners):
-        for entry in records:
-            if entry.kind != "app-version":
-                continue
-            path = home_path(entry.path, home)
-            if _app.version_safe(path, home):
-                lines.append(f"Remove app version: {path}")
     return lines
 
 
@@ -977,7 +1000,7 @@ def _uninstall(home: Path, catalog: dict[str, Any], selected: list[str], config_
                             folders.append(folder)
         for folder in folders:
             owner = _owner(entry, folder)
-            if owner in owners:
+            if any(_footprints.same_owner(owner, selected_owner) for selected_owner in owners):
                 continue
             owners.append(owner)
             if not folder.is_dir():
@@ -1003,7 +1026,7 @@ def _uninstall(home: Path, catalog: dict[str, Any], selected: list[str], config_
             lines.extend(_command_line(entry, arguments, folder) for _, arguments in steps)
             if cache:
                 lines.append(f"Remove cache folder: {cache}")
-    recorded = [record for record in _footprints.read(home).entries if not record.owners or any(owner in owners for owner in record.owners)]
+    recorded = [record for record in _footprints.read(home).entries if not record.owners or any(_footprints.same_owner(owner, selected_owner) for owner in record.owners for selected_owner in owners)]
     lines.extend(preview_owned(home, owners))
     lines.append("Channel plugins and their state remain in place.")
     if not targets and not recorded:
@@ -1043,5 +1066,5 @@ def refresh_remaining(home: Path, catalog: dict[str, Any], lines: list[str]) -> 
         root = _plugin_root(entry, Path(folder))
         if root is not None:
             lines.extend(_refresh_target(entry, Path(folder), home, root))
-    except (InstallerError, OSError):
+    except Exception:
         lines.append("Kept command: ~/.legion/bin/legion (run legion setup)")

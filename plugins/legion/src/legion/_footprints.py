@@ -12,7 +12,7 @@ from filelock import FileLock, Timeout
 
 from ._generated import is_owned
 from . import _plugin
-from ._home import footprint_index, full_path, home_path, is_under, owner_path_safe, same_path, tree_has_reparse
+from ._home import footprint_index, full_path, home_path, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
 from ._settings_models import SchemaVersion, SettingsModel, Text
 
 FootprintKind = Literal["file", "folder", "link", "path-entry", "edit", "app", "app-version"]
@@ -35,17 +35,43 @@ class FootprintError(Exception):
     pass
 
 
+def target_owner(tool_id: str, folder: Path) -> str:
+    owner = f"{tool_id}:{str(resolve_directory(folder)).rstrip('/\\')}"
+    return owner.lower() if sys.platform == "win32" else owner
+
+
+def same_owner(left: str, right: str) -> bool:
+    def spelling(value: str) -> str:
+        tool_id, separator, folder = value.partition(":")
+        if separator and tool_id in ("claude", "codex", "copilot") and Path(folder).is_absolute():
+            return target_owner(tool_id, Path(folder))
+        return value
+
+    return spelling(left) == spelling(right)
+
+
 @contextmanager
 def lock(home: Path) -> Iterator[None]:
     index = footprint_index(home)
     if not owner_path_safe(index, home):
         raise FootprintError("Footprint index contains a link; resolve it before writing")
     index.parent.mkdir(parents=True, exist_ok=True)
+    file_lock = FileLock(str(index) + ".lock", timeout=30)
     try:
-        with FileLock(str(index) + ".lock", timeout=30):
-            yield
+        try:
+            file_lock.acquire()
+        except FileNotFoundError:
+            # Purge can remove an empty .legion after releasing this lock while a writer waits.
+            if not owner_path_safe(index, home):
+                raise FootprintError("Footprint index contains a link; resolve it before writing") from None
+            index.parent.mkdir(parents=True, exist_ok=True)
+            file_lock.acquire()
     except Timeout:
         raise FootprintError("Footprint index is busy; another legion command is still running") from None
+    try:
+        yield
+    finally:
+        file_lock.release()
 
 
 def read(home: Path) -> FootprintIndex:
@@ -83,7 +109,7 @@ def add(home: Path, kind: FootprintKind, path: Path | str, owner: str, key: str 
         data = read(home)
         for entry in data.entries:
             if entry.kind == kind and same_path(Path(entry.path), Path(stored)) and entry.key == key and entry.value == value:
-                if owner not in entry.owners:
+                if not any(same_owner(owner, existing) for existing in entry.owners):
                     entry.owners.append(owner)
                     _write(home, data)
                 return
@@ -178,7 +204,7 @@ def remove_owner(home: Path, owners: list[str]) -> list[str]:
         kept: list[Footprint] = []
         changed = False
         for entry in data.entries:
-            remaining = [owner for owner in entry.owners if owner not in owners]
+            remaining = [owner for owner in entry.owners if not any(same_owner(owner, selected) for selected in owners)]
             if len(remaining) == len(entry.owners):
                 kept.append(entry)
                 continue
