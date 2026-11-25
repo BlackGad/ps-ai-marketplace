@@ -71,6 +71,23 @@ def without(path: str, *names: str) -> str:
     return os.pathsep.join(folder for folder in path.split(os.pathsep) if folder and not has(folder))
 
 
+def posix_hook_path(path: str, trap: Path, case: str) -> None:
+    # PowerShell can share /usr/bin with the utilities the hook needs.
+    sed = shutil.which("sed", path=path)
+    assert sed, "The POSIX hook requires sed"
+    (trap / "sed").symlink_to(Path(sed).absolute())
+    if case.startswith("legacy "):
+        # Exercise both implementations where available, and support hosts with only one.
+        hash_tools = ("shasum", "sha256sum") if case == "legacy marker" else ("sha256sum", "shasum")
+        for tool in hash_tools:
+            executable = shutil.which(tool, path=path)
+            if executable:
+                (trap / tool).symlink_to(Path(executable).absolute())
+                break
+        else:
+            pytest.fail("The legacy POSIX hook requires sha256sum or shasum")
+
+
 @pytest.fixture
 def plugin(tmp_path: Path) -> Path:
     root = tmp_path / "plugin O'Brien x"
@@ -193,19 +210,26 @@ def reject_network(event, _args):
 sys.addaudithook(reject_network)
 """
     hook.write_text(probe + original, encoding="utf-8")
-    # Fence uv and PowerShell: the POSIX hooks must also work without PowerShell installed.
-    path = without(env["PATH"], "uv", "uv.exe", "uv.cmd")
-    if flag == "-c":
-        path = without(path, "pwsh", "pwsh.exe")
+    # Keep uv trapped and run the POSIX hooks without PowerShell on PATH.
     trap = tmp_path / "uv-trap"
     trap.mkdir()
     (trap / "uv").write_text("#!/bin/sh\nprintf 'unexpected uv call' > uv-called\nexit 99\n", encoding="utf-8", newline="\n")
     (trap / "uv").chmod(0o755)
     (trap / "uv.cmd").write_text("@echo unexpected uv call > uv-called\n@exit /b 99\n", encoding="utf-8")
-    paths = [str(trap)]
-    if sys.platform == "win32" and flag == "-c":
-        paths.append(str(posix_shells()["sh"].parent))
-    env["PATH"] = os.pathsep.join([*paths, path])
+    if sys.platform != "win32":
+        posix_hook_path(env["PATH"], trap, case)
+        env["PATH"] = str(trap)
+        # Hash the Unicode app path under a non-UTF-8 shell locale too.
+        env["LC_ALL"] = "C"
+        env.pop("BASH_ENV", None)
+        env.pop("ENV", None)
+    else:
+        path = without(env["PATH"], "uv", "uv.exe", "uv.cmd")
+        paths = [str(trap)]
+        if flag == "-c":
+            path = without(path, "pwsh", "pwsh.exe")
+            paths.append(str(posix_shells()["sh"].parent))
+        env["PATH"] = os.pathsep.join([*paths, path])
     repo = tmp_path / "repo"
     (repo / ".legion" / "state").mkdir(parents=True)
     (repo / ".legion" / "state" / "handoff.md").touch()
@@ -220,7 +244,7 @@ sys.addaudithook(reject_network)
     if key in ("bash", "powershell"):
         expected = json.dumps({"additionalContext": expected}, separators=(",", ":"))
     start = time.monotonic()
-    result = subprocess.run(args, input=hook_input, capture_output=True, text=True, cwd=tmp_path, env=env, timeout=10, check=False)
+    result = subprocess.run(args, input=hook_input, capture_output=True, encoding="utf-8", cwd=tmp_path, env=env, timeout=10, check=False)
     elapsed = time.monotonic() - start
     print(f"{key} / {shell_name} / {case}: {elapsed:.3f}s")
     assert not (tmp_path / "uv-called").exists()
