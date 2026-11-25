@@ -21,7 +21,7 @@ foreach ($tool in @('claude','codex','copilot')) {
     $install = Get-Content (Join-Path $folder 'install.md') -Raw
     Assert-True ($accounts -match 'owner.*log in|owner.*login') "$tool keeps owner login approval"
     Assert-True ($run -match 'same account and folder|same account.*repository folder') "$tool keeps same-account resume"
-    Assert-True ($install.Contains('-Yes')) "$tool requires install approval"
+    Assert-True ($install.Contains('--yes')) "$tool requires install approval"
     if ($tool -ne 'copilot') {
         Assert-True ($install.Contains('SHA-256') -and $install -match '(?i)vendor|checksum|integrity') "$tool keeps vendor integrity"
         Assert-True ($run -match 'Stop before launching a reviewer') "$tool stops without enforced read-only access"

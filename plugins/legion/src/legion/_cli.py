@@ -436,6 +436,27 @@ def account_models(context: click.Context, account_id: str, deployments: tuple[s
     _report_account(context, lambda: _accounts.models(_home.legion_home(context.obj), account_id, list(deployments), default_model, selected_aliases, standard, list_only))
 
 
+@main.group(help="Check and install the CLI tools legion needs")
+def tool() -> None:
+    pass
+
+
+@tool.command("install", help="Show what installing a tool would do; with --yes, install it")
+@click.option("--tool", "tool_id", required=True, help="the tool, such as claude, git or uv")
+@click.option("--yes", is_flag=True, help="the owner agreed: run the install")
+@click.option("--method", type=click.Choice(["winget", "msi", "zip"]), help="Windows only: how to install")
+@click.pass_context
+def tool_install(context: click.Context, tool_id: str, yes: bool, method: Optional[str]) -> None:
+    from ._tool_install import ToolInstaller, ToolInstallError
+
+    platform = {"win32": "windows", "darwin": "macos"}.get(sys.platform, "linux")
+    try:
+        context.exit(ToolInstaller(_home.legion_home(context.obj), platform, yes, click.echo).install(tool_id, method))
+    except (ToolInstallError, ValueError, OSError) as error:
+        click.echo(" ".join(str(error).split()), err=True)
+        context.exit(1)
+
+
 @main.group("foundry", hidden=True)
 def foundry() -> None:
     pass

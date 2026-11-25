@@ -155,7 +155,7 @@ def test_token_failure_exits_one_after_one_login_and_starts_no_tool(bench: Bench
 def test_missing_tool_names_the_installer(bench: Bench) -> None:
     for path in bench.bin.glob("claude*"):
         path.unlink()
-    with pytest.raises(ValueError, match=r"claude is not installed; run legion-install-tool\.ps1 -Tool claude"):
+    with pytest.raises(ValueError, match=r"claude is not installed; run legion tool install --tool claude"):
         _run.run("claude-dev", [], bench.home)
 
 

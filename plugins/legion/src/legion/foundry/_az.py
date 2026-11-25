@@ -47,7 +47,7 @@ class AzDeployment(AzModel):
 def az() -> Path:
     found = shutil.which("az")
     if found is None:
-        raise ValueError("az is not installed; run legion-install-tool.ps1 -Tool az")
+        raise ValueError("az is not installed; run legion tool install --tool az")
     return Path(found)
 
 

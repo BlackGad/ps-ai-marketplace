@@ -23,7 +23,7 @@ def run(account: str, arguments: list[str], home: Path) -> int:
     descriptor = next(item for item in load_descriptors(ToolDescriptor, "tool.json") if item.id == agent.tool)
     command = _launchers.stock_command(descriptor, home)
     if command is None:
-        raise ValueError(f"{agent.tool} is not installed; run legion-install-tool.ps1 -Tool {agent.tool}")
+        raise ValueError(f"{agent.tool} is not installed; run legion tool install --tool {agent.tool}")
     token = check_token()
     launch = recipe(agent).launch(agent, home, token)
     environment = os.environ.copy()
