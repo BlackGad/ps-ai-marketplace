@@ -116,6 +116,34 @@ def test_child_that_starts_a_process_and_exits_at_once_is_still_stopped(tmp_path
     wait_until_gone(read_pid(marker))
 
 
+def test_tree_stop_is_retried_when_a_descendant_keeps_pipes_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    marker = tmp_path / "grandchild.pid"
+    ready = timeout_after_ready(monkeypatch, marker)
+    kill_tree = _run._kill_tree
+    attempts = 0
+
+    # Hand-built, reason: a missed first stop makes the existing drain fallback observable.
+    def miss_once(process: "subprocess.Popen[bytes]", job: Optional[int]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts > 1:
+            kill_tree(process, job)
+
+    monkeypatch.setattr(_run, "_kill_tree", miss_once)
+    grandchild = None
+    try:
+        result = run_command(PYTHON, ["-c", QUICK_PARENT, str(marker)], timeout=3)
+        grandchild = read_pid(marker)
+        assert time.monotonic() - ready[0] < 3 + 2 * _run.DRAIN_SECONDS + 10
+        assert (result.exit_code, result.timed_out) == (-1, True)
+        wait_until_gone(grandchild)
+    finally:
+        if grandchild is not None and process_started_at(grandchild) is not None:
+            with contextlib.suppress(OSError):
+                os.kill(grandchild, signal.SIGTERM)
+            wait_until_gone(grandchild)
+
+
 # A survivor that keeps the pipes open must not keep the caller waiting past the drain bound.
 def test_drain_after_a_timeout_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def kill_only_the_child(process: "subprocess.Popen[bytes]", job: Optional[int]) -> None:
