@@ -17,7 +17,7 @@ from tomlkit.items import InlineTable
 
 from . import _footprints, _refresh, _user_path
 from ._generated import is_owned
-from ._home import bin_folder, footprint_index, full_path, home_path, is_reparse, is_under, owner_path_safe, same_path, tree_has_reparse
+from ._home import bin_folder, footprint_index, full_path, home_path, is_reparse, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
 from ._plugin import PLUGIN_ROOT
 from ._run import run_command
 
@@ -751,26 +751,48 @@ def _plugin_root(entry: dict[str, Any], folder: Path) -> Path | None:
     listed, _, paths, version = _plugin_state(entry, folder)
     if not listed:
         return None
+    settings_path = folder / "settings.json"
+    configured_source = None
     if entry["id"] == "copilot":
         is_legion = False
+        if settings_path.is_file():
+            try:
+                settings = json.loads(settings_path.read_text(encoding="utf-8-sig"))
+                source = settings["extraKnownMarketplaces"]["ps-legion-marketplace"]["source"]
+                if source["source"] == "directory" and isinstance(source["path"], str) and isinstance(settings["enabledPlugins"]["legion@ps-legion-marketplace"], bool):
+                    configured_source = Path(source["path"])
+            except (OSError, ValueError, TypeError, KeyError):
+                pass
         for line in _listing(entry, folder, "plugin").splitlines():
-            if not line[:1].isspace():
-                is_legion = bool(re.search(r"legion@ps-legion-marketplace(?![\w-])", line))
+            if re.search(r"legion@ps-legion-marketplace(?![\w-])", line):
+                is_legion = "not installed" not in line
+            elif re.search(r"\S+@\S+\s+\(v?\d", line) or (line.strip() and not line[:1].isspace()):
+                is_legion = False
             marketplace = re.match(r"^\s+from (.+?)\s*$", line) if is_legion else None
             if marketplace is None:
                 continue
             try:
                 root = Path(marketplace[1])
+                if settings_path.is_file() and configured_source is None:
+                    continue
+                if configured_source is not None and not same_path(resolve_directory(root), resolve_directory(configured_source)):
+                    continue
                 data = json.loads((root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8-sig"))
+                if data.get("name") != "ps-legion-marketplace":
+                    continue
                 for plugin in data["plugins"]:
                     if plugin.get("name") == "legion" and isinstance(plugin.get("source"), str):
-                        paths.append(root / plugin["source"])
-            except (OSError, ValueError, KeyError):
+                        path = root / plugin["source"]
+                        if is_under(resolve_directory(path), resolve_directory(root)):
+                            paths.append(path)
+            except (OSError, ValueError, TypeError, KeyError):
                 continue
     if not paths and entry["plugin"].get("installedRoot"):
         root = folder / entry["plugin"]["installedRoot"]
         if root.is_dir():
             paths = [path.parent for path in root.rglob("plugin.json") if path.parent.name not in (".claude-plugin", ".codex-plugin")]
+    if entry["id"] == "copilot" and not paths and settings_path.is_file() and configured_source is None:
+        return None
     roots = []
     for path in set(paths):
         try:
