@@ -256,7 +256,9 @@ A hook at session start decides the mode:
 
 A session you start yourself is never a legion member.
 
-The hook is a small Python script in the plugin copy. `uv` starts it with Python 3.12 or later, offline and without downloads, so a session start needs no PowerShell. When uv or Python is missing, the hook prints one line asking you to run the legion installer, and the session starts normally.
+The session-start hook runs the plugin copy's Python script in the ready app environment for that plugin version. The hook uses the login home by default. When starting a host for an alternate `legion --home` installation, set `LEGION_HOME` in that host's environment to the same absolute path. If the environment is missing or has been pruned, the hook prints the installer diagnostic and the session starts normally. Update notices use the local cache.
+
+The hook reports whether a repository lease file is present. `legion lease status`, `legion lease take`, and `legion status` check whether the process in the lease is still live.
 
 On Windows, `legion status` also warns when a bound channel's launch flag is absent from a recognized native CLI session, including outside an orchestrated repo. Members, unknown or ambiguous accounts, and unsupported or unreadable sessions stay silent.
 

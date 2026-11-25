@@ -1,7 +1,5 @@
 # The overseer lease: one lock file per repository that names the session allowed to orchestrate.
-# The session-start hook will read it, so this module stays free of third-party packages.
 
-import json
 import os
 import socket
 import sys
@@ -9,8 +7,9 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
+from legion.core._lease_record import Lease, lease_path, round_trip, same_host
 from legion.core._process import owner_process, process_started_at, same_start_time
 
 if sys.platform == "win32":
@@ -30,64 +29,9 @@ class LeaseError(Exception):
 
 
 @dataclass(frozen=True)
-class Lease:
-    tool: str = ""
-    account: str = ""
-    pid: int = 0
-    process_started_at: Optional[datetime] = None
-    host: str = ""
-    started_at: str = ""
-    session: Optional[str] = None
-
-    # Reject records that are not leases with ValueError or TypeError.
-    @classmethod
-    def from_json(cls, text: str) -> "Lease":
-        data = json.loads(text)
-        if not isinstance(data, dict):
-            raise TypeError("lease is not a JSON object")
-        pid = data.get("pid") or 0
-        if not isinstance(pid, int) or isinstance(pid, bool):
-            raise TypeError("lease pid is not a number")
-        started = _text(data, "processStartedAt")
-        session = data.get("session")
-        return cls(
-            tool=_text(data, "tool"),
-            account=_text(data, "account"),
-            pid=pid,
-            process_started_at=datetime.fromisoformat(started) if started else None,
-            host=_text(data, "host"),
-            started_at=_text(data, "startedAt"),
-            session=_text(data, "session") if session else None,
-        )
-
-    def to_json(self) -> str:
-        assert self.process_started_at is not None
-        data = {
-            "tool": self.tool,
-            "account": self.account,
-            "pid": self.pid,
-            "processStartedAt": round_trip(self.process_started_at) + "Z",
-            "host": self.host,
-            "startedAt": self.started_at,
-        }
-        if self.session:
-            data["session"] = self.session
-        return json.dumps(data, separators=(",", ":")) + "\n"
-
-
-@dataclass(frozen=True)
 class LeaseState:
     state: State
     lease: Optional[Lease]
-
-
-def lease_path(repo: Path) -> Path:
-    return Path(repo) / ".legion" / "temp" / "overseer.lock"
-
-
-# Match .NET's round-trip "o" format in UTC, without the zone suffix.
-def round_trip(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") + "0"
 
 
 def state(repo: Path) -> LeaseState:
@@ -104,7 +48,7 @@ def state(repo: Path) -> LeaseState:
         return LeaseState("stale", None)
     if not lease.host or not lease.pid or lease.process_started_at is None:
         return LeaseState("stale", lease)
-    if not _same_host(lease.host):
+    if not same_host(lease.host):
         return LeaseState("foreign", lease)
     started = process_started_at(lease.pid)
     if started is not None and same_start_time(started, lease.process_started_at):
@@ -135,7 +79,7 @@ def take(repo: Path, tool: str, account: str, process_id: Optional[int] = None) 
     try:
         current = state(repo)
         found = current.lease
-        if current.state == "held" and found is not None and _same_host(found.host) and found.pid == pid:
+        if current.state == "held" and found is not None and same_host(found.host) and found.pid == pid:
             return "skip: lease take (already done)"
         if current.state == "foreign" and found is not None:
             raise LeaseError(f"lease from host {found.host}; ask the owner")
@@ -169,7 +113,7 @@ def release(repo: Path, process_id: Optional[int] = None) -> str:
         if current.state == "free":
             return "skip: lease release (already done)"
         found = current.lease
-        if found is not None and started is not None and found.process_started_at is not None and _same_host(found.host) and found.pid == pid and same_start_time(found.process_started_at, started):
+        if found is not None and started is not None and found.process_started_at is not None and same_host(found.host) and found.pid == pid and same_start_time(found.process_started_at, started):
             if not _remove(path):
                 raise LeaseError("lease change in progress in another session; retry")
             return "lease released"
@@ -247,16 +191,3 @@ def _age_seconds(path: Path) -> float:
         return time.time() - path.stat().st_mtime
     except OSError:
         return float("inf")
-
-
-def _same_host(host: str) -> bool:
-    return host.lower() == socket.gethostname().lower()
-
-
-def _text(data: dict[str, Any], key: str) -> str:
-    value = data.get(key)
-    if value is None:
-        return ""
-    if not isinstance(value, str):
-        raise TypeError(f"lease {key} is not text")
-    return value

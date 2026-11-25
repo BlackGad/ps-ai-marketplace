@@ -3,13 +3,14 @@
 
 import json
 import os
+import re
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, TextIO
 
-from legion.services.repository import _lease
+from legion.core._lease_record import LeaseUnreadableError, read_lease, same_host
 from legion.services.installation import _update
 from legion.core._plugin import PLUGIN_ROOT
 
@@ -20,7 +21,8 @@ MEMBER = (
 MEMBER_WITHOUT_TASK = "legion: LEGION_ROLE=member without LEGION_TASK; ignored."
 ORCHESTRATED = "legion: this repo is orchestrated. Say continue to act as the overseer."
 LEASE_NOTES = {
-    "held": " Another overseer is active.",
+    "local": " An overseer lease exists (`{tool}/{account}`); the takeover checks whether it is live.",
+    "unreadable": " Overseer lease file unreadable.",
     "foreign": " An overseer lease from another host exists; ask the owner before taking over.",
 }
 FAILURE = "legion: mode detection failed; continuing without mode context."
@@ -44,7 +46,8 @@ class HookInput:
 def main(argv: list[str]) -> int:
     as_json = argv[-2:] == ["--format", "context-json"]
     try:
-        text = mode_text(session_folder(sys.stdin), os.environ)
+        home = Path(argv[1]) if argv[:1] == ["--home"] else None
+        text = mode_text(session_folder(sys.stdin), os.environ, home)
     except Exception:
         text = FAILURE  # Mode detection must never stop a session from starting.
     if as_json:
@@ -60,14 +63,31 @@ def mode_text(folder: Path, environment: Mapping[str, str], home: Optional[Path]
     repo = find_repo_root(folder)
     if not (repo / ".legion" / "state" / "handoff.md").exists():
         return ""
-    lines = [ORCHESTRATED + LEASE_NOTES.get(_lease.state(repo).state, "")]
+    lines = [ORCHESTRATED + lease_note(repo)]
+    if home is None and (configured_home := environment.get("LEGION_HOME")):
+        home = Path(configured_home)
     try:
-        update = _update.get_update(PLUGIN_ROOT, home)
+        update = _update.get_update(PLUGIN_ROOT, home, cache_only=True)
         if update is not None and update.newer:
             lines.append(f'legion {update.available} is available (installed {update.installed}); say "update legion" to update.')
     except Exception:
         pass  # An update check failure keeps the mode guidance.
     return " ".join(lines)
+
+
+def lease_note(repo: Path) -> str:
+    try:
+        lease = read_lease(repo)
+    except LeaseUnreadableError:
+        return LEASE_NOTES["unreadable"]
+    if lease is None:
+        return ""
+    if not same_host(lease.host):
+        return LEASE_NOTES["foreign"]
+    # Only render identifiers in session context, where arbitrary lease text could act as instructions.
+    if not all(re.fullmatch(r"[a-z][a-z0-9-]*", value) for value in (lease.tool, lease.account)):
+        return LEASE_NOTES["unreadable"]
+    return LEASE_NOTES["local"].format(tool=lease.tool, account=lease.account)
 
 
 # The session folder may be below the repository root; the nearest .legion/state or .git marks the root.
