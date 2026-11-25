@@ -51,7 +51,8 @@ def test_own_chain_starts_at_the_parent_and_goes_back_in_time() -> None:
     own = process_started_at(os.getpid())
     assert own is not None
     for child_start, parent in zip([own, *(item.started_at for item in chain)], chain, strict=False):
-        assert parent.started_at <= child_start
+        # Hand-built, reason: rounded same-tick starts may reverse by a few microseconds.
+        assert parent.started_at <= child_start or same_start_time(parent.started_at, child_start)
 
 
 def test_own_owner_is_an_ancestor() -> None:
@@ -113,6 +114,15 @@ def test_reused_parent_pid_ends_the_chain() -> None:
     assert ancestors(10, lookup) == []
     with pytest.raises(LookupError, match="pass --process-id"):
         owner_process(10, lookup)
+
+
+def test_same_tick_parent_stays_in_the_chain() -> None:
+    # Hand-built, reason: a one-microsecond reversal reproduces rounded process start times deterministically.
+    processes = {
+        10: ProcessInfo(10, 9, "python", BASE),
+        9: ProcessInfo(9, 1, "uv", BASE + timedelta(microseconds=1)),
+    }
+    assert [item.pid for item in ancestors(10, processes.get)] == [9]
 
 
 def test_reused_pid_behind_a_shell_falls_back_to_the_shell() -> None:

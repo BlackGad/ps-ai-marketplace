@@ -25,6 +25,6 @@ legion account models --id <id> --deployment gpt-x --default gpt-x
 
 The default must be selected. An identical result prints `skip: models <id> (no changes)` and writes nothing. Then run `legion-setup.ps1` and show the owner its plan. It covers every known account, not only this one, so ask for the owner's one yes and run it again with `-Yes` to install legion wherever it is missing.
 
-Launch `<id>` in a terminal. The wrapper sets `CODEX_HOME`; the provider config supplies the endpoint and token command. Resume only with the same agent and folder. A missing CLI stops with `codex is not installed; run legion-install-tool.ps1 -Tool codex`. Verify an actual GPT response before reporting this path as working.
+Launch `<id>` in a terminal. The wrapper sets `CODEX_HOME`; the provider config supplies the endpoint and token command. Resume only with the same agent and folder. A missing CLI stops with `codex is not installed; run legion tool install --tool codex`. Verify an actual GPT response before reporting this path as working.
 
 Account selection and launch-field examples are in [launcher.md](launcher.md). The base `codex` executable may be the `command` for a separately named account such as `agent-a`; account ids must not shadow commands on PATH.

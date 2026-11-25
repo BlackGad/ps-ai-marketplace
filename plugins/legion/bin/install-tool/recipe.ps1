@@ -1,3 +1,4 @@
+# milestone 4 removes this: legion-setup.ps1 (task 3) still reads Get-ToolInstallHints and Get-ToolRecipe from here.
 function Get-ToolInstallData {
     param([string]$Tool)
     $recipes = Get-LegionInstallRecipes

@@ -46,8 +46,9 @@ def ancestors(pid: int, lookup: Optional[Lookup] = None) -> list[ProcessInfo]:
     seen = {pid}
     while child and child.parent_pid not in seen:
         parent = lookup(child.parent_pid)
-        # A parent pid can be reused: a process started after its child is not that child's parent.
-        if not parent or parent.started_at > child.started_at:
+        # Hand-built, reason: clock rounding can make a same-tick parent appear slightly younger.
+        # A parent clearly younger than its child has a reused pid.
+        if not parent or (parent.started_at > child.started_at and not same_start_time(parent.started_at, child.started_at)):
             break
         chain.append(parent)
         seen.add(parent.pid)
