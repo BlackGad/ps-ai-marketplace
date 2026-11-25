@@ -704,7 +704,14 @@ class Runner:
     def purge(self, repeat: bool) -> str:
         if not repeat:
             self.state["purge_targets"] = self.targets_for_uninstall(all_tools=True)
-        output = self.legion("uninstall", "--purge", "--yes")
+        if WINDOWS:
+            # The Windows bootstrap runs a temporary uv copy so purge can remove its installed binary.
+            output = self.run(["powershell.exe", "-NoProfile", "-File", str(self.checkout / "install.ps1"), "-HomeRoot", str(self.home), "-Uninstall", "-Purge", "-Yes"])
+        elif repeat:
+            # Purge removed the bootstrap-owned uv; a clean host must obtain it again.
+            output = self.run(["sh", str(self.checkout / "install.sh"), "--uninstall", "--purge", "--yes"])
+        else:
+            output = self.legion("uninstall", "--purge", "--yes")
         if repeat:
             contains(output, "skip: purge (already done)")
         require(not (self.home / ".legion").exists(), "legion home remains")

@@ -220,6 +220,7 @@ def test_purge_rejects_each_leftover(tmp_path: Path, leftover: str) -> None:
     instance = make_runner(tmp_path)
     instance.home_snapshot = dict
     instance.legion = lambda *_args, **_kwargs: "skip: purge (already done)"
+    instance.run = lambda *_args, **_kwargs: "skip: purge (already done)"
     instance.profile_count = lambda: 0
     instance.check_uninstalled = lambda *_args: None
     instance.listing = lambda _tool, _folder, kind="plugin", **_kwargs: leftover == "marketplace" and kind == "marketplace"
@@ -236,6 +237,41 @@ def test_purge_rejects_each_leftover(tmp_path: Path, leftover: str) -> None:
     instance.state["purge_targets"] = [("copilot", folder)]
     with pytest.raises(AssertionError, match={"setting": "legion remains", "path": "purge path remains", "marketplace": "marketplace remains"}[leftover]):
         instance.purge(True)
+
+
+def test_repeat_purge_uses_bootstrap_after_owned_uv_was_removed(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    instance.state["purge_targets"] = []
+    instance.state["purge_snapshot"] = instance.home_snapshot()
+    instance.profile_count = lambda: 0
+    instance.cli = lambda *_args: ""
+    calls: list[list[str]] = []
+
+    def run(argv: list[str], **_kwargs: Any) -> str:
+        calls.append(argv)
+        return "skip: purge (already done)"
+
+    instance.run = run
+    instance.legion = lambda *_args, **_kwargs: pytest.fail("repeat purge used missing uv")
+    instance.purge(True)
+    assert len(calls) == 1
+    bootstrap = calls[0]
+    assert bootstrap[-2:] == (["-Purge", "-Yes"] if os.name == "nt" else ["--purge", "--yes"])
+    assert Path(bootstrap[0]).name in ("powershell.exe", "sh")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows cannot delete a running uv.exe")
+def test_first_windows_purge_uses_bootstrap_uv_copy(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    instance.targets_for_uninstall = lambda **_kwargs: []
+    instance.profile_count = lambda: 0
+    instance.cli = lambda *_args: ""
+    calls: list[list[str]] = []
+    instance.run = lambda argv, **_kwargs: calls.append(argv) or "done: purge"
+    instance.legion = lambda *_args, **_kwargs: pytest.fail("purge ran the installed uv.exe")
+    instance.purge(False)
+    assert len(calls) == 1
+    assert Path(calls[0][0]).name == "powershell.exe"
 
 
 def test_version_orders_semantic_parts(tmp_path: Path) -> None:
