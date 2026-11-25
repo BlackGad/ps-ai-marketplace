@@ -268,6 +268,7 @@ def test_purge_keeps_interpreter_link_with_retained_app_version(tmp_path: Path) 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows directory junction")
 def test_purge_removes_recorded_junction_without_following_target(tmp_path: Path) -> None:
+    assert os.name == "nt"
     home = tmp_path / "home"
     target = tmp_path / "target"
     target.mkdir()

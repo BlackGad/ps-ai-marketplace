@@ -382,11 +382,13 @@ def _get_user_path() -> str:
         return ""
 
 
+# milestone 4: replace with _user_path from task 2 once #77 merges
 def _set_user_path(value: str) -> None:
     test_file = os.getenv("LEGION_TEST_USER_PATH_FILE")
     if test_file:
         Path(test_file).write_text(value, encoding="utf-8")
         return
+    assert sys.platform == "win32"
     import ctypes
     import winreg
 
