@@ -20,6 +20,9 @@ def test_self_uninstall_runs_a_copy_outside_the_app(tmp_path: Path, monkeypatch:
         assert command[0] == "uv"
         project = Path(command[command.index("--project") + 1])
         seen.append((project, Path(env["UV_PROJECT_ENVIRONMENT"]), command))
+        # uv's own lock files go to the temporary folder; keeping it in the scratch folder removes them too.
+        assert Path(env["TEMP"]) == Path(env["TMP"]) == project.parent / "temp"
+        assert Path(env["TEMP"]).is_dir()
         assert project != app
         assert (project / "pyproject.toml").is_file()
         shutil.rmtree(app)
@@ -31,6 +34,8 @@ def test_self_uninstall_runs_a_copy_outside_the_app(tmp_path: Path, monkeypatch:
     assert not project.exists()
     assert not environment.exists()
     assert command[-4:] == ["--home", str(home), "uninstall", "--yes"]
+    # Uninstall needs only the CLI; the default group would also install the MCP SDK into the throwaway copy.
+    assert "--no-default-groups" in command[: command.index("legion")]
     assert not app.exists()
 
 

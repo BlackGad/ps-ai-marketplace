@@ -122,6 +122,14 @@ def home_with_shim(root: Path, name: str, windows: bool) -> tuple[Path, Path, Pa
     return home, app, shim
 
 
+def fake_entry_point(home: Path, app: Path, fake_uv_folder: Path) -> Path:
+    # The batch starts the synced environment's own legion.exe; the fake program stands in for it.
+    entry = _installed_runtime.python_environment(app, home) / "Scripts" / "legion.exe"
+    entry.parent.mkdir(parents=True)
+    shutil.copy2(fake_uv_folder / "uv.exe", entry)
+    return entry
+
+
 def cmd(line: str, environment: dict[str, str], text: str = "") -> subprocess.CompletedProcess[bytes]:
     # cmd /s /c takes the line exactly as written, so the test controls every quote; the shell is named, not searched.
     return subprocess.run(f'"{COMSPEC}" /d /s /c "{line}"', input=(text + "\r\n").encode("utf-8"), capture_output=True, env=environment, check=False)
@@ -129,35 +137,18 @@ def cmd(line: str, environment: dict[str, str], text: str = "") -> subprocess.Co
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
 @pytest.mark.parametrize("code", [0, 3])
-@pytest.mark.parametrize("verb", ["status", "setup", "update"])
-def test_a_batch_command_deleted_while_it_runs_exits_with_uvs_status(tmp_path: Path, fake_uv_folder: Path, code: int, verb: str) -> None:
+@pytest.mark.parametrize("verb", ["status", "setup", "update", "mcp"])
+def test_a_batch_command_deleted_while_it_runs_exits_with_the_apps_status(tmp_path: Path, fake_uv_folder: Path, code: int, verb: str) -> None:
     home, app, shim = home_with_shim(tmp_path, "legion.cmd", True)
+    fake_entry_point(home, app, fake_uv_folder)
     log = tmp_path / "uv.log"
-    result = cmd(f'"{shim}" {verb} "two words" "" 100% {UNICODE}', child_environment(fake_uv_folder, log, code, delete=shim), "typed input")
-    bin_folder = shim.parent
+    # No uv on PATH: every command but uninstall starts the synced environment directly.
+    result = cmd(f'"{shim}" {verb} "two words" "" 100% {UNICODE}', child_environment(tmp_path / "no-uv", log, code, delete=shim), "typed input")
     assert result.returncode == code
     assert not shim.exists()
     assert b"cannot find" not in result.stdout + result.stderr
     assert result.stdout == b"live output\r\n"
-    expected = [
-        "arg:run",
-        "arg:--project",
-        f"arg:{bin_folder}\\..\\app\\1.2.3",
-        "arg:--frozen",
-        "arg:--extra",
-        "arg:mcp",
-        "arg:--quiet",
-        "arg:legion",
-        "arg:--home",
-        f"arg:{bin_folder}\\..\\..",
-        f"arg:{verb}",
-        "arg:two words",
-        "arg:",
-        "arg:100%",
-        f"arg:{UNICODE}",
-        f"env:{bin_folder}\\..\\python\\{_installed_runtime.python_environment(app, home).name}",
-        "stdin:typed input",
-    ]
+    expected = ["arg:--home", f"arg:{shim.parent}\\..\\..", f"arg:{verb}", "arg:two words", "arg:", "arg:100%", f"arg:{UNICODE}", "env:caller value", "stdin:typed input"]
     assert log.read_text(encoding="utf-8").splitlines() == expected
 
 
@@ -252,15 +243,17 @@ def test_uninstall_reports_an_unusable_temp_folder(tmp_path: Path, fake_uv_folde
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
 @pytest.mark.parametrize("code", [0, 3])
-def test_a_caller_with_its_own_errorlevel_variable_still_gets_uvs_exit_code(tmp_path: Path, fake_uv_folder: Path, code: int) -> None:
-    _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
+def test_a_caller_with_its_own_errorlevel_variable_still_gets_the_apps_exit_code(tmp_path: Path, fake_uv_folder: Path, code: int) -> None:
+    home, app, shim = home_with_shim(tmp_path, "legion.cmd", True)
+    fake_entry_point(home, app, fake_uv_folder)
     environment = child_environment(fake_uv_folder, tmp_path / "uv.log", code) | {"ERRORLEVEL": "9"}
     assert cmd(f'"{shim}" status', environment).returncode == code
 
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
-def test_powershell_sees_uvs_exact_code_also_after_the_command_is_deleted(tmp_path: Path, fake_uv_folder: Path, pwsh_path: Path) -> None:
-    _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
+def test_powershell_sees_the_apps_exact_code_also_after_the_command_is_deleted(tmp_path: Path, fake_uv_folder: Path, pwsh_path: Path) -> None:
+    home, app, shim = home_with_shim(tmp_path, "legion.cmd", True)
+    fake_entry_point(home, app, fake_uv_folder)
     template = tmp_path / "template.cmd"
     shutil.copy(shim, template)
     script = tmp_path / "run.ps1"
@@ -287,8 +280,9 @@ def start_batch_command(shim: Path, environment: dict[str, str]) -> subprocess.P
 
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
-def test_uv_output_arrives_while_uv_still_runs(tmp_path: Path, fake_uv_folder: Path) -> None:
-    _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
+def test_output_arrives_while_the_app_still_runs(tmp_path: Path, fake_uv_folder: Path) -> None:
+    home, app, shim = home_with_shim(tmp_path, "legion.cmd", True)
+    fake_entry_point(home, app, fake_uv_folder)
     process = start_batch_command(shim, child_environment(fake_uv_folder, tmp_path / "uv.log", 0))
     try:
         assert process.stdout is not None
@@ -301,8 +295,9 @@ def test_uv_output_arrives_while_uv_still_runs(tmp_path: Path, fake_uv_folder: P
 
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
-def test_ending_a_stuck_command_ends_the_fake_uv_and_closes_its_output(tmp_path: Path, fake_uv_folder: Path) -> None:
-    _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
+def test_ending_a_stuck_command_ends_the_fake_app_and_closes_its_output(tmp_path: Path, fake_uv_folder: Path) -> None:
+    home, app, shim = home_with_shim(tmp_path, "legion.cmd", True)
+    fake_entry_point(home, app, fake_uv_folder)
     process = start_batch_command(shim, child_environment(fake_uv_folder, tmp_path / "uv.log", 0))
     try:
         assert process.stdout is not None
@@ -317,8 +312,9 @@ def test_ending_a_stuck_command_ends_the_fake_uv_and_closes_its_output(tmp_path:
 
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
-def test_an_interactive_console_stays_open_with_uvs_code_and_its_own_environment(tmp_path: Path, fake_uv_folder: Path) -> None:
-    _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
+def test_an_interactive_console_stays_open_with_the_apps_code_and_its_own_environment(tmp_path: Path, fake_uv_folder: Path) -> None:
+    home, app, shim = home_with_shim(tmp_path, "legion.cmd", True)
+    fake_entry_point(home, app, fake_uv_folder)
     environment = child_environment(fake_uv_folder, tmp_path / "uv.log", 5) | {"LEGION_TEST_SHIM": str(shim)}
     # The command reads nul, so the fake uv cannot take the console's next lines.
     text = '"%LEGION_TEST_SHIM%" status <nul\r\necho after %errorlevel% %UV_PROJECT_ENVIRONMENT%\r\nexit'
@@ -327,15 +323,16 @@ def test_an_interactive_console_stays_open_with_uvs_code_and_its_own_environment
 
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
-def test_without_uv_the_batch_command_prints_one_line_and_exits_127(tmp_path: Path, fence: Any) -> None:
+def test_without_uv_the_batch_uninstall_prints_one_line_and_exits_127(tmp_path: Path, fence: Any) -> None:
     _, _, shim = home_with_shim(tmp_path, "legion.cmd", True)
     environment = child_environment(tmp_path / "empty", tmp_path / "uv.log", 0)
     assert environment["HOME"] == str(fence.home)
     assert environment["TEMP"] == str(fence.temp)
     assert environment["HTTPS_PROXY"] == os.environ["HTTPS_PROXY"]
-    result = cmd(f'"{shim}" status', environment)
+    result = cmd(f'"{shim}" uninstall --yes', environment)
     assert result.returncode == 127
     assert result.stderr.decode() == f"{MISSING}\r\n"
+    assert shim.exists()
 
 
 def git_bash() -> Path | None:
@@ -446,6 +443,15 @@ def test_public_command_preserves_failed_overseer_launch_exit(tmp_path: Path, pw
     else:
         folders.append(Path("/usr/bin"))
     environment = {**os.environ, "PATH": os.pathsep.join(map(str, folders)), "LEGION_TEST_PYTHON": sys.executable}
+    if WINDOWS:
+        # The batch starts the version environment's legion.exe. This test's own environment stands in for it through
+        # a junction; PYTHONPATH puts the changed installed copy first, as the fake uv does on POSIX.
+        entry = Path(sys.prefix) / "Scripts" / "legion.exe"
+        assert entry.is_file()
+        version_environment = _installed_runtime.python_environment(app, home)
+        version_environment.parent.mkdir(parents=True)
+        subprocess.run([COMSPEC, "/d", "/c", "mklink", "/J", str(version_environment), sys.prefix], check=True, capture_output=True)
+        environment["PYTHONPATH"] = str(app / "src")
     result = subprocess.run([str(shim), "--no-channel"], cwd=repo, env=environment, capture_output=True, text=True, check=False)
     assert result.returncode == 5, result.stdout + result.stderr
     assert not any(line.startswith("launched ") for line in result.stdout.splitlines())

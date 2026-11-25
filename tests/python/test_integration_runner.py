@@ -242,6 +242,100 @@ def test_candidate_rejects_right_version_with_old_launcher_code(tmp_path: Path) 
         instance.check_candidate_launchers(instance.home / ".legion/app" / instance.candidate_version)
 
 
+def test_candidate_names_the_exact_legacy_launcher_and_still_fails(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    (instance.work / "old-seed/plugins/legion/src").mkdir(parents=True)
+    for path in instance.owner_shims():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"released generator text\r\n")
+    # The old seed's generator is asked second; it reproduces the file byte for byte.
+    instance.run = lambda argv: json.dumps("released generator text\n" if "old-seed" in argv[-1] else "candidate generator text\n")
+    with pytest.raises(AssertionError, match=r"exact 0\.17\.0 generator output") as raised:
+        instance.check_candidate_launchers(instance.home / ".legion/app" / instance.candidate_version)
+    assert "old runtime code" not in str(raised.value)
+    assert all(path.name in str(raised.value) for path in instance.owner_shims())
+
+
+def test_a_stale_launcher_does_not_stop_the_other_candidate_checks(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    upgrade = make_runner(tmp_path / "upgrade")
+    upgrade.out.mkdir(parents=True)
+    instance.state["candidate"] = upgrade
+    app = upgrade.home / ".legion/app" / upgrade.candidate_version
+    app.mkdir(parents=True)
+    (app / ".legion-app-ready").write_text("", encoding="utf-8")
+    called: list[str] = []
+
+    def stale(_app: Path) -> None:
+        raise AssertionError("legion.cmd: launcher is the exact 0.17.0 generator output for the candidate")
+
+    def without_uv() -> None:
+        called.append("without-uv")
+        raise AssertionError("MCP without uv did not start or answer (exit 127): uv is missing")
+
+    upgrade.check_candidate_bytes = lambda _root: called.append("bytes")
+    upgrade.check_candidate_launchers = stale
+    identity = {"root": str(app), "version": upgrade.candidate_version, "cli": str(app / "cli.py"), "server": str(app / "server.py")}
+    upgrade.run = lambda argv, **_kwargs: json.dumps(identity) if argv[1:3] == ["-I", "-c"] and "PLUGIN_ROOT" in argv[3] else "you are a legion member"
+    upgrade.listing = lambda tool, _folder: called.append(f"listing-{tool}") or True
+    upgrade.candidate_plugin = lambda _tool: app
+    upgrade.legion = lambda *_args, **_kwargs: called.append("owner-version") or f"legion {upgrade.candidate_version}"
+    upgrade.prove_mcp = lambda: called.append("mcp")
+    upgrade.check_client_command = lambda: called.append("client-command")
+    upgrade.prove_mcp_without_uv = without_uv
+    upgrade.prove_clients = lambda: called.append("clients") or ["copilot"]
+    upgrade.home_snapshot = lambda **_kwargs: {"snapshot": "taken"}
+    with pytest.raises(AssertionError) as raised:
+        instance.verify_candidate()
+    message = str(raised.value)
+    assert message.splitlines()[0].startswith("owner launchers: legion.cmd: launcher is the exact 0.17.0")
+    assert "owner MCP without uv: MCP without uv did not start or answer (exit 127)" in message
+    assert {"owner-version", "mcp", "client-command", "without-uv", "clients", "listing-claude", "listing-codex", "listing-copilot"} <= set(called)
+    assert instance.state["client_missing"] == ["copilot"]
+    assert instance.state["candidate_snapshot"] == {"snapshot": "taken"}
+    checks = json.loads((upgrade.out / "checks.json").read_text(encoding="utf-8"))
+    assert [item["check"] for item in checks if item["result"] == "failed"] == ["owner launchers", "owner MCP without uv"]
+
+
+FAKE_MCP_SERVER = """
+import json, shutil, sys
+if shutil.which("uv"):
+    sys.exit(9)
+for line in sys.stdin:
+    message = json.loads(line)
+    if "id" not in message:
+        continue
+    result = {"tools": [{"name": "status"}, {"name": "limits"}]} if message["method"] == "tools/list" else {"structuredContent": {}}
+    print(json.dumps({"jsonrpc": "2.0", "id": message["id"], "result": result}), flush=True)
+"""
+
+
+@pytest.mark.parametrize("starts", [False, True])
+def test_mcp_without_uv_reports_what_the_installed_launcher_does(tmp_path: Path, starts: bool) -> None:
+    instance = make_runner(tmp_path)
+    instance.out.mkdir()
+    uv_folder = tmp_path / "uv-folder"
+    uv_folder.mkdir()
+    (uv_folder / ("uv.exe" if os.name == "nt" else "uv")).write_bytes(b"")
+    instance.env["PATH"] = os.pathsep.join([str(uv_folder), instance.env["PATH"]])
+    server = tmp_path / "server.py"
+    server.write_text(FAKE_MCP_SERVER, encoding="utf-8")
+    launcher = instance.launcher("legion")
+    launcher.parent.mkdir(parents=True)
+    if os.name == "nt":
+        body = f'@"{sys.executable}" -I "{server}"' if starts else "@>&2 echo uv is missing& exit /b 127"
+        launcher.write_text(body + "\r\n", encoding="ascii")
+    else:
+        body = f'exec "{sys.executable}" -I "{server}"' if starts else "echo 'uv is missing' >&2; exit 127"
+        launcher.write_text(f"#!/bin/sh\n{body}\n", encoding="ascii")
+        launcher.chmod(0o755)
+    if starts:
+        instance.prove_mcp_without_uv()
+        return
+    with pytest.raises(AssertionError, match=r"MCP without uv did not start or answer \(exit 127\): uv is missing"):
+        instance.prove_mcp_without_uv()
+
+
 def test_client_probe_attempts_every_host_and_never_calls_listing_launch_proof(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
     instance.out.mkdir()

@@ -449,6 +449,9 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
+installed = [
+    { name = "legion", extra = ["mcp"] },
+]
 
 [package.metadata]
 requires-dist = [
@@ -468,6 +471,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "ruff", specifier = ">=0.14.9" },
 ]
+installed = [{ name = "legion", extras = ["mcp"] }]
 
 [[package]]
 name = "mcp"

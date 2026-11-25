@@ -274,7 +274,7 @@ To opt out, leave legion unused. To limit its use, route legion only to accounts
 | --- | --- | --- |
 | Personalisation and notes | `~/.legion/configuration/` | no |
 | Account wrappers and `legion` | `~/.legion/bin/` | no |
-| The app `legion` runs (a copy of the plugin per version, run through uv; each version's environment is `~/.legion/python/env-<hash>`) | `~/.legion/app/<version>/` | no |
+| The app `legion` runs (a copy of the plugin per version; each version's environment is `~/.legion/python/env-<hash>` and includes the MCP SDK) | `~/.legion/app/<version>/` | no |
 | New account config folders (adopted folders keep their names) | `~/.legion/agents/<id>/` | no |
 | Portable prerequisite tools | `~/.legion/tools/<tool>/` | no |
 | Cross-project knowledge wiki (optional, llm-wiki) | `~/.legion/knowledge/` | no |
@@ -283,6 +283,8 @@ To opt out, leave legion unused. To limit its use, route legion only to accounts
 | Overseer state | `<repo>/.legion/state/handoff.md`, `history/` | inner for Private; code repo for Shared |
 | Local specs and plans | `<repo>/.legion/docs/specs/`, `plans/` | no |
 | Agent scratch files | `<repo>/.legion/temp/` | no |
+
+The plugin's Python project installs the MCP SDK by default (its `installed` dependency group, which names the `mcp` extra), so any plain `uv sync` or `uv run` of it, including the installer's throwaway environment, includes the SDK and its dependencies. Self-uninstall leaves it out with `--no-default-groups`.
 
 The [repository layout](../plugins/legion/skills/legion-repository/references/layout.md) defines ignores and Git ownership. Private is identified by a `.legion/.git` folder. Its outer ignore is local to Git and shared across worktrees. Shared uses the code repo's `.gitignore` and rules file. a bare `legion` creates the setup files; for explicit choices use `legion repository setup --repo <repo> [--mode shared] [--gate '<command>'] [--rules-file <file>]`. Handoff, history, and roadmap commits use the Git repository that owns `.legion/state`.
 

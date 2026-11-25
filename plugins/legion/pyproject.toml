@@ -19,6 +19,8 @@ legion = "legion.cli:main"
 mcp = ["mcp>=1.30,<2"]
 
 [dependency-groups]
+# Default group: the 0.17.0 updater runs plain `uv sync`, so MCP must come without the extra flag.
+installed = ["legion[mcp]"]
 dev = ["ruff>=0.14.9", "pyright>=1.1.408", "pytest>=9.0.2", "pytest-cov>=7.0.0"]
 
 [build-system]
@@ -26,4 +28,4 @@ requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
 
 [tool.uv]
-default-groups = []
+default-groups = ["installed"]

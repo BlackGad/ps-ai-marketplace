@@ -148,13 +148,15 @@ def shim_home_argument(home: Path, windows: bool) -> str:
     return ' --home "%~dp0..\\.."' if windows else f" --home {shell_literal(str(full_path(home)))}"
 
 
-# The owner command runs the app version in `app` through uv, with that version's environment.
+# The owner command runs the app version in `app` with the environment that sync_app prepared for it.
 # Hand-built, reason: batch and shell files have no standard-library serializer, and these lines are behaviour.
 # Windows: cmd reads a batch file in the console code page, so the text stays ASCII: the command lives in
 # <home>/.legion/bin and finds the app, its environment and the home from its own folder (%~dp0).
-# One line sets the environment, runs uv and ends the batch with (goto), so a command that an
-# update rewrites while it runs still ends cleanly. The hidden %=ExitCode% is uv's real code even
-# when the caller has an ERRORLEVEL variable. The shell command on Windows delegates uninstall
+# Every other command starts the synced environment's own entry point. `(goto)` ends the batch before
+# that command runs, so cmd never reads the file again (an update may rewrite it) and the exit code is the
+# program's own, whatever ERRORLEVEL variable the caller holds. Uninstall needs uv: it removes that
+# environment, so it runs from a copied uv that the batch deletes after uv exits; the hidden
+# %=ExitCode% keeps uv's code through that cleanup. The shell command on Windows delegates uninstall
 # to the batch cleanup path. Its FOR variable keeps the copied uv out of the caller's environment.
 def shim_text(app: Path, home: Path, windows: bool) -> str:
     environment = python_environment(app, home)
@@ -162,15 +164,10 @@ def shim_text(app: Path, home: Path, windows: bool) -> str:
     if windows:
         lines = [
             header("owner command", True),
-            '@if /i "%~1"=="mcp" goto mcp',
-            f"@where /q uv || (>&2 echo {UV_MISSING}& exit /b 127)",
             '@if /i "%~1"=="uninstall" goto uninstall',
-            (
-                f'@set "UV_PROJECT_ENVIRONMENT=%~dp0..\\python\\{environment.name}" & uv run --project "%~dp0..\\app\\{app.name}" '
-                f"--frozen --extra mcp --quiet legion{home_argument} %* & (goto) 2>nul & "
-                'set "UV_PROJECT_ENVIRONMENT=%UV_PROJECT_ENVIRONMENT%" & "%COMSPEC%" /d /c "set /a LEGION_EXIT=0x%%=ExitCode%% >nul & call exit %%^LEGION_EXIT%%"'
-            ),
+            f'@(goto) 2>nul & "%~dp0..\\python\\{environment.name}\\Scripts\\legion.exe"{home_argument} %*',
             ":uninstall",
+            f"@where /q uv || (>&2 echo {UV_MISSING}& exit /b 127)",
             (
                 '@for %%T in ("%TEMP%\\legion-uninstall-%RANDOM%-%RANDOM%") do @(md "%%~T" 2>nul || (if exist "%%~T" (goto uninstall) else (goto temp_error)) & '
                 'for %%U in (uv.exe) do @copy /b "%%~$PATH:U" "%%~T\\uv.exe" >nul & '
@@ -179,9 +176,6 @@ def shim_text(app: Path, home: Path, windows: bool) -> str:
             ),
             ":temp_error",
             "@>&2 echo Cannot create temporary uv folder & exit /b 1",
-            ":mcp",
-            f'@"%~dp0..\\python\\{environment.name}\\Scripts\\legion.exe"{home_argument} %*',
-            "@exit /b %errorlevel%",
         ]
         return "\r\n".join(lines) + "\r\n"
     lines = [

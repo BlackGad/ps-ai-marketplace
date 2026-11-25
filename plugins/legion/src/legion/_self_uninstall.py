@@ -15,8 +15,11 @@ def run(app: Path, arguments: list[str], uv_copy: Path | None = None) -> int:
         project = root / "app"
         shutil.copytree(app, project, symlinks=True)
         environment = root / "env"
-        command = [str(uv_copy) if uv_copy else "uv", "run", "--project", str(project), "--frozen", "--quiet", "legion", "--home", str(home), *arguments]
-        result = subprocess.run(command, env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(environment)}, check=False)
+        # uv leaves lock files in the temporary folder; this one is removed with the scratch folder.
+        temp = root / "temp"
+        temp.mkdir()
+        command = [str(uv_copy) if uv_copy else "uv", "run", "--project", str(project), "--frozen", "--no-default-groups", "--quiet", "legion", "--home", str(home), *arguments]
+        result = subprocess.run(command, env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(environment), "TEMP": str(temp), "TMP": str(temp)}, check=False)
         return result.returncode
 
 

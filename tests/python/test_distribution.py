@@ -29,6 +29,18 @@ def test_console_entry_point_resolves_and_lists_commands() -> None:
     assert "status" in result.stdout
 
 
+def test_a_plain_uv_sync_installs_the_mcp_sdk_through_the_extra() -> None:
+    # The released 0.17.0 updater syncs a new app with `uv sync --frozen` and no extra, then never runs it.
+    # Only a default group reaches that sync; it names the extra, so the SDK constraint has one home.
+    project = tomllib.loads((PLUGIN / "pyproject.toml").read_text(encoding="utf-8"))
+    groups = project["tool"]["uv"]["default-groups"]
+    assert [requirement for group in groups for requirement in project["dependency-groups"][group]] == ["legion[mcp]"]
+    assert [requirement for requirement in project["project"]["optional-dependencies"]["mcp"] if requirement.startswith("mcp")] == ["mcp>=1.30,<2"]
+    lock = tomllib.loads((PLUGIN / "uv.lock").read_text(encoding="utf-8"))
+    legion = next(package for package in lock["package"] if package["name"] == "legion")
+    assert {"name": "legion", "extra": ["mcp"]} in legion["dev-dependencies"][groups[0]]
+
+
 def test_fixed_file_entries_exist() -> None:
     assert (PLUGIN / "hooks/session_start.py").is_file()
     assert (PLUGIN / "src/legion/_self_uninstall.py").is_file()
