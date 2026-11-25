@@ -129,10 +129,11 @@ def cmd(line: str, environment: dict[str, str], text: str = "") -> subprocess.Co
 
 @pytest.mark.skipif(not WINDOWS, reason="the batch command is Windows only")
 @pytest.mark.parametrize("code", [0, 3])
-def test_a_batch_command_deleted_while_it_runs_exits_with_uvs_status(tmp_path: Path, fake_uv_folder: Path, code: int) -> None:
+@pytest.mark.parametrize("verb", ["status", "setup", "update"])
+def test_a_batch_command_deleted_while_it_runs_exits_with_uvs_status(tmp_path: Path, fake_uv_folder: Path, code: int, verb: str) -> None:
     home, app, shim = home_with_shim(tmp_path, "legion.cmd", True)
     log = tmp_path / "uv.log"
-    result = cmd(f'"{shim}" status "two words" "" 100% {UNICODE}', child_environment(fake_uv_folder, log, code, delete=shim), "typed input")
+    result = cmd(f'"{shim}" {verb} "two words" "" 100% {UNICODE}', child_environment(fake_uv_folder, log, code, delete=shim), "typed input")
     bin_folder = shim.parent
     assert result.returncode == code
     assert not shim.exists()
@@ -143,11 +144,13 @@ def test_a_batch_command_deleted_while_it_runs_exits_with_uvs_status(tmp_path: P
         "arg:--project",
         f"arg:{bin_folder}\\..\\app\\1.2.3",
         "arg:--frozen",
+        "arg:--extra",
+        "arg:mcp",
         "arg:--quiet",
         "arg:legion",
         "arg:--home",
         f"arg:{bin_folder}\\..\\..",
-        "arg:status",
+        f"arg:{verb}",
         "arg:two words",
         "arg:",
         "arg:100%",
@@ -371,7 +374,8 @@ def test_git_bash_uninstall_uses_a_temp_uv_outside_legion_home(tmp_path: Path, f
 
 
 @pytest.mark.parametrize("code", [0, 3])
-def test_the_shell_command_runs_uv_and_passes_the_status_on(tmp_path: Path, fake_uv_folder: Path, code: int) -> None:
+@pytest.mark.parametrize("verb", ["status", "setup", "update"])
+def test_the_shell_command_runs_uv_and_passes_the_status_on(tmp_path: Path, fake_uv_folder: Path, code: int, verb: str) -> None:
     bash = git_bash() if WINDOWS else Path("/bin/sh")
     if bash is None:
         pytest.skip("Git Bash was not found")
@@ -381,14 +385,14 @@ def test_the_shell_command_runs_uv_and_passes_the_status_on(tmp_path: Path, fake
     environment = child_environment(fake_uv_folder, log, code) | {"FAKE_UV_NO_STDIN": "1"}
     if WINDOWS:
         # Git Bash takes POSIX paths; cygpath converts them before the command runs.
-        script = f'PATH="$(cygpath -u "{fake_uv_folder}"):$PATH"; "$(cygpath -u "{shim}")" status "two words"'
+        script = f'PATH="$(cygpath -u "{fake_uv_folder}"):$PATH"; "$(cygpath -u "{shim}")" {verb} "two words"'
         result = subprocess.run([str(bash), "-c", script], capture_output=True, stdin=subprocess.DEVNULL, env=environment, check=False)
     else:
-        result = subprocess.run([str(bash), str(shim), "status", "two words"], capture_output=True, stdin=subprocess.DEVNULL, env=environment, check=False)
+        result = subprocess.run([str(bash), str(shim), verb, "two words"], capture_output=True, stdin=subprocess.DEVNULL, env=environment, check=False)
     assert result.returncode == code
     assert result.stdout.decode().strip() == "live output"
     lines = [line for line in log.read_text(encoding="utf-8").splitlines() if not line.startswith("stdin:")]
-    expected = ["arg:run", "arg:--project", f"arg:{app}", "arg:--frozen", "arg:--quiet", "arg:legion", "arg:--home", f"arg:{home}", "arg:status", "arg:two words"]
+    expected = ["arg:run", "arg:--project", f"arg:{app}", "arg:--frozen", "arg:--extra", "arg:mcp", "arg:--quiet", "arg:legion", "arg:--home", f"arg:{home}", f"arg:{verb}", "arg:two words"]
     assert lines == [*expected, f"env:{_installed_runtime.python_environment(app, home)}"]
 
 

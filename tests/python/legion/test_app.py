@@ -408,7 +408,7 @@ def test_unix_command_text_quotes_the_app_the_environment_and_the_selected_home(
         f"command -v uv >/dev/null 2>&1 || {{ echo '{MISSING}' >&2; exit 127; }}\n"
         f'if [ "$1" = uninstall ]; then exec uv run --no-project --python ">=3.12" {shell_literal(str(app / "src/legion/_self_uninstall.py"))} {shell_literal(str(app))} "$@"; fi\n'
         f"export UV_PROJECT_ENVIRONMENT={shell_literal(str(_installed_runtime.python_environment(app, home)))}\n"
-        f'exec uv run --project {shell_literal(str(app))} --frozen --quiet legion --home {shell_literal(str(home))} "$@"\n'
+        f'exec uv run --project {shell_literal(str(app))} --frozen --extra mcp --quiet legion --home {shell_literal(str(home))} "$@"\n'
     )
     if sys.platform == "win32":
         expected = expected.replace(
@@ -433,7 +433,7 @@ def test_windows_command_text_finds_everything_from_its_own_folder(tmp_path: Pat
         f'@if /i "%~1"=="mcp" ("%~dp0..\\python\\{name}\\Scripts\\legion.exe" --home "%~dp0..\\.." %* & exit /b)\r\n'
         f"@where /q uv || (>&2 echo {MISSING}& exit /b 127)\r\n"
         '@if /i "%~1"=="uninstall" goto uninstall\r\n'
-        f'@set "UV_PROJECT_ENVIRONMENT=%~dp0..\\python\\{name}" & uv run --project "%~dp0..\\app\\1.2.3" --frozen --quiet legion --home "%~dp0..\\.." %* & (goto) 2>nul & '
+        f'@set "UV_PROJECT_ENVIRONMENT=%~dp0..\\python\\{name}" & uv run --project "%~dp0..\\app\\1.2.3" --frozen --extra mcp --quiet legion --home "%~dp0..\\.." %* & (goto) 2>nul & '
         'set "UV_PROJECT_ENVIRONMENT=%UV_PROJECT_ENVIRONMENT%" & "%COMSPEC%" /d /c "set /a LEGION_EXIT=0x%%=ExitCode%% >nul & call exit %%^LEGION_EXIT%%"\r\n'
         ":uninstall\r\n"
         '@for %%T in ("%TEMP%\\legion-uninstall-%RANDOM%-%RANDOM%") do @(md "%%~T" 2>nul || (if exist "%%~T" (goto uninstall) else (goto temp_error)) & '
