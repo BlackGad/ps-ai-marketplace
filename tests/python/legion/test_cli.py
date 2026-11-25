@@ -6,7 +6,18 @@ from pathlib import Path
 import pytest
 from cli_runner import run
 
-from legion import _installer, _plugin, _status
+from legion import _installer, _plugin
+from legion.services import status as status_service
+from legion.services.status import StatusReport, status
+
+pytest_plugins = ["status_parity"]
+
+
+def test_cli_status_json_is_model_dump(parity_home: tuple[Path, Path], capsys: pytest.CaptureFixture[str]) -> None:
+    repo, home = parity_home
+    expected = status(repo, home).model_dump(mode="json")
+    assert run(["--home", str(home), "status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == expected
 
 
 @pytest.fixture
@@ -59,12 +70,13 @@ def test_home_changes_the_telegram_bot_folder(tmp_path: Path, capsys: pytest.Cap
 def test_relative_home_is_absolute_before_a_verb_receives_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     received: list[Path | None] = []
+    report = status(tmp_path, tmp_path / "owner")
 
-    def status_lines(_repo: Path, home: Path | None) -> list[str]:
+    def status_report(_repo: Path, home: Path | None) -> StatusReport:
         received.append(home)
-        return []
+        return report
 
-    monkeypatch.setattr(_status, "status_lines", status_lines)
+    monkeypatch.setattr(status_service, "status", status_report)
     assert run(["--home", "owner", "status"]) == 0
     assert received == [tmp_path / "owner"]
 

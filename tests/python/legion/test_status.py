@@ -18,10 +18,50 @@ from legion import (
     _validate,
 )
 from legion._settings_models import ChannelDescriptor, PersonalisationSettings, ToolDescriptor
+from legion.services.status import status
+from legion.services import status as status_service
+
+pytest_plugins = ["status_parity"]
 
 REPO = Path(__file__).resolve().parents[3]
 REQUIRED = ("configuration/project.json", "configuration/workflow.md", "scripts/index.md")
 WARNING = "legion: channel my-telegram is bound to this account but not connected in this session; restart with legion to connect it."
+
+
+def test_status_report_matches_status_lines(parity_home: tuple[Path, Path]) -> None:
+    repo, home = parity_home
+    report = status(repo, home)
+    assert _status.status_lines(report) == [
+        "accounts",
+        "  claude-a  claude  ~/.claude  legion missing",
+        "  codex-a  codex  ~/.codex  legion missing",
+        "path ~/.legion/bin on PATH: no",
+        "commands: missing legion",
+        "channels main (telegram) -> claude-a",
+        "repo Shared   lease: free   handoff: yes",
+    ]
+    assert report.repository.mode == "Shared"
+    assert report.repository.lease == "free"
+
+
+def test_status_service_writes_nothing(parity_home: tuple[Path, Path]) -> None:
+    repo, home = parity_home
+    before = snapshot(home), snapshot(repo)
+    status(repo, home)
+    assert (snapshot(home), snapshot(repo)) == before
+
+
+@pytest.mark.parametrize("broken", ["invalid", "unreadable"])
+def test_status_report_broken_settings_names_file_without_content(tmp_path: Path, broken: str) -> None:
+    file = tmp_path / ".legion/configuration/personalisation.json"
+    if broken == "invalid":
+        write(file, '{"private-sentinel":')
+    else:
+        file.mkdir(parents=True)
+    report = status(tmp_path, tmp_path)
+    assert report.settings.state == broken
+    assert report.settings.path == str(file)
+    assert "private-sentinel" not in report.model_dump_json()
 
 
 def write(path: Path, text: str) -> Path:
@@ -106,7 +146,7 @@ def test_configured_status_preserves_home_and_never_launches_a_cli(tmp_path: Pat
     def refuse(*_args: object, **_kwargs: object) -> None:
         pytest.fail("status started a process without a tracked repository")
 
-    monkeypatch.setattr(_status.subprocess, "run", refuse)
+    monkeypatch.setattr(status_service.subprocess, "run", refuse)
     before = snapshot(home)
     assert run(["--home", str(home), "status"]) == 0
     assert capsys.readouterr().out.splitlines() == [
@@ -130,7 +170,7 @@ def test_status_defaults_to_fenced_home(tmp_path: Path, monkeypatch: pytest.Monk
     home = Path.home()
     settings(home)
     monkeypatch.setenv("PATH", str(commands(home)))
-    assert _status.status_lines(tmp_path)[0] == "accounts"
+    assert _status.status_lines(status(tmp_path))[0] == "accounts"
 
 
 @pytest.mark.parametrize("state", ["missing", "blocked", "permission", "owned"])
@@ -185,29 +225,29 @@ def test_path_resolves_linked_ancestors(monkeypatch: pytest.MonkeyPatch) -> None
 
 def test_repository_requires_complete_tracked_scaffold_and_inner_private_history(tmp_path: Path) -> None:
     write(tmp_path / ".legion/temp/scratch", "fixture")
-    assert _status.repository_line(tmp_path) == "repo none"
+    assert _status.repository_line(status_service.repository_status(tmp_path)) == "repo none"
     legion = scaffold(tmp_path)
-    assert _status.repository_line(tmp_path) == "repo none"
+    assert _status.repository_line(status_service.repository_status(tmp_path)) == "repo none"
     git(tmp_path, "init", "--quiet")
     git(tmp_path, "add", "--", *[f".legion/{file}" for file in REQUIRED])
-    assert _status.repository_line(tmp_path) == "repo Shared   lease: free   handoff: no"
+    assert _status.repository_line(status_service.repository_status(tmp_path)) == "repo Shared   lease: free   handoff: no"
     git(tmp_path, "rm", "--cached", "--quiet", "--", ".legion/scripts/index.md")
-    assert _status.repository_line(tmp_path) == "repo none"
+    assert _status.repository_line(status_service.repository_status(tmp_path)) == "repo none"
     git(tmp_path, "add", "--", ".legion/scripts/index.md")
     for file in REQUIRED:
         path = legion / file
         path.unlink()
-        assert _status.repository_line(tmp_path) == "repo none"
+        assert _status.repository_line(status_service.repository_status(tmp_path)) == "repo none"
         write(path, "fixture")
     git(legion, "init", "--quiet")
-    assert _status.repository_line(tmp_path) == "repo none"
+    assert _status.repository_line(status_service.repository_status(tmp_path)) == "repo none"
     git(legion, "add", "--", *REQUIRED)
-    assert _status.repository_line(tmp_path) == "repo Private   lease: free   handoff: no"
+    assert _status.repository_line(status_service.repository_status(tmp_path)) == "repo Private   lease: free   handoff: no"
     write(legion / "state/handoff.md", "handoff")
-    assert _status.repository_line(tmp_path) == "repo Private   lease: free   handoff: yes"
+    assert _status.repository_line(status_service.repository_status(tmp_path)) == "repo Private   lease: free   handoff: yes"
     assert _lease.take(tmp_path, "codex", "codex-a", os.getpid()) == "lease taken"
     before = snapshot(legion)
-    assert _status.repository_line(tmp_path) == "repo Private   lease: held   handoff: yes"
+    assert _status.repository_line(status_service.repository_status(tmp_path)) == "repo Private   lease: held   handoff: yes"
     assert snapshot(legion) == before
     assert _lease.release(tmp_path, os.getpid()) == "lease released"
 
@@ -222,14 +262,14 @@ def test_repository_git_probe_is_read_only(tmp_path: Path, monkeypatch: pytest.M
         assert kwargs["stdin"] == subprocess.DEVNULL
         return subprocess.CompletedProcess(words, 0)
 
-    monkeypatch.setattr(_status.subprocess, "run", probe)
-    assert _status.repository_line(tmp_path) == "repo Shared   lease: free   handoff: no"
+    monkeypatch.setattr(status_service.subprocess, "run", probe)
+    assert _status.repository_line(status_service.repository_status(tmp_path)) == "repo Shared   lease: free   handoff: no"
 
 
 def test_repository_without_git_is_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     scaffold(tmp_path)
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
-    assert _status.repository_line(tmp_path) == "repo none"
+    assert _status.repository_line(status_service.repository_status(tmp_path)) == "repo none"
 
 
 @pytest.mark.parametrize("tool_id", ["claude", "codex", "copilot"])
@@ -277,7 +317,7 @@ def channel_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Pe
 def test_bound_channel_without_launch_flag_warns_once(channel_session: tuple[PersonalisationSettings, Path, list[ToolDescriptor]], tmp_path: Path) -> None:
     owner, home, tools = channel_session
     assert _status.channel_warnings(owner, home, tools) == [WARNING]
-    assert _status.status_lines(tmp_path, home)[-2:] == ["repo none", WARNING]
+    assert _status.status_lines(status(tmp_path, home))[-2:] == ["repo none", WARNING]
 
 
 # Moved assertions 7-8: home expansion, trailing separators, and the platform comparer.
@@ -345,7 +385,7 @@ def test_broken_inputs_preserve_the_rest_of_status(channel_session: tuple[Person
         file = "legion-claude/tool.json" if broken == "tool" else "legion-telegram/channel.json"
         write(root / "skills" / file, "{")
         monkeypatch.setattr(_validate, "PLUGIN_ROOT", root)
-    lines = _status.status_lines(tmp_path, home)
+    lines = _status.status_lines(status(tmp_path, home))
     if broken == "settings":
         assert lines[0] == f"legion settings are not valid: {home / '.legion/configuration/personalisation.json'}; run legion setup"
     assert lines[-1] == "repo none"

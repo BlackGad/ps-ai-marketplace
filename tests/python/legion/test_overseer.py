@@ -16,7 +16,9 @@ import pytest
 from cli_runner import run
 
 from legion import _bridge, _channel, _cli, _home, _lease, _overseer, _repository, _run, _settings_io, _validate
-from legion._settings_models import PersonalisationSettings
+from legion._settings_models import Agent, PersonalisationSettings
+from legion.limits import LimitRow
+from legion.services import limits as limits_service
 
 
 @pytest.fixture
@@ -442,6 +444,68 @@ def test_in_place_inherits_console_and_cleans_environment(repo: Path, monkeypatc
     assert _overseer.start_launch(repo, launch, in_place=True, dry_run=False) == 7
     assert dict(os.environ) == before
     assert Path.cwd() == cwd
+
+
+@pytest.mark.parametrize("tool", ["claude", "codex", "copilot"])
+@pytest.mark.parametrize("mode", ["in-place", "current-terminal", "new-tab"])
+def test_launched_overseer_requires_limits_ids_and_preserves_owner_shell(home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch, tool: str, mode: str) -> None:
+    # Start from the owner's ordinary shell; no test-injected automation marker.
+    assert "LEGION_ROLE" not in os.environ
+    assert "LEGION_TASK" not in os.environ
+    before = dict(os.environ)
+    settings = _settings_io.load(home)
+    agent = next(agent for agent in settings.agents if agent.tool == tool)
+    launch = _overseer._launch(settings, agent, (), ("--model", "two words"), "", False, repo, home)
+    probes: list[str] = []
+    calls: list[tuple[Any, dict[str, Any]]] = []
+
+    def probe(agent: Agent, _home: Path, _timeout: float) -> list[LimitRow]:
+        probes.append(agent.id)
+        return [LimitRow(status="fake answer")]
+
+    def child(command: Any, **kwargs: Any) -> SimpleNamespace:
+        calls.append((command, kwargs))
+        if command[0] == "wt.exe":
+            # Exercise the actual module entry used by a new terminal tab.
+            assert command[1:7] == ["new-tab", "-d", str(repo), sys.executable, "-m", "legion._overseer"]
+            assert command[7] == str(repo)
+            assert _overseer.Launch.model_validate_json(base64.urlsafe_b64decode(command[8])) == launch
+            with monkeypatch.context() as entry:
+                entry.setattr(sys, "argv", command[6:])
+                entry.delitem(sys.modules, _overseer.__name__)
+                with pytest.raises(SystemExit) as result:
+                    runpy.run_module(_overseer.__name__, run_name="__main__")
+            assert result.value.code == 0
+            return SimpleNamespace(returncode=0)
+
+        expected = [launch.command, *launch.arguments]
+        if _overseer.WINDOWS and Path(launch.command).suffix.lower() in (".cmd", ".bat"):
+            expected = _run._cmd_line(expected)
+        assert command == expected
+        assert kwargs["cwd"] == repo
+        assert not any(name in kwargs for name in ("stdin", "stdout", "stderr", "capture_output"))
+        with monkeypatch.context() as session:
+            # Run the CLI under precisely the environment supplied to the agent.
+            session.setattr(os, "environ", kwargs["env"].copy())
+            assert run(["--home", str(home), "limits"]) == 1
+            assert probes == []
+            assert os.environ["LEGION_ROLE"] == "overseer"
+            assert run(["--home", str(home), "limits", "--id", agent.id]) == 0
+            assert probes == [agent.id]
+            probes.clear()
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(limits_service, "account_rows", probe)
+    with monkeypatch.context() as transport:
+        transport.setattr(_overseer, "WINDOWS", mode == "new-tab" or sys.platform == "win32")
+        transport.setattr(_overseer.shutil, "which", lambda _name: "wt.exe" if mode == "new-tab" else None)
+        transport.setattr(_overseer.subprocess, "run", child)
+        assert _overseer.start_launch(repo, launch, in_place=mode == "in-place") == 0
+    assert len(calls) == (2 if mode == "new-tab" else 1)
+    assert dict(os.environ) == before
+    assert run(["--home", str(home), "limits"]) == 0
+    assert probes == [agent.id for agent in settings.agents]
+    assert dict(os.environ) == before
 
 
 def test_terminal_payload_survives_rejoin_and_module_entry(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -7,7 +7,7 @@ import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import (
     Any,
     Optional,
@@ -21,6 +21,7 @@ from legion._home import home_path
 from legion._process import process_started_at
 from legion._run import RunResult
 from legion._settings_models import Agent
+from legion.services.limits import LimitsError, limits
 from legion.limits import (
     LimitRow,
     account_rows,
@@ -104,6 +105,103 @@ class Bench:
 @pytest.fixture
 def bench(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Bench:
     return Bench(tmp_path, monkeypatch)
+
+
+@pytest.mark.parametrize("selection", [[], [""], [" "], ["nobody"], ["claude-a", "nobody"], ["claude-a", ""]])
+def test_limits_prevalidates_whole_selection_without_probes(bench: Bench, selection: list[str]) -> None:
+    write_settings(bench.home, ACCOUNTS)
+    expected = "name at least one account" if not selection else f"unknown account '{selection[-1]}'"
+    with pytest.raises(LimitsError, match=expected):
+        limits(bench.home, selection)
+    assert [bench.calls(name) for name in ("claude", "codex", "copilot", "az", "git")] == [[], [], [], [], []]
+
+
+def test_limits_omitted_selection_cannot_use_manual_default(bench: Bench) -> None:
+    write_settings(bench.home, ACCOUNTS)
+
+    def omit_selection(call: Callable[..., object]) -> object:
+        return call(bench.home)
+
+    with pytest.raises(TypeError):
+        omit_selection(limits)
+    assert not list(bench.logs.iterdir())
+
+
+@pytest.mark.parametrize("selection", ["ab", "a", b"ab"])
+def test_limits_rejects_scalar_selection_without_probes(bench: Bench, selection: Any) -> None:
+    write_settings(bench.home, [{"id": account, "tool": "claude", "configDir": f"~/{account}"} for account in ("a", "b")])
+    for account in ("a", "b"):
+        write_executable(bench.home / ".legion/bin", account, {"LEGION_FAKE_NAME": "claude"})
+
+    with pytest.raises(LimitsError, match="pass account ids as a list or tuple"):
+        limits(bench.home, selection)
+    assert not list(bench.logs.iterdir())
+
+
+@pytest.mark.parametrize("interface", ["service", "text", "json", "manual"])
+def test_limits_rejects_duplicate_configured_ids_without_probes(bench: Bench, interface: str, capsys: pytest.CaptureFixture[str]) -> None:
+    # The second definition would change a subscription check into a provider check.
+    agents = [ACCOUNTS[2], ACCOUNTS[0], {**ACCOUNTS[3], "id": "claude-a"}]
+    write_settings(bench.home, agents)
+    if interface == "service":
+        with pytest.raises(LimitsError, match="duplicate account id 'claude-a'"):
+            limits(bench.home, ["copilot-a", "claude-a"])
+    else:
+        words = [] if interface == "manual" else ["--id", "copilot-a", "--id", "claude-a"]
+        if interface == "json":
+            words.append("--json")
+        assert run(["--home", str(bench.home), "limits", *words]) == 1
+        assert "duplicate account id 'claude-a'" in capsys.readouterr().err
+    assert not list(bench.logs.iterdir())
+
+
+def test_limits_returns_rows_per_account_in_requested_order(bench: Bench) -> None:
+    write_settings(bench.home, ACCOUNTS)
+    reports = limits(bench.home, ["copilot-a", "claude-a"], timeout=10)
+    assert [(item.account, item.tool) for item in reports] == [("copilot-a", "copilot"), ("claude-a", "claude")]
+    assert reports[0].rows == [LimitRow(status="answers; no limit readout")]
+    assert [len(bench.calls(name)) for name in ("claude", "codex", "copilot", "az")] == [1, 0, 1, 0]
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        ["--json"],
+        ["--id", ""],
+        ["--id", " "],
+        ["--json", "--id", ""],
+        ["--id", "claude-a", "--id", ""],
+        ["--id", "claude-a", "--id", "nobody"],
+        ["--json", "--id", "claude-a", "--id", "nobody"],
+    ],
+)
+def test_automated_cli_rejects_missing_or_invalid_selection_before_probes(bench: Bench, words: list[str]) -> None:
+    write_settings(bench.home, ACCOUNTS)
+    assert run(["--home", str(bench.home), "limits", *words]) == 1
+    assert not list(bench.logs.iterdir())
+
+
+@pytest.mark.parametrize(("environment", "value"), [("LEGION_ROLE", "member"), ("LEGION_ROLE", "overseer"), ("LEGION_TASK", "task.md")])
+def test_member_bare_cli_cannot_use_manual_default(bench: Bench, monkeypatch: pytest.MonkeyPatch, environment: str, value: str) -> None:
+    write_settings(bench.home, ACCOUNTS)
+    monkeypatch.setenv(environment, value)
+    assert run(["--home", str(bench.home), "limits"]) == 1
+    assert not list(bench.logs.iterdir())
+
+
+def test_cli_limits_json_repeatable_id(bench: Bench, capsys: pytest.CaptureFixture[str]) -> None:
+    write_settings(bench.home, ACCOUNTS)
+    expected = limits(bench.home, ["copilot-a", "claude-a"])
+    assert run(["--home", str(bench.home), "limits", "--id", "copilot-a", "--id", "claude-a", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == [item.model_dump(mode="json") for item in expected]
+    assert [len(bench.calls(name)) for name in ("claude", "codex", "copilot", "az")] == [2, 0, 2, 0]
+
+
+def test_cli_limits_help_explains_probe_cost_and_side_effects(capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(["limits", "--help"]) == 0
+    output = " ".join(capsys.readouterr().out.split())
+    for text in ("quota", "billable", "disposable", "session record", "az account get-access-token", "120", "--id", "--json", "manual"):
+        assert text in output
 
 
 def assert_disposable_folder(folder: str) -> None:
