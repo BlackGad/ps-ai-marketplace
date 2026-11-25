@@ -256,6 +256,53 @@ def test_candidate_names_the_exact_legacy_launcher_and_still_fails(tmp_path: Pat
     assert all(path.name in str(raised.value) for path in instance.owner_shims())
 
 
+def write_owner_launcher(upgrade: Any, lines: list[str], code: int) -> None:
+    """Write a real owner command that prints the lines and exits with the code, marked with the candidate version."""
+    for path in upgrade.owner_shims():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.suffix == ".cmd":
+            body = ["@echo off", f"rem candidate {upgrade.candidate_version}", *(f"echo {line}" for line in lines), f"exit /b {code}"]
+            path.write_bytes("\r\n".join(body).encode("utf-8") + b"\r\n")
+        else:
+            body = ["#!/bin/sh", f"# candidate {upgrade.candidate_version}", *(f"echo '{line}'" for line in lines), f"exit {code}"]
+            path.write_text("\n".join(body) + "\n", encoding="utf-8")
+            path.chmod(0o755)
+
+
+@pytest.mark.parametrize("outcome", ["timeout", "missing"])
+def test_the_old_update_records_a_timeout_or_missing_command_with_its_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str) -> None:
+    instance = make_runner(tmp_path)
+    upgrade = make_runner(tmp_path / "upgrade")
+    instance.state["candidate"] = upgrade
+    name = upgrade.launcher("legion").name
+    if outcome == "timeout":
+
+        def hung(argv: list[str], **kwargs: Any) -> Any:
+            # POSIX subprocess hands back the partial output as bytes.
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"], output=b"Update legion for claude\n")
+
+        monkeypatch.setattr(runner.subprocess, "run", hung)
+        expected = (f"{name} timed out after 300 seconds\nUpdate legion for claude", "Update legion for claude")
+    else:
+        expected = (f"{name} could not start: ", "")
+    instance.run_old_update()
+    assert instance.state["update_error"].startswith(expected[0])
+    assert instance.state["update_output"] == expected[1]
+
+
+def test_a_check_that_times_out_is_one_failed_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    instance = make_runner(tmp_path)
+
+    def hung(argv: list[str], **kwargs: Any) -> Any:
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"], output="partial")
+
+    monkeypatch.setattr(runner.subprocess, "run", hung)
+    failures = instance.collect([("slow", lambda: instance.run(["slow-tool"])), ("next", lambda: None)])
+    assert failures == ["slow: slow-tool timed out after 300 seconds\npartial"]
+    checks = json.loads((instance.out / "checks.json").read_text(encoding="utf-8"))
+    assert [item["result"] for item in checks] == ["failed", "passed"]
+
+
 def test_a_stale_launcher_does_not_stop_the_other_candidate_checks(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
     upgrade = make_runner(tmp_path / "upgrade")
@@ -273,10 +320,22 @@ def test_a_stale_launcher_does_not_stop_the_other_candidate_checks(tmp_path: Pat
         called.append("without-uv")
         raise AssertionError("MCP without uv did not start or answer (exit 127): uv is missing")
 
+    # The real old command runs through the production runner: it moved two hosts, then exited 1.
+    write_owner_launcher(upgrade, ["Update legion for claude", "Update legion for copilot"], 1)
+    instance.state["old_shims"] = {path.name: b"old launcher" for path in upgrade.owner_shims()}
+    instance.run_old_update()
     upgrade.check_candidate_bytes = lambda _root: called.append("bytes")
     upgrade.check_candidate_launchers = stale
     identity = {"root": str(app), "version": upgrade.candidate_version, "cli": str(app / "cli.py"), "server": str(app / "server.py")}
-    upgrade.run = lambda argv, **_kwargs: json.dumps(identity) if argv[1:3] == ["-I", "-c"] and "PLUGIN_ROOT" in argv[3] else "you are a legion member"
+    hook_runs: list[list[str]] = []
+
+    def run(argv: list[str], **_kwargs: Any) -> str:
+        if argv[1:3] == ["-I", "-c"] and "PLUGIN_ROOT" in argv[3]:
+            return json.dumps(identity)
+        hook_runs.append(argv)
+        return "you are a legion member"
+
+    upgrade.run = run
     upgrade.listing = lambda tool, _folder: called.append(f"listing-{tool}") or True
     upgrade.candidate_plugin = lambda _tool: app
     upgrade.legion = lambda *_args, **_kwargs: called.append("owner-version") or f"legion {upgrade.candidate_version}"
@@ -285,27 +344,22 @@ def test_a_stale_launcher_does_not_stop_the_other_candidate_checks(tmp_path: Pat
     upgrade.prove_mcp_without_uv = without_uv
     upgrade.prove_clients = lambda: called.append("clients") or ["copilot"]
     upgrade.home_snapshot = lambda **_kwargs: {"snapshot": "taken"}
-    # The old update command failed for one host; that too is only one observation among the others.
+    # Codex stayed on the old version; that too is only one observation among the others.
     upgrade.version = lambda tool, _folder: "0.17.0" if tool == "codex" else upgrade.candidate_version
-    for path in upgrade.owner_shims():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(f"targets {upgrade.candidate_version}", encoding="utf-8")
-    instance.state.update(
-        {
-            "update_output": "\n".join(f"Update legion for {tool}" for tool in runner.TOOLS),
-            "update_error": "legion.cmd exited 1",
-            "old_shims": {path.name: b"old launcher" for path in upgrade.owner_shims()},
-        }
-    )
+    assert instance.state["update_output"] == "Update legion for claude\nUpdate legion for copilot"
     with pytest.raises(AssertionError) as raised:
         instance.verify_candidate()
     message = str(raised.value)
-    assert message.splitlines()[0] == "update command: legion.cmd exited 1"
+    assert message.splitlines()[0] == f"update command: {upgrade.launcher('legion').name} exited 1"
+    assert "codex updated: codex: installed version is 0.17.0" in message
     assert "owner launchers: legion.cmd: launcher is the exact 0.17.0" in message
     assert "owner MCP without uv: MCP without uv did not start or answer (exit 127)" in message
     assert {"owner-version", "mcp", "client-command", "without-uv", "clients", "listing-claude", "listing-codex", "listing-copilot"} <= set(called)
     assert instance.state["client_missing"] == ["copilot"]
     assert instance.state["candidate_snapshot"] == {"snapshot": "taken"}
+    # The hook observation writes no bytecode into the host plugin caches the repeat compares.
+    assert len(hook_runs) == len(runner.TOOLS)
+    assert all(argv[1:3] == ["-I", "-B"] for argv in hook_runs)
     checks = json.loads((upgrade.out / "checks.json").read_text(encoding="utf-8"))
     assert [item["check"] for item in checks if item["result"] == "failed"] == ["update command", "codex updated", "owner launchers", "owner MCP without uv"]
 
@@ -338,6 +392,42 @@ def test_the_repeat_cleans_up_an_installed_candidate_after_a_failed_first_case(t
     instance.steps = lambda: [("update-from-0.17.0", first)]
     assert [case.result for case in instance.execute()] == ["failed", "passed"]
     assert events == ["repeat and purge"]
+
+
+def test_an_installed_candidate_without_owner_commands_still_reports_repeat_and_purge(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    upgrade = make_runner(tmp_path / "upgrade")
+
+    def update_removed_the_launchers() -> None:
+        instance.state["candidate"] = upgrade
+        (upgrade.home / ".legion/app" / upgrade.candidate_version).mkdir(parents=True)
+        raise AssertionError("update removed the owner commands")
+
+    instance.prepare_candidate = update_removed_the_launchers
+    instance.steps = lambda: [("update-from-0.17.0", instance.update_from_0_17_0)]
+    cases = instance.execute()
+    assert [case.result for case in cases] == ["failed", "failed"]
+    # The real runner tried the missing owner command for both, and each outcome is written down.
+    name = upgrade.launcher("legion").name
+    checks = json.loads((upgrade.out / "repeat-checks.json").read_text(encoding="utf-8"))
+    assert [(item["check"], item["result"]) for item in checks] == [("repeat update", "failed"), ("purge", "failed")]
+    assert all(item["message"].startswith(f"{name} could not start") for item in checks)
+
+
+def test_cancellation_is_not_turned_into_a_failed_check(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    upgrade = make_runner(tmp_path / "upgrade")
+    upgrade.log.append("old install started")
+
+    def cancelled() -> None:
+        raise KeyboardInterrupt
+
+    instance.state["candidate"] = upgrade
+    instance.prepare_candidate = lambda: None
+    instance.install_old = cancelled
+    with pytest.raises(KeyboardInterrupt):
+        instance.update_from_0_17_0(False)
+    assert instance.log == ["old install started"]
 
 
 def test_purge_runs_and_is_reported_even_when_the_repeat_update_fails(tmp_path: Path) -> None:
@@ -613,8 +703,9 @@ def test_candidate_fence_is_checked_even_after_a_failed_action(tmp_path: Path, r
     instance.prepare_candidate = lambda: None
     instance.install_old = damage
     instance.finish_candidate = damage
-    with pytest.raises(AssertionError, match=r"changed: keep\.txt"):
+    with pytest.raises(AssertionError, match=r"changed: keep\.txt") as raised:
         instance.update_from_0_17_0(repeat)
+    assert str(raised.value).startswith("action failed\noutside the disposable home:")
 
 
 def test_upgrade_advances_origin_without_changing_reader(tmp_path: Path) -> None:

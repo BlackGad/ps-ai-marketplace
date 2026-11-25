@@ -219,6 +219,14 @@ def unchanged(before: dict[str, str], after: dict[str, str]) -> None:
         raise AssertionError("the home changed on the repeat run:\n" + "\n".join(changes[:20]) + omitted)
 
 
+class CommandError(RuntimeError):
+    """A command that exited nonzero, timed out or could not start, with the output it printed."""
+
+    def __init__(self, summary: str, output: str) -> None:
+        super().__init__(f"{summary}\n{output}" if output else summary)
+        self.output = output
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
@@ -355,13 +363,21 @@ class Runner:
         return path
 
     def run(self, argv: list[str], *, env: dict[str, str] | None = None, cwd: Path | None = None, check: bool = True) -> str:
-        result = subprocess.run(  # noqa: S603
-            argv, cwd=cwd or self.work, env=env or self.env, text=True, encoding="utf-8", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, timeout=300, check=False
-        )
+        try:
+            result = subprocess.run(  # noqa: S603
+                argv, cwd=cwd or self.work, env=env or self.env, text=True, encoding="utf-8", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, timeout=300, check=False
+            )
+        except subprocess.TimeoutExpired as error:
+            # A hung or unstartable command is one failed observation, reported with what it printed.
+            partial = error.output.decode("utf-8", "replace") if isinstance(error.output, bytes) else error.output or ""
+            self.log.append(partial.rstrip())
+            raise CommandError(f"{Path(argv[0]).name} timed out after {error.timeout} seconds", partial.rstrip()) from error
+        except OSError as error:
+            raise CommandError(f"{Path(argv[0]).name} could not start: {error}", "") from error
         output = result.stdout.rstrip()
         self.log.append(output)
         if check and result.returncode:
-            raise RuntimeError(f"{Path(argv[0]).name} exited {result.returncode}\n{output}")
+            raise CommandError(f"{Path(argv[0]).name} exited {result.returncode}", output)
         return output
 
     def legion(self, *args: str, owner: bool = False) -> str:
@@ -674,12 +690,16 @@ class Runner:
             == self.run(["git", "--git-dir", str(self.state["origin"]), "rev-parse", "stable"]),
             "candidate origin did not advance",
         )
+        self.run_old_update()
+
+    def run_old_update(self) -> None:
+        upgrade = self.state["candidate"]
         # This is deliberately the installed old command. No checkout CLI or repair runs first.
-        # Its result is judged with the other observations, so one stale host cannot hide the rest.
+        # Its result and output are judged with the other observations, so one stale host cannot hide the rest.
         try:
             self.state["update_output"] = upgrade.legion("update", "--yes", owner=True)
-        except RuntimeError as error:
-            self.state["update_output"] = ""
+        except CommandError as error:
+            self.state["update_output"] = error.output
             self.state["update_error"] = str(error)
 
     def check_runtime_identity(self, identity: dict[str, Any], app: Path) -> None:
@@ -777,14 +797,21 @@ class Runner:
             hook_script = f"import runpy, sys; from pathlib import Path; sys.argv=[{str(hook)!r}, '--format', 'text']; runpy.run_path({str(hook)!r},run_name='__main__')"
             env = upgrade.env.copy()
             env.update({"LEGION_ROLE": "member", "LEGION_TASK": "candidate-hook-sentinel"})
-            contains(upgrade.run([str(upgrade.app_python(app)), "-I", "-c", hook_script], env=env), "you are a legion member")
+            # -B: the observation must not leave bytecode in the host's plugin cache for the repeat to see.
+            contains(upgrade.run([str(upgrade.app_python(app)), "-I", "-B", "-c", hook_script], env=env), "you are a legion member")
 
         def clients() -> None:
             self.state["client_missing"] = upgrade.prove_clients()
 
+        def update_command() -> None:
+            require("update_error" not in self.state, self.state.get("update_error", ""))
+            for tool in TOOLS:
+                contains(self.state.get("update_output", ""), f"Update legion for {tool}")
+
         def updated(tool: str) -> None:
-            contains(self.state.get("update_output", ""), f"Update legion for {tool}")
-            require(upgrade.version(tool, upgrade.folder(tool)) == self.candidate_version, f"{tool}: upgrade was skipped")
+            # Judged from the host alone, so a partial update still shows which hosts moved.
+            version = upgrade.version(tool, upgrade.folder(tool))
+            require(version == self.candidate_version, f"{tool}: installed version is {version}, not {self.candidate_version}")
 
         def launchers_moved() -> None:
             for path in upgrade.owner_shims():
@@ -793,7 +820,7 @@ class Runner:
 
         # A stale host or launcher must not hide what the owner command, MCP and the clients do, so every check runs.
         checks = [
-            ("update command", lambda: require("update_error" not in self.state, self.state.get("update_error", ""))),
+            ("update command", update_command),
             *((f"{tool} updated", lambda tool=tool: updated(tool)) for tool in TOOLS),
             ("owner launchers target the candidate", launchers_moved),
             ("candidate app", ready),
@@ -805,9 +832,9 @@ class Runner:
             ("client command", upgrade.check_client_command),
             ("owner MCP without uv", upgrade.prove_mcp_without_uv),
             ("clients", clients),
+            ("home snapshot", lambda: self.state.update(candidate_snapshot=upgrade.home_snapshot(update=True))),
         ]
         failures = upgrade.collect(checks)
-        self.state["candidate_snapshot"] = upgrade.home_snapshot(update=True)
         require(not failures, "\n".join(failures))
 
     def collect(self, checks: list[tuple[str, Any]], report: str = "checks.json") -> list[str]:
@@ -957,8 +984,8 @@ class Runner:
         require(not self.state.get("client_missing"), "client discovery/launch remains unproven: " + ", ".join(self.state.get("client_missing", [])) + "; see candidate/clients.json")
 
     def candidate_installed(self) -> bool:
-        # Once the disposable home has an owner command, the repeat case runs to clean it up whatever failed before.
-        return "candidate" in self.state and any(path.exists() for path in self.state["candidate"].owner_shims())
+        # Once anything is installed in the disposable home, the repeat case runs and reports its cleanup, whatever failed before.
+        return "candidate" in self.state and (self.state["candidate"].home / ".legion").exists()
 
     def finish_candidate(self) -> None:
         upgrade = self.state["candidate"]
@@ -985,6 +1012,7 @@ class Runner:
         require(not failures, "\n".join(failures))
 
     def update_from_0_17_0(self, repeat: bool) -> None:
+        failures = []
         try:
             if repeat:
                 self.finish_candidate()
@@ -993,13 +1021,20 @@ class Runner:
                 self.install_old()
                 self.upgrade_candidate()
                 self.verify_candidate()
+        except Exception as error:
+            failures.append(str(error) or type(error).__name__)
         finally:
             if "candidate" in self.state:
                 upgrade = self.state["candidate"]
                 self.log.extend(upgrade.log)
                 upgrade.log.clear()
-            if "outside" in self.state:
+        # The fence is checked after any failure and reported with it, never instead of it.
+        if "outside" in self.state:
+            try:
                 unchanged(self.state["outside_snapshot"], snapshot(self.state["outside"]))
+            except AssertionError as error:
+                failures.append(f"outside the disposable home: {error}")
+        require(not failures, "\n".join(failures))
 
     def update(self, repeat: bool) -> str:
         expected = json.loads((self.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
