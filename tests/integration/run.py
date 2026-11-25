@@ -101,7 +101,7 @@ def write_report(out: Path, system: str, cases: list[Case], probe: list[str], ex
 
 
 def without_marketplace_timestamps(data: bytes) -> bytes:
-    """Drop the per-marketplace lastUpdated that the Claude CLI rewrites on every marketplace update; other bytes stay."""
+    """Drop the per-marketplace lastUpdated that the Claude CLI rewrites on every marketplace update; the rest is compared as normalized JSON (key order and spacing ignored)."""
     # Hand-built, reason: only this CLI-maintained field is volatile, so source, path and entry changes must still show.
     try:
         entries = json.loads(data)
@@ -346,7 +346,15 @@ class Runner:
             if path.is_dir() and path.is_relative_to(self.home):
                 prefix = path.relative_to(self.home).as_posix()
                 tool = next((tool for tool, folder in folders if folder == path), None)
-                result.update({prefix + "/" + name: value for name, value in snapshot(path, nested if path == legion else runtime[tool] if tool else [], ["plugins/known_marketplaces.json"] if update and tool == "claude" else []).items()})
+                if path == legion:
+                    excludes = nested
+                elif tool:
+                    excludes = runtime[tool]
+                else:
+                    excludes = []
+                ignore_timestamps = ["plugins/known_marketplaces.json"] if update and tool == "claude" else []
+                for name, value in snapshot(path, excludes, ignore_timestamps).items():
+                    result[prefix + "/" + name] = value
         for name in (".zshrc", ".bashrc", ".profile"):
             path = self.home / name
             if path.is_file():
