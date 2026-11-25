@@ -36,6 +36,7 @@ def write_session(codex_home: Path) -> None:
 def main() -> int:
     name = setting("NAME")
     call = {
+        "pid": os.getpid(),
         "arguments": sys.argv[1:],
         "folder": str(Path.cwd()),
         "stdin": sys.stdin.read(),

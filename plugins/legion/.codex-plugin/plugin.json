@@ -3,5 +3,6 @@
   "version": "0.17.0",
   "description": "Orchestration that keeps every floor in order, so the one in charge only has to nod.",
   "skills": "./skills/",
-  "hooks": "./hooks/hooks.json"
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json"
 }

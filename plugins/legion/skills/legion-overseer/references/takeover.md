@@ -4,6 +4,8 @@ Activate only on the owner's request in a repo with `.legion/state`; `LEGION_ROL
 
 Read `.legion/state/handoff.md`, recent history, code status and code commits. If `.legion/.git` is a folder, also read the inner Git status and log. The handoff headings are exactly: Branch; Goal and milestone; State; Current task; Legion running; Next action; Open decisions; Postponed; Recent evidence. Record the goal id or `none`, milestone or `none`, and code base commit under `Goal and milestone`. Load `.legion/state/roadmap/<goal-id>.md` for the named goal. Follow [roadmap.md](roadmap.md) for switching and goal selection. No roadmap is needed for standalone milestones or ad hoc work.
 
+Read status with the plugin's `legion` MCP `status` tool first, falling back to `legion status --json` if startup fails. For selected-account limits use its `limits` tool first; follow [selection, side effects and CLI fallback](read-tools.md). Members never call these tools.
+
 Commit handoff, history, and roadmaps in the Git repository that owns `.legion/state`. Private uses `git -C <repo>/.legion` with paths such as `state/handoff.md`; Shared uses `git -C <repo>` with `.legion/state/...` paths. Keep code commits in the outer repo. Stage only the intended files.
 
 Only the lease holder edits the handoff and roadmap files. Keep the handoff short; archive finished milestone details in `state/history/`. Ad hoc work records only what must survive the session, such as a running legion task, its review, or a blocked next action. Do not invent a milestone or write every ad hoc question to the handoff.

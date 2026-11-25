@@ -170,6 +170,19 @@ def uninstall(context: click.Context, tools: tuple[str, ...], config_dir: Option
     _report_installer(context, lambda: _installer.install(_home.legion_home(context.obj), list(tools), config_dir=config_dir, dry_run=dry_run, yes=yes, uninstall=True, purge=purge))
 
 
+@main.command("mcp", help="Serve read-only status and explicit-account limits over MCP stdio")
+@click.pass_context
+def mcp_command(context: click.Context) -> None:
+    try:
+        from legion.mcp.server import main as serve
+    except ModuleNotFoundError as error:
+        if error.name != "mcp":
+            raise
+        click.echo("MCP dependencies are missing; run legion setup.", err=True)
+        context.exit(1)
+    context.exit(serve(context.obj))
+
+
 @main.command("status", help="Show accounts, commands, channels and this repository")
 @click.option("--json", "as_json", is_flag=True, help="Print the typed status report as JSON.")
 @click.pass_obj
@@ -194,9 +207,10 @@ def status(home: Optional[Path], as_json: bool) -> None:
     ),
 )
 @click.option("--id", "accounts", multiple=True, help="Account to ping; repeat for each selected account.")
+@click.option("--timeout", type=click.FloatRange(min=0, min_open=True), default=120.0, show_default=True, help="Maximum seconds per account.")
 @click.option("--json", "as_json", is_flag=True, help="Print typed limits as JSON; requires explicit --id values.")
 @click.pass_context
-def limits(context: click.Context, accounts: tuple[str, ...], as_json: bool) -> None:
+def limits(context: click.Context, accounts: tuple[str, ...], timeout: float, as_json: bool) -> None:
     from pydantic import TypeAdapter
 
     from legion.services.limits.limit_probes import LimitsError, report_lines
@@ -210,7 +224,7 @@ def limits(context: click.Context, accounts: tuple[str, ...], as_json: bool) -> 
             if not accounts:
                 click.echo("No accounts yet; run legion add.")
                 return
-        reports = limits_report(context.obj, accounts)
+        reports = limits_report(context.obj, accounts, timeout)
     except LimitsError as error:
         click.echo(str(error), err=True)
         context.exit(1)

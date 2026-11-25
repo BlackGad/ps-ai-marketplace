@@ -1,5 +1,4 @@
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -8,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from legion.services.repository import _lease
 from legion.services.status import _status
 from legion.core._home import bin_folder, home_path, legion_home, settings_path
+from legion.core._run import run_command
 from legion.core._settings_models import PersonalisationSettings, ToolDescriptor
 from legion.core._validate import load_descriptors, read_text
 
@@ -68,8 +68,8 @@ def repository_status(repo: Path) -> RepositoryStatus:
     if git is None:
         return RepositoryStatus()
     try:
-        result = subprocess.run([git, "-C", str(root), "ls-files", "--error-unmatch", "--", *paths], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        if result.returncode:
+        result = run_command(git, ["-C", str(root), "ls-files", "--error-unmatch", "--", *paths], timeout=5)
+        if result.exit_code != 0:
             return RepositoryStatus()
     except OSError:
         return RepositoryStatus()

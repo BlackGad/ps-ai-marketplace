@@ -132,7 +132,7 @@ def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> tuple[list[str], Optiona
     # An unfinished version may hold a link; uv reads the project, so the tree is checked before it runs.
     if not version_safe(target, home):
         return [f"skip: {target} (linked)"], ready_path
-    result = run_command(uv, ["sync", "--project", str(target), "--frozen", "--quiet"], env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(environment)})
+    result = run_command(uv, ["sync", "--project", str(target), "--frozen", "--extra", "mcp", "--quiet"], env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(environment)})
     if result.exit_code != 0:
         lines = [result.error.strip()] if result.error.strip() else []
         return [*lines, f"legion app {version} not ready (uv sync exited {result.exit_code}); run legion setup again"], ready_path
@@ -162,6 +162,7 @@ def shim_text(app: Path, home: Path, windows: bool) -> str:
     if windows:
         lines = [
             header("owner command", True),
+            f'@if /i "%~1"=="mcp" ("%~dp0..\\python\\{environment.name}\\Scripts\\legion.exe"{home_argument} %* & exit /b)',
             f"@where /q uv || (>&2 echo {UV_MISSING}& exit /b 127)",
             '@if /i "%~1"=="uninstall" goto uninstall',
             (
@@ -187,6 +188,7 @@ def shim_text(app: Path, home: Path, windows: bool) -> str:
         lines.append('if [ "$1" = uninstall ]; then exec "$(dirname "$0")/legion.cmd" "$@"; fi')
     lines.extend(
         [
+            f'if [ "$1" = mcp ]; then exec {shell_literal(str(environment / ("Scripts/legion.exe" if sys.platform == "win32" else "bin/legion")))}{home_argument} "$@"; fi',
             f"command -v uv >/dev/null 2>&1 || {{ echo '{UV_MISSING}' >&2; exit 127; }}",
             f'if [ "$1" = uninstall ]; then exec uv run --no-project --python ">=3.12" {shell_literal(str(app / "src/legion/_self_uninstall.py"))} {shell_literal(str(app))} "$@"; fi',
             f"export UV_PROJECT_ENVIRONMENT={shell_literal(str(environment))}",

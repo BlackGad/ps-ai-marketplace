@@ -7,6 +7,11 @@ import re
 import signal
 import subprocess
 import sys
+import threading
+import time
+from contextlib import contextmanager
+from contextvars import ContextVar
+from collections.abc import Iterator
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Optional, Union
@@ -15,6 +20,21 @@ from pydantic import BaseModel, ConfigDict
 
 # After a timeout kill, how long to wait for the pipes to close; a process that left the tree can hold them.
 DRAIN_SECONDS = 5
+_cancellation: ContextVar[Optional[threading.Event]] = ContextVar("command_cancellation", default=None)
+
+
+# Cancellation must bypass account_rows' ordinary error-to-row conversion.
+class CommandCancelled(BaseException):
+    pass
+
+
+@contextmanager
+def command_cancellation(event: threading.Event) -> Iterator[None]:
+    token = _cancellation.set(event)
+    try:
+        yield
+    finally:
+        _cancellation.reset(token)
 
 
 class RunResult(BaseModel):
@@ -29,6 +49,9 @@ class RunResult(BaseModel):
 # Return exit code -1 and timed_out when the timeout kills the process tree.
 # A .cmd or .bat runs through cmd.exe with every character kept literal; a line break cannot pass and raises ValueError.
 def run_command(command: str, arguments: Sequence[str], timeout: Optional[float] = None, env: Optional[Mapping[str, str]] = None, cwd: Optional[Path] = None) -> RunResult:
+    cancelled = _cancellation.get()
+    if cancelled is not None and cancelled.is_set():
+        raise CommandCancelled
     on_windows = sys.platform == "win32"
     line: Union[str, list[str]] = [command, *arguments]
     if on_windows and Path(command).suffix.lower() in {".cmd", ".bat"}:
@@ -54,7 +77,7 @@ def run_command(command: str, arguments: Sequence[str], timeout: Optional[float]
             raise
     try:
         try:
-            output, error = process.communicate(timeout=timeout)
+            output, error = _communicate(process, timeout, cancelled)
             timed_out = False
         except subprocess.TimeoutExpired:
             _kill_tree(process, job)
@@ -70,10 +93,33 @@ def run_command(command: str, arguments: Sequence[str], timeout: Optional[float]
                     process.wait()
                     output, error = b"", b""
             timed_out = True
+        except CommandCancelled:
+            _kill_tree(process, job)
+            try:
+                process.communicate(timeout=DRAIN_SECONDS)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise
     finally:
         if job:
             _close_job(job)
     return RunResult(exit_code=-1 if timed_out else process.returncode, output=_text(output), error=_text(error), timed_out=timed_out)
+
+
+def _communicate(process: subprocess.Popen[bytes], timeout: Optional[float], cancelled: Optional[threading.Event]) -> tuple[bytes, bytes]:
+    if cancelled is None:
+        return process.communicate(timeout=timeout)
+    deadline = time.monotonic() + timeout if timeout is not None else None
+    while True:
+        if cancelled.is_set():
+            raise CommandCancelled
+        remaining = max(0.0, deadline - time.monotonic()) if deadline is not None else 0.1
+        try:
+            return process.communicate(timeout=min(0.1, remaining))
+        except subprocess.TimeoutExpired:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise
 
 
 # cmd.exe reads the whole line: quotes keep & | < > ^ literal, /v:off keeps !, and %cd:~,% (an empty

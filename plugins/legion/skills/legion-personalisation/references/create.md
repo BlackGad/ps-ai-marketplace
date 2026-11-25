@@ -1,6 +1,6 @@
 # Set up, add or remove accounts
 
-1. Start with status: `legion status`. It reads settings, accounts, commands and channels, and warns when a bound channel is disconnected from this session. Reuse the owner's earlier answers.
+1. Start with the `status` tool on the plugin's `legion` MCP server; if it fails to start, use `legion status --json`. It reads settings, accounts, commands and channels. Follow the [read tools guide](../../legion-overseer/references/read-tools.md) for limits selection and side effects. Members never call these tools. Reuse the owner's earlier answers.
 
 2. Ask which agents to add: the tool, an optional account name, and an existing folder or a new one. Adding no accounts yet is valid. A folder the owner already uses keeps its settings and login.
 

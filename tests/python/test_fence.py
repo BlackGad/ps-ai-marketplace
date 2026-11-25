@@ -66,6 +66,12 @@ def test_child_inherits_cache_and_network_fences(fence: Fence) -> None:
     assert not environment["NO_PROXY"]
 
 
+def test_child_socketpair_allows_asyncio_without_network() -> None:
+    script = "import asyncio, socket\na, b = socket.socketpair()\na.send(b'x')\nassert b.recv(1) == b'x'\na.close()\nb.close()\nasyncio.run(asyncio.sleep(0))"
+    child = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=10, check=False)
+    assert child.returncode == 0, child.stderr
+
+
 def test_child_socket_denial_records_even_swallowed_requests(fence: Fence) -> None:
     script = """
 import socket, urllib.error, urllib.request
