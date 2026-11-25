@@ -100,7 +100,19 @@ def write_report(out: Path, system: str, cases: list[Case], probe: list[str], ex
             stream.write(summary)
 
 
-def snapshot(root: Path, excludes: list[str] | None = None) -> dict[str, str]:
+def without_marketplace_timestamps(data: bytes) -> bytes:
+    """Drop the per-marketplace lastUpdated that the Claude CLI rewrites on every marketplace update; other bytes stay."""
+    # Hand-built, reason: only this CLI-maintained field is volatile, so source, path and entry changes must still show.
+    try:
+        entries = json.loads(data)
+    except ValueError:
+        return data
+    if not isinstance(entries, dict) or not all(isinstance(entry, dict) for entry in entries.values()):
+        return data
+    return json.dumps({name: {key: value for key, value in entry.items() if key != "lastUpdated"} for name, entry in entries.items()}, sort_keys=True).encode()
+
+
+def snapshot(root: Path, excludes: list[str] | None = None, ignore_timestamps: list[str] | None = None) -> dict[str, str]:
     """Hash a tree so a repeat can name changed paths."""
     # Hand-built, reason: a path-by-path hash names unexpected repeat changes and excludes observed CLI runtime files.
     result = {}
@@ -108,7 +120,11 @@ def snapshot(root: Path, excludes: list[str] | None = None) -> dict[str, str]:
         relative = path.relative_to(root).as_posix()
         if any(re.fullmatch(pattern, relative) for pattern in excludes or []):
             continue
-        result[relative] = "directory" if path.is_dir() else hashlib.sha256(path.read_bytes()).hexdigest()
+        if path.is_dir():
+            result[relative] = "directory"
+        else:
+            data = path.read_bytes()
+            result[relative] = hashlib.sha256(without_marketplace_timestamps(data) if relative in (ignore_timestamps or []) else data).hexdigest()
     return result
 
 
@@ -317,7 +333,7 @@ class Runner:
     def active(self) -> list[str]:
         return [tool for tool in TOOLS if tool not in self.not_tested]
 
-    def home_snapshot(self) -> dict[str, str]:
+    def home_snapshot(self, update: bool = False) -> dict[str, str]:
         runtime = {"claude": [], "codex": ["tmp", r"tmp/arg0-(windows|linux|macos)(/codex-arg0[^/]+(/.*)?)?"], "copilot": ["logs", r"logs/process-[0-9]+-[0-9]+\.log"]}
         folders = [(tool, self.folder(tool)) for tool in TOOLS]
         if (self.home / ".legion/configuration/personalisation.json").exists():
@@ -330,7 +346,7 @@ class Runner:
             if path.is_dir() and path.is_relative_to(self.home):
                 prefix = path.relative_to(self.home).as_posix()
                 tool = next((tool for tool, folder in folders if folder == path), None)
-                result.update({prefix + "/" + name: value for name, value in snapshot(path, nested if path == legion else runtime[tool] if tool else []).items()})
+                result.update({prefix + "/" + name: value for name, value in snapshot(path, nested if path == legion else runtime[tool] if tool else [], ["plugins/known_marketplaces.json"] if update and tool == "claude" else []).items()})
         for name in (".zshrc", ".bashrc", ".profile"):
             path = self.home / name
             if path.is_file():
@@ -457,9 +473,9 @@ class Runner:
             require(self.installed_source_matches(tool, self.folder(tool)), f"{tool} update did not keep the PR checkout source")
         if repeat:
             contains(output, "already up to date")
-            unchanged(self.state["update_snapshot"], self.home_snapshot())
+            unchanged(self.state["update_snapshot"], self.home_snapshot(update=True))
         else:
-            self.state["update_snapshot"] = self.home_snapshot()
+            self.state["update_snapshot"] = self.home_snapshot(update=True)
         return output
 
     def setup_accounts(self) -> str:

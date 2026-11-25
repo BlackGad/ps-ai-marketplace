@@ -442,3 +442,60 @@ def test_command_finds_winget_alias_on_saved_path(tmp_path: Path, monkeypatch: p
     instance.env["PATH"] = str(tmp_path / "empty")
     monkeypatch.setattr(runner, "windows_saved_path_folders", lambda: [folder])
     assert Path(instance.command("claude")).parent == folder
+
+
+MARKETPLACES = ".claude/plugins/known_marketplaces.json"
+
+
+def marketplaces(source: str = "/repo", stamp: str = "2026-11-25T11:42:18.839Z", **extra: Any) -> str:
+    entry = {"source": {"source": "directory", "path": source}, "installLocation": source, "lastUpdated": stamp, **extra}
+    return json.dumps({"ps-legion-marketplace": entry, "other": {"source": {"source": "github"}, "lastUpdated": "a"}})
+
+
+def update_snapshot(tmp_path: Path, content: str) -> dict[str, str]:
+    instance = make_runner(tmp_path)
+    path = instance.home / MARKETPLACES
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return instance.home_snapshot(update=True)
+
+
+def test_update_snapshot_ignores_only_the_marketplace_last_updated_timestamp(tmp_path: Path) -> None:
+    first = update_snapshot(tmp_path, marketplaces())
+    assert update_snapshot(tmp_path, marketplaces(stamp="2026-11-25T11:43:00.000Z")) == first
+    # The original snapshot keeps seeing the timestamp.
+    instance = make_runner(tmp_path)
+    assert instance.home_snapshot() != first
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        marketplaces(source="/other"),
+        marketplaces(installLocation="/elsewhere"),
+        marketplaces(extra="new"),
+        json.dumps({"renamed": {"source": {"source": "github"}}}),
+        marketplaces().replace('"other"', '"other2"'),
+    ],
+)
+def test_update_snapshot_still_detects_other_marketplace_changes(tmp_path: Path, content: str) -> None:
+    first = update_snapshot(tmp_path, marketplaces())
+    with pytest.raises(AssertionError, match=rf"changed: {MARKETPLACES}"):
+        runner.unchanged(first, update_snapshot(tmp_path, content))
+
+
+def test_update_snapshot_keeps_malformed_marketplaces_visible(tmp_path: Path) -> None:
+    first = update_snapshot(tmp_path, "{not json")
+    assert update_snapshot(tmp_path, "{not json") == first
+    with pytest.raises(AssertionError, match=rf"changed: {MARKETPLACES}"):
+        runner.unchanged(first, update_snapshot(tmp_path, "{not json!"))
+    with pytest.raises(AssertionError, match=rf"changed: {MARKETPLACES}"):
+        runner.unchanged(update_snapshot(tmp_path, marketplaces()), update_snapshot(tmp_path, "[1]"))
+
+
+def test_update_snapshot_still_detects_other_claude_config_changes(tmp_path: Path) -> None:
+    first = update_snapshot(tmp_path, marketplaces())
+    instance = make_runner(tmp_path)
+    (instance.home / ".claude/plugins/installed_plugins.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(AssertionError, match=r"added: .claude/plugins/installed_plugins.json"):
+        runner.unchanged(first, instance.home_snapshot(update=True))
