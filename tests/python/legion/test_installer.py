@@ -304,10 +304,79 @@ def test_copilot_root_uses_from_line_only_for_legion(tmp_path: Path, monkeypatch
         manifest.write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
         registry = root / ".claude-plugin/marketplace.json"
         registry.parent.mkdir()
-        registry.write_text('{"plugins":[{"name":"legion","source":"plugins/legion"}]}', encoding="utf-8")
+        registry.write_text('{"name":"ps-legion-marketplace","plugins":[{"name":"legion","source":"plugins/legion"}]}', encoding="utf-8")
     listing = f"other@marketplace 1.0.0\n  from {unrelated}\nlegion@ps-legion-marketplace 1.2.3\n  from {expected}"
     monkeypatch.setattr(_installer, "_listing", lambda *_args: listing)
     assert _installer._plugin_root(entry, tmp_path) == expected / "plugins/legion"
+
+
+def test_copilot_live_local_plugin_resolves_indented_listing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "copilot")
+    folder = tmp_path / "copilot"
+    folder.mkdir()
+    marketplace = tmp_path / "checkout"
+    manifest = marketplace / "plugins/legion/plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"legion","version":"0.16.0"}', encoding="utf-8")
+    registry = marketplace / ".claude-plugin/marketplace.json"
+    registry.parent.mkdir()
+    registry.write_text('{"name":"ps-legion-marketplace","plugins":[{"name":"legion","source":"./plugins/legion"}]}', encoding="utf-8")
+    settings = {"extraKnownMarketplaces": {"ps-legion-marketplace": {"source": {"source": "directory", "path": str(marketplace)}}}, "enabledPlugins": {"legion@ps-legion-marketplace": True}}
+    (folder / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+    listing = f"Live Plugins (loaded from a local marketplace directory, never copied):\n  • legion@ps-legion-marketplace (v0.16.0) (enabled)\n      from {marketplace}"
+    monkeypatch.setattr(_installer, "_listing", lambda *_args: listing)
+    assert _installer._plugin_root(entry, folder) == manifest.parent
+
+    settings["enabledPlugins"]["legion@ps-legion-marketplace"] = False
+    (folder / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+    monkeypatch.setattr(_installer, "_listing", lambda *_args: listing.replace("(enabled)", "(disabled)"))
+    assert _installer._plugin_root(entry, folder) == manifest.parent
+
+    monkeypatch.setattr(_installer, "_listing", lambda *_args: "No plugins installed.")
+    assert _installer._plugin_root(entry, folder) is None
+
+    monkeypatch.setattr(_installer, "_listing", lambda *_args: listing)
+    settings["extraKnownMarketplaces"]["ps-legion-marketplace"]["source"]["path"] = str(tmp_path / "other")
+    (folder / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+    with pytest.raises(_installer.InstallerError, match="could not be identified uniquely"):
+        _installer._plugin_root(entry, folder)
+
+    del settings["extraKnownMarketplaces"]["ps-legion-marketplace"]
+    (folder / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+    assert _installer._plugin_root(entry, folder) is None
+
+    settings["extraKnownMarketplaces"]["ps-legion-marketplace"] = {"source": {"source": "directory", "path": str(marketplace)}}
+    (folder / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+    registry.write_text('{"name":"other-marketplace","plugins":[{"name":"legion","source":"./plugins/legion"}]}', encoding="utf-8")
+    with pytest.raises(_installer.InstallerError, match="could not be identified uniquely"):
+        _installer._plugin_root(entry, folder)
+
+
+def test_copilot_live_listing_rejects_ambiguous_legion_sources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "copilot")
+    roots = [tmp_path / "one", tmp_path / "two"]
+    for root in roots:
+        manifest = root / "plugins/legion/plugin.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
+        registry = root / ".claude-plugin/marketplace.json"
+        registry.parent.mkdir()
+        registry.write_text('{"name":"ps-legion-marketplace","plugins":[{"name":"legion","source":"plugins/legion"}]}', encoding="utf-8")
+    listing = "\n".join(f"  • legion@ps-legion-marketplace (v1.2.3) (enabled)\n      from {root}" for root in roots)
+    monkeypatch.setattr(_installer, "_listing", lambda *_args: listing)
+    with pytest.raises(_installer.InstallerError, match="could not be identified uniquely"):
+        _installer._plugin_root(entry, tmp_path)
+
+
+def test_copilot_copied_plugin_keeps_installed_root_semantics(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "copilot")
+    folder = tmp_path / "copilot"
+    manifest = folder / "installed-plugins/legion-marketplace/legion/plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
+    (folder / "settings.json").write_text('{"extraKnownMarketplaces":{"other":{}}}', encoding="utf-8")
+    monkeypatch.setattr(_installer, "_listing", lambda *_args: "legion@ps-legion-marketplace 1.2.3")
+    assert _installer._plugin_root(entry, folder) == manifest.parent
 
 
 def test_uninstall_refresh_failure_keeps_command_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1056,7 +1125,7 @@ def test_copilot_directory_marketplace_listing_finds_plugin_root(tmp_path: Path,
     manifest.write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
     registry = marketplace / ".claude-plugin/marketplace.json"
     registry.parent.mkdir()
-    registry.write_text('{"plugins":[{"name":"legion","source":"plugins/legion"}]}', encoding="utf-8")
+    registry.write_text('{"name":"ps-legion-marketplace","plugins":[{"name":"legion","source":"plugins/legion"}]}', encoding="utf-8")
     monkeypatch.setattr(_installer, "_listing", lambda *_: f"legion@ps-legion-marketplace 1.2.3\n  from {marketplace}")
     assert _installer._plugin_root(entry, folder) == manifest.parent
 
