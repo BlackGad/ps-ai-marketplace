@@ -1,9 +1,13 @@
 import importlib.util
 import json
 import os
+import queue
+import shutil
 import subprocess
 import sys
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -108,6 +112,7 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "install-cli-claude",
         "install-cli-codex",
         "install-cli-copilot",
+        "update-from-0.17.0",
         "install-legion",
         "update-legion",
         "setup",
@@ -123,6 +128,236 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "restore-launchers",
         "purge",
     ]
+
+
+def test_runner_lists_update_from_0_17_0_case(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    assert dict(instance.steps())["update-from-0.17.0"].__self__ is instance
+    events = []
+    instance.prepare_candidate = lambda: events.append("stage")
+    instance.install_old = lambda: events.append("install-0.17.0")
+    instance.upgrade_candidate = lambda: events.append("old-launcher-update")
+    instance.verify_candidate = lambda: events.append("identity-hook-cli-mcp-clients")
+    instance.finish_candidate = lambda: events.append("candidate-repeat-uninstall-fence")
+    instance.update_from_0_17_0(False)
+    instance.update_from_0_17_0(True)
+    assert events == ["stage", "install-0.17.0", "old-launcher-update", "identity-hook-cli-mcp-clients", "candidate-repeat-uninstall-fence"]
+
+
+def test_candidate_staging_changes_only_disposable_versions(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    before = runner.snapshot(instance.checkout / "plugins/legion")
+    candidate = instance.stage_candidate()
+    assert candidate.is_relative_to(instance.work)
+    for name in ("plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+        assert json.loads((candidate / "plugins/legion" / name).read_text(encoding="utf-8"))["version"] == runner.CANDIDATE_VERSION
+    assert runner.snapshot(instance.checkout / "plugins/legion") == before
+    assert (candidate / "plugins/legion/src/legion/mcp/server.py").read_bytes() == (instance.checkout / "plugins/legion/src/legion/mcp/server.py").read_bytes()
+
+
+def test_candidate_environment_drops_wrong_checkout_and_account_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in ("PYTHONPATH", "UV_PROJECT_ENVIRONMENT", "LEGION_TASK", "LEGION_ROLE", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GH_TOKEN"):
+        monkeypatch.setenv(key, "outside-sentinel")
+    instance = make_runner(tmp_path)
+    for key in ("PYTHONPATH", "UV_PROJECT_ENVIRONMENT", "LEGION_TASK", "LEGION_ROLE", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GH_TOKEN"):
+        assert key not in instance.env
+    for key in ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME"):
+        assert Path(instance.env[key]).resolve().is_relative_to(instance.home.resolve())
+
+
+@pytest.mark.parametrize("result", ["failed", "skipped"])
+def test_incomplete_candidate_cannot_pass(tmp_path: Path, result: str) -> None:
+    instance = make_runner(tmp_path)
+    cases = [runner.Case("update-from-0.17.0", False, result, 0, "blocked", "")]
+    assert not runner.complete(cases, instance.not_tested)
+    assert not runner.complete([runner.Case("x", False, "passed", 0, "", "")], {"codex": "local source refused"})
+
+
+def test_candidate_rejects_old_or_foreign_runtime(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    app = instance.home / ".legion/app" / runner.CANDIDATE_VERSION
+    app.mkdir(parents=True)
+    identity = {"root": str(instance.checkout / "plugins/legion"), "version": runner.CANDIDATE_VERSION}
+    with pytest.raises(AssertionError, match="runtime"):
+        instance.check_runtime_identity(identity, app)
+
+
+def test_report_exposes_first_failure_even_when_repeat_is_skipped(tmp_path: Path) -> None:
+    cases = [runner.Case("upgrade", False, "failed", 1, "wrong checkout", ""), runner.Case("upgrade", True, "skipped", 0, "blocked", "")]
+    runner.write_report(tmp_path, "linux", cases, [])
+    assert "| failed |" in (tmp_path / "summary.md").read_text(encoding="utf-8")
+
+
+def test_candidate_rejects_right_version_with_old_launcher_code(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    instance.launcher("legion").parent.mkdir(parents=True)
+    instance.launcher("legion").write_text(f"old generator targeting {runner.CANDIDATE_VERSION}", encoding="utf-8")
+    instance.run = lambda *_args: json.dumps(f"candidate generator targeting {runner.CANDIDATE_VERSION}")
+    with pytest.raises(AssertionError, match="old runtime code"):
+        instance.check_candidate_launchers(instance.home / ".legion/app" / runner.CANDIDATE_VERSION)
+
+
+def test_client_probe_attempts_every_host_and_never_calls_listing_launch_proof(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    instance.out.mkdir()
+    calls = []
+
+    def probe(tool: str) -> dict[str, Any]:
+        calls.append(tool)
+        if tool == "codex":
+            raise RuntimeError("discovery failed")
+        return {"host": tool, "discovered": True, "launched": tool == "claude", "status_called": False}
+
+    instance.probe_client = probe
+    with pytest.raises(AssertionError, match="codex, copilot"):
+        instance.prove_clients()
+    assert calls == list(runner.TOOLS)
+    evidence = json.loads((instance.out / "clients.json").read_text(encoding="utf-8"))
+    assert not evidence[1]["launched"]
+    assert not evidence[2]["launched"]
+
+
+def test_copilot_listing_is_only_discovery_evidence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    instance = make_runner(tmp_path)
+    instance.cli = lambda *_args: '{"mcpServers":{"legion":{"command":"legion","args":["mcp"]}}}'
+    instance.command = lambda name: name
+
+    class BlockedClient:
+        def __init__(self, *_args: Any) -> None:
+            pass
+
+        def rpc(self, *_args: Any) -> dict[str, Any]:
+            raise AssertionError("Authentication required")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(runner, "JsonProcess", BlockedClient)
+    evidence = instance.probe_client("copilot")
+    assert evidence["discovered"]
+    assert not evidence["launched"]
+    assert not evidence["status_called"]
+
+
+@pytest.mark.parametrize("relative", ["src/legion/mcp/server.py", "hooks/session_start.py"])
+def test_same_version_wrong_hook_or_server_bytes_are_rejected(tmp_path: Path, relative: str) -> None:
+    instance = make_runner(tmp_path)
+    root = instance.work / "foreign"
+    source = instance.checkout / "plugins/legion"
+    shutil.copytree(source, root)
+    (root / relative).write_text("foreign source", encoding="utf-8")
+    with pytest.raises(AssertionError, match="checkout mismatch"):
+        instance.check_candidate_bytes(root)
+
+
+def test_client_readiness_notifications_are_not_lost_while_awaiting_rpc() -> None:
+    connection = runner.JsonProcess.__new__(runner.JsonProcess)
+    connection.messages = queue.Queue()
+    connection.pending = []
+    notification = {"method": "mcpServer/startupStatus/updated", "params": {"name": "legion", "status": "ready"}}
+    connection.messages.put(notification)
+    connection.messages.put({"id": 2, "result": {}})
+    assert connection.receive("id", 2) == {"id": 2, "result": {}}
+    connection.mcp_ready("legion")
+    assert not connection.pending
+
+
+@pytest.mark.parametrize("repeat", [False, True])
+def test_candidate_fence_is_checked_even_after_a_failed_action(tmp_path: Path, repeat: bool) -> None:
+    instance = make_runner(tmp_path)
+    outside = instance.work / "fake-real"
+    outside.mkdir()
+    sentinel = outside / "keep.txt"
+    sentinel.write_text("owner sentinel", encoding="utf-8")
+    instance.state.update({"outside": outside, "outside_snapshot": runner.snapshot(outside)})
+
+    def damage() -> None:
+        sentinel.write_text("changed", encoding="utf-8")
+        raise RuntimeError("action failed")
+
+    instance.prepare_candidate = lambda: None
+    instance.install_old = damage
+    instance.finish_candidate = damage
+    with pytest.raises(AssertionError, match=r"changed: keep\.txt"):
+        instance.update_from_0_17_0(repeat)
+
+
+def test_upgrade_runs_old_owner_update_after_replacing_marketplace_contents(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    candidate = instance.work / "candidate"
+    candidate.mkdir()
+    (candidate / "new.py").write_text("candidate source", encoding="utf-8")
+    upgrade = runner.Runner(instance.checkout, instance.work / "upgrade/home", instance.out / "candidate", False)
+    upgrade.checkout = upgrade.work / "old-source"
+    upgrade.checkout.mkdir()
+    (upgrade.checkout / "old.py").write_text("old source", encoding="utf-8")
+    upgrade.launcher("legion").parent.mkdir(parents=True)
+    for path in upgrade.owner_shims():
+        path.write_text("old launcher", encoding="utf-8")
+    instance.state["candidate"] = upgrade
+    instance.state["old_shims"] = {path.name: path.read_bytes() for path in upgrade.owner_shims()}
+    instance.run = lambda *_args: "old.py\0"
+    upgrade.version = lambda *_args: runner.CANDIDATE_VERSION
+    calls = []
+
+    def owner(*args: str, **kwargs: bool) -> str:
+        calls.append((args, kwargs))
+        assert not (upgrade.checkout / "old.py").exists()
+        assert (upgrade.checkout / "new.py").read_text(encoding="utf-8") == "candidate source"
+        for path in upgrade.owner_shims():
+            path.write_text("candidate launcher " + runner.CANDIDATE_VERSION, encoding="utf-8")
+        return "\n".join(f"Update legion for {tool}" for tool in runner.TOOLS)
+
+    upgrade.legion = owner
+    instance.upgrade_candidate()
+    assert calls == [(("update", "--yes"), {"owner": True})]
+
+
+def test_client_command_rejects_another_installed_home(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    outside = instance.work / "another-home/bin"
+    outside.mkdir(parents=True)
+    command = outside / instance.launcher("legion").name
+    command.write_text("@echo off\n" if os.name == "nt" else "#!/bin/sh\n", encoding="utf-8")
+    command.chmod(0o755)
+    instance.env["PATH"] = str(outside)
+    with pytest.raises(AssertionError, match="outside the candidate home"):
+        instance.check_client_command()
+    own = instance.launcher("legion")
+    own.parent.mkdir(parents=True)
+    shutil.copy2(command, own)
+    instance.env["PATH"] = os.pathsep.join((str(own.parent), str(outside)))
+    instance.check_client_command()
+
+
+@pytest.mark.parametrize("missing_host", [False, True])
+def test_main_fails_for_one_skipped_case_or_one_untested_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing_host: bool) -> None:
+    cases = [runner.Case("update-from-0.17.0", False, "passed" if missing_host else "skipped", 0, "", "")]
+    fake = SimpleNamespace(execute=lambda: cases, not_tested={"codex": "local source refused"} if missing_host else {}, versions={})
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setattr(sys, "argv", [str(RUNNER), "--out", str(tmp_path / "out"), "--home-root", str(tmp_path / "home")])
+    monkeypatch.setattr(runner, "Runner", lambda *_args: fake)
+    monkeypatch.setattr(runner.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(runner, "restore_user_path", nullcontext)
+    monkeypatch.setattr(runner, "write_report", lambda *_args: None)
+    assert runner.main() == 1
+
+
+def test_repeat_and_purge_use_candidate_owner_command(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    upgrade = runner.Runner(instance.checkout, instance.work / "upgrade/home", instance.out / "candidate", False)
+    outside = instance.work / "fake-real"
+    outside.mkdir()
+    instance.state.update({"candidate": upgrade, "candidate_snapshot": {}, "outside": outside, "outside_snapshot": {}})
+    calls = []
+    checked = []
+    upgrade.legion = lambda *args, **kwargs: calls.append((args, kwargs)) or "already up to date\n" + "\n".join(f"Update legion for {tool}" for tool in runner.TOOLS)
+    upgrade.version = lambda *_args: runner.CANDIDATE_VERSION
+    upgrade.home_snapshot = lambda **_kwargs: {}
+    upgrade.check_uninstalled = lambda tool, _folder: checked.append(tool)
+    instance.finish_candidate()
+    assert calls == [(("update", "--yes"), {"owner": True}), (("uninstall", "--purge", "--yes"), {"owner": True})]
+    assert checked == list(runner.TOOLS)
 
 
 def test_update_first_reinstalls_a_tool_then_repeat_is_stable(tmp_path: Path) -> None:

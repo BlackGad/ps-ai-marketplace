@@ -5,11 +5,13 @@ import hashlib
 import importlib
 import json
 import os
+import queue
 import re
 import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
@@ -22,6 +24,74 @@ TOOLS = ("claude", "codex", "copilot")
 MARKETPLACE = "BlackGad/ps-legion-marketplace"
 ENDPOINT = "https://example-resource.cognitiveservices.azure.com"
 WINDOWS = sys.platform == "win32"
+CANDIDATE_VERSION = "0.18.0"
+
+
+def complete(cases: list["Case"], not_tested: dict[str, str]) -> bool:
+    return bool(cases) and not not_tested and all(case.result == "passed" for case in cases)
+
+
+class JsonProcess:
+    # Both MCP and the nonbillable client control APIs use newline-delimited JSON.
+    def __init__(self, command: list[str], env: dict[str, str], cwd: Path, error: Path) -> None:
+        self.error = error.open("w", encoding="utf-8")
+        self.process = subprocess.Popen(command, env=env, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.error, text=True, encoding="utf-8")  # noqa: S603
+        self.messages: queue.Queue[dict[str, Any]] = queue.Queue()
+        self.pending: list[dict[str, Any]] = []
+        self.reader = threading.Thread(target=self.read, daemon=True)
+        self.reader.start()
+
+    def read(self) -> None:
+        assert self.process.stdout is not None
+        for line in self.process.stdout:
+            try:
+                self.messages.put(json.loads(line))
+            except ValueError:
+                self.messages.put({"invalid": line})
+
+    def send(self, message: dict[str, Any]) -> None:
+        assert self.process.stdin is not None
+        self.process.stdin.write(json.dumps(message) + "\n")
+        self.process.stdin.flush()
+
+    def receive(self, key: str, value: Any) -> dict[str, Any]:
+        for index, message in enumerate(self.pending):
+            if message.get(key) == value:
+                return self.pending.pop(index)
+        deadline = time.monotonic() + 30
+        while True:
+            message = self.messages.get(timeout=max(0.01, deadline - time.monotonic()))
+            if message.get(key) == value:
+                return message
+            self.pending.append(message)
+
+    def mcp_ready(self, name: str) -> None:
+        while True:
+            event = self.receive("method", "mcpServer/startupStatus/updated")["params"]
+            if event["name"] == name and event["status"] in ("ready", "failed", "cancelled"):
+                require(event["status"] == "ready", f"MCP startup failed: {event}")
+                return
+
+    def rpc(self, method: str, params: dict[str, Any], request: int) -> dict[str, Any]:
+        self.send({"jsonrpc": "2.0", "id": request, "method": method, "params": params})
+        message = self.receive("id", request)
+        require("result" in message, f"{method}: {message}")
+        return message["result"]
+
+    def close(self) -> None:
+        assert self.process.stdin is not None
+        if not self.process.stdin.closed:
+            self.process.stdin.close()
+        try:
+            self.process.wait(timeout=10)
+        finally:
+            if self.process.poll() is None:
+                self.process.kill()
+                self.process.wait(timeout=5)
+            self.reader.join(timeout=5)
+            assert self.process.stdout is not None
+            self.process.stdout.close()
+            self.error.close()
 
 
 @dataclass
@@ -204,6 +274,10 @@ class Runner:
         self.state: dict[str, Any] = {}
         self.log: list[str] = []
         self.env = os.environ.copy()
+        # Installed-command checks must not import the maintainer's checkout or use a real account.
+        for name in list(self.env):
+            if name.startswith(("PYTHON", "UV_PROJECT", "LEGION_", "CODEX_", "CLAUDE_", "COPILOT_", "ANTHROPIC_", "OPENAI_", "AZURE_")) or name in ("GH_TOKEN", "GITHUB_TOKEN"):
+                self.env.pop(name)
         temp = self.work / "temp"
         temp.mkdir(exist_ok=True)
         self.env.update(
@@ -213,11 +287,25 @@ class Runner:
                 "NO_COLOR": "1",
                 "LEGION_TEST_USER_PATH_FILE": str(self.work / "user-path.txt"),
                 "UV_CACHE_DIR": str(self.work / "uv-cache"),
+                "UV_PYTHON_INSTALL_DIR": str(home / ".legion/managed-python"),
+                "UV_TOOL_DIR": str(home / ".legion/uv-tools"),
+                "GIT_CONFIG_GLOBAL": str(home / ".gitconfig"),
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "NPM_CONFIG_USERCONFIG": str(home / ".npmrc"),
+                "NPM_CONFIG_PREFIX": str(home / ".local"),
                 "TMP": str(temp),
                 "TEMP": str(temp),
                 "TMPDIR": str(temp),
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "DISABLE_AUTOUPDATER": "1",
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+                "DISABLE_TELEMETRY": "1",
             }
         )
+        for name in ("APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+            folder = home / name
+            folder.mkdir(exist_ok=True)
+            self.env[name] = str(folder)
         self.base_path = self.env["PATH"]
         (self.work / "user-path.txt").touch(exist_ok=True)
         for tool in TOOLS:
@@ -247,7 +335,9 @@ class Runner:
         return path
 
     def run(self, argv: list[str], *, env: dict[str, str] | None = None, cwd: Path | None = None, check: bool = True) -> str:
-        result = subprocess.run(argv, cwd=cwd, env=env or self.env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, check=False)  # noqa: S603
+        result = subprocess.run(  # noqa: S603
+            argv, cwd=cwd or self.work, env=env or self.env, text=True, encoding="utf-8", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, timeout=300, check=False
+        )
         output = result.stdout.rstrip()
         self.log.append(output)
         if check and result.returncode:
@@ -452,6 +542,276 @@ class Runner:
         contains(lines, "skip:")
         unchanged(self.state["snapshot"], self.home_snapshot())
         return lines
+
+    def stage_candidate(self) -> Path:
+        candidate = self.work / "candidate"
+        require(not candidate.exists(), "candidate staging must be fresh")
+        files = self.run(["git", "-C", str(self.checkout), "ls-files", "-z"]).split("\0")
+        for name in filter(None, files):
+            source = self.checkout / name
+            require(source.resolve().is_relative_to(self.checkout.resolve()), "candidate source escaped checkout")
+            target = candidate / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        for name in ("plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+            path = candidate / "plugins/legion" / name
+            document = json.loads(path.read_text(encoding="utf-8"))
+            require(document["version"] != CANDIDATE_VERSION, "candidate must differ from the committed version")
+            document["version"] = CANDIDATE_VERSION
+            path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        return candidate
+
+    def prepare_candidate(self) -> None:
+        candidate = self.stage_candidate()
+        upgrade = Runner(candidate, self.work / "upgrade/home", self.out / "candidate", False)
+        upgrade.base_path = os.pathsep.join((str(upgrade.home / ".legion/bin"), self.env["PATH"]))
+        upgrade.env["PATH"] = upgrade.base_path
+        upgrade.out.mkdir(parents=True, exist_ok=True)
+        # A sibling stands in for the owner's real configuration. Never hash credential files.
+        outside = upgrade.work.parent / "fake-real"
+        for name in (".legion", ".claude", ".codex", ".copilot"):
+            folder = outside / name
+            folder.mkdir(parents=True)
+            (folder / "keep.txt").write_text("owner sentinel\n", encoding="utf-8")
+        self.state["candidate"] = upgrade
+        self.state["outside"] = outside
+        self.state["outside_snapshot"] = snapshot(outside)
+
+    def install_old(self) -> None:
+        upgrade = self.state["candidate"]
+        old = upgrade.work / "old-source"
+        self.run(["git", "clone", "--quiet", "--depth", "1", "--branch", "v0.17.0", "https://github.com/BlackGad/ps-legion-marketplace.git", str(old)])
+        upgrade.checkout = old
+        for tool in TOOLS:
+            upgrade.install_legion(tool)
+            require(upgrade.listing(tool, upgrade.folder(tool)), f"{tool}: old plugin not enabled")
+            require(upgrade.version(tool, upgrade.folder(tool)) == "0.17.0", f"{tool}: old install not proven")
+        app = upgrade.home / ".legion/app/0.17.0"
+        require((app / ".legion-app-ready").is_file(), "old app not ready")
+        python = upgrade.app_python(app)
+        identity = json.loads(upgrade.run([str(python), "-I", "-c", "import json; from legion._plugin import PLUGIN_ROOT; print(json.dumps({'root': str(PLUGIN_ROOT)}))"]))
+        require(Path(identity["root"]).resolve() == app.resolve(), "old launcher environment uses the wrong checkout")
+        contains(upgrade.legion("--help", owner=True), "Install legion")
+        self.state["old_shims"] = {path.name: path.read_bytes() for path in upgrade.owner_shims()}
+
+    def owner_shims(self) -> list[Path]:
+        return [self.launcher("legion"), self.launcher("legion").with_suffix("")] if WINDOWS else [self.launcher("legion")]
+
+    def app_python(self, app: Path) -> Path:
+        key = str(app.resolve()).rstrip("/\\")
+        if WINDOWS:
+            key = key.lower()
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+        return self.home / ".legion/python" / f"env-{digest}" / ("Scripts/python.exe" if WINDOWS else "bin/python3")
+
+    def upgrade_candidate(self) -> None:
+        upgrade = self.state["candidate"]
+        # Keep the registered local marketplace path stable, just as a published track
+        # changes its contents. --source does not retarget an existing 0.17.0 marketplace.
+        candidate = self.work / "candidate"
+        files = self.run(["git", "-C", str(upgrade.checkout), "ls-files", "-z"]).split("\0")
+        for name in filter(None, files):
+            path = upgrade.checkout / name
+            require(path.resolve().is_relative_to(upgrade.work.resolve()), "old source escaped scratch")
+            if path.is_file():
+                path.unlink()
+        for source in candidate.rglob("*"):
+            if source.is_file():
+                target = upgrade.checkout / source.relative_to(candidate)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+        # This is deliberately the installed old command. No checkout CLI or repair runs first.
+        output = upgrade.legion("update", "--yes", owner=True)
+        for tool in TOOLS:
+            contains(output, f"Update legion for {tool}")
+            require(upgrade.version(tool, upgrade.folder(tool)) == CANDIDATE_VERSION, f"{tool}: upgrade was skipped")
+            upgrade.targets[tool] = (str(upgrade.checkout), "release")
+        for path in upgrade.owner_shims():
+            require(path.read_bytes() != self.state["old_shims"][path.name], f"{path.name}: old launcher remains")
+            contains(path.read_text(encoding="utf-8"), CANDIDATE_VERSION)
+
+    def check_runtime_identity(self, identity: dict[str, Any], app: Path) -> None:
+        require(Path(identity["root"]).resolve() == app.resolve(), f"runtime is from the wrong checkout: {identity}")
+        require(identity["version"] == CANDIDATE_VERSION, "runtime version is not the candidate")
+        for name in ("cli", "server"):
+            require(Path(identity[name]).resolve().is_relative_to(app.resolve()), f"{name} runtime is outside the candidate app")
+
+    def candidate_plugin(self, tool: str) -> Path:
+        if tool == "copilot":
+            return self.checkout / "plugins/legion"
+        root = self.folder(tool) / self.catalog[tool]["plugin"]["installedRoot"]
+        matches = []
+        for path in root.rglob("plugin.json"):
+            if path.parent.name in (".codex-plugin", ".claude-plugin"):
+                continue
+            document = json.loads(path.read_text(encoding="utf-8-sig"))
+            if document.get("name") == "legion" and document.get("version") == CANDIDATE_VERSION:
+                matches.append(path.parent)
+        require(len(matches) == 1, f"{tool}: expected one installed candidate, found {matches}")
+        return matches[0]
+
+    def check_candidate_bytes(self, root: Path) -> None:
+        source = self.checkout / "plugins/legion"
+        files = [*source.rglob("*.py"), source / ".mcp.json", source / "plugin.json", *source.glob("hooks/*.json")]
+        for path in files:
+            target = root / path.relative_to(source)
+            require(target.is_file() and target.read_bytes() == path.read_bytes(), f"candidate checkout mismatch: {target}")
+
+    def check_candidate_launchers(self, app: Path) -> None:
+        for path in self.owner_shims():
+            windows = path.suffix == ".cmd"
+            script = (
+                "import json; from pathlib import Path; from legion.services.installation._installed_runtime import shim_text; "
+                f"print(json.dumps(shim_text(Path({str(app)!r}), Path({str(self.home)!r}), {windows})))"
+            )
+            expected = json.loads(self.run([str(self.app_python(app)), "-I", "-c", script]))
+            require(path.read_text(encoding="utf-8").replace("\r\n", "\n") == expected.replace("\r\n", "\n"), f"{path.name}: launcher was generated by old runtime code")
+
+    def verify_candidate(self) -> None:
+        upgrade = self.state["candidate"]
+        app = upgrade.home / ".legion/app" / CANDIDATE_VERSION
+        require((app / ".legion-app-ready").is_file(), "candidate app not ready")
+        upgrade.check_candidate_bytes(app)
+        upgrade.check_candidate_launchers(app)
+        script = (
+            "import json; import legion.cli, legion.mcp.server; from legion.core._plugin import PLUGIN_ROOT; "
+            "print(json.dumps({'root':str(PLUGIN_ROOT),'version':json.loads((PLUGIN_ROOT/'plugin.json').read_text())['version'],"
+            "'cli':legion.cli.__file__,'server':legion.mcp.server.__file__}))"
+        )
+        identity = json.loads(upgrade.run([str(upgrade.app_python(app)), "-I", "-c", script]))
+        upgrade.check_runtime_identity(identity, app)
+        (upgrade.out / "runtime.json").write_text(json.dumps(identity, indent=2) + "\n", encoding="utf-8")
+        for tool in TOOLS:
+            require(upgrade.listing(tool, upgrade.folder(tool)), f"{tool}: candidate not enabled")
+            plugin = upgrade.candidate_plugin(tool)
+            upgrade.check_candidate_bytes(plugin)
+            hook = plugin / "hooks/session_start.py"
+            hook_script = f"import runpy, sys; from pathlib import Path; sys.argv=[{str(hook)!r}, '--format', 'text']; runpy.run_path({str(hook)!r},run_name='__main__')"
+            env = upgrade.env.copy()
+            env.update({"LEGION_ROLE": "member", "LEGION_TASK": "candidate-hook-sentinel"})
+            contains(upgrade.run([str(upgrade.app_python(app)), "-I", "-c", hook_script], env=env), "you are a legion member")
+        upgrade.prove_mcp()
+        upgrade.check_client_command()
+        upgrade.prove_clients()
+        self.state["candidate_snapshot"] = upgrade.home_snapshot(update=True)
+
+    def check_client_command(self) -> None:
+        command = shutil.which("legion", path=self.env["PATH"])
+        require(command is not None and Path(command).resolve() == self.launcher("legion").resolve(), "client MCP command resolves outside the candidate home")
+
+    def prove_mcp(self) -> None:
+        expected = json.loads(self.run([str(self.launcher("legion")), "status", "--json"]))
+        require(Path(expected["settings"]["path"]).resolve() == (self.home / ".legion/configuration/personalisation.json").resolve(), "status escaped fake home")
+        for reconnect in range(2):
+            connection = JsonProcess([str(self.launcher("legion")), "mcp"], self.env, self.work, self.out / f"mcp-{reconnect}.stderr")
+            try:
+                connection.rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "candidate-proof", "version": "1"}}, 1)
+                connection.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+                tools = connection.rpc("tools/list", {}, 2)
+                require({tool["name"] for tool in tools["tools"]} == {"status", "limits"}, "wrong MCP tools")
+                result = connection.rpc("tools/call", {"name": "status", "arguments": {"repo": str(self.work)}}, 3)
+                require(not result.get("isError"), f"MCP status failed: {result}")
+                require(result["structuredContent"] == expected, "MCP status differs from installed CLI")
+            finally:
+                connection.close()
+            require(connection.process.returncode == 0, "MCP did not exit cleanly on EOF")
+        self.log.append("SDK-independent MCP wire proof: initialize, tools/list, status parity, EOF exit, reconnect; no real client tool call claimed")
+
+    def probe_client(self, tool: str) -> dict[str, Any]:
+        evidence: dict[str, Any] = {"host": tool, "discovered": False, "launched": False, "status_called": False, "source": "installed plugin", "limitation": ""}
+        if tool == "claude":
+            output = self.cli(tool, ["mcp", "list"])
+            evidence["output"] = output
+            evidence["discovered"] = "legion" in output.lower()
+            evidence["launched"] = any("legion" in line.lower() and "connected" in line.lower() and "not connected" not in line.lower() for line in output.splitlines())
+            evidence["limitation"] = "mcp list health check proves initialization only; no nonbillable direct tool-call API exercised"
+        elif tool == "copilot":
+            output = self.cli(tool, ["mcp", "list", "--json"])
+            evidence["output"] = output
+            evidence["discovered"] = "legion" in output.lower()
+            evidence["limitation"] = "configuration listing only; does not prove a server launch or a tool call"
+            connection = JsonProcess([self.command("copilot"), "--disable-builtin-mcps", "--disable-client-telemetry", "--acp"], self.env, self.work, self.out / "copilot-client.stderr")
+            try:
+                evidence["control_initialize"] = connection.rpc("initialize", {"protocolVersion": 1, "clientCapabilities": {}}, 1)
+                evidence["control_session"] = connection.rpc("session/new", {"cwd": str(self.work), "mcpServers": []}, 2)
+            except (AssertionError, queue.Empty) as error:
+                evidence["limitation"] += "; ACP session blocked: " + (str(error) or type(error).__name__)
+            finally:
+                connection.close()
+        else:
+            connection = JsonProcess([self.command("codex"), "app-server"], self.env, self.work, self.out / "codex-client.stderr")
+            try:
+                connection.rpc("initialize", {"clientInfo": {"name": "legion-proof", "version": "1"}, "capabilities": {"experimentalApi": True}}, 1)
+                connection.send({"jsonrpc": "2.0", "method": "initialized"})
+                thread = connection.rpc("thread/start", {"cwd": str(self.work), "approvalPolicy": "never", "sandbox": "read-only"}, 2)["thread"]["id"]
+                servers = connection.rpc("mcpServerStatus/list", {"threadId": thread}, 3)
+                evidence["inventory"] = servers
+                matches = [server for server in servers["data"] if "legion" in server["name"]]
+                evidence["discovered"] = bool(matches)
+                for selected in matches:
+                    server = selected
+                    if server.get("runtimeStatus") == "starting":
+                        connection.mcp_ready(server["name"])
+                        refreshed = connection.rpc("mcpServerStatus/list", {"threadId": thread}, 5)
+                        server = next(item for item in refreshed["data"] if item["name"] == server["name"])
+                        evidence["inventory"] = refreshed
+                    tools = server["tools"]
+                    if "status" not in tools:
+                        continue
+                    evidence["launched"] = True
+                    result = connection.rpc("mcpServer/tool/call", {"threadId": thread, "server": server["name"], "tool": "status", "arguments": {"repo": str(self.work)}}, 4)
+                    expected = json.loads(self.run([str(self.launcher("legion")), "status", "--json"]))
+                    require(not result.get("isError") and result["structuredContent"] == expected, "Codex client status differs from CLI")
+                    evidence["status_called"] = True
+                evidence["limitation"] = "No model turn or account probe; host interruption and reconnect await separate client lifecycle proof"
+            finally:
+                connection.close()
+        return evidence
+
+    def prove_clients(self) -> None:
+        evidence = []
+        for tool in TOOLS:
+            try:
+                evidence.append(self.probe_client(tool))
+            except Exception as error:
+                evidence.append({"host": tool, "discovered": False, "launched": False, "status_called": False, "limitation": str(error) or type(error).__name__})
+        (self.out / "clients.json").write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+        missing = [item["host"] for item in evidence if not item["discovered"] or not item["launched"]]
+        require(not missing, "client discovery/launch remains unproven: " + ", ".join(missing) + "; see candidate/clients.json")
+
+    def finish_candidate(self) -> None:
+        upgrade = self.state["candidate"]
+        output = upgrade.legion("update", "--yes", owner=True)
+        for tool in TOOLS:
+            contains(output, f"Update legion for {tool}")
+            require(upgrade.version(tool, upgrade.folder(tool)) == CANDIDATE_VERSION, f"{tool}: repeat changed version")
+        contains(output, "already up to date")
+        unchanged(self.state["candidate_snapshot"], upgrade.home_snapshot(update=True))
+        upgrade.legion("uninstall", "--purge", "--yes", owner=True)
+        require(not any(path.exists() for path in upgrade.owner_shims()), "candidate launcher remains after uninstall")
+        require(not (upgrade.home / ".legion/app").exists(), "candidate app remains after uninstall")
+        footprints = upgrade.home / ".legion/footprints.json"
+        require(not footprints.exists() or not json.loads(footprints.read_text(encoding="utf-8"))["entries"], "candidate footprints remain")
+        for tool in TOOLS:
+            upgrade.check_uninstalled(tool, upgrade.folder(tool))
+        unchanged(self.state["outside_snapshot"], snapshot(self.state["outside"]))
+
+    def update_from_0_17_0(self, repeat: bool) -> None:
+        try:
+            if repeat:
+                self.finish_candidate()
+            else:
+                self.prepare_candidate()
+                self.install_old()
+                self.upgrade_candidate()
+                self.verify_candidate()
+        finally:
+            if "candidate" in self.state:
+                upgrade = self.state["candidate"]
+                self.log.extend(upgrade.log)
+                upgrade.log.clear()
+            if "outside" in self.state:
+                unchanged(self.state["outside_snapshot"], snapshot(self.state["outside"]))
 
     def update(self, repeat: bool) -> str:
         expected = json.loads((self.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
@@ -819,6 +1179,7 @@ class Runner:
         steps = [("bootstrap", self.bootstrap)]
         steps += [(f"install-cli-{tool}", lambda repeat, tool=tool: self.install_cli(tool, repeat)) for tool in TOOLS]
         steps += [
+            ("update-from-0.17.0", self.update_from_0_17_0),
             ("install-legion", lambda repeat: self.install_repeat() if repeat else self.install_first()),
             ("update-legion", self.update),
             ("setup", lambda repeat: self.setup_repeat() if repeat else self.setup_first()),
@@ -897,7 +1258,7 @@ def main() -> int:
         if runner.not_tested:
             extra += "; not tested from checkout: " + ", ".join(runner.not_tested)
         write_report(args.out, system, cases, probe, extra)
-    return int(any(case.result == "failed" for case in cases) or len(runner.not_tested) == len(TOOLS))
+    return int(not complete(cases, runner.not_tested))
 
 
 if __name__ == "__main__":
