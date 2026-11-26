@@ -8,6 +8,7 @@ import traceback
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Optional
 
 import httpx
 import pytest
@@ -1119,12 +1120,17 @@ def test_update_refreshes_new_installed_copy_and_reports_version(tmp_path: Path,
     assert entry["plugin"]["update"] in calls
 
 
-def _update_two_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: set[str], new_refresh: Callable[[Path], list[str]]) -> list[str]:
-    root = tmp_path / "plugin"
-    root.mkdir(exist_ok=True)
-    (root / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
+def _update_two_targets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, new_refresh: Callable[[Path, str], list[str]], failing: frozenset[str] = frozenset(), versions: Optional[dict[str, str]] = None
+) -> list[str]:
+    versions = versions or {}
+    roots: dict[str, Path] = {}
+    for tool_id in ("claude", "codex"):
+        roots[tool_id] = tmp_path / f"plugin-{tool_id}"
+        roots[tool_id].mkdir(exist_ok=True)
+        (roots[tool_id] / "plugin.json").write_text(json.dumps({"name": "legion", "version": versions.get(tool_id, "1.2.3")}), encoding="utf-8")
     monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
-    monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: root)
+    monkeypatch.setattr(_installer, "_plugin_root", lambda entry, _folder: roots[entry["id"]])
     monkeypatch.setattr(_installer, "_step", lambda *_args: None)
 
     def refresh(entry: dict, *_args: object) -> list[str]:
@@ -1137,34 +1143,56 @@ def _update_two_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing
     return _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
 
 
-def test_update_runs_the_new_apps_refresh_once_for_all_targets_and_a_repeat_skips(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[Path] = []
+def test_update_runs_the_new_apps_refresh_once_for_the_highest_confirmed_version_and_a_repeat_skips(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[Path, str]] = []
 
-    def new_refresh(home: Path) -> list[str]:
-        calls.append(home)
+    def new_refresh(home: Path, version: str) -> list[str]:
+        calls.append((home, version))
         return ["legion generated runtimes and launchers refreshed"] if len(calls) == 1 else ["skip: legion generated runtimes and launchers (already done)"]
 
-    first = _update_two_targets(tmp_path, monkeypatch, set(), new_refresh)
-    assert calls == [tmp_path]
+    first = _update_two_targets(tmp_path, monkeypatch, new_refresh, versions={"claude": "1.2.3", "codex": "1.10.0"})
+    assert calls == [(tmp_path, "1.10.0")]
     assert first.count("legion generated runtimes and launchers refreshed") == 1
     assert first.index("wrote: codex") < first.index("legion generated runtimes and launchers refreshed")
-    repeat = _update_two_targets(tmp_path, monkeypatch, set(), new_refresh)
+    repeat = _update_two_targets(tmp_path, monkeypatch, new_refresh)
     assert len(calls) == 2
     assert repeat.count("skip: legion generated runtimes and launchers (already done)") == 1
 
 
 def test_update_skips_the_new_apps_refresh_when_every_target_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    lines = _update_two_targets(tmp_path, monkeypatch, {"claude", "codex"}, lambda _home: pytest.fail("every target failed"))
+    lines = _update_two_targets(tmp_path, monkeypatch, lambda _home, _version: pytest.fail("every target failed"), frozenset({"claude", "codex"}))
     assert not any(line.startswith("commands not refreshed:") for line in lines)
 
 
 def test_update_reports_a_failed_new_app_refresh_once_with_a_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def new_refresh(_home: Path) -> list[str]:
-        raise _installed_runtime.AppError("boom")
+    def new_refresh(_home: Path, _version: str) -> list[str]:
+        raise _installed_runtime.AppError("legion 1.2.3 executable is missing")
 
-    lines = _update_two_targets(tmp_path, monkeypatch, {"claude"}, new_refresh)
-    assert lines.count("commands not refreshed: boom; run legion setup") == 1
-    assert any(line.startswith("legion") and line.endswith("commands not refreshed: boom") for line in lines)
+    lines = _update_two_targets(tmp_path, monkeypatch, new_refresh, frozenset({"claude"}))
+    assert lines.count("commands not refreshed: legion 1.2.3 executable is missing; run legion setup") == 1
+    assert any(line.startswith("legion") and line.endswith("commands not refreshed: legion 1.2.3 executable is missing") for line in lines)
+
+
+def test_update_hands_over_the_published_version_when_a_later_account_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    steps = {"count": 0}
+
+    def step(*_args: object) -> None:
+        steps["count"] += 1
+        if steps["count"] > 2:
+            raise _installer.InstallerError("second account update failed")
+
+    root = tmp_path / "plugin"
+    root.mkdir()
+    (root / "plugin.json").write_text('{"name":"legion","version":"2.0.0"}', encoding="utf-8")
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
+    monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: root)
+    monkeypatch.setattr(_installer, "_step", step)
+    monkeypatch.setattr(_installer, "_refresh_target", lambda *_args: [])
+    monkeypatch.setattr(_installed_runtime, "refresh_with_new_app", lambda _home, version: calls.append(version) or [])
+    with pytest.raises(_installer.InstallerError, match="second account update failed"):
+        _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
+    assert calls == ["2.0.0"]
 
 
 def test_update_reports_refresh_failure_and_continues_to_next_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

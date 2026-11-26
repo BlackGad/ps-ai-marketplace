@@ -165,17 +165,17 @@ def app_executable(app: Path, home: Path) -> Path:
     return python_environment(app, home) / ("Scripts/legion.exe" if sys.platform == "win32" else "bin/legion")
 
 
-# An update runs old code. Once the new app is ready, its own refresh writes every generated file with the new templates.
-def refresh_with_new_app(home: Path) -> list[str]:
-    ready = ready_versions(home)
-    if not ready:
-        return []
-    executable = app_executable(ready[0].path, home)
-    if not executable.is_file():
-        return []
+# An update runs old code. The version it confirmed writes every generated file again with its own templates.
+def refresh_with_new_app(home: Path, version: str) -> list[str]:
+    ready = next((item for item in ready_versions(home) if item.version == version), None)
+    if ready is None:
+        raise AppError(f"legion {version} is not ready")
+    executable = app_executable(ready.path, home)
+    if not executable.is_file() or not owner_path_safe(executable, home):
+        raise AppError(f"legion {version} executable is missing")
     result = run_command(str(executable), ["--home", str(home), "refresh"])
     if result.exit_code != 0:
-        raise AppError(f"legion {ready[0].version} refresh exited {result.exit_code}: {(result.error or result.output).strip()}")
+        raise AppError(f"legion {version} refresh exited {result.exit_code}: {(result.error or result.output).strip()}")
     return result.output.splitlines()
 
 

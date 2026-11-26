@@ -502,17 +502,38 @@ def test_refresh_with_new_app_runs_the_newest_apps_own_refresh(tmp_path: Path, m
         return RunResult(exit_code=0, output="skip: legion generated runtimes and launchers (already done)\n", error="", timed_out=False)
 
     monkeypatch.setattr(_installed_runtime, "run_command", fake_run)
-    lines = _installed_runtime.refresh_with_new_app(tmp_path)
+    lines = _installed_runtime.refresh_with_new_app(tmp_path, "1.2.3")
     assert calls == [(str(executable), ["--home", str(tmp_path), "refresh"])]
     assert executable.is_relative_to(environment)
     assert lines == ["skip: legion generated runtimes and launchers (already done)"]
 
 
-def test_refresh_with_new_app_keeps_todays_behaviour_when_the_app_is_not_ready(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_installed_runtime, "run_command", lambda *_args, **_kwargs: pytest.fail("no app is ready"))
-    assert _installed_runtime.refresh_with_new_app(tmp_path) == []
+def test_refresh_with_new_app_refuses_a_version_that_is_not_ready_and_never_runs_another(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_installed_runtime, "run_command", lambda *_args, **_kwargs: pytest.fail("no child may run"))
+    with pytest.raises(_installed_runtime.AppError, match=r"2.0.0 is not ready"):
+        _installed_runtime.refresh_with_new_app(tmp_path, "2.0.0")
+    old_app(tmp_path, "3.0.0")
+    with pytest.raises(_installed_runtime.AppError, match=r"2.0.0 is not ready"):
+        _installed_runtime.refresh_with_new_app(tmp_path, "2.0.0")
+
+
+def test_refresh_with_new_app_reports_a_missing_executable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     old_app(tmp_path, "1.2.3")
-    assert _installed_runtime.refresh_with_new_app(tmp_path) == []
+    monkeypatch.setattr(_installed_runtime, "run_command", lambda *_args, **_kwargs: pytest.fail("no child may run"))
+    with pytest.raises(_installed_runtime.AppError, match=r"1.2.3 executable is missing"):
+        _installed_runtime.refresh_with_new_app(tmp_path, "1.2.3")
+
+
+def test_refresh_with_new_app_refuses_an_executable_path_with_a_link(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app, _ = old_app(tmp_path, "1.2.3")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    executable = _installed_runtime.app_executable(app, tmp_path)
+    (elsewhere / executable.name).touch()
+    make_link(executable.parent, elsewhere)
+    monkeypatch.setattr(_installed_runtime, "run_command", lambda *_args, **_kwargs: pytest.fail("no child may run"))
+    with pytest.raises(_installed_runtime.AppError, match=r"executable is missing"):
+        _installed_runtime.refresh_with_new_app(tmp_path, "1.2.3")
 
 
 def test_refresh_with_new_app_reports_a_failed_refresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -522,4 +543,4 @@ def test_refresh_with_new_app_reports_a_failed_refresh(tmp_path: Path, monkeypat
     executable.touch()
     monkeypatch.setattr(_installed_runtime, "run_command", lambda *_args, **_kwargs: RunResult(exit_code=2, output="", error="boom", timed_out=False))
     with pytest.raises(_installed_runtime.AppError, match="boom"):
-        _installed_runtime.refresh_with_new_app(tmp_path)
+        _installed_runtime.refresh_with_new_app(tmp_path, "1.2.3")
