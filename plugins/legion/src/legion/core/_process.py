@@ -2,6 +2,7 @@
 
 import os
 import re
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -14,6 +15,7 @@ SKIPPED_NAMES = frozenset({"pwsh", "powershell", "cmd", "sh", "bash", "zsh", "uv
 # Set by the Git Bash shim: the Windows pids of its parent shell and of itself, since the process chain loses the shell.
 SHELL_WINPID_VARIABLE = "LEGION_SHELL_WINPID"
 SHIM_WINPID_VARIABLE = "LEGION_SHIM_WINPID"
+WINDOWS = sys.platform == "win32"
 PYTHON_NAME = re.compile(r"python[0-9.]*")
 # Linux and macOS derive a start time from the clock, so two reads can differ by a few milliseconds.
 SAME_START_TOLERANCE = timedelta(milliseconds=500)
@@ -47,9 +49,9 @@ def ancestors(pid: int, lookup: Optional[Lookup] = None) -> list[ProcessInfo]:
     seen = {pid}
     while child and child.parent_pid not in seen:
         parent = lookup(child.parent_pid)
-        # Hand-built, reason: clock rounding can make a same-tick parent appear slightly younger.
-        # A parent clearly younger than its child has a reused pid.
-        if not parent or (parent.started_at > child.started_at and not same_start_time(parent.started_at, child.started_at)):
+        # Hand-built, reason: Windows start times are exact, but Linux and macOS clock rounding can make a same-tick parent appear slightly younger.
+        # A parent younger than its child has a reused pid.
+        if not parent or (parent.started_at > child.started_at and (WINDOWS or not same_start_time(parent.started_at, child.started_at))):
             break
         chain.append(parent)
         seen.add(parent.pid)

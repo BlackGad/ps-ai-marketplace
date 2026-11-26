@@ -139,7 +139,8 @@ def test_reused_parent_pid_ends_the_chain() -> None:
         owner_process(10, lookup)
 
 
-def test_same_tick_parent_stays_in_the_chain() -> None:
+def test_same_tick_parent_stays_in_the_chain(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_process, "WINDOWS", False)
     # Hand-built, reason: a one-microsecond reversal reproduces rounded process start times deterministically.
     processes = {
         10: ProcessInfo(10, 9, "python", BASE),
@@ -191,6 +192,24 @@ def test_shell_hint_started_at_or_after_the_shim_is_refused(monkeypatch: pytest.
     processes[22] = ProcessInfo(22, 21, "bash.exe", processes[13].started_at + shell_start)
     with pytest.raises(LookupError, match="pass --process-id"):
         owner_process(17, processes.get)
+
+
+def test_windows_parent_started_after_its_child_ends_the_chain(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_process, "WINDOWS", True)
+    processes = {
+        10: ProcessInfo(10, 9, "python", BASE),
+        9: ProcessInfo(9, 1, "uv", BASE + timedelta(microseconds=1)),
+    }
+    assert ancestors(10, processes.get) == []
+
+
+def test_reused_native_parent_of_the_shim_keeps_the_bound_hint_valid(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The shim's exited native parent pid 12 is reused 100 ms after the shim started; on Windows the walk must stop at the shim.
+    monkeypatch.setattr(_process, "WINDOWS", True)
+    hint(monkeypatch, "22")
+    processes = {pid: ProcessInfo(pid, parent, name, BASE + timedelta(seconds=offset)) for pid, parent, name, offset in (*CUT_CHAIN, *SESSION_ABOVE_SHELL)}
+    processes[12] = ProcessInfo(12, 1, "node.exe", processes[13].started_at + timedelta(milliseconds=100))
+    assert owner_process(17, processes.get).pid == 20
 
 
 def test_reused_pid_behind_a_shell_is_refused() -> None:
