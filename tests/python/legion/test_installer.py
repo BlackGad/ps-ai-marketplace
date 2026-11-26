@@ -57,6 +57,108 @@ def test_catalog_rejects_unknown_shape(tmp_path: Path) -> None:
         _installer._catalog(tmp_path, "release", None)
 
 
+def write_installer_accounts(home: Path, *accounts: tuple[str, Path, Optional[Path]]) -> Path:
+    path = home / ".legion/configuration/personalisation.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    agents = []
+    for name, folder, command in accounts:
+        agent = {"id": name, "tool": "claude", "configDir": str(folder)}
+        if command is not None:
+            agent["command"] = str(command)
+        agents.append(agent)
+    path.write_text(json.dumps({"schemaVersion": 1, "agents": agents, "channels": []}), encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize("suffix", [".ps1", ".cmd"])
+def test_installer_runs_registered_script(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, suffix: str) -> None:
+    folder = tmp_path / "account"
+    folder.mkdir()
+    script = tmp_path / f"claude account{suffix}"
+    script.touch()
+    write_installer_accounts(tmp_path, ("claude-a", folder, script))
+    monkeypatch.setattr(_installer.shutil, "which", lambda _name: None)
+    calls: list[tuple[str, list[str]]] = []
+
+    def run(program: str, arguments: list[str], **_options: object) -> RunResult:
+        calls.append((program, arguments))
+        return RunResult(exit_code=0, output="[]", error="", timed_out=False)
+
+    monkeypatch.setattr(_installer, "run_command", run)
+    _installer.install(tmp_path, ["claude"], config_dir=folder, dry_run=True, catalog=catalog())
+    program, prefix = ("pwsh", ["-NoProfile", "-File", str(script)]) if suffix == ".ps1" else (str(script), [])
+    assert calls == [
+        (program, [*prefix, "plugin", "marketplace", "list", "--json"]),
+        (program, [*prefix, "plugin", "list", "--json"]),
+    ]
+
+
+@pytest.mark.parametrize("stock", [None, "claude"])
+@pytest.mark.parametrize("mode", ["install", "update", "uninstall"])
+def test_installer_scopes_registered_command_to_its_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stock: Optional[str], mode: str) -> None:
+    a, b = tmp_path / "account-a", tmp_path / "account-b"
+    a.mkdir()
+    b.mkdir()
+    registered, missing = tmp_path / "registered-claude", tmp_path / "missing-claude"
+    registered.touch()
+    write_installer_accounts(tmp_path, ("claude-a", a, registered), ("claude-b", b, missing))
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: stock if name == "claude" else None)
+    calls: set[tuple[str, str]] = set()
+
+    def run(program: str, _arguments: list[str], *, env: dict[str, str], **_options: object) -> RunResult:
+        calls.add((program, env["CLAUDE_CONFIG_DIR"]))
+        return RunResult(exit_code=0, output="[]", error="", timed_out=False)
+
+    monkeypatch.setattr(_installer, "run_command", run)
+    lines = _installer.install(tmp_path, ["claude"], dry_run=True, catalog=catalog(), update=mode == "update", uninstall=mode == "uninstall")
+    expected = {(str(registered), str(a))}
+    skip_b = f"skip: claude in {b} (no command for this folder)"
+    if stock is not None:
+        expected.add((stock, str(b)))
+        assert skip_b not in lines
+    else:
+        assert skip_b in lines
+    assert calls == expected
+
+
+def test_missing_registered_command_gives_install_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_installer_accounts(tmp_path, ("claude-a", tmp_path / "a", tmp_path / "missing"))
+    monkeypatch.setattr(_installer.shutil, "which", lambda _name: None)
+    lines = _installer.install(tmp_path, ["claude"], dry_run=True, catalog=catalog())
+    assert "skip: claude (not installed)" in lines
+    assert "irm https://claude.ai/install.ps1 | iex" in lines
+
+
+def test_install_names_invalid_settings_file(tmp_path: Path) -> None:
+    path = write_installer_accounts(tmp_path)
+    path.write_text("{}", encoding="utf-8")
+    with pytest.raises(_installer.InstallerError) as error:
+        _installer.install(tmp_path, ["claude"], dry_run=True, catalog=catalog())
+    assert str(path) in str(error.value)
+
+
+@pytest.mark.parametrize("purge", [False, True])
+def test_uninstall_with_invalid_settings_uses_stock_and_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, purge: bool) -> None:
+    path = write_installer_accounts(tmp_path)
+    path.write_text("{}", encoding="utf-8")
+    folder = tmp_path / ".claude"
+    cache = folder / "plugins/cache/ps-legion-marketplace"
+    cache.mkdir(parents=True)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(folder))
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: "claude" if name == "claude" else None)
+    calls: set[tuple[str, str]] = set()
+
+    def run(program: str, _arguments: list[str], *, env: dict[str, str], **_options: object) -> RunResult:
+        calls.add((program, env["CLAUDE_CONFIG_DIR"]))
+        return RunResult(exit_code=0, output="[]", error="", timed_out=False)
+
+    monkeypatch.setattr(_installer, "run_command", run)
+    lines = _installer.install(tmp_path, ["claude"], uninstall=True, purge=purge, dry_run=True, catalog=catalog())
+    assert sum(line.startswith("skip: account folders (settings invalid: ") for line in lines) == 1
+    assert calls == {("claude", str(folder))}
+    assert any(line.startswith(f"Remove folder: {cache}") for line in lines) == purge
+
+
 @pytest.mark.parametrize(
     ("operation", "stock"),
     [
@@ -993,6 +1095,21 @@ def test_purge_edits_without_legion_home_do_not_create_it(tmp_path: Path, monkey
     settings.write_text('{"enabledPlugins":{"legion@ps-legion-marketplace":true}}', encoding="utf-8")
     _installer.apply_purge(_installer.purge_plan(home, catalog()))
     assert not (home / ".legion").exists()
+
+
+def test_purge_runtime_rejects_path_outside_tool_folder(tmp_path: Path) -> None:
+    tools = catalog()
+    claude = _installer._tool(tools, "claude")
+    purge = claude.plugin.purge
+    assert purge is not None
+    invalid_purge = type(purge).model_construct(paths=["../outside"], settings=[])
+    plugin = claude.plugin.model_copy(update={"purge": invalid_purge})
+    invalid_tool = claude.model_copy(update={"plugin": plugin})
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    with pytest.raises(_installer.InstallerError, match="Unsafe relative path"):
+        _installer.purge_plan(tmp_path, ToolsCatalog.model_construct(schema_version=1, tools=[invalid_tool]))
+    assert outside.is_dir()
 
 
 def test_purge_rejects_catalog_path_outside_tool_folder(tmp_path: Path) -> None:

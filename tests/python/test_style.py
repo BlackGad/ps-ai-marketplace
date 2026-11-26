@@ -13,10 +13,11 @@ HOOKS = REPO / "plugins/legion/hooks"
 
 
 def test_no_dict_any_in_src() -> None:
+    untyped_mappings = {f"{name}[str, Any]" for name in ("dict", "Dict", "Mapping", "MutableMapping")}
     for path in SOURCE.rglob("*.py"):
         lines = path.read_text(encoding="utf-8-sig").splitlines()
         for node in ast.walk(ast.parse("\n".join(lines), filename=str(path))):
-            if isinstance(node, ast.Subscript) and ast.unparse(node) == "dict[str, Any]":
+            if isinstance(node, ast.Subscript) and ast.unparse(node) in untyped_mappings:
                 assert any("Hand-built, reason:" in line for line in lines[max(0, node.lineno - 2) : node.lineno]), f"{path.relative_to(REPO)}:{node.lineno}"
 
 

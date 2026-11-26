@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from tomlkit.items import InlineTable
 
 from legion.services.repository import _footprints
+from legion.services.accounts._launchers import command_prefix, registered_command
 from legion.services.installation import _user_path
 from legion.services.installation import _installed_runtime
 from legion.services.installation import _refresh
@@ -135,35 +136,32 @@ def _config_path(home: Path, value: str) -> Path:
     return full_path(Path(value))
 
 
-def _agents(home: Path) -> list[Agent]:
-    if not settings_path(home).is_file():
+def _agents(home: Path, skip_lines: Optional[list[str]] = None) -> list[Agent]:
+    path = settings_path(home)
+    if not path.exists():
         return []
     try:
         return _settings_io.load_unchecked(home).agents
     except _settings_io.SettingsError as error:
-        raise InstallerError(str(error)) from error
+        if skip_lines is None:
+            raise InstallerError(f"Fix invalid settings in {path}: {error}") from error
+        reason = " ".join(str(error).split()).split("; ", 1)[0]
+        skip_lines.append(f"skip: account folders (settings invalid: {reason})")
+        return []
 
 
 def _target_tool(home: Path, entry: CatalogTool, agents: list[Agent], folder: Optional[Path] = None) -> Optional[CatalogTool]:
-    # Prefer the target account's program. A different account's program can supply a missing stock CLI.
     if folder is not None:
         folder = resolve_directory(folder)
-    registered = None
     for agent in agents:
-        if agent.tool != entry.id or agent.command is None:
+        if agent.tool != entry.id:
             continue
-        command = _config_path(home, agent.command)
-        if not command.is_file():
+        command = registered_command(agent, home)
+        if command is None:
             continue
-        if folder is not None and same_path(folder, resolve_directory(_config_path(home, agent.config_dir))):
+        if folder is None or same_path(folder, resolve_directory(_config_path(home, agent.config_dir))):
             return entry.model_copy(update={"command": str(command)})
-        if registered is None:
-            registered = command
-    if shutil.which(entry.command):
-        return entry
-    if registered is not None:
-        return entry.model_copy(update={"command": str(registered)})
-    return None
+    return entry if shutil.which(entry.command) else None
 
 
 def _folders(home: Path, entry: CatalogTool, selected: Path | None, agents: list[Agent]) -> list[Path]:
@@ -257,6 +255,7 @@ def _json_edit(path: Path, kind: str) -> Edit | None:
         document = json.loads(clean)
         if not isinstance(document, dict):
             return None
+        # Hand-built, reason: foreign CLI settings contain mixed values and edits preserve the owner's original JSONC.
         targets: list[tuple[str | None, dict[str, object] | None, str]] = (
             [(None, document, "ps-legion-marketplace")]
             if kind == "marketplaces"
@@ -528,7 +527,7 @@ def _python_links(home: Path) -> list[Path]:
     return links
 
 
-def purge_plan(home: Path, catalog: ToolsCatalog, config_dir: Path | None = None) -> PurgePlan:
+def purge_plan(home: Path, catalog: ToolsCatalog, config_dir: Path | None = None, *, agents: Optional[list[Agent]] = None) -> PurgePlan:
     home = full_path(home)
     plan = PurgePlan(home=home)
     index = footprint_index(home)
@@ -559,7 +558,8 @@ def purge_plan(home: Path, catalog: ToolsCatalog, config_dir: Path | None = None
             else:
                 plan.lines.append(f"Manual step: {path} (linked or could not match safely)")
                 plan.manual = True
-    agents = _agents(home)
+    if agents is None:
+        agents = _agents(home, plan.lines)
     seen: set[Path] = set()
     for entry in catalog.tools:
         purge = entry.plugin.purge
@@ -740,7 +740,8 @@ def _execute(entry: CatalogTool, arguments: list[str], folder: Path, listing: bo
     if listing:
         env.update(entry.plugin.listing_env or {})
     command = entry.command if Path(entry.command).is_absolute() else shutil.which(entry.command) or entry.command
-    result = run_command(command, arguments, env=env, cwd=Path(tempfile.gettempdir()))
+    program, prefix = command_prefix(Path(command))
+    result = run_command(str(program), [*prefix, *arguments], env=env, cwd=Path(tempfile.gettempdir()))
     if result.exit_code:
         detail = result.error.strip() or result.output.strip()
         raise InstallerError(f"{entry.command} {'listing ' if listing else ''}exited {result.exit_code}" + (f"\n{detail}" if detail else ""))
@@ -905,7 +906,8 @@ def _refresh_target(entry: CatalogTool, folder: Path, home: Path, root: Path) ->
 
 
 def _command_line(entry: CatalogTool, arguments: list[str], folder: Path) -> str:
-    return f"{entry.config_env}={display_command([str(folder)])} {display_command([entry.command, *arguments])}"
+    program, prefix = command_prefix(Path(entry.command))
+    return f"{entry.config_env}={display_command([str(folder)])} {display_command([str(program), *prefix, *arguments])}"
 
 
 def _step(entry: CatalogTool, arguments: list[str], folder: Path, dry_run: bool, lines: list[str]) -> None:
@@ -977,18 +979,18 @@ def install(
         raise InstallerError("--purge requires --uninstall.")
     home = full_path(home)
     catalog = _catalog(source, ref, catalog)
-    agents = _agents(home)
+    lines: list[str] = []
+    agents = _agents(home, lines if uninstall else None)
     selected = list(dict.fromkeys(part for word in (tools or []) for part in word.split(",") if part))
     if not selected:
         selected = [entry.id for entry in catalog.tools if uninstall or _target_tool(home, entry, agents) is not None]
     for tool_id in selected:
         _tool(catalog, tool_id)
-    lines: list[str] = []
     if uninstall:
         _uninstall(home, catalog, selected, config_dir, dry_run, yes, lines, agents)
-        lines.extend(_kept_lines(home, catalog, config_dir))
+        lines.extend(_kept_lines(home, catalog, config_dir, agents=agents))
         if purge and (dry_run or yes or not any(line == "Uninstall cancelled." for line in lines)):
-            plan = purge_plan(home, catalog, config_dir)
+            plan = purge_plan(home, catalog, config_dir, agents=agents)
             lines.extend(plan.lines)
             if not dry_run and plan.has_work:
                 if yes or _confirm("Purge legion settings, notes, account folders and logins listed above? [y/N]", lines):
@@ -1000,7 +1002,9 @@ def install(
                 lines.append("Purge needs the manual steps above.")
         return lines
     if not selected:
-        lines.extend(["No coding CLI is installed. Run legion setup to install one.", *(entry.install_hint for entry in catalog.tools)])
+        lines.append("No coding CLI is installed. Run legion setup to install one.")
+        for entry in catalog.tools:
+            lines.extend([f"skip: {entry.id} (not installed)", entry.install_hint])
         if not dry_run and not (yes or _confirm("Install the legion command and add ~/.legion/bin to your PATH? [y/N]", lines)):
             return [*lines, "Nothing changed. Run again with --yes to apply."]
         ensure_path(home, dry_run, lines)
@@ -1012,10 +1016,15 @@ def install(
         targets: list[tuple[CatalogTool, Path]] = []
         for tool_id in selected:
             entry = _tool(catalog, tool_id)
+            if _target_tool(home, entry, agents) is None:
+                lines.extend([f"skip: {tool_id} (not installed)", entry.install_hint])
+                continue
             for folder in _folders(home, entry, config_dir, agents):
                 target = _target_tool(home, entry, agents, folder)
-                if target is not None:
-                    targets.append((target, folder))
+                if target is None:
+                    lines.append(f"skip: {tool_id} in {folder} (no command for this folder)")
+                    continue
+                targets.append((target, folder))
         for entry, folder in targets:
             root = _plugin_root(entry, folder)
             version = json.loads((root / "plugin.json").read_text(encoding="utf-8"))["version"] if root else "not installed"
@@ -1071,12 +1080,13 @@ def install(
     for tool_id in selected:
         entry = _tool(catalog, tool_id)
         if _target_tool(home, entry, agents) is None:
-            lines.append(f"skip: {tool_id} (not installed)")
+            lines.extend([f"skip: {tool_id} (not installed)", entry.install_hint])
             rows.append((tool_id, "-", "skipped (not installed)"))
             continue
         for folder in _folders(home, entry, config_dir, agents):
             target = _target_tool(home, entry, agents, folder)
             if target is None:
+                lines.append(f"skip: {tool_id} in {folder} (no command for this folder)")
                 continue
             if not dry_run:
                 folder.mkdir(parents=True, exist_ok=True)
@@ -1107,14 +1117,15 @@ def install(
     return lines
 
 
-def _kept_lines(home: Path, catalog: ToolsCatalog, config_dir: Path | None) -> list[str]:
+def _kept_lines(home: Path, catalog: ToolsCatalog, config_dir: Path | None, *, agents: Optional[list[Agent]] = None) -> list[str]:
     lines: list[str] = []
     for name, label in (("configuration", "settings and notes"), ("agents", "account folders and logins"), ("bin", "the legion command")):
         path = home / ".legion" / name
         if path.exists():
             lines.append(f"Kept {label}: {path}")
     seen: set[Path] = set()
-    agents = _agents(home)
+    if agents is None:
+        agents = _agents(home, lines)
     for entry in catalog.tools:
         for folder in _folders(home, entry, config_dir, agents):
             if folder.is_dir() and folder not in seen:
@@ -1173,6 +1184,7 @@ def _uninstall(home: Path, catalog: ToolsCatalog, selected: list[str], config_di
         for folder in folders:
             target = _target_tool(home, entry, agents, folder)
             if target is None:
+                lines.append(f"skip: {tool_id} in {folder} (no command for this folder)")
                 continue
             owner = _owner(entry, folder)
             if any(_footprints.same_owner(owner, selected_owner) for selected_owner in owners):
@@ -1236,10 +1248,10 @@ def _uninstall(home: Path, catalog: ToolsCatalog, selected: list[str], config_di
     remove_owned_edits(home, owners, lines)
     lines.extend(_footprints.remove_owner(home, owners))
     if recorded:
-        refresh_remaining(home, catalog, lines)
+        refresh_remaining(home, catalog, lines, agents=agents)
 
 
-def refresh_remaining(home: Path, catalog: ToolsCatalog, lines: list[str]) -> None:
+def refresh_remaining(home: Path, catalog: ToolsCatalog, lines: list[str], *, agents: Optional[list[Agent]] = None) -> None:
     commands = [entry for entry in _footprints.read(home).entries if entry.kind == "file" and entry.path == "~/.legion/bin/legion"]
     target_owners = [owner for entry in commands for owner in entry.owners if owner != STANDALONE_OWNER]
     if not target_owners:
@@ -1251,8 +1263,11 @@ def refresh_remaining(home: Path, catalog: ToolsCatalog, lines: list[str]) -> No
     folder = Path(folder_name)
     entry = _tool(catalog, tool_id)
     try:
-        target = _target_tool(home, entry, _agents(home), folder)
+        if agents is None:
+            agents = _agents(home, lines)
+        target = _target_tool(home, entry, agents, folder)
         if target is None:
+            lines.append(f"skip: {tool_id} in {folder} (no command for this folder)")
             lines.append("Kept command: ~/.legion/bin/legion (run legion setup)")
             return
         root = _plugin_root(target, folder)

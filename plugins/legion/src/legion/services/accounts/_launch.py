@@ -16,7 +16,7 @@ from legion.core._home import full_path, home_path
 from legion.core._run import _cmd_line, launch_environment
 from legion.core._settings_models import Agent
 from legion.services.accounts._accounts import get_tool
-from legion.services.accounts._launchers import LauncherError, target
+from legion.services.accounts._launchers import LauncherError, command_prefix, target
 from legion.services.foundry import recipe
 from legion.services.foundry._az import AzAccessToken, check_token
 from legion.services.foundry._types import ProviderFile
@@ -46,10 +46,7 @@ class AccountCommand:
 # The account's own program, or the tool's stock one; the config folder variable comes from the tool, Foundry from its recipe.
 def account_command(agent: Agent, home: Path, *, token_check: Callable[[], AzAccessToken] = check_token) -> AccountCommand:
     tool = get_tool(agent.tool)
-    program = target(agent, tool, home)
-    prefix: list[str] = []
-    if program.suffix.lower() == ".ps1":
-        program, prefix = Path("pwsh"), ["-NoProfile", "-File", str(program)]
+    program, prefix = command_prefix(target(agent, tool, home))
     legion_home = {"LEGION_HOME": str(full_path(home))}
     if agent.provider is None:
         folder = full_path(home_path(agent.config_dir, home))

@@ -84,6 +84,7 @@ def same_host(host: str) -> bool:
     return host.lower() == socket.gethostname().lower()
 
 
+# Hand-built, reason: the standard-library-only hook reads the raw lease JSON.
 def _text(data: dict[str, object], key: str) -> str:
     value = data.get(key)
     if value is None:

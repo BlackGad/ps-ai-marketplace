@@ -14,6 +14,7 @@ from legion.services.foundry._types import Launch
 
 
 # Assigning replaces the item and its quote style, so a value that already matches is left as the owner wrote it.
+# Hand-built, reason: tomlkit's document and nested tables hold mixed owner-defined values and preserve their formatting.
 def set_value(table: MutableMapping[str, Any], key: str, value: Any) -> None:
     if key not in table or table[key] != value:
         table[key] = value
