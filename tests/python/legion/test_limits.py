@@ -198,7 +198,7 @@ def test_cli_limits_json_repeatable_id(bench: Bench, capsys: pytest.CaptureFixtu
 def test_cli_limits_help_explains_probe_cost_and_side_effects(capsys: pytest.CaptureFixture[str]) -> None:
     assert run(["limits", "--help"]) == 0
     output = " ".join(capsys.readouterr().out.split())
-    for text in ("quota", "billable", "disposable", "session record", "az account get-access-token", "120", "--id", "--json", "manual"):
+    for text in ("quota", "billable", "disposable", "session record", "az account get-access-token", "120", "--id", "--json", "bare text call selects all accounts", "MCP tool require explicit"):
         assert text in output
 
 

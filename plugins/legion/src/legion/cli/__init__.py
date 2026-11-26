@@ -204,7 +204,7 @@ def status(home: Optional[Path], as_json: bool) -> None:
     help=(
         "Show each account's usage windows and reset times. Each named account runs a real minimal ping through its launcher, consuming quota and billable on paid accounts. "
         "A ping creates a disposable folder; Codex leaves a session record. Foundry runs az account get-access-token instead. Each account can take up to 120 seconds. "
-        "A manual bare call selects all accounts. JSON and Legion automation require explicit --id values."
+        "A bare text call selects all accounts. JSON and the MCP tool require explicit --id values."
     ),
 )
 @click.option("--id", "accounts", multiple=True, help="Account to ping; repeat for each selected account.")
