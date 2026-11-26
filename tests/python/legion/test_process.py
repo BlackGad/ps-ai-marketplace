@@ -18,6 +18,7 @@ BASE = datetime(2026, 11, 23, 8, 0, tzinfo=UTC)
 @pytest.fixture(autouse=True)
 def no_shim_shell_pid(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LEGION_SHELL_WINPID", raising=False)
+    monkeypatch.delenv("LEGION_SHIM_WINPID", raising=False)
 
 
 def table(*rows: tuple[int, int, str, int]) -> _process.Lookup:
@@ -58,9 +59,14 @@ def test_own_chain_starts_at_the_parent_and_goes_back_in_time() -> None:
         assert parent.started_at <= child_start or same_start_time(parent.started_at, child_start)
 
 
-def test_own_owner_is_an_ancestor() -> None:
-    owner = owner_process()
-    assert owner.pid in {item.pid for item in ancestors(os.getpid())}
+def test_own_owner_is_an_ancestor_or_refused() -> None:
+    # In a container the chain can hold only shells and launchers; then the refusal is the right answer.
+    chain = ancestors(os.getpid())
+    if not any(not _process.is_skipped(item.name) for item in chain):
+        with pytest.raises(LookupError, match="pass --process-id"):
+            owner_process()
+        return
+    assert owner_process().pid in {item.pid for item in chain}
 
 
 def test_same_start_time_uses_a_500_millisecond_window() -> None:
@@ -152,23 +158,39 @@ CUT_CHAIN = (
 SESSION_ABOVE_SHELL = ((22, 21, "bash.exe", 15), (21, 20, "bash.exe", 12), (20, 1, "claude.exe", 10))
 
 
-def test_shim_shell_pid_continues_a_cut_chain(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEGION_SHELL_WINPID", "22")
+def hint(monkeypatch: pytest.MonkeyPatch, shell: str, shim: str = "13") -> None:
+    monkeypatch.setenv("LEGION_SHELL_WINPID", shell)
+    monkeypatch.setenv("LEGION_SHIM_WINPID", shim)
+
+
+def test_shim_hint_continues_a_cut_chain(monkeypatch: pytest.MonkeyPatch) -> None:
+    hint(monkeypatch, "22")
     assert owner_process(17, table(*CUT_CHAIN, *SESSION_ABOVE_SHELL)).pid == 20
 
 
-@pytest.mark.parametrize("value", ["", "abc", "-5", "99"])
-def test_invalid_or_dead_shim_shell_pid_is_refused(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
-    monkeypatch.setenv("LEGION_SHELL_WINPID", value)
+@pytest.mark.parametrize("shell", ["", "abc", "-5", "99"])
+def test_invalid_or_dead_shell_hint_is_refused(monkeypatch: pytest.MonkeyPatch, shell: str) -> None:
+    hint(monkeypatch, shell)
     with pytest.raises(LookupError, match="pass --process-id"):
         owner_process(17, table(*CUT_CHAIN, *SESSION_ABOVE_SHELL))
 
 
-def test_shim_shell_pid_reused_by_a_younger_process_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEGION_SHELL_WINPID", "22")
-    younger = ((22, 21, "bash.exe", 25), (21, 20, "bash.exe", 12), (20, 1, "claude.exe", 10))
+@pytest.mark.parametrize("shim", ["", "abc", "99", "14"])
+def test_hint_from_another_shim_is_refused(monkeypatch: pytest.MonkeyPatch, shim: str) -> None:
+    # A hint inherited from another session names a live, older shell, but not the cut end of this chain.
+    hint(monkeypatch, "22", shim)
     with pytest.raises(LookupError, match="pass --process-id"):
-        owner_process(17, table(*CUT_CHAIN, *younger))
+        owner_process(17, table(*CUT_CHAIN, *SESSION_ABOVE_SHELL))
+
+
+@pytest.mark.parametrize("shell_start", [timedelta(seconds=5), timedelta(milliseconds=100), timedelta(0)])
+def test_shell_hint_started_at_or_after_the_shim_is_refused(monkeypatch: pytest.MonkeyPatch, shell_start: timedelta) -> None:
+    # The hinted pid was reused by a process that started after the shim.
+    hint(monkeypatch, "22")
+    processes = {pid: ProcessInfo(pid, parent, name, BASE + timedelta(seconds=offset)) for pid, parent, name, offset in (*CUT_CHAIN, *SESSION_ABOVE_SHELL)}
+    processes[22] = ProcessInfo(22, 21, "bash.exe", processes[13].started_at + shell_start)
+    with pytest.raises(LookupError, match="pass --process-id"):
+        owner_process(17, processes.get)
 
 
 def test_reused_pid_behind_a_shell_is_refused() -> None:
