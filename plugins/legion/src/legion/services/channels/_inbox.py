@@ -20,15 +20,16 @@ from pydantic import (
     Field,
 )
 
+from legion.services.accounts._accounts import AccountError
+from legion.services.accounts._launch import account_command
+from legion.services.accounts._launchers import LauncherError
 from legion.services.repository import _lease
-from legion.core._home import inbox_root, legion_home, wrapper_command
+from legion.core import _settings_io
+from legion.core._home import inbox_root, legion_home
 from legion.core._run import run_command
-from legion.core._settings_models import NAME_PATTERN
 
 NUDGE_TIMEOUT_SECONDS = 15
-# The account id rule of Get-LegionWrapperCommand, so an id from the lock cannot point outside <home>/.legion/bin.
-ACCOUNT_ID = re.compile(NAME_PATTERN)
-# Characters that another cmd.exe pass, such as a call inside the account's own .cmd, could change in a quoted argument.
+# Characters that another cmd.exe pass, such as the one inside a .cmd program (an npm shim), could change in a quoted argument.
 CMD_CHANGES = re.compile(r'[%!^"]')
 
 
@@ -108,18 +109,20 @@ def _nudge(repo: Path, sender: str, home: Path) -> None:
     print("warning: inbox message saved; Codex nudge failed.", file=sys.stderr)
 
 
-# Queues a short pointer in the overseer's Codex thread through the account's command; true when it worked.
+# Queues a short pointer in the overseer's Codex thread through the account's program; true when it worked.
 def _queue_pointer(account: str, session: str, sender: str, home: Path) -> bool:
-    if not ACCOUNT_ID.fullmatch(account):
-        return False
     pointer = f"New legion inbox message from {' '.join(sender.split())}; read it as the legion-overseer inbox reference describes (inbox.md)."
     arguments = ["queue", "--thread", session, "--message", pointer]
-    # The account's own launcher runs whatever it names; its call is a second cmd.exe pass on Windows,
-    # so text that pass could change is not sent through it.
+    # A .cmd program reads its arguments in a second cmd.exe pass on Windows, so text that pass could change is not sent.
     if os.name == "nt" and any(CMD_CHANGES.search(argument) for argument in arguments):
         return False
     try:
-        result = run_command(str(wrapper_command(account, home)), arguments, timeout=NUDGE_TIMEOUT_SECONDS)
-    except (OSError, ValueError):
+        agent = next((item for item in _settings_io.load(home).agents if item.id == account), None)
+        if agent is None:
+            return False
+        command = account_command(agent, home)
+        words = command.words(arguments)
+        result = run_command(words[0], words[1:], timeout=NUDGE_TIMEOUT_SECONDS, env=command.environment())
+    except (AccountError, LauncherError, _settings_io.SettingsError, OSError, ValueError):
         return False
     return result.exit_code == 0

@@ -2,7 +2,6 @@
 
 import os
 import stat
-import sys
 from pathlib import Path
 from typing import Optional
 
@@ -103,12 +102,6 @@ def inbox_root(home: Path) -> Path:
 
 def channel_folder(kind: str, channel: str, home: Path) -> Path:
     return home / ".legion" / "channels" / kind / channel
-
-
-# The command legion writes for an account: <account>.cmd on Windows.
-def wrapper_command(account: str, home: Path) -> Path:
-    name = f"{account}.cmd" if sys.platform == "win32" else account
-    return (bin_folder(home) / name).absolute()
 
 
 # '~/' or '~\' at the start means the legion home root.

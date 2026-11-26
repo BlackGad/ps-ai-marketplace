@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from legion.services.repository import _footprints
-from legion.core import _generated, _settings_io
+from legion.core import _settings_io
 from legion.services.accounts import _launchers
 from legion.core._home import full_path, home_path, same_path
 from legion.core._settings_models import (
@@ -53,7 +53,7 @@ def check_new_id(settings: PersonalisationSettings, account: str, home: Path) ->
         raise AccountError(f"'{account}' is already a command")
 
 
-# A bare name is the account's own launcher when it spells one; the owner names a file, or a command on PATH.
+# A bare name that spells the account's old launcher would recurse; the owner names a file, or a command on PATH.
 def _resolve_command(text: str, account: str, home: Path) -> Path:
     if text in (account, f"{account}.cmd"):
         raise _launchers.LauncherError("wrapper target would recurse")
@@ -81,7 +81,7 @@ def _config_folder(account: str, config_dir: Optional[str], home: Path) -> Path:
     return folder
 
 
-# The command is stored only when it is not the tool's stock command, which launchers find on their own.
+# The command is stored only when it is not the tool's stock command, which a launch finds on its own.
 def _stored_command(command: Optional[Path], tool: ToolDescriptor, home: Path) -> Optional[str]:
     if command is None or _launchers.is_stock(command, tool, home):
         return None
@@ -95,27 +95,17 @@ def _ensure_config_folder(folder: Path) -> list[str]:
     return [f"created: config folder {folder}"]
 
 
-# An account made earlier: written from settings when it has a command or a command was given, else only repaired.
+# An account made earlier: a given command replaces the stored one, and a missing config folder is made again.
 def _repair(settings: PersonalisationSettings, existing: Agent, tool: ToolDescriptor, command: Optional[Path], folder: Path, home: Path) -> list[str]:
     settings_changed = False
     if command is not None:
         wanted = _stored_command(command, tool, home)
         settings_changed = existing.command != wanted
         existing.command = wanted
-    elif existing.command is None:
-        state = _launchers.launcher_state(existing, home)
-        if state == "intact":
-            repaired = _launchers.restore_execute(existing, home)
-            lines = [f"wrote: launcher {path}" for path in repaired]
-            lines.extend(_ensure_config_folder(folder))
-            return lines or [f"skip: account {existing.id} (already done)"]
-        if state == "partial":
-            raise _launchers.LauncherError(f"target needed: {existing.id}; ask the owner for the registered executable")
-    _launchers.plan_subscription(existing, tool, home)
+    _launchers.target(existing, tool, home)
     if settings_changed:
         _settings_io.save_locked(home, settings)
-    lines = [f"wrote: launcher {path}" for path in _launchers.write_subscription(existing, tool, home)]
-    lines.extend(_ensure_config_folder(folder))
+    lines = _ensure_config_folder(folder)
     if settings_changed:
         lines.append(f"wrote: command of account {existing.id}")
     return lines or [f"skip: account {existing.id} (already done)"]
@@ -133,12 +123,13 @@ def add_subscription(home: Path, account: str, tool_id: str, command: Optional[s
             return _repair(settings, existing, tool, real, folder, home)
         check_new_id(settings, account, home)
         agent = Agent.model_construct(id=account, tool=tool_id, config_dir=str(folder), command=_stored_command(real, tool, home))
-        _launchers.plan_subscription(agent, tool, home)
+        _launchers.target(agent, tool, home)
         settings.agents.append(agent)
         _settings_io.save_locked(home, settings)
-        _launchers.write_subscription(agent, tool, home)
         folder.mkdir(parents=True, exist_ok=True)
-    return [f"Existing account folder kept at {config_dir}; use '{account}' to open it."] if config_dir is not None else [f"Run '{account}' in a terminal and log in once."]
+    if config_dir is not None:
+        return [f"Existing account folder kept at {config_dir}; open it with 'legion --account {account}'."]
+    return [f"Run 'legion --account {account}' in a repository and log in once."]
 
 
 def add_foundry(home: Path, account: str, tool_id: str, endpoint: str, names: list[str], default: Optional[str], aliases: Optional[list[str]], use_standard: bool, list_only: bool) -> list[str]:
@@ -150,17 +141,9 @@ def add_foundry(home: Path, account: str, tool_id: str, endpoint: str, names: li
     before = _settings_io.load_or_empty(home)
     existing = _find(before, account)
     if not list_only and existing and existing.tool == tool_id and existing.provider and existing.provider.kind == "foundry" and existing.provider.endpoint == endpoint:
-        with _settings_io.writer(home):
-            current = _find(_settings_io.load(home), account)
-            if current and current.tool == tool_id and current.provider and current.provider.kind == "foundry" and current.provider.endpoint == endpoint:
-                if _launchers.launcher_state(current, home) != "none" or not _launchers.ready_versions(home):
-                    return [f"skip: account {account} (already done)"]
-                written = _launchers.write_foundry(current, home)
-                return [f"wrote: launcher {path}" for path in written] or [f"skip: account {account} (already done)"]
+        return [f"skip: account {account} (already done)"]
     if not list_only:
         check_new_id(before, account, home)
-        provisional = Agent.model_construct(id=account, tool=tool_id, config_dir=str(home / ".legion" / "agents" / account))
-        _launchers.plan_foundry(provisional, home)
     discovery = _discovery.discover(endpoint, tool)
     if list_only:
         return [_discovery.listing(discovery, []).model_dump_json(indent=2)]
@@ -169,15 +152,13 @@ def add_foundry(home: Path, account: str, tool_id: str, endpoint: str, names: li
         settings = _settings_io.load_or_empty(home)
         check_new_id(settings, account, home)
         agent = Agent.model_validate({"id": account, "tool": tool_id, "configDir": str(home / ".legion" / "agents" / account), "provider": provider.model_dump(by_alias=True, exclude_none=True)})
-        _launchers.plan_foundry(agent, home)
         settings.agents.append(agent)
         issues = settings_issues(settings)
         if issues:
             raise _settings_io.SettingsError("; ".join(issues))
         recipe(agent).configure(agent, home)
         _settings_io.save_locked(home, settings)
-        _launchers.write_foundry(agent, home)
-    return [f"Run '{account}' in a terminal; it signs in to Azure through az when needed."]
+    return [f"Start it with 'legion --account {account}'; it signs in to Azure through az when needed."]
 
 
 def models(home: Path, account: str, names: list[str], default: Optional[str], aliases: Optional[list[str]], use_standard: bool, list_only: bool) -> list[str]:
@@ -209,7 +190,6 @@ def models(home: Path, account: str, names: list[str], default: Optional[str], a
             raise _settings_io.SettingsError("; ".join(issues))
         recipe(agent).configure(agent, home)
         _settings_io.save_locked(home, settings)
-        _launchers.write_foundry(agent, home)
     return []
 
 
@@ -241,16 +221,8 @@ def rename(home: Path, account: str, new_id: str) -> list[str]:
         check_new_id(settings, new_id, home)
         if old is None:
             raise AccountError(f"unknown account '{account}'")
-        for path in _launchers.launcher_paths(new_id, home):
-            if (path.exists() or path.is_symlink()) and not _generated.is_owned(path, f"account {new_id}"):
-                raise _launchers.LauncherError(f"wrapper collision '{path}'")
         _rebind(settings, account, new_id)
         old.id = new_id
-        if old.provider is not None:
-            _launchers.write_foundry(old, home)
-            _launchers.remove(account, home)
-        else:
-            _launchers.move(account, new_id, home)
         lines = _move_footprints(home, account, new_id)
         _settings_io.save_locked(home, settings)
     return [*lines, f"Config folder kept at {old.config_dir}; rename it yourself only if you want to."]
@@ -268,7 +240,6 @@ def remove(home: Path, account: str) -> list[str]:
         issues = settings_issues(settings)
         if issues:
             raise _settings_io.SettingsError("; ".join(issues))
-        _launchers.remove(account, home)
         _settings_io.save_locked(home, settings)
         try:
             lines = _footprints.remove_owner(home, [f"account:{account}"])

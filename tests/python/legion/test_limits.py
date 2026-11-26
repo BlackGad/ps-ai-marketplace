@@ -7,7 +7,7 @@ import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import (
     Any,
     Optional,
@@ -66,7 +66,7 @@ class Bench:
         self.path = root / "bin"
         self.logs = root / "logs"
         self.azure = root / "azure"
-        for folder in (self.home / ".legion" / "bin", self.path, self.logs, self.azure):
+        for folder in (self.home, self.path, self.logs, self.azure):
             folder.mkdir(parents=True)
         for name in [name for name in os.environ if name.startswith("LEGION_FAKE_")]:
             monkeypatch.delenv(name)
@@ -75,10 +75,9 @@ class Bench:
         monkeypatch.setenv("LEGION_FAKE_LOG", str(self.logs))
         monkeypatch.setenv("LEGION_FAKE_HOME", str(self.home))
         monkeypatch.setenv("AZURE_CONFIG_DIR", str(self.azure))
-        write_executable(self.path, "git", {})
-        write_executable(self.path, "az", {})
-        for tool, variable in CONFIG_ENVIRONMENT.items():
-            write_executable(self.home / ".legion" / "bin", f"{tool}-a", {variable: str(self.config(f"{tool}-a"))})
+        # The stock CLIs; legion's account launch sets each account's config folder itself.
+        for name in ("git", "az", *CONFIG_ENVIRONMENT):
+            write_executable(self.path, name, {})
 
     def config(self, account: str) -> Path:
         return self.home / ".legion" / "agents" / account
@@ -126,8 +125,6 @@ def test_limits_omitted_selection_cannot_use_manual_default(bench: Bench) -> Non
 @pytest.mark.parametrize("selection", ["ab", "a", b"ab"])
 def test_limits_rejects_scalar_selection_without_probes(bench: Bench, selection: Any) -> None:
     write_settings(bench.home, [{"id": account, "tool": "claude", "configDir": f"~/{account}"} for account in ("a", "b")])
-    for account in ("a", "b"):
-        write_executable(bench.home / ".legion/bin", account, {"LEGION_FAKE_NAME": "claude"})
 
     with pytest.raises(LimitsError, match="pass account ids as a list or tuple"):
         limits(bench.home, selection)
@@ -209,8 +206,6 @@ def assert_disposable_folder(folder: str) -> None:
 
 
 def test_claude_reads_every_unified_window(bench: Bench) -> None:
-    # A stock claude on PATH is never used: the account launcher is.
-    write_executable(bench.path, "claude", {"LEGION_FAKE_CLAUDE_EXIT": "99"})
     bench.fake(STDOUT=str(FIXTURES / "claude-stream.jsonl"))
     assert bench.rows("claude-a", "claude") == [
         LimitRow(window="five_hour", used="69%", resets=reset_time(1795350000), status="allowed"),
@@ -303,11 +298,11 @@ def test_codex_init_and_ping_share_one_deadline(bench: Bench, monkeypatch: pytes
     timeouts: list[float] = []
     real_run = _ping.run_command
 
-    def spy(command: str, arguments: Sequence[str], timeout: Optional[float] = None, cwd: Optional[Path] = None) -> RunResult:
+    def spy(command: str, arguments: Sequence[str], timeout: Optional[float] = None, env: Optional[Mapping[str, str]] = None, cwd: Optional[Path] = None) -> RunResult:
         assert timeout is not None
         timeouts.append(timeout)
         time.sleep(1)
-        return real_run(command, arguments, timeout=timeout, cwd=cwd)
+        return real_run(command, arguments, timeout=timeout, env=env, cwd=cwd)
 
     monkeypatch.setattr(_ping, "run_command", spy)
     bench.fake(SESSION=str(FIXTURES / "codex-session.jsonl"))
@@ -434,16 +429,22 @@ def test_foundry_without_az_names_the_install(bench: Bench) -> None:
     assert bench.rows("foundry-a", "copilot", provider=FOUNDRY)[0].status == "az is not installed; ask legion to install the Azure CLI"
 
 
-def test_missing_launcher_requests_setup(bench: Bench) -> None:
-    next((bench.home / ".legion" / "bin").glob("claude-a*")).unlink()
-    assert bench.rows("claude-a", "claude") == [LimitRow(status="launcher missing; run legion setup")]
+# The ping runs the account's own program when it has one, with its config folder; the stock CLI is not used then.
+def test_limits_rows_use_account_command(bench: Bench) -> None:
+    own = bench.path.parent / "own"
+    own.mkdir()
+    command = write_executable(own, "claude", {"LEGION_FAKE_LOG": str(own)})
+    write_executable(bench.path, "claude", {"LEGION_FAKE_CLAUDE_EXIT": "99"})
+    bench.fake(STDOUT=str(FIXTURES / "claude-stream.jsonl"))
+    assert bench.rows("claude-a", "claude", command=str(command))[0].window == "five_hour"
+    assert bench.calls("claude") == []
+    [call] = [json.loads(line) for line in (own / "claude.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert Path(call["config"]["CLAUDE_CONFIG_DIR"]).resolve() == bench.config("claude-a").resolve()
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no executable bit")
-def test_launcher_without_the_executable_bit_is_missing(bench: Bench) -> None:
-    launcher = bench.home / ".legion" / "bin" / "claude-a"
-    launcher.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    assert bench.rows("claude-a", "claude") == [LimitRow(status="launcher missing; run legion setup")]
+def test_missing_program_names_the_installer(bench: Bench) -> None:
+    next(bench.path.glob("claude*")).unlink()
+    assert bench.rows("claude-a", "claude") == [LimitRow(status="error: claude is not installed; run legion tool install --tool claude")]
 
 
 def test_tool_without_a_recipe_says_so(bench: Bench) -> None:

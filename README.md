@@ -46,7 +46,7 @@ Different tools and providers give independent reviews another perspective. With
 
 Add preferences later in your own words. Say “use Telegram” when you want a channel.
 
-legion keeps settings in `~/.legion/configuration/`, account folders in `~/.legion/agents/`, and launchers in `~/.legion/bin/` on your PATH. Repository orchestration files live in `.legion/`.
+legion keeps settings in `~/.legion/configuration/`, account folders in `~/.legion/agents/`, and the `legion` command in `~/.legion/bin/` on your PATH. Repository orchestration files live in `.legion/`.
 
 Repository setup offers [Private (default) or Shared](plugins/legion/skills/legion-repository/SKILL.md#choose-where-notes-live) storage for notes and history.
 
@@ -76,7 +76,7 @@ Say “Update legion” or “Uninstall legion,” or run `legion update` or `le
 Uninstall keeps your `legion` command working through another legion install if one is left. If none is left, it removes it.
 
 > [!IMPORTANT]
-> Uninstall then install is an upgrade: it keeps your settings, notes, account folders and account launchers. **Purge removes every legion trace**, including settings, notes and legion-made logins. It lists everything and asks first.
+> Uninstall then install is an upgrade: it keeps your settings, notes and account folders. **Purge removes every legion trace**, including settings, notes and legion-made logins. It lists everything and asks first.
 
 Run `legion uninstall --purge`, or use this PowerShell one-liner:
 

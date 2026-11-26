@@ -1,7 +1,7 @@
 import json
+import os
 from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -14,13 +14,13 @@ from app_fakes import (
     old_app,
 )
 from filelock import FileLock
-from launcher_fakes import ready_app
+from launcher_fakes import fake_cli, ready_app
 
 from legion.services.installation import _installed_runtime, _refresh
 from legion.services.accounts import _launchers
-from legion.core import _settings_io
-from legion.core._home import settings_path
-from legion.core._settings_models import Agent
+from legion.services.repository import _footprints
+from legion.core import _generated, _settings_io
+from legion.core._home import bin_folder, settings_path
 
 REFRESHED = "legion generated runtimes and launchers refreshed"
 UNCHANGED = "skip: legion generated runtimes and launchers (already done)"
@@ -34,47 +34,99 @@ def uv(monkeypatch: pytest.MonkeyPatch) -> FakeUv:
     return FakeUv(monkeypatch)
 
 
+# The stock CLIs the accounts start with; an old launcher goes only when its account's program is found.
+@pytest.fixture(autouse=True)
+def stock_clis(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    folder = tmp_path / "stock bin"
+    for name in ("claude", "codex"):
+        fake_cli(folder, name)
+    monkeypatch.setenv("PATH", os.pathsep.join([str(folder), os.environ.get("PATH", "")]))
+
+
 def run(home: Path, source: Path | None = None, lock_timeout: float = 60) -> list[str]:
     return _refresh.refresh(home, source or make_source(home.parent / f"source-{home.name}"), lock_timeout)
 
 
-def foundry_settings(home: Path, accounts: list[str]) -> None:
-    agents = [
-        {"id": account, "tool": "claude", "configDir": str(home / account), "provider": {"kind": "foundry", "endpoint": "https://example.test", "default": "m", "deployments": [{"name": "m"}]}}
-        for account in accounts
-    ]
+FOUNDRY = {"kind": "foundry", "endpoint": "https://example.test", "default": "m", "deployments": [{"name": "m"}]}
+
+
+# claude-* accounts are Foundry accounts, the others subscription accounts.
+def account_settings(home: Path, accounts: list[str]) -> None:
+    agents: list[dict[str, Any]] = [{"id": account, "tool": "codex", "configDir": str(home / account)} for account in accounts]
+    for entry in agents:
+        if entry["id"].startswith("claude"):
+            entry.update(tool="claude", provider=FOUNDRY)
     path = settings_path(home)
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps({"schemaVersion": 1, "agents": agents, "channels": []}), encoding="utf-8")
+
+
+# A launcher as an older legion wrote it: the ownership header names the account it is called after.
+def old_launchers(home: Path, account: str) -> list[Path]:
+    paths = _launchers.launcher_paths(account, home)
+    for path in paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.suffix == ".cmd":
+            text = _generated.header(f"account {account}", True) + "\r\n@exit /b 0\r\n"
+        else:
+            text = "#!/bin/sh\n" + _generated.header(f"account {account}", False) + "\nexec old-command\n"
+        path.write_text(text, encoding="utf-8", newline="")
+    return paths
 
 
 def snapshot(home: Path) -> dict[str, bytes | None]:
     return {str(path.relative_to(home)): (path.read_bytes() if path.is_file() else None) for path in sorted(home.rglob("*"))}
 
 
-def test_refresh_writes_missing_foundry_launcher_and_preserves_foreign(tmp_path: Path) -> None:
+def test_refresh_removes_owned_account_launchers_and_footprints(tmp_path: Path) -> None:
+    ready_app(tmp_path)
+    account_settings(tmp_path, ["codex-a", "claude-a"])
+    # A launcher of an account renamed or removed earlier goes too: its header names the file's own account.
+    owned = [*old_launchers(tmp_path, "codex-a"), *old_launchers(tmp_path, "claude-a"), *old_launchers(tmp_path, "renamed-a")]
+    _footprints.add(tmp_path, "file", owned[0], "account:codex-a")
+    lines = run(tmp_path)
+    for path in owned:
+        assert f"removed {path}" in lines
+        assert not path.exists()
+    assert not any(entry.path == "~/.legion/bin/codex-a" for entry in _footprints.read(tmp_path).entries)
+    assert lines[-1] == REFRESHED
+
+
+def test_refresh_skips_unowned_launcher(tmp_path: Path) -> None:
+    ready_app(tmp_path)
+    account_settings(tmp_path, ["codex-a", "codex-b"])
+    foreign = bin_folder(tmp_path) / "codex-a"
+    foreign.parent.mkdir(parents=True)
+    foreign.write_text("#!/bin/sh\nowner file\n", encoding="utf-8")
+    # A legion header for another account is not this file's own.
+    other = bin_folder(tmp_path) / "codex-b"
+    other.write_text("#!/bin/sh\n" + _generated.header("account codex-a", False) + "\n", encoding="utf-8")
+    lines = run(tmp_path)
+    assert f"skip: {foreign} (not legion's)" in lines
+    assert f"skip: {other} (not legion's)" in lines
+    assert foreign.read_text(encoding="utf-8") == "#!/bin/sh\nowner file\n"
+    assert other.is_file()
+
+
+def test_refresh_repeat_prints_skip(tmp_path: Path) -> None:
+    ready_app(tmp_path)
+    account_settings(tmp_path, ["codex-a"])
+    old_launchers(tmp_path, "codex-a")
+    assert run(tmp_path)[-1] == REFRESHED
+    again = run(tmp_path)
+    assert not any(line.startswith("removed ") for line in again)
+    assert again[-1] == UNCHANGED
+
+
+def test_refresh_keeps_launchers_behind_a_linked_bin_folder(tmp_path: Path) -> None:
     home = tmp_path / "home"
-    ready_app(home)
-    foundry_settings(home, ["claude-a"])
-    lines = run(home)
-    assert any(line.startswith("wrote: launcher ") for line in lines)
-    launcher = home / ".legion" / "bin" / "claude-a"
-    assert "foundry run --account" in launcher.read_text(encoding="utf-8")
-    assert run(home)[-1] == UNCHANGED
-    launcher.write_text("owner file", encoding="utf-8")
-    assert any("wrapper collision" in line for line in run(home))
-    assert launcher.read_text(encoding="utf-8") == "owner file"
-
-
-def test_refresh_restores_subscription_execute_permission(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    agent = Agent.model_validate({"id": "codex-a", "tool": "codex", "configDir": str(tmp_path / "config")})
-    launcher = tmp_path / ".legion" / "bin" / "codex-a"
-    settings_path(tmp_path).parent.mkdir(parents=True)
-    settings_path(tmp_path).write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(_refresh._settings_io, "load", lambda _home: SimpleNamespace(agents=[agent]))
-    monkeypatch.setattr(_refresh._launchers, "launcher_state", lambda *_args: "intact")
-    monkeypatch.setattr(_refresh._launchers, "restore_execute", lambda *_args: [launcher])
-    assert f"wrote: launcher {launcher}" in run(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    old_launchers(elsewhere, "codex-a")
+    make_link(bin_folder(home), bin_folder(elsewhere))
+    account_settings(home, ["codex-a"])
+    lines = _launchers.remove_old_launchers(_settings_io.load(home).agents, home)
+    assert lines == []
+    assert all(path.is_file() for path in _launchers.launcher_paths("codex-a", elsewhere))
 
 
 def test_refresh_with_no_settings_file_publishes_the_app_and_then_does_nothing(tmp_path: Path) -> None:
@@ -91,42 +143,10 @@ def test_refresh_with_a_broken_settings_file_still_fails(tmp_path: Path) -> None
         run(tmp_path)
 
 
-def test_one_foundry_account_that_cannot_be_written_never_stops_the_next(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    ready_app(tmp_path)
-    foundry_settings(tmp_path, ["claude-a", "claude-b"])
-    written: list[str] = []
-
-    def write_foundry(agent: Agent, _home: Path) -> list[Path]:
-        if agent.id == "claude-a":
-            raise _refresh._launchers.LauncherError("linked wrapper path 'x'")
-        written.append(agent.id)
-        return [Path(agent.id)]
-
-    monkeypatch.setattr(_refresh._launchers, "write_foundry", write_foundry)
-    lines = run(tmp_path)
-    assert "skip: account claude-a (linked wrapper path 'x')" in lines
-    assert written == ["claude-b"]
-    assert "wrote: launcher claude-b" in lines
-
-
-def test_refresh_rewrites_an_owned_foundry_launcher_for_a_newer_ready_app(tmp_path: Path) -> None:
-    source = make_source(tmp_path, "1.0.0")
-    first = ready_app(tmp_path, "1.0.0")
-    foundry_settings(tmp_path, ["claude-a"])
-    run(tmp_path, source=source)
-    launcher = tmp_path / ".legion" / "bin" / "claude-a"
-    assert str(first) in launcher.read_text(encoding="utf-8")
-    second = ready_app(tmp_path, "2.0.0")
-    lines = run(tmp_path, source=source)
-    assert any(line.startswith("wrote: launcher ") for line in lines)
-    assert str(second) in launcher.read_text(encoding="utf-8")
-    assert str(first) not in launcher.read_text(encoding="utf-8")
-
-
-def test_refresh_does_the_steps_in_order_so_launchers_move_before_the_old_version_goes(tmp_path: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_refresh_publishes_then_removes_launchers_and_prunes_in_order(tmp_path: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch) -> None:
     old_app(tmp_path, "0.0.1")
     old_app(tmp_path, "0.0.2")
-    foundry_settings(tmp_path, ["claude-a"])
+    account_settings(tmp_path, ["claude-a"])
     order: list[str] = []
 
     def recorded(name: str, real: Callable[..., Any]) -> Callable[..., Any]:
@@ -136,23 +156,21 @@ def test_refresh_does_the_steps_in_order_so_launchers_move_before_the_old_versio
 
         return call
 
+    monkeypatch.setattr(_refresh._launchers, "remove_old_launchers", recorded("launchers", _launchers.remove_old_launchers))
     monkeypatch.setattr(_refresh._installed_runtime, "sync_app", recorded("sync", _installed_runtime.sync_app))
     monkeypatch.setattr(_refresh._installed_runtime, "write_owner_commands", recorded("commands", _installed_runtime.write_owner_commands))
-    monkeypatch.setattr(_refresh._launchers, "write_foundry", recorded("foundry", _refresh._launchers.write_foundry))
     monkeypatch.setattr(_refresh._installed_runtime, "prune_old_versions", recorded("prune", _installed_runtime.prune_old_versions))
     lines = run(tmp_path)
-    assert order == ["sync", "commands", "foundry", "prune"]
+    assert order == ["sync", "commands", "launchers", "prune"]
     assert "removed legion app 0.0.1" in lines
-    new = tmp_path / ".legion" / "app" / VERSION
-    launcher = (tmp_path / ".legion" / "bin" / "claude-a").read_text(encoding="utf-8")
-    assert str(_installed_runtime.python_environment(new, tmp_path)) in launcher
     assert len(uv.calls) == 1
 
 
 def test_refresh_twice_leaves_the_home_tree_unchanged(tmp_path: Path) -> None:
     home = tmp_path / "home"
     old_app(home, "0.0.1")
-    foundry_settings(home, ["claude-a"])
+    account_settings(home, ["claude-a", "codex-a"])
+    old_launchers(home, "codex-a")
     source = make_source(tmp_path)
     assert run(home, source=source)[-1] == REFRESHED
     after_first = snapshot(home)
@@ -160,77 +178,51 @@ def test_refresh_twice_leaves_the_home_tree_unchanged(tmp_path: Path) -> None:
     assert snapshot(home) == after_first
 
 
-def test_a_busy_sync_lock_skips_the_app_and_leaves_the_launchers_as_they_are(tmp_path: Path, uv: FakeUv) -> None:
+def test_a_busy_sync_lock_skips_the_app(tmp_path: Path, uv: FakeUv) -> None:
     ready_app(tmp_path, "1.0.0")
-    foundry_settings(tmp_path, ["claude-a"])
+    account_settings(tmp_path, ["claude-a"])
     run(tmp_path)
-    launcher = tmp_path / ".legion" / "bin" / "claude-a"
-    before = launcher.read_text(encoding="utf-8")
     uv.calls.clear()
     ready_app(tmp_path, "2.0.0")
     with FileLock(str(tmp_path / ".legion" / "app" / ".sync.lock")):
         lines = run(tmp_path, lock_timeout=0)
     assert "skip: legion app sync (another sync is still running; run legion setup again)" in lines
-    assert not any(line.startswith("wrote:") for line in lines)
+    assert lines[-1] == UNCHANGED
     assert uv.calls == []
-    assert launcher.read_text(encoding="utf-8") == before
 
 
-def test_a_failed_sync_leaves_the_commands_and_launchers_as_they_are(tmp_path: Path, uv: FakeUv) -> None:
-    foundry_settings(tmp_path, ["claude-a"])
+def test_a_failed_sync_leaves_the_commands_as_they_are(tmp_path: Path, uv: FakeUv) -> None:
+    account_settings(tmp_path, ["claude-a"])
     uv.exit_code = 3
     lines = run(tmp_path)
     assert f"legion app {VERSION} not ready (uv sync exited 3); run legion setup again" in lines
     assert "skip: command legion (the legion app is not ready)" in lines
-    assert "skip: account claude-a (the legion app is not ready)" in lines
     assert not (tmp_path / ".legion" / "bin").exists()
     assert not (tmp_path / ".legion" / "app" / VERSION / MARKER).exists()
 
 
-def test_failed_first_upgrade_keeps_a_working_old_foundry_launcher(tmp_path: Path, uv: FakeUv) -> None:
-    old_app(tmp_path, "0.15.0")
-    foundry_settings(tmp_path, ["claude-a"])
-    launcher = tmp_path / ".legion" / "bin" / "claude-a"
-    launcher.parent.mkdir(parents=True)
-    launcher.write_text("#!/bin/sh\n# Generated by legion: account claude-a\nexec old-foundry-command\n", encoding="utf-8")
-    before = launcher.read_bytes()
+# Without the legion command that replaces them, the old launchers are the only way to start the accounts, so they stay.
+def test_refresh_keeps_old_launchers_until_the_legion_command_is_in_place(tmp_path: Path, uv: FakeUv) -> None:
+    account_settings(tmp_path, ["codex-a"])
+    launchers = old_launchers(tmp_path, "codex-a")
     uv.exit_code = 3
-    run(tmp_path)
-    assert launcher.read_bytes() == before
+    lines = run(tmp_path)
+    assert not any(line.startswith("removed ") for line in lines)
+    assert all(path.is_file() for path in launchers)
 
 
-def test_refresh_uses_current_settings_after_sync(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+# An account whose program cannot be found keeps its old launcher until the owner fixes it; the reason is printed.
+def test_refresh_keeps_the_old_launcher_of_an_account_without_a_program(tmp_path: Path) -> None:
     ready_app(tmp_path)
-    foundry_settings(tmp_path, ["claude-a"])
-    real = _installed_runtime.sync_app
-
-    def remove_during_sync(home: Path, source: Path) -> tuple[list[str], Path | None]:
-        with _settings_io.writer(home):
-            settings = _settings_io.load(home)
-            settings.agents.clear()
-            _settings_io.save_locked(home, settings)
-        return real(home, source)
-
-    monkeypatch.setattr(_refresh._installed_runtime, "sync_app", remove_during_sync)
-    run(tmp_path)
-    assert not (tmp_path / ".legion" / "bin" / "claude-a").exists()
-
-
-def test_refresh_rewrites_an_owned_launcher_for_explicit_command(tmp_path: Path) -> None:
-    ready_app(tmp_path)
-    command = tmp_path / "custom-command"
-    command.write_text("tool", encoding="utf-8")
-    agent = {"id": "codex-a", "tool": "codex", "configDir": str(tmp_path / "config"), "command": str(command)}
-    path = settings_path(tmp_path)
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"schemaVersion": 1, "agents": [agent], "channels": []}), encoding="utf-8")
-    for launcher in _launchers.launcher_paths("codex-a", tmp_path):
-        launcher.parent.mkdir(parents=True, exist_ok=True)
-        header = "@rem" if launcher.suffix == ".cmd" else "#!/bin/sh\n#"
-        launcher.write_text(f"{header} Generated by legion: account codex-a\nold-command\n", encoding="utf-8")
-    launcher = _launchers.launcher_paths("codex-a", tmp_path)[0]
-    run(tmp_path)
-    assert str(command) in launcher.read_text(encoding="utf-8")
+    account_settings(tmp_path, ["codex-a"])
+    settings = _settings_io.load(tmp_path)
+    settings.agents[0].command = str(tmp_path / "gone-codex")
+    _settings_io.save(tmp_path, settings)
+    launchers = old_launchers(tmp_path, "codex-a")
+    lines = run(tmp_path)
+    for path in launchers:
+        assert f"skip: {path} (target needed: codex-a; ask the owner for the registered executable)" in lines
+        assert path.is_file()
 
 
 def test_a_linked_app_folder_is_refused_before_anything_is_written(tmp_path: Path) -> None:
@@ -249,20 +241,3 @@ def test_a_linked_legion_folder_is_refused_before_settings_lock(tmp_path: Path) 
     with pytest.raises((_installed_runtime.AppError, _settings_io.SettingsError), match="link"):
         run(tmp_path / "home")
     assert list(elsewhere.iterdir()) == []
-
-
-def test_refresh_repairs_subscription_launchers_before_the_app_is_published(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    ready_app(tmp_path)
-    foundry_settings(tmp_path, [])
-    order: list[str] = []
-    real = _installed_runtime.sync_app
-
-    def sync(*arguments: Any, **keywords: Any) -> Any:
-        order.append("sync")
-        return real(*arguments, **keywords)
-
-    monkeypatch.setattr(_refresh._installed_runtime, "sync_app", sync)
-    monkeypatch.setattr(_refresh, "_repair_subscription", lambda *_arguments: order.append("repair") or [])
-    settings_path(tmp_path).write_text(json.dumps({"schemaVersion": 1, "agents": [{"id": "codex-a", "tool": "codex", "configDir": str(tmp_path / "c")}], "channels": []}), encoding="utf-8")
-    run(tmp_path)
-    assert order == ["repair", "sync"]

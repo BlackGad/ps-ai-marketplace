@@ -15,9 +15,9 @@ from launcher_fakes import WINDOWS
 from test_limits import write_executable
 
 from legion.core._home import settings_path
-from legion.services.foundry import _run
+from legion.services.accounts import _launch
+from legion.services.accounts._launchers import LauncherError
 from legion.services.foundry._az import AzAccessToken
-from legion.services.foundry._types import Launch
 
 ACCESS_CALL = "account get-access-token --resource https://cognitiveservices.azure.com -o json"
 TOKEN_ANSWER = {"stdout": '{"accessToken":"fake-token","expiresOn":"2026-11-18T18:30:00+00:00"}'}
@@ -92,7 +92,7 @@ def test_claude_child_gets_foundry_environment_and_parent_is_untouched(bench: Be
     monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", sys.prefix)
     parent_path = os.pathsep.join([sysconfig.get_path("scripts"), os.environ["PATH"]])
     monkeypatch.setenv("PATH", parent_path)
-    assert _run.run("claude-dev", ["-p", "hi"], bench.home) == 0
+    assert _launch.run_account("claude-dev", ["-p", "hi"], bench.home) == 0
     environment = bench.environment("claude")
     assert environment["CLAUDE_CODE_USE_FOUNDRY"] == "1"
     assert environment["ANTHROPIC_FOUNDRY_BASE_URL"] == f"{ENDPOINT}/anthropic"
@@ -110,7 +110,7 @@ def test_claude_child_gets_foundry_environment_and_parent_is_untouched(bench: Be
 
 
 def test_codex_child_gets_only_its_config_home_and_arguments_keep_their_boundaries(bench: Bench) -> None:
-    assert _run.run("codex-dev", ["-p", "hi there", "a&b"], bench.home) == 0
+    assert _launch.run_account("codex-dev", ["-p", "hi there", "a&b"], bench.home) == 0
     environment = bench.environment("codex")
     assert Path(environment["CODEX_HOME"]) == bench.home / ".legion" / "agents" / "codex-dev"
     assert bench.calls("codex")[0]["foundry_names"] == []
@@ -120,11 +120,11 @@ def test_codex_child_gets_only_its_config_home_and_arguments_keep_their_boundari
 @pytest.mark.parametrize("code", [0, 3])
 def test_copilot_exit_code_passes_and_provider_file_lives_only_while_the_tool_runs(bench: Bench, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], code: int) -> None:
     monkeypatch.setenv("LEGION_FAKE_EXIT", str(code))
-    assert _run.run("copilot-dev", ["--resume"], bench.home) == code
+    assert _launch.run_account("copilot-dev", ["--resume"], bench.home) == code
     captured = capsys.readouterr()
     assert "fake-token" not in captured.out + captured.err
     expiry = AzAccessToken.model_validate({"accessToken": "x", "expiresOn": "2026-11-18T18:30:00+00:00"}).expiry().strftime("%H:%M")
-    assert f"token valid until {expiry}; after that restart with: copilot-dev --resume" in captured.out
+    assert f"token valid until {expiry}; after that restart with: legion run --account copilot-dev -- --resume" in captured.out
     environment = bench.environment("copilot")
     assert Path(environment["COPILOT_HOME"]) == bench.home / ".legion" / "agents" / "copilot-dev"
     assert Path(environment["COPILOT_PROVIDERS_CONFIG"]).parent == bench.home / ".legion" / "temp"
@@ -148,7 +148,7 @@ def test_copilot_exit_code_passes_and_provider_file_lives_only_while_the_tool_ru
 def test_exit_code_three_survives_a_real_process_through_the_command_line(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEGION_FAKE_EXIT", "3")
     monkeypatch.setenv("LEGION_HOME", str(bench.home.parent / "different home"))
-    arguments = [sys.executable, "-c", RUNNER, "--home", str(bench.home), "foundry", "run", "--account", "codex-dev", "--", "--flag", "two words"]
+    arguments = [sys.executable, "-c", RUNNER, "--home", str(bench.home), "run", "--account", "codex-dev", "--", "--flag", "two words"]
     assert subprocess.run(arguments, capture_output=True, text=True, check=False).returncode == 3
     assert bench.calls("codex")[0]["arguments"] == ["--flag", "two words"]
     assert Path(bench.environment("codex")["LEGION_HOME"]) == bench.home
@@ -157,7 +157,7 @@ def test_exit_code_three_survives_a_real_process_through_the_command_line(bench:
 def test_token_failure_exits_one_after_one_login_and_starts_no_tool(bench: Bench) -> None:
     bench.answers({ACCESS_CALL: {"exit": 1, "stdout": "fake token denied"}, "login -o none": {"exit": 0}})
     with pytest.raises(ValueError, match="fake token denied"):
-        _run.run("claude-dev", [], bench.home)
+        _launch.run_account("claude-dev", [], bench.home)
     assert bench.calls("claude") == []
     assert [call["arguments"] for call in bench.calls("az")].count(["login", "-o", "none"]) == 1
     assert bench.temp_files() == []
@@ -166,20 +166,25 @@ def test_token_failure_exits_one_after_one_login_and_starts_no_tool(bench: Bench
 def test_missing_tool_names_the_installer(bench: Bench) -> None:
     for path in bench.bin.glob("claude*"):
         path.unlink()
-    with pytest.raises(ValueError, match=r"claude is not installed; run legion tool install --tool claude"):
-        _run.run("claude-dev", [], bench.home)
+    with pytest.raises(LauncherError, match=r"claude is not installed; run legion tool install --tool claude"):
+        _launch.run_account("claude-dev", [], bench.home)
 
 
-@pytest.mark.parametrize(("account", "message"), [("x", "unknown account 'x'"), ("subscription", "account 'subscription' is not a Foundry agent")])
-def test_invalid_account_is_refused_before_az(bench: Bench, account: str, message: str) -> None:
-    with pytest.raises(ValueError, match=message):
-        _run.run(account, [], bench.home)
+def test_unknown_account_is_refused_before_az(bench: Bench) -> None:
+    with pytest.raises(LauncherError, match="unknown account 'x'"):
+        _launch.run_account("x", [], bench.home)
+    assert bench.calls("az") == []
+
+
+def test_a_subscription_account_runs_without_az(bench: Bench) -> None:
+    assert _launch.run_account("subscription", ["-p", "hi"], bench.home) == 0
+    assert Path(bench.environment("claude")["CLAUDE_CONFIG_DIR"]) == bench.home / ".legion" / "agents" / "subscription"
     assert bench.calls("az") == []
 
 
 def test_tool_lookup_skips_the_legion_bin_folder(bench: Bench) -> None:
     write_executable(bench.home / ".legion" / "bin", "claude", {"LEGION_FAKE_EXIT": "99"})
-    assert _run.run("claude-dev", [], bench.home) == 0
+    assert _launch.run_account("claude-dev", [], bench.home) == 0
     assert len(bench.calls("claude")) == 1
 
 
@@ -190,7 +195,7 @@ def test_a_tool_that_cannot_start_removes_the_provider_file_and_never_prints_the
     broken.write_bytes(bytes([0, 1, 2, 3]))
     broken.chmod(0o755)
     with pytest.raises(OSError):
-        _run.run("copilot-dev", [], bench.home)
+        _launch.run_account("copilot-dev", [], bench.home)
     assert bench.temp_files() == []
     captured = capsys.readouterr()
     assert "token valid until" in captured.out
@@ -201,7 +206,7 @@ def test_ctrl_c_ends_the_run_with_130_and_deletes_the_provider_file(bench: Bench
     if sys.platform == "win32":
         pytest.skip("POSIX signals")
     monkeypatch.setenv("LEGION_FAKE_SLEEP", "30")
-    arguments = [sys.executable, "-c", RUNNER, "--home", str(bench.home), "foundry", "run", "--account", "copilot-dev", "--"]
+    arguments = [sys.executable, "-c", RUNNER, "--home", str(bench.home), "run", "--account", "copilot-dev", "--"]
     runner = subprocess.Popen(arguments, stdout=subprocess.DEVNULL, start_new_session=True)
     # The fake tool publishes grandchild.pid once it runs; that is the readiness marker, no sleeping.
     deadline = time.monotonic() + 30
@@ -215,11 +220,9 @@ def test_ctrl_c_ends_the_run_with_130_and_deletes_the_provider_file(bench: Bench
 
 
 def test_a_tool_killed_by_a_signal_is_reported_as_a_shell_would(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    agent = SimpleNamespace(id="codex-a", tool="codex", provider=SimpleNamespace(kind="foundry"))
-    monkeypatch.setattr(_run._settings_io, "load", lambda _home: SimpleNamespace(agents=[agent]))
-    monkeypatch.setattr(_run._launchers, "stock_command", lambda *_args: Path("/fake/codex"))
-    monkeypatch.setattr(_run, "check_token", lambda: AzAccessToken.model_validate({"accessToken": "secret", "expires_on": 4102444800}))
-    monkeypatch.setattr(_run, "recipe", lambda _agent: SimpleNamespace(launch=lambda *_args: Launch(set={}, clear=[])))
-    monkeypatch.setattr(_run, "sys", SimpleNamespace(platform="linux"))
-    monkeypatch.setattr(_run.subprocess, "Popen", lambda *_args, **_kwargs: SimpleNamespace(wait=lambda: -signal.SIGINT))
-    assert _run.run("codex-a", [], tmp_path) == 130
+    agent = SimpleNamespace(id="codex-a")
+    monkeypatch.setattr(_launch._settings_io, "load", lambda _home: SimpleNamespace(agents=[agent]))
+    monkeypatch.setattr(_launch, "account_command", lambda *_args: _launch.AccountCommand(Path("/fake/codex"), [], {}))
+    monkeypatch.setattr(_launch, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(_launch.subprocess, "Popen", lambda *_args, **_kwargs: SimpleNamespace(wait=lambda: -signal.SIGINT))
+    assert _launch.run_account("codex-a", [], tmp_path) == 130

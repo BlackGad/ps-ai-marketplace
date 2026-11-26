@@ -22,11 +22,11 @@ from legion.core._settings_models import (
 )
 from legion.core._settings_io import SettingsError
 from legion.core._validate import load_descriptors
+from legion.services.accounts import _launch
 from legion.services.foundry import _discovery, claude, codex
-from legion.services.foundry import _run
 from legion.services.foundry._az import AzAccessToken
 from legion.services.foundry import _az, copilot
-from legion.services.foundry._types import Launch, ProviderFile
+from legion.services.foundry._types import ProviderFile
 from launcher_fakes import ready_app
 from test_limits import write_executable
 from legion.services.foundry._discovery import (
@@ -94,8 +94,6 @@ def test_foundry_add_discovers_before_settings_lock(tmp_path: Path, monkeypatch:
     monkeypatch.setattr(_settings_io, "writer", writer)
     monkeypatch.setattr(_accounts, "check_new_id", lambda *_args: None)
     monkeypatch.setattr("legion.services.foundry.claude.configure", lambda *_args: False)
-    monkeypatch.setattr("legion.services.accounts._launchers.write_foundry", lambda *_args: [])
-    monkeypatch.setattr("legion.services.accounts._launchers.plan_foundry", lambda *_args: {})
     _accounts.add_foundry(home, "claude-a", "claude", "https://example.test", ["gpt-4"], "gpt-4", [], False, False)
     assert events[:2] == ["discover", "lock"]
 
@@ -213,15 +211,15 @@ def test_invalid_toml_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.mark.parametrize("argument", ["--help", "--version", "--account", "--"])
-def test_foundry_runner_forwards_tool_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argument: str) -> None:
+def test_run_forwards_tool_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argument: str) -> None:
     seen: list[str] = []
 
     def fake_run(_account: str, arguments: list[str], _home: Path) -> int:
         seen.extend(arguments)
         return 0
 
-    monkeypatch.setattr(_run, "run", fake_run)
-    assert run(["--home", str(tmp_path), "foundry", "run", "--account", "codex-a", "--", argument]) == 0
+    monkeypatch.setattr(_launch, "run_account", fake_run)
+    assert run(["--home", str(tmp_path), "run", "--account", "codex-a", "--", argument]) == 0
     assert seen == [argument]
 
 
@@ -265,11 +263,9 @@ def test_runner_does_not_pass_ignored_sigint_to_child(tmp_path: Path, monkeypatc
             "provider": {"kind": "foundry", "endpoint": "https://example.test", "default": "gpt-4", "deployments": [{"name": "gpt-4"}]},
         }
     )
-    monkeypatch.setattr(_run._settings_io, "load", lambda _home: SimpleNamespace(agents=[agent]))
-    monkeypatch.setattr(_run._launchers, "stock_command", lambda *_args: Path("/fake/codex"))
-    monkeypatch.setattr(_run, "check_token", lambda: AzAccessToken.model_validate({"accessToken": "secret", "expires_on": 4102444800}))
-    monkeypatch.setattr(_run, "recipe", lambda _agent: SimpleNamespace(launch=lambda *_args: Launch(set={}, clear=[])))
-    monkeypatch.setattr(_run, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(_launch._settings_io, "load", lambda _home: SimpleNamespace(agents=[agent]))
+    monkeypatch.setattr(_launch, "account_command", lambda *_args: _launch.AccountCommand(Path("/fake/codex"), [], {}))
+    monkeypatch.setattr(_launch, "sys", SimpleNamespace(platform="linux"))
 
     class Child:
         def wait(self) -> int:
@@ -279,8 +275,8 @@ def test_runner_does_not_pass_ignored_sigint_to_child(tmp_path: Path, monkeypatc
         assert signal.getsignal(signal.SIGINT) != signal.SIG_IGN
         return Child()
 
-    monkeypatch.setattr(_run.subprocess, "Popen", popen)
-    assert _run.run("codex-a", [], tmp_path) == 0
+    monkeypatch.setattr(_launch.subprocess, "Popen", popen)
+    assert _launch.run_account("codex-a", [], tmp_path) == 0
 
 
 def test_token_login_retries_once_and_reports_last_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -311,7 +307,6 @@ def test_invalid_foundry_alias_does_not_write_tool_config(tmp_path: Path, monkey
         ],
     )
     monkeypatch.setattr(_discovery, "discover", lambda *_args: discovery)
-    monkeypatch.setattr("legion.services.accounts._launchers.plan_foundry", lambda *_args: {})
     with pytest.raises(SettingsError, match="alias"):
         _accounts.add_foundry(home, "claude-a", "claude", "https://example.test", ["claude-opus-1", "claude-opus-2"], "claude-opus-1", ["claude-opus-1=opus", "claude-opus-2=opus"], False, False)
     assert not (home / ".legion" / "agents" / "claude-a" / "settings.json").exists()
@@ -367,16 +362,18 @@ def test_copilot_runner_removes_provider_after_child(tmp_path: Path, monkeypatch
             "provider": {"kind": "foundry", "endpoint": "https://example.test", "default": "claude-a", "deployments": [{"name": "claude-a"}]},
         }
     )
-    monkeypatch.setattr(_run._settings_io, "load", lambda _home: SimpleNamespace(agents=[agent]))
-    monkeypatch.setattr(_run._launchers, "stock_command", lambda *_args: Path("/fake/copilot"))
-    monkeypatch.setattr(_run, "check_token", lambda: AzAccessToken.model_validate({"accessToken": "secret", "expires_on": 4102444800}))
+    token = AzAccessToken.model_validate({"accessToken": "secret", "expires_on": 4102444800})
+    real = _launch.account_command
+    monkeypatch.setattr(_launch._settings_io, "load", lambda _home: SimpleNamespace(agents=[agent]))
+    monkeypatch.setattr(_launch, "target", lambda *_args: Path("/fake/copilot"))
+    monkeypatch.setattr(_launch, "account_command", lambda agent, home: real(agent, home, token_check=lambda: token))
     paths: list[Path] = []
 
     class Child:
         def wait(self) -> int:
             return 7
 
-    def popen(_line: object, *, env: dict[str, str]) -> Child:
+    def popen(_line: object, *, env: dict[str, str], **_options: object) -> Child:
         path = Path(env["COPILOT_PROVIDERS_CONFIG"])
         paths.append(path)
         assert json.loads(path.read_text(encoding="utf-8"))["providers"][0]["bearerToken"] == "secret"
@@ -384,19 +381,19 @@ def test_copilot_runner_removes_provider_after_child(tmp_path: Path, monkeypatch
             raise OSError("fake child failed")
         return Child()
 
-    monkeypatch.setattr(_run.subprocess, "Popen", popen)
+    monkeypatch.setattr(_launch.subprocess, "Popen", popen)
     if failure:
         with pytest.raises(OSError, match="fake child failed"):
-            _run.run("copilot-a", [], tmp_path)
+            _launch.run_account("copilot-a", [], tmp_path)
     else:
-        assert _run.run("copilot-a", [], tmp_path) == 7
+        assert _launch.run_account("copilot-a", [], tmp_path) == 7
     assert len(paths) == 1
     assert not paths[0].exists()
     assert "secret" not in str(capsys.readouterr())
 
 
-def test_foundry_run_missing_settings_is_one_line(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert run(["--home", str(tmp_path), "foundry", "run", "--account", "missing", "--"]) == 1
+def test_run_missing_settings_is_one_line(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(["--home", str(tmp_path), "run", "--account", "missing", "--"]) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == "No legion settings yet; add an agent first.\n"
@@ -495,7 +492,6 @@ def test_models_uses_fresh_settings_after_discovery(tmp_path: Path, monkeypatch:
 
     monkeypatch.setattr(_discovery, "discover", discover)
     monkeypatch.setattr(_accounts, "recipe", lambda _agent: SimpleNamespace(configure=lambda *_args: False))
-    monkeypatch.setattr("legion.services.accounts._launchers.write_foundry", lambda *_args: [])
     _accounts.models(home, "claude-a", ["claude-a"], "claude-a", None, False, False)
     assert json.loads(path.read_text(encoding="utf-8"))["agents"][0]["provider"]["deployments"][0]["alias"] == "sonnet"
 

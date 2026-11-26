@@ -58,6 +58,8 @@ def _report_overseer(
     arguments: tuple[str, ...] = (),
     pick: bool = False,
 ) -> None:
+    from legion.services.accounts._accounts import AccountError
+    from legion.services.accounts._launchers import LauncherError
     from legion.services.channels import _overseer
     from legion.services.channels._channel import ChannelError
     from legion.services.repository._repository import RepositoryError
@@ -65,7 +67,7 @@ def _report_overseer(
 
     try:
         context.exit(_overseer.run(repo, _home.legion_home(context.obj), account=account, tool=tool, channels=channels, no_channel=no_channel, dry_run=dry_run, arguments=arguments, pick=pick))
-    except (ChannelError, RepositoryError, SettingsError, _overseer.OverseerError, OSError, ValueError) as error:
+    except (AccountError, ChannelError, LauncherError, RepositoryError, SettingsError, _overseer.OverseerError, OSError, ValueError) as error:
         click.echo(" ".join(str(error).split()), err=True)
         context.exit(1)
 
@@ -202,7 +204,7 @@ def status(home: Optional[Path], as_json: bool) -> None:
 @main.command(
     "limits",
     help=(
-        "Show each account's usage windows and reset times. Each named account runs a real minimal ping through its launcher, consuming quota and billable on paid accounts. "
+        "Show each account's usage windows and reset times. Each named account runs a real minimal ping through its own program, consuming quota and billable on paid accounts. "
         "A ping creates a disposable folder; Codex leaves a session record. Foundry runs az account get-access-token instead. Each account can take up to 120 seconds. "
         "A bare text call selects all accounts. JSON and the MCP tool require explicit --id values."
     ),
@@ -461,7 +463,7 @@ _account_id_option = click.option("--id", "account_id", required=True, help="the
 _account_tool_option = click.option("--tool", "tool_id", required=True, help="the tool, such as claude, codex or copilot")
 
 
-@account.command("add", help="Add a subscription account, or repair the launchers of an existing one")
+@account.command("add", help="Add a subscription account, or update the command or folder of an existing one")
 @_account_id_option
 @_account_tool_option
 @click.option("--command", help="the account's own CLI program, when it is not the tool's stock command")
@@ -571,22 +573,20 @@ def tool_install(context: click.Context, tool_id: str, yes: bool, method: Option
         context.exit(1)
 
 
-@main.group("foundry", hidden=True)
-def foundry() -> None:
-    pass
-
-
-@foundry.command("run", add_help_option=False, context_settings={"ignore_unknown_options": True, "allow_interspersed_args": False})
+# Starts an account's program with its config folder: `legion run --account <id> -- <tool arguments>`.
+@main.command("run", hidden=True, add_help_option=False, context_settings={"ignore_unknown_options": True, "allow_interspersed_args": False})
 @click.option("--account", required=True)
 @click.argument("arguments", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
-def foundry_run(context: click.Context, account: str, arguments: tuple[str, ...]) -> None:
-    from legion.services.foundry._run import run
+def run_command(context: click.Context, account: str, arguments: tuple[str, ...]) -> None:
+    from legion.services.accounts._accounts import AccountError
+    from legion.services.accounts._launch import run_account
+    from legion.services.accounts._launchers import LauncherError
     from legion.core._settings_io import SettingsError
 
     try:
-        context.exit(run(account, list(arguments), _home.legion_home(context.obj)))
-    except (ValueError, OSError, SettingsError) as error:
+        context.exit(run_account(account, list(arguments), _home.legion_home(context.obj)))
+    except (AccountError, LauncherError, SettingsError, ValueError, OSError) as error:
         click.echo(" ".join(str(error).split()), err=True)
         context.exit(1)
 

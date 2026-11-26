@@ -17,11 +17,11 @@ import pytest
 from cli_runner import run
 
 from legion.services.channels import _bridge, _channel, _overseer
+from legion.services.accounts import _launch
 from legion.services.repository import _lease, _repository
 from legion import cli as _cli
 from legion.core import (
     _home,
-    _run,
     _settings_io,
     _validate,
 )
@@ -72,6 +72,25 @@ def launched(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Path, _overseer.Laun
     return calls
 
 
+AccountCall = tuple[str, list[str], Path, Path, dict[str, str]]
+
+
+# The in-place launch goes through legion's account launch; record what it was given.
+def fake_account(monkeypatch: pytest.MonkeyPatch, code: int, fails: bool = False) -> list[AccountCall]:
+    calls: list[AccountCall] = []
+
+    def account(account: str, arguments: list[str], home: Path, *, cwd: Path, environment: dict[str, str]) -> int:
+        calls.append((account, arguments, home, cwd, environment))
+        if fails:
+            raise OSError("fixture failed")
+        return code
+
+    monkeypatch.setattr(_overseer, "run_account", account)
+    # The module entry of a new tab imports it again from the account launch module.
+    monkeypatch.setattr(_launch, "run_account", account)
+    return calls
+
+
 def history(home: Path) -> Path:
     return home / ".legion/state/overseer-launches.json"
 
@@ -89,7 +108,7 @@ def test_public_routes_use_python(home: Path, repo: Path, launched: list, monkey
     monkeypatch.setattr(_cli.click, "prompt", lambda *_args, **_kwargs: 2)
     assert run(["--home", str(home), *words]) == 0
     assert len(launched) == 1
-    assert launched[0][1].command == str(_home.wrapper_command("codex-a", home))
+    assert launched[0][1].account == "codex-a"
     assert launched[0][3]
 
 
@@ -186,7 +205,7 @@ def test_validation_refuses_before_history_or_launch(home: Path, repo: Path, lau
 def test_account_eligibility(home: Path, repo: Path, launched: list, tool: str | None, channel: tuple[str, ...], expected: str | None) -> None:
     if expected:
         assert _overseer.run(repo, home, tool=tool, channels=channel, dry_run=True) == 0
-        assert launched[0][1].command == str(_home.wrapper_command(expected, home))
+        assert launched[0][1].account == expected
     else:
         with pytest.raises(_overseer.OverseerError, match=r"Choose an account|no account fits"):
             _overseer.run(repo, home, tool=tool, channels=channel)
@@ -202,7 +221,7 @@ def test_interactive_choices_show_bindings_last_and_retry(home: Path, repo: Path
     output = capsys.readouterr().out
     assert "1) claude-a (claude) channels: main" in output
     assert "2) codex-a (codex) channels: main (last)" in output
-    assert launched[0][1].command == str(_home.wrapper_command("claude-a", home))
+    assert launched[0][1].account == "claude-a"
 
 
 @pytest.mark.parametrize(
@@ -250,7 +269,7 @@ def test_lease_fallback_uses_lease_module(home: Path, repo: Path, launched: list
     monkeypatch.setattr(_lease, "state", read)
     assert _overseer.run(repo, home, dry_run=True) == 0
     assert seen == [repo.resolve()]
-    assert launched[0][1].command == str(_home.wrapper_command("codex-a", home))
+    assert launched[0][1].account == "codex-a"
     assert not history(home).exists()
 
 
@@ -412,7 +431,7 @@ def test_descriptor_argument_order_and_multiple_kinds(home: Path, repo: Path, la
 
 @pytest.mark.parametrize(("in_place", "semicolon", "terminal", "use_tab"), [(True, False, True, False), (False, True, True, False), (False, False, False, False), (False, False, True, True)])
 def test_terminal_selection_and_literal_transport(repo: Path, monkeypatch: pytest.MonkeyPatch, in_place: bool, semicolon: bool, terminal: bool, use_tab: bool) -> None:
-    launch = _overseer.Launch(command="fixture.cmd", arguments=["two words", "quote'value", ""], environment={"BOT_FOLDER": "bot;folder" if semicolon else "bot folder"})
+    launch = _overseer.Launch(account="fixture", home=str(repo), arguments=["two words", "quote'value", ""], environment={"BOT_FOLDER": "bot;folder" if semicolon else "bot folder"})
     calls = []
 
     def child(command: object, **kwargs: object) -> SimpleNamespace:
@@ -422,16 +441,20 @@ def test_terminal_selection_and_literal_transport(repo: Path, monkeypatch: pytes
     monkeypatch.setattr(_overseer, "WINDOWS", True)
     monkeypatch.setattr(_overseer.shutil, "which", lambda _name: "wt.exe" if terminal else None)
     monkeypatch.setattr(_overseer.subprocess, "run", child)
+    accounts = fake_account(monkeypatch, 5)
     assert _overseer.start_launch(repo, launch, in_place=in_place, dry_run=False) == 5
-    command, kwargs = calls[0]
-    assert (command[0] == "wt.exe") == use_tab
     if use_tab:
+        [(command, _kwargs)] = calls
+        assert command[0] == "wt.exe"
         assert "pwsh" not in str(command)
         payload = _overseer.Launch.model_validate_json(base64.urlsafe_b64decode(command[-1]))
         assert payload == launch
         assert command[1:4] == ["new-tab", "-d", str(repo)]
+        assert accounts == []
     else:
-        assert kwargs["cwd"] == repo
+        assert calls == []
+        [(account, arguments, _home_folder, cwd, _environment)] = accounts
+        assert (account, arguments, cwd) == ("fixture", launch.arguments, repo)
 
 
 def test_in_place_inherits_console_and_cleans_environment(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -451,21 +474,16 @@ def test_in_place_inherits_console_and_cleans_environment(repo: Path, monkeypatc
     scripts = sysconfig.get_path("scripts")
     owner_bin = str(repo / ".legion" / "bin")
     monkeypatch.setenv("PATH", os.pathsep.join([scripts, owner_bin, scripts + os.sep]))
-    launch = _overseer.Launch(command="fixture", arguments=["x"], environment={"TELEGRAM_STATE_DIR": "bot folder"}, remove=["TELEGRAM_BOT_TOKEN"])
+    launch = _overseer.Launch(account="fixture", home=str(repo), arguments=["x"], environment={"TELEGRAM_STATE_DIR": "bot folder"}, remove=["TELEGRAM_BOT_TOKEN"])
     before = dict(os.environ)
     cwd = Path.cwd()
-
-    def child(_command: object, **kwargs: Any) -> SimpleNamespace:
-        environment = kwargs["env"]
-        assert not any(name in environment for name in markers)
-        assert environment["PATH"] == owner_bin
-        assert environment["TELEGRAM_STATE_DIR"] == "bot folder"
-        assert kwargs["cwd"] == repo
-        assert not any(name in kwargs for name in ("stdin", "stdout", "stderr", "capture_output"))
-        return SimpleNamespace(returncode=7)
-
-    monkeypatch.setattr(_overseer.subprocess, "run", child)
+    accounts = fake_account(monkeypatch, 7)
     assert _overseer.start_launch(repo, launch, in_place=True, dry_run=False) == 7
+    [(_account, _arguments, home, child_cwd, environment)] = accounts
+    assert not any(name in environment for name in markers)
+    assert environment["PATH"] == owner_bin
+    assert environment["TELEGRAM_STATE_DIR"] == "bot folder"
+    assert (home, child_cwd) == (repo, repo)
     assert dict(os.environ) == before
     assert Path.cwd() == cwd
 
@@ -481,7 +499,7 @@ def test_launched_overseer_adds_no_role_and_preserves_owner_shell(home: Path, re
     agent = next(agent for agent in settings.agents if agent.tool == tool)
     launch = _overseer._launch(settings, agent, (), ("--model", "two words"), "", False, repo, home)
     probes: list[str] = []
-    calls: list[tuple[Any, dict[str, Any]]] = []
+    calls: list[Any] = []
 
     def probe(agent: Agent, _home: Path, _timeout: float) -> list[LimitRow]:
         probes.append(agent.id)
@@ -501,23 +519,24 @@ def test_launched_overseer_adds_no_role_and_preserves_owner_shell(home: Path, re
                     runpy.run_module(_overseer.__name__, run_name="__main__")
             assert result.value.code == 0
             return SimpleNamespace(returncode=0)
+        raise AssertionError(f"unexpected child {command}")
 
-        expected = [launch.command, *launch.arguments]
-        if _overseer.WINDOWS and Path(launch.command).suffix.lower() in (".cmd", ".bat"):
-            expected = _run._cmd_line(expected)
-        assert command == expected
-        assert kwargs["cwd"] == repo
-        assert not any(name in kwargs for name in ("stdin", "stdout", "stderr", "capture_output"))
+    def account(account: str, arguments: list[str], home_folder: Path, *, cwd: Path, environment: dict[str, str]) -> int:
+        calls.append(account)
+        assert (account, arguments, home_folder, cwd) == (agent.id, launch.arguments, _home.full_path(home), repo)
         with monkeypatch.context() as session:
             # Run the CLI under precisely the environment supplied to the agent.
-            session.setattr(os, "environ", kwargs["env"].copy())
+            session.setattr(os, "environ", environment.copy())
             assert "LEGION_ROLE" not in os.environ
             assert run(["--home", str(home), "limits", "--id", agent.id]) == 0
             assert probes == [agent.id]
             probes.clear()
-        return SimpleNamespace(returncode=0)
+        return 0
 
     monkeypatch.setattr(limits_service, "account_rows", probe)
+    monkeypatch.setattr(_overseer, "run_account", account)
+    # The module entry of a new tab imports it again from the account launch module.
+    monkeypatch.setattr(_launch, "run_account", account)
     with monkeypatch.context() as transport:
         transport.setattr(_overseer, "WINDOWS", mode == "new-tab" or sys.platform == "win32")
         transport.setattr(_overseer.shutil, "which", lambda _name: "wt.exe" if mode == "new-tab" else None)
@@ -532,7 +551,8 @@ def test_launched_overseer_adds_no_role_and_preserves_owner_shell(home: Path, re
 
 def test_terminal_payload_survives_rejoin_and_module_entry(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     launch = _overseer.Launch(
-        command="fixture",
+        account="fixture",
+        home=str(repo),
         arguments=["continue as the overseer", 'double"quote', "quote'value", "", "< > | & ^ %", "Привіт"],
         environment={"BOT_FOLDER": "bot folder"},
     )
@@ -540,6 +560,7 @@ def test_terminal_payload_survives_rejoin_and_module_entry(repo: Path, monkeypat
     monkeypatch.setattr(_overseer, "WINDOWS", True)
     monkeypatch.setattr(_overseer.shutil, "which", lambda _name: "wt.exe")
     monkeypatch.setattr(_overseer.subprocess, "run", lambda command, **kwargs: calls.append((command, kwargs)) or SimpleNamespace(returncode=5))
+    accounts = fake_account(monkeypatch, 5)
     assert _overseer.start_launch(repo, launch) == 5
     words = calls.pop()[0][4:]
     assert not any(character in words[-1] for character in (" ", '"', ";"))
@@ -556,27 +577,27 @@ def test_terminal_payload_survives_rejoin_and_module_entry(repo: Path, monkeypat
     with pytest.raises(SystemExit) as result:
         runpy.run_module(_overseer.__name__, run_name="__main__")
     assert result.value.code == 5
-    command, kwargs = calls.pop()
-    assert command == [launch.command, *launch.arguments]
-    assert kwargs["cwd"] == repo
-    assert kwargs["env"]["BOT_FOLDER"] == "bot folder"
+    assert calls == []
+    [(account, arguments, home, cwd, environment)] = accounts
+    assert (account, arguments, home, cwd) == ("fixture", launch.arguments, repo, repo)
+    assert environment["BOT_FOLDER"] == "bot folder"
 
 
 @pytest.mark.parametrize("fails", [False, True])
 def test_bridge_surrounds_child_even_on_failure(repo: Path, home: Path, monkeypatch: pytest.MonkeyPatch, fails: bool) -> None:
     events = []
-    launch = _overseer.Launch(command="fixture", arguments=[], bridge=[sys.executable, "fake bridge"], bot_folder=str(home))
+    launch = _overseer.Launch(account="fixture", home=str(home), arguments=[], bridge=[sys.executable, "fake bridge"], bot_folder=str(home))
     process = SimpleNamespace(pid=123)
     monkeypatch.setattr(_overseer, "start_bridge", lambda *_args: events.append("start") or process)
     monkeypatch.setattr(_overseer, "stop_bridge", lambda *_args: events.append("stop"))
 
-    def child(*_args: object, **_kwargs: object) -> SimpleNamespace:
+    def child(*_args: object, **_kwargs: object) -> int:
         events.append("session")
         if fails:
             raise OSError("fixture failed")
-        return SimpleNamespace(returncode=5)
+        return 5
 
-    monkeypatch.setattr(_overseer.subprocess, "run", child)
+    monkeypatch.setattr(_overseer, "run_account", child)
     if fails:
         with pytest.raises(OSError, match="fixture failed"):
             _overseer.start_launch(repo, launch, in_place=True, dry_run=False)
@@ -599,7 +620,7 @@ def test_bridge_stops_only_owned_process_and_preserves_other_pid(home: Path, mon
 
 
 def test_bridge_start_uses_direct_python_logs_and_repo(home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    launch = _overseer.Launch(command="fixture", arguments=[], bridge=[sys.executable, "fake bridge"], bot_folder=str(home))
+    launch = _overseer.Launch(account="fixture", home=str(home), arguments=[], bridge=[sys.executable, "fake bridge"], bot_folder=str(home))
     calls = []
 
     def start(command: object, **kwargs: object) -> SimpleNamespace:
@@ -629,13 +650,16 @@ def test_dry_run_shows_bridge_and_creates_nothing(home: Path, repo: Path, monkey
     assert not (home / ".legion/channels").exists()
 
 
-def test_windows_batch_uses_existing_literal_transport(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    launch = _overseer.Launch(command="fixture.cmd", arguments=["< > | & ^ %", "", "two words"])
-    calls = []
-    monkeypatch.setattr(_overseer, "WINDOWS", True)
-    monkeypatch.setattr(_overseer.subprocess, "run", lambda command, **_kwargs: calls.append(command) or SimpleNamespace(returncode=0))
-    assert _overseer.start_launch(repo, launch, in_place=True, dry_run=False) == 0
-    assert calls == [_run._cmd_line([launch.command, *launch.arguments])]
+# The overseer names the account and its home; no per-account launcher path is part of the launch.
+def test_overseer_launch_has_no_wrapper_path(home: Path, repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    settings = _settings_io.load(home)
+    launch = _overseer._launch(settings, settings.agents[1], (), (), "", False, repo, home)
+    assert "command" not in _overseer.Launch.model_fields
+    assert (launch.account, launch.home) == ("codex-a", str(_home.full_path(home)))
+    assert _overseer.start_launch(repo, launch, dry_run=True) == 0
+    output = capsys.readouterr().out
+    assert "account codex-a" in output.splitlines()
+    assert str(Path(".legion") / "bin") not in output
 
 
 def test_python_module_bridge_needs_no_uv(home: Path, repo: Path) -> None:

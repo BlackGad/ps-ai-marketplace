@@ -59,5 +59,5 @@ def launch(agent: Agent, home: Path, token: AzAccessToken, now: float | None = N
         set={"COPILOT_HOME": str(home_path(agent.config_dir, home)), "COPILOT_PROVIDERS_CONFIG": str(path)},
         clear=[],
         provider_file=(path, data),
-        notice=f"token valid until {expiry.strftime('%H:%M')}; after that restart with: {agent.id} --resume",
+        notice=f"token valid until {expiry.strftime('%H:%M')}; after that restart with: legion run --account {agent.id} -- --resume",
     )
