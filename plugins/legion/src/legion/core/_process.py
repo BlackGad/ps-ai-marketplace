@@ -84,11 +84,11 @@ def _process_info(pid: int) -> Optional[ProcessInfo]:
         started = datetime.fromtimestamp(process.create_time(), UTC)
         name = process.name()
         try:
-            parent = process.parent()
+            parent_pid = process.ppid()
         except psutil.AccessDenied:
-            parent = None
+            parent_pid = 0
         if process.is_running():
-            return ProcessInfo(pid, parent.pid if parent else 0, name, started)
+            return ProcessInfo(pid, parent_pid, name, started)
     except (psutil.Error, OverflowError):
         pass
     return None
