@@ -336,9 +336,9 @@ def _report_lease(context: click.Context, change: Callable[[], str]) -> None:
 @_process_option
 @click.pass_context
 def lease_take(context: click.Context, repo: Optional[Path], tool: str, account: str, process_id: Optional[int]) -> None:
-    from legion.services.repository import _lease
+    from legion.services.repository import _lease_take
 
-    _report_lease(context, lambda: _lease.take(repo or Path.cwd(), tool, account, process_id))
+    _report_lease(context, lambda: _lease_take.take_for_session(repo or Path.cwd(), tool, account, process_id))
 
 
 @lease.command("status", help="Print free, held, stale or foreign")
