@@ -143,7 +143,6 @@ def test_download_rules_follow_kind_and_resolver(change: dict[str, JsonValue], m
         (("install", "windows", "download", "zip", "assetPattern"), "("),
         (("plugin", "listing", "rejectPattern"), "["),
         (("allowRules",), ["x", "x"]),
-        (("plugin", "cacheDir"), "../x"),
         (("plugin", "defaultConfigDir"), "/abs"),
         (("plugin", "listingEnv"), {"lower": "1"}),
         (("foundry", "aliases"), ["a", "a"]),

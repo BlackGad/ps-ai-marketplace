@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from legion.services.repository import _footprints
-from legion.services.installation import _user_path, installer as _installer
+from legion.services.installation import _user_path
 
 LINE = 'export PATH="$HOME/.legion/bin:$PATH"'
 MARKER = "# Added by legion"
@@ -128,7 +128,7 @@ def test_a_utf32_profile_gets_utf32_bytes_and_keeps_its_original_bytes(home: Pat
     assert profile.read_bytes() == original + f"{MARKER}\n{LINE}\n".encode(codec)
 
 
-def test_a_crlf_profile_gets_a_crlf_block_and_purge_restores_the_original_bytes(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_crlf_profile_gets_a_crlf_block_(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SHELL", "/bin/bash")
     profile = home / ".bashrc"
     original = b"alias x=y\r\nalias z=w"
@@ -136,10 +136,20 @@ def test_a_crlf_profile_gets_a_crlf_block_and_purge_restores_the_original_bytes(
     _user_path.shell_profile_lines(home)
     assert profile.read_bytes() == original + f"\r\n{MARKER}\r\n{LINE}\r\n".encode()
     assert _user_path.shell_profile_lines(home) == ["skip: shell profile PATH (already done)"]
-    catalog = _installer._catalog(Path(__file__).resolve().parents[3], "release", None)
-    plan = _installer.purge_plan(home, catalog)
-    _installer.apply_purge(plan)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell profile")
+def test_uninstall_restores_a_crlf_profile_to_its_original_bytes(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SHELL", "/bin/bash")
+    profile = home / ".bashrc"
+    original = b"alias x=y\r\nalias z=w"
+    profile.write_bytes(original)
+    _user_path.shell_profile_lines(home)
+    assert _user_path.remove(home, dry_run=True) == [f"Remove {MARKER} and {LINE} from {profile}"]
+    assert profile.read_bytes() != original
+    _user_path.remove(home)
     assert profile.read_bytes() == original
+    assert _user_path.remove(home) == ["skip: path (already done)"]
 
 
 def test_a_profile_changed_after_it_was_read_is_kept_and_not_recorded(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -157,3 +167,26 @@ def test_a_profile_changed_after_it_was_read_is_kept_and_not_recorded(home: Path
         _user_path.shell_profile_lines(home)
     assert profile.read_text(encoding="utf-8") == "alias x=y\nalias added=elsewhere\n"
     assert not _footprints.read(home).entries
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell profile")
+def test_a_profile_line_the_owner_wrote_is_not_removed(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SHELL", "/bin/bash")
+    profile = home / ".bashrc"
+    profile.write_text(f"{LINE}\n", encoding="utf-8")
+    _user_path.shell_profile_lines(home)
+    assert _user_path.remove(home) == ["skip: path (already done)"]
+    assert profile.read_text(encoding="utf-8") == f"{LINE}\n"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows saved PATH")
+def test_only_the_recorded_user_path_entry_is_removed(home: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    saved = tmp_path / "user-path.txt"
+    saved.write_text("other;", encoding="utf-8")
+    monkeypatch.setenv("LEGION_TEST_USER_PATH_FILE", str(saved))
+    assert _user_path.add(home, home / ".legion" / "bin")
+    assert _user_path.remove(home, dry_run=True) == [f"Remove user PATH entry: {home / '.legion' / 'bin'}"]
+    assert saved.read_text(encoding="utf-8") == f"other;{home / '.legion' / 'bin'}"
+    _user_path.remove(home)
+    assert saved.read_text(encoding="utf-8") == "other"
+    assert _user_path.remove(home) == ["skip: path (already done)"]

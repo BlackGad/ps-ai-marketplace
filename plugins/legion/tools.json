@@ -8,27 +8,6 @@
       "plugin": {
         "defaultConfigDir": "~/.claude",
         "installedRoot": "plugins/cache/ps-legion-marketplace/legion",
-        "cacheDir": "plugins/cache/ps-legion-marketplace",
-        "purge": {
-          "paths": [
-            "plugins/marketplaces/ps-legion-marketplace",
-            "plugins/data/legion-ps-legion-marketplace"
-          ],
-          "settings": [
-            {
-              "path": "settings.json",
-              "kind": "settings"
-            },
-            {
-              "path": "plugins/known_marketplaces.json",
-              "kind": "marketplaces"
-            },
-            {
-              "path": "plugins/installed_plugins.json",
-              "kind": "claude"
-            }
-          ]
-        },
         "marketplaceAddRef": [
           "plugin",
           "marketplace",
@@ -105,19 +84,6 @@
       "plugin": {
         "defaultConfigDir": "~/.codex",
         "installedRoot": "plugins/cache/ps-legion-marketplace/legion",
-        "cacheDir": "plugins/cache/ps-legion-marketplace",
-        "purge": {
-          "paths": [
-            ".tmp/marketplaces/ps-legion-marketplace",
-            "plugins/data/legion-ps-legion-marketplace"
-          ],
-          "settings": [
-            {
-              "path": "config.toml",
-              "kind": "toml"
-            }
-          ]
-        },
         "marketplaceAddRef": [
           "plugin",
           "marketplace",
@@ -192,26 +158,6 @@
       "plugin": {
         "defaultConfigDir": "~/.copilot",
         "installedRoot": "installed-plugins",
-        "cacheDir": "installed-plugins/legion-marketplace",
-        "purge": {
-          "paths": [
-            "marketplace-cache/ps-legion-marketplace",
-            "plugin-data/ps-legion-marketplace/legion"
-          ],
-          "emptyDirs": [
-            "plugin-data/ps-legion-marketplace"
-          ],
-          "settings": [
-            {
-              "path": "settings.json",
-              "kind": "settings"
-            },
-            {
-              "path": "config.json",
-              "kind": "copilot"
-            }
-          ]
-        },
         "marketplaceAddRef": [
           "plugin",
           "marketplace",

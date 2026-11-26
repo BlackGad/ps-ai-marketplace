@@ -177,7 +177,6 @@ class ToolModel(SettingsModel):
 
 NO_PARENT = r"(?!.*(?:^|[/\\])\.\.(?:[/\\]|$))"
 RelativeFolder = Annotated[str, Field(pattern=rf"^(?![/\\]|[A-Za-z]:){NO_PARENT}.*$")]
-ExactRelativePath = Annotated[str, Field(pattern=r"^(?![/\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\])\.{1,2}(?:[/\\]|$))(?!.*[/\\]{2})(?!.*[/\\]$).+$")]
 EnvironmentName = Annotated[str, Field(pattern=r"^[A-Z_][A-Z0-9_]*$")]
 
 
@@ -191,17 +190,6 @@ def _listing_env_schema(schema: JsonSchemaValue) -> None:
 class Foundry(ToolModel):
     deployment_prefix: Text
     aliases: UniqueItems[list[Text]]
-
-
-class PurgeSetting(ToolModel):
-    path: ExactRelativePath
-    kind: Literal["settings", "marketplaces", "claude", "copilot", "toml"]
-
-
-class Purge(ToolModel):
-    paths: UniqueItems[list[ExactRelativePath]]
-    empty_dirs: Optional[UniqueItems[list[ExactRelativePath]]] = None
-    settings: list[PurgeSetting]
 
 
 class MarketplaceListing(ToolModel):
@@ -225,8 +213,6 @@ class JsonListing(ToolModel):
 class Plugin(ToolModel):
     default_config_dir: Optional[Annotated[str, Field(pattern=rf"^{NO_PARENT}~/[^:]+$")]] = None
     installed_root: Optional[Annotated[str, Field(pattern=rf"^(?![/\\]|[A-Za-z]:|~[/\\]){NO_PARENT}.+$")]] = None
-    cache_dir: Optional[ExactRelativePath] = None
-    purge: Optional[Purge] = None
     marketplace_add: list[str]
     marketplace_add_ref: list[str]
     marketplace_remove: list[str]

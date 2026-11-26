@@ -359,13 +359,6 @@
           "pattern": "^(?![/\\\\]|[A-Za-z]:|~[/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$",
           "type": "string"
         },
-        "cacheDir": {
-          "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$",
-          "type": "string"
-        },
-        "purge": {
-          "$ref": "#/$defs/Purge"
-        },
         "marketplaceAdd": {
           "items": {
             "type": "string"
@@ -455,62 +448,6 @@
         "marketplaceList",
         "list",
         "listing"
-      ],
-      "type": "object"
-    },
-    "Purge": {
-      "additionalProperties": false,
-      "properties": {
-        "paths": {
-          "items": {
-            "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$",
-            "type": "string"
-          },
-          "type": "array",
-          "uniqueItems": true
-        },
-        "emptyDirs": {
-          "items": {
-            "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$",
-            "type": "string"
-          },
-          "type": "array",
-          "uniqueItems": true
-        },
-        "settings": {
-          "items": {
-            "$ref": "#/$defs/PurgeSetting"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "paths",
-        "settings"
-      ],
-      "type": "object"
-    },
-    "PurgeSetting": {
-      "additionalProperties": false,
-      "properties": {
-        "path": {
-          "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$",
-          "type": "string"
-        },
-        "kind": {
-          "enum": [
-            "settings",
-            "marketplaces",
-            "claude",
-            "copilot",
-            "toml"
-          ],
-          "type": "string"
-        }
-      },
-      "required": [
-        "path",
-        "kind"
       ],
       "type": "object"
     },

@@ -392,10 +392,6 @@ def add_allow_rules(plan: Plan, say: Callable[[str], None]) -> None:
                 say(f"skip: permission rule in {row.folder} (already done)")
             continue
         file = row.folder / "settings.json"
-        owner = _footprints.target_owner(row.tool, row.folder, plan.home)
-        # Record only the rules setup adds; a rule the owner already had stays theirs.
-        for rule in missing:
-            _footprints.add(plan.home, "edit", file, owner, key="permissions.allow", value=rule)
         data = _read_json(file) if file.exists() else {}
         current = [rule for rule in _allowed_rules(file, data) if rule]
         permissions = data.get("permissions")
@@ -454,12 +450,6 @@ def write_commands(plan: Plan, say: Callable[[str], None]) -> None:
     if plan.uv_missing:
         say("uv is missing. Ask the owner before installing it.")
         return
-    for row in plan.accounts:
-        if row.version:
-            owner = _footprints.target_owner(row.tool, row.folder, plan.home)
-            for path, _state in plan.commands:
-                _footprints.add(plan.home, "file", path, owner)
-            _footprints.add(plan.home, "app", plan.home / ".legion" / "app", owner)
     for line in _refresh.refresh(plan.home):
         say(line)
     if any(state == "owned" for _path, state in plan.commands):

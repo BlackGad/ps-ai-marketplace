@@ -260,7 +260,7 @@ def test_first_purge_uses_owner_command_repeat_uses_bootstrap(tmp_path: Path) ->
     instance = make_runner(tmp_path)
     instance.targets_for_uninstall = lambda **_kwargs: []
     instance.legion = lambda *args, **kwargs: "done: purge" if args == ("uninstall", "--purge", "--yes") and kwargs == {"owner": True} else pytest.fail("wrong first purge")
-    instance.run = lambda argv, **_kwargs: "skip: purge (already done)" if "--purge" in argv or "-Purge" in argv else pytest.fail("wrong repeat purge")
+    instance.run = lambda argv, **_kwargs: "skip: uninstall (already done)" if "--purge" in argv or "-Purge" in argv else pytest.fail("wrong repeat purge")
     instance.profile_count = lambda: 0
     instance.cli = lambda *_args, **_kwargs: ""
     instance.purge(False)
@@ -358,27 +358,19 @@ def test_source_fallback_rejects_other_or_moving_main(tmp_path: Path, moved: boo
         instance.install_first()
 
 
-@pytest.mark.parametrize("leftover", ["setting", "path", "marketplace"])
-def test_purge_rejects_each_leftover(tmp_path: Path, leftover: str) -> None:
+def test_purge_rejects_a_leftover_marketplace(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
     instance.home_snapshot = dict
-    instance.legion = lambda *_args, **_kwargs: "skip: purge (already done)"
-    instance.run = lambda *_args, **_kwargs: "skip: purge (already done)"
+    instance.legion = lambda *_args, **_kwargs: "skip: uninstall (already done)"
+    instance.run = lambda *_args, **_kwargs: "skip: uninstall (already done)"
     instance.profile_count = lambda: 0
     instance.check_uninstalled = lambda *_args: None
-    instance.listing = lambda _tool, _folder, kind="plugin", **_kwargs: leftover == "marketplace" and kind == "marketplace"
+    instance.listing = lambda _tool, _folder, kind="plugin", **_kwargs: kind == "marketplace"
     instance.cli = lambda *_args: ""
     folder = instance.folder("copilot")
     folder.mkdir(parents=True)
-    if leftover == "setting":
-        setting = instance.catalog["copilot"]["plugin"]["purge"]["settings"][0]["path"]
-        target = folder / setting
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("Legion", encoding="utf-8")
-    elif leftover == "path":
-        (folder / instance.catalog["copilot"]["plugin"]["purge"]["paths"][0]).mkdir(parents=True)
     instance.state["purge_targets"] = [("copilot", folder)]
-    with pytest.raises(AssertionError, match={"setting": "legion remains", "path": "purge path remains", "marketplace": "marketplace remains"}[leftover]):
+    with pytest.raises(AssertionError, match="marketplace remains"):
         instance.purge(True)
 
 
@@ -392,7 +384,7 @@ def test_repeat_purge_uses_bootstrap_after_owned_uv_was_removed(tmp_path: Path) 
 
     def run(argv: list[str], **_kwargs: Any) -> str:
         calls.append(argv)
-        return "skip: purge (already done)"
+        return "skip: uninstall (already done)"
 
     instance.run = run
     instance.legion = lambda *_args, **_kwargs: pytest.fail("repeat purge used missing uv")

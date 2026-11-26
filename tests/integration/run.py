@@ -247,6 +247,15 @@ def contains(output: str, expected: str) -> None:
     require(expected in output, f"expected {expected!r} in output:\n{output}")
 
 
+# A detached shell deletes legion's folders once the legion command has exited.
+def wait_gone(*paths: Path) -> None:
+    deadline = time.monotonic() + 90
+    while any(os.path.lexists(path) for path in paths) and time.monotonic() < deadline:
+        time.sleep(0.5)
+    for path in paths:
+        require(not os.path.lexists(path), f"{path} remains after the uninstall handover")
+
+
 @contextmanager
 def restore_user_path():
     """Restore the Windows user PATH if an external CLI installer changes it."""
@@ -729,7 +738,7 @@ asyncio.run(main())
         contains(json.loads(reply)["additionalContext"], "you are a legion member")
 
         upgrade.legion("uninstall", "--purge", "--yes", owner=True)
-        require(not (upgrade.home / ".legion").exists(), "upgrade left an owner installation after purge")
+        wait_gone(upgrade.home / ".legion")
         require(upgrade.profile_count() == 0, "upgrade left a PATH entry in a shell profile")
         require(not (upgrade.work / "user-path.txt").read_text(encoding="utf-8").strip(), "upgrade left a saved user PATH entry")
         for tool in TOOLS:
@@ -986,8 +995,6 @@ asyncio.run(main())
     def check_uninstalled(self, tool: str, folder: Path) -> None:
         require(self.version(tool, folder) is None, f"legion remains in {folder}")
         require(not self.listing(tool, folder, include_disabled=True), f"{tool} still lists legion in {folder}")
-        cache = self.catalog[tool]["plugin"].get("cacheDir")
-        require(not cache or not (folder / cache).exists(), f"{tool} cache remains")
 
     def account_ids(self) -> list[str]:
         return [agent["id"] for agent in self.settings()["agents"] if agent["tool"] in self.active()]
@@ -1009,16 +1016,13 @@ asyncio.run(main())
         targets = self.targets_for_uninstall() if not repeat else []
         output = self.legion("uninstall", "--yes", owner=not repeat)
         if repeat:
-            contains(output, "Nothing to uninstall.")
+            contains(output, "skip: uninstall (already done)")
             return output
         for tool, folder in targets:
             self.check_uninstalled(tool, folder)
         for tool in self.active():
             self.run([self.command(self.catalog[tool]["command"]), "--version"])
-        require(not self.launcher("legion").exists(), "owner command remains")
-        if sys.platform == "win32":
-            require(not self.launcher("legion").with_suffix("").exists(), "owner command remains")
-        require(not (self.home / ".legion/app").exists(), "app remains")
+        wait_gone(*(self.home / ".legion" / name for name in ("app", "bin", "python")))
         self.check_account_launch()
         for name in ("configuration", "agents"):
             require((self.home / ".legion" / name).is_dir(), f"{name} removed")
@@ -1049,20 +1053,13 @@ asyncio.run(main())
         else:
             output = self.run(["sh", str(self.checkout / "install.sh"), "--uninstall", "--purge", "--yes"])
         if repeat:
-            contains(output, "skip: purge (already done)")
-        require(not (self.home / ".legion").exists(), "legion home remains")
+            contains(output, "skip: uninstall (already done)")
+        wait_gone(self.home / ".legion")
         require(self.profile_count() == 0, "profile legion line remains")
         for tool, folder in self.state["purge_targets"]:
             if folder.is_dir():
                 self.check_uninstalled(tool, folder)
                 require(not self.listing(tool, folder, "marketplace"), f"{tool} marketplace remains")
-                plugin = self.catalog[tool]["plugin"]
-                for relative in [plugin.get("cacheDir"), *plugin.get("purge", {}).get("paths", []), *plugin.get("purge", {}).get("emptyDirs", [])]:
-                    if relative:
-                        require(not (folder / relative).exists(), f"purge path remains: {folder / relative}")
-                for setting in plugin.get("purge", {}).get("settings", []):
-                    path = folder / setting["path"]
-                    require(not path.is_file() or "legion" not in path.read_text(encoding="utf-8").lower(), f"legion remains in {path}")
         for tool in TOOLS:
             self.cli(tool, ["--version"])
         if repeat:

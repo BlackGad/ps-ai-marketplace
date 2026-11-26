@@ -93,7 +93,7 @@ def test_command_checks_writes_and_skips(generator: ModuleType, plugin: Path, mo
     ("file_name", "field", "value"),
     [
         ("helpers.json", "node.check", 42),
-        ("skills/legion-codex/tool.json", "plugin.cacheDir", "../outside"),
+        ("skills/legion-codex/tool.json", "plugin.defaultConfigDir", "/outside"),
         ("skills/legion-telegram/channel.json", "launch", {"unknown": []}),
     ],
 )
@@ -158,7 +158,6 @@ def test_rejects_tool_argument_type(generator: ModuleType, plugin: Path, field: 
         ("install.windows.portableCommand", "../outside.exe", "portableCommand"),
         ("overseerArgs", ["--flag", 42], "overseerArgs"),
         *[("hooks.status", value, "hooks.status") for value in (None, 42, ["status"])],
-        *[("plugin.cacheDir", path, "cacheDir") for path in ("../outside", "cache/../../outside", "/outside", "C:/outside", "plugins/*", "plugins/?")],
     ],
 )
 def test_rejects_invalid_tool(generator: ModuleType, plugin: Path, field: str, value: Any, message: str) -> None:

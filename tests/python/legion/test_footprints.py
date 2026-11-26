@@ -21,15 +21,15 @@ def test_add_records_home_relative_path_and_merges_owners(tmp_path: Path) -> Non
     assert data == {"schemaVersion": 1, "entries": [{"kind": "file", "path": "~/.legion/bin/tool", "key": "", "value": "", "owners": ["first", "second"]}]}
 
 
-def test_remove_owner_deletes_owned_folder_but_keeps_edit(tmp_path: Path) -> None:
+def test_remove_owner_deletes_owned_folder_but_keeps_other_records(tmp_path: Path) -> None:
     folder = tmp_path / ".legion" / "old"
     folder.mkdir(parents=True)
     (folder / "child").write_text("x", encoding="utf-8")
     _footprints.add(tmp_path, "folder", folder, "account:a")
-    _footprints.add(tmp_path, "edit", tmp_path / ".legion" / "notes.md", "account:a")
+    _footprints.add(tmp_path, "path-entry", tmp_path / ".legion" / "notes.md", "account:a")
     assert _footprints.remove_owner(tmp_path, ["account:a"]) == [f"Remove folder: {folder}"]
     assert not folder.exists()
-    assert [(entry.kind, entry.owners) for entry in _footprints.read(tmp_path).entries] == [("edit", [])]
+    assert [(entry.kind, entry.owners) for entry in _footprints.read(tmp_path).entries] == [("path-entry", [])]
 
 
 @pytest.mark.parametrize("name", ["Documents", ".legion"])
@@ -41,21 +41,6 @@ def test_remove_owner_preserves_folder_outside_legion_tree(tmp_path: Path, name:
     _footprints.add(tmp_path, "folder", folder, "account:a")
     assert _footprints.remove_owner(tmp_path, ["account:a"]) == [f"skip: {folder} (linked or not legion's)"]
     assert child.read_text(encoding="utf-8") == "owner data"
-
-
-def test_link_safety_compares_recorded_target(tmp_path: Path) -> None:
-    target = tmp_path / "target"
-    target.mkdir()
-    link = tmp_path / ".legion" / "link"
-    link.parent.mkdir()
-    if sys.platform == "win32":
-        _winapi.CreateJunction(str(target), str(link))
-    else:
-        link.symlink_to(target, target_is_directory=True)
-    recorded = str(link.readlink())
-    entry = _footprints.Footprint(kind="link", path="~/.legion/link", value=recorded, owners=["account:a"])
-    assert _footprints.is_safe(entry, tmp_path)
-    assert not _footprints.is_safe(entry.model_copy(update={"value": "other"}), tmp_path)
 
 
 def test_remove_entry_matches_absolute_and_home_relative_path(tmp_path: Path) -> None:

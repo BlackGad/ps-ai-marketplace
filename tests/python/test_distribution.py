@@ -74,5 +74,4 @@ def test_fixed_entry_points_exist() -> None:
     assert len(scripts) == 4
     for relative in scripts:
         assert (PLUGIN / relative.replace("\\", "/")).is_file(), relative
-    assert (PLUGIN / "src/legion/_self_uninstall.py").is_file()
     console_command()
