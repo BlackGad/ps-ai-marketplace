@@ -78,11 +78,6 @@ def main() -> int:
         deadline = time.monotonic() + 20
         while not marker.is_file() and time.monotonic() < deadline:
             time.sleep(0.05)
-        if own_setting(name, "REPARENT"):
-            # Give the owner a poll to observe the detached child, then leave it holding
-            # the output pipes so cancellation must use its retained process identity.
-            time.sleep(0.5)
-            return 0
         time.sleep(float(own_setting(name, "SLEEP")))
     if own_setting(name, "STDOUT"):
         sys.stdout.write(Path(own_setting(name, "STDOUT")).read_text(encoding="utf-8"))

@@ -7,7 +7,7 @@ import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import anyio
 import pytest
@@ -20,7 +20,6 @@ from mcp_protocol_fake import Connection
 from test_limits import (
     ACCOUNTS,
     Bench,
-    FIXTURES,
     write_executable,
     write_settings,
 )
@@ -186,7 +185,7 @@ def test_eof_closes_server(connection: Connection) -> None:
 
 @pytest.mark.parametrize("stop", ["eof", "cancel"])
 @pytest.mark.parametrize("target", ["claude", "codex", "copilot", "az", "git"])
-def test_interrupted_limits_kills_tree_and_removes_folder(connection: Connection, bench: Bench, stop: str, target: str) -> None:
+def test_interrupted_limits_kills_tree(connection: Connection, bench: Bench, stop: str, target: str) -> None:
     # The subprocess inherited its environment at startup; put the sleep setting in the fake executable.
     folder = bench.path if target in {"az", "git"} else bench.home / ".legion/bin"
     name = target if target in {"az", "git"} else f"{target}-a"
@@ -195,9 +194,6 @@ def test_interrupted_limits_kills_tree_and_removes_folder(connection: Connection
     connection.send("tools/call", {"name": "limits", "arguments": {"accounts": [account]}}, 3)
     pid = int(wait_file(bench.logs / "grandchild.pid"))
     call = bench.calls(target)[0]
-    ping_folder = Path(call["folder"])
-    if target == "git":
-        ping_folder = Path(call["arguments"][1])
     if stop == "eof":
         connection.eof()
         assert connection.process.wait(timeout=5) == 0
@@ -207,108 +203,33 @@ def test_interrupted_limits_kills_tree_and_removes_folder(connection: Connection
         assert "result" in connection.receive(4)
     assert_dead(pid)
     assert_dead(call["pid"])
-    if target != "az":
-        deadline = time.monotonic() + 5
-        while ping_folder.exists():
-            assert time.monotonic() < deadline, "ping folder survived cancellation"
-            time.sleep(0.01)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix process sessions")
-@pytest.mark.parametrize("stop", ["eof", "cancel", "timeout"])
+@pytest.mark.parametrize("stop", ["eof", "cancel"])
 @pytest.mark.parametrize("target", ["claude", "codex", "copilot", "az", "git"])
-@pytest.mark.parametrize("reparent", [False, True], ids=["parent-alive", "parent-exited"])
-def test_detached_descendant_is_stopped(connection: Connection, bench: Bench, stop: str, target: str, reparent: bool) -> None:
+def test_detached_descendant_is_stopped(connection: Connection, bench: Bench, stop: str, target: str) -> None:
     folder = bench.path if target in {"az", "git"} else bench.home / ".legion/bin"
     name = target if target in {"az", "git"} else f"{target}-a"
     account = "foundry-a" if target == "az" else "codex-a" if target == "git" else name
-    write_executable(folder, name, {f"LEGION_FAKE_{target.upper()}_SLEEP": "60", f"LEGION_FAKE_{target.upper()}_DETACH": "1", f"LEGION_FAKE_{target.upper()}_REPARENT": "1" if reparent else ""})
-    arguments: dict[str, Any] = {"accounts": [account]}
-    if stop == "timeout":
-        arguments["timeout"] = 3
-    connection.send("tools/call", {"name": "limits", "arguments": arguments}, 3)
+    write_executable(folder, name, {f"LEGION_FAKE_{target.upper()}_SLEEP": "60", f"LEGION_FAKE_{target.upper()}_DETACH": "1"})
+    connection.send("tools/call", {"name": "limits", "arguments": {"accounts": [account]}}, 3)
     pid = int(wait_file(bench.logs / "grandchild.pid"))
     call = bench.calls(target)[0]
     # Establish that the fixture really left the launcher's process group and session.
     if sys.platform != "win32":
         assert os.getpgid(pid) == os.getsid(pid) == pid
         assert os.getpgid(call["pid"]) != os.getpgid(pid)
-    if reparent:
-        assert_dead(call["pid"])
     if stop == "eof":
         connection.eof()
         assert connection.process.wait(timeout=5) == 0
-    elif stop == "cancel":
-        connection.send("notifications/cancelled", {"requestId": 3})
     else:
-        assert "timed out" in str(connection.receive(3))
+        connection.send("notifications/cancelled", {"requestId": 3})
     assert_dead(pid)
     assert_dead(call["pid"])
-    if target != "az":
-        ping_folder = Path(call["arguments"][1] if target == "git" else call["folder"])
-        deadline = time.monotonic() + 5
-        while ping_folder.exists():
-            assert time.monotonic() < deadline
-            time.sleep(0.01)
     if stop != "eof":
         connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["copilot-a" if target != "copilot" else "claude-a"], "timeout": 1}}, 4)
         assert not connection.receive(4)["result"].get("isError", False)
-
-
-@pytest.mark.parametrize(
-    ("phase", "stop", "budget"),
-    [
-        ("enumerate", "eof", 2),
-        ("enumerate", "cancel", 2),
-        ("enumerate", "deadline", 2),
-        ("records", "eof", 2),
-        ("records", "cancel", 2),
-        ("records", "deadline", 2),
-        ("records", "deadline", 20),
-    ],
-)
-def test_session_lookup_is_bounded_and_cancellable(bench: Bench, phase: str, stop: str, budget: int) -> None:
-    sessions = bench.config("codex-a") / "sessions"
-    sessions.mkdir(parents=True)
-    if phase == "enumerate":
-        for index in range(500):
-            (sessions / f"foreign-{index}.jsonl").write_text('{"type":"session_meta","payload":{"cwd":"/foreign"}}\n', encoding="utf-8")
-    seed = bench.home / "session-seed.jsonl"
-    seed.write_text((FIXTURES / "codex-session.jsonl").read_text(encoding="utf-8") * 2000, encoding="utf-8")
-    write_executable(bench.home / ".legion/bin", "codex-a", {"CODEX_HOME": str(bench.config("codex-a")), "LEGION_FAKE_CODEX_SESSION": str(seed)})
-    command = [sys.executable, str(Path(__file__).with_name("mcp_lookup_fake.py")), str(bench.home), str(bench.logs), phase, str(budget)]
-    connection = Connection(bench.home, command)
-    try:
-        connection.ready()
-        started = time.monotonic()
-        connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["codex-a"]}}, 3)
-        wait_file(bench.logs / "lookup.started")
-        call = bench.calls("codex")[0]
-        assert_dead(call["pid"])
-        assert not Path(call["folder"]).exists()
-        if stop == "eof":
-            interrupted = time.monotonic()
-            connection.eof()
-            assert connection.process.wait(timeout=5) == 0
-        elif stop == "cancel":
-            interrupted = time.monotonic()
-            connection.send("notifications/cancelled", {"requestId": 3})
-        else:
-            interrupted = started
-            result = connection.receive(3)["result"]
-            assert "deadline exceeded" in str(result)
-            assert time.monotonic() - started < budget + 5
-        outcome = wait_file(bench.logs / "lookup.finished")
-        assert time.monotonic() - interrupted < (budget + 5 if stop == "deadline" else 5)
-        assert outcome in {"CommandCancelled", "CommandDeadlineError"}
-        if stop != "deadline":
-            assert outcome == "CommandCancelled"
-        if stop != "eof":
-            connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["copilot-a"]}}, 4)
-            assert not connection.receive(4)["result"].get("isError", False)
-        assert len(bench.calls("codex")) == 1
-    finally:
-        connection.close()
 
 
 @pytest.mark.parametrize("timeout", ["nan", "NaN", "inf", "+inf", "-inf"])
@@ -322,18 +243,19 @@ def test_cli_rejects_nonfinite_timeout_without_probes(bench: Bench, timeout: str
 def test_limits_bounds_single_account_default(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
     observed = []
 
-    def probe(_home: Path, accounts: list[str], timeout: float) -> list[Any]:
-        observed.append((accounts, timeout))
-        return []
+    async def run_cli(arguments: list[str], home: Optional[Path], cwd: Optional[Path] = None) -> bytes:
+        del home, cwd
+        observed.append(arguments)
+        return b"[]"
 
-    monkeypatch.setattr(mcp_server, "limits_report", probe)
+    monkeypatch.setattr(mcp_server, "_run_cli", run_cli)
 
     async def check() -> None:
         async with create_connected_server_and_client_session(build(bench.home)) as session:
             assert not (await session.call_tool("limits", {"accounts": ["claude-a"]})).isError
 
     anyio.run(check)
-    assert observed == [(["claude-a"], 20)]
+    assert observed == [["limits", "--json", "--timeout", "20.0", "--id", "claude-a"]]
 
 
 def test_probe_timeout_cleans_tree_and_allows_next_call(connection: Connection, bench: Bench) -> None:

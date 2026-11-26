@@ -7,51 +7,14 @@ import re
 import signal
 import subprocess
 import sys
-import threading
-import time
-from contextlib import contextmanager
-from contextvars import ContextVar
-from collections.abc import Iterator
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Optional, Union
 
 from pydantic import BaseModel, ConfigDict
-import psutil
 
 # After a timeout kill, how long to wait for the pipes to close; a process that left the tree can hold them.
 DRAIN_SECONDS = 5
-_cancellation: ContextVar[Optional[threading.Event]] = ContextVar("command_cancellation", default=None)
-_deadline: ContextVar[Optional[float]] = ContextVar("command_deadline", default=None)
-
-
-# Cancellation must bypass account_rows' ordinary error-to-row conversion.
-class CommandCancelled(BaseException):
-    pass
-
-
-class CommandDeadlineError(Exception):
-    pass
-
-
-@contextmanager
-def command_cancellation(event: threading.Event, *, deadline: Optional[float] = None) -> Iterator[None]:
-    token = _cancellation.set(event)
-    deadline_token = _deadline.set(deadline)
-    try:
-        yield
-    finally:
-        _cancellation.reset(token)
-        _deadline.reset(deadline_token)
-
-
-def check_command_context() -> None:
-    cancelled = _cancellation.get()
-    if cancelled is not None and cancelled.is_set():
-        raise CommandCancelled
-    deadline = _deadline.get()
-    if deadline is not None and time.monotonic() >= deadline:
-        raise CommandDeadlineError("MCP call deadline exceeded")
 
 
 class RunResult(BaseModel):
@@ -66,12 +29,6 @@ class RunResult(BaseModel):
 # Return exit code -1 and timed_out when the timeout kills the process tree.
 # A .cmd or .bat runs through cmd.exe with every character kept literal; a line break cannot pass and raises ValueError.
 def run_command(command: str, arguments: Sequence[str], timeout: Optional[float] = None, env: Optional[Mapping[str, str]] = None, cwd: Optional[Path] = None) -> RunResult:
-    cancelled = _cancellation.get()
-    check_command_context()
-    deadline = _deadline.get()
-    if deadline is not None:
-        remaining = max(0.0, deadline - time.monotonic())
-        timeout = min(timeout, remaining) if timeout is not None else remaining
     on_windows = sys.platform == "win32"
     line: Union[str, list[str]] = [command, *arguments]
     if on_windows and Path(command).suffix.lower() in {".cmd", ".bat"}:
@@ -88,10 +45,6 @@ def run_command(command: str, arguments: Sequence[str], timeout: Optional[float]
         creationflags=subprocess.CREATE_NO_WINDOW | _CREATE_SUSPENDED if sys.platform == "win32" else 0,
     )
     job = None
-    owned: dict[int, psutil.Process] = {}
-    if not on_windows:
-        with contextlib.suppress(psutil.NoSuchProcess):
-            owned[process.pid] = psutil.Process(process.pid)
     if on_windows:
         try:
             job = _windows_job(process.pid)
@@ -101,15 +54,15 @@ def run_command(command: str, arguments: Sequence[str], timeout: Optional[float]
             raise
     try:
         try:
-            output, error = _communicate(process, timeout, cancelled, owned)
+            output, error = process.communicate(timeout=timeout)
             timed_out = False
         except subprocess.TimeoutExpired:
-            _kill_tree(process, job, owned)
+            _kill_tree(process, job)
             try:
                 output, error = process.communicate(timeout=DRAIN_SECONDS)
             except subprocess.TimeoutExpired:
                 # A descendant can still hold the pipes after the first stop; try the tree again.
-                _kill_tree(process, job, owned)
+                _kill_tree(process, job)
                 try:
                     output, error = process.communicate(timeout=DRAIN_SECONDS)
                 except subprocess.TimeoutExpired:
@@ -117,34 +70,10 @@ def run_command(command: str, arguments: Sequence[str], timeout: Optional[float]
                     process.wait()
                     output, error = b"", b""
             timed_out = True
-        except CommandCancelled:
-            _kill_tree(process, job, owned)
-            try:
-                process.communicate(timeout=DRAIN_SECONDS)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-            raise
     finally:
         if job:
             _close_job(job)
     return RunResult(exit_code=-1 if timed_out else process.returncode, output=_text(output), error=_text(error), timed_out=timed_out)
-
-
-def _communicate(process: subprocess.Popen[bytes], timeout: Optional[float], cancelled: Optional[threading.Event], owned: dict[int, psutil.Process]) -> tuple[bytes, bytes]:
-    if cancelled is None and not owned:
-        return process.communicate(timeout=timeout)
-    deadline = time.monotonic() + timeout if timeout is not None else None
-    while True:
-        _track_descendants(owned)
-        if cancelled is not None and cancelled.is_set():
-            raise CommandCancelled
-        remaining = max(0.0, deadline - time.monotonic()) if deadline is not None else 0.1
-        try:
-            return process.communicate(timeout=min(0.1, remaining))
-        except subprocess.TimeoutExpired:
-            if deadline is not None and time.monotonic() >= deadline:
-                raise
 
 
 # cmd.exe reads the whole line: quotes keep & | < > ^ literal, /v:off keeps !, and %cd:~,% (an empty
@@ -164,29 +93,14 @@ def _text(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def _track_descendants(owned: dict[int, psutil.Process]) -> None:
-    # Keep Process objects: psutil checks identity before signalling, avoiding PID reuse.
-    # Retain children even after they change sessions or their parent exits.
-    for parent in list(owned.values()):
-        with contextlib.suppress(psutil.NoSuchProcess):
-            for child in parent.children(recursive=True):
-                owned.setdefault(child.pid, child)
-
-
-def _kill_tree(process: subprocess.Popen[bytes], job: Optional[int], owned: dict[int, psutil.Process]) -> None:
+def _kill_tree(process: subprocess.Popen[bytes], job: Optional[int]) -> None:
     if sys.platform == "win32":
         if not job or not ctypes.WinDLL("kernel32").TerminateJobObject(ctypes.c_void_p(job), 1):
             process.kill()
         return
-    _track_descendants(owned)
-    # Cover undiscovered children in the original group before individual kills turn
-    # its members into zombies. Darwin can report EPERM for a zombie-only group;
-    # either group error still needs the retained, identity-checked kills below.
-    with contextlib.suppress(ProcessLookupError, PermissionError):
+    # The child leads its own session, so its process group holds every descendant that did not leave it.
+    with contextlib.suppress(ProcessLookupError):
         os.killpg(process.pid, signal.SIGKILL)
-    for child in reversed(list(owned.values())):
-        with contextlib.suppress(psutil.NoSuchProcess):
-            child.kill()
 
 
 _CREATE_SUSPENDED = 0x00000004
