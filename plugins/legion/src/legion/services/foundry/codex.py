@@ -8,6 +8,7 @@ from tomlkit.exceptions import TOMLKitError
 from legion.core._generated import write_generated
 from legion.core._home import home_path
 from legion.core._settings_models import Agent
+from legion.core._text import decode_text, encode_text
 from legion.services.foundry._az import AzAccessToken, RESOURCE, az
 from legion.services.foundry._types import Launch
 
@@ -21,11 +22,9 @@ def set_value(table: MutableMapping[str, Any], key: str, value: Any) -> None:
 def configure(agent: Agent, home: Path) -> bool:
     path = home_path(agent.config_dir, home) / "config.toml"
     original = path.read_bytes() if path.exists() else b""
-    # Hand-built, reason: preserve the owner's BOM and line endings while tomlkit updates only Foundry settings.
-    bom = original.startswith(b"\xef\xbb\xbf")
-    newline = "\r\n" if b"\r\n" in original else "\n"
     try:
-        doc = tomlkit.parse(original.decode("utf-8-sig"))
+        text, format = decode_text(original)
+        doc = tomlkit.parse(text)
     except (TOMLKitError, UnicodeError):
         raise ValueError("config.toml is not valid TOML; fix it before configuring Foundry") from None
     assert agent.provider is not None
@@ -45,12 +44,10 @@ def configure(agent: Agent, home: Path) -> bool:
     set_value(auth, "command", str(az()))
     set_value(auth, "args", ["account", "get-access-token", "--resource", RESOURCE, "--query", "accessToken", "-o", "tsv"])
     set_value(auth, "refresh_interval_ms", 1800000)
-    content = tomlkit.dumps(doc).replace("\r\n", "\n").replace("\n", newline).encode("utf-8")
-    if bom:
-        content = b"\xef\xbb\xbf" + content
+    content = encode_text(tomlkit.dumps(doc), format, normalize_newlines=True)
     if content == original:
         return False
-    return write_generated(path, content.decode("utf-8"), executable=False)
+    return write_generated(path, content, executable=False)
 
 
 def launch(agent: Agent, home: Path, _token: AzAccessToken) -> Launch:

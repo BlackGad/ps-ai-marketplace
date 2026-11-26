@@ -1,4 +1,3 @@
-import codecs
 import json
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from pydantic_core import ErrorDetails
 
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._settings_models import ChannelDescriptor, PersonalisationSettings, ProjectSettings, ToolDescriptor
+from legion.core._text import decode_text
 
 FRAME = "$: {}; run legion setup to update your settings"
 
@@ -18,11 +18,8 @@ def _framed(message: str) -> str:
     return FRAME.format(" ".join(message.split()))
 
 
-# A settings file may be saved as UTF-8 or, with a byte-order mark, as UTF-16.
 def read_text(path: Path) -> str:
-    data = path.read_bytes()
-    encoding = "utf-16" if data[:2] in (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE) else "utf-8-sig"
-    return data.decode(encoding)
+    return decode_text(path.read_bytes())[0]
 
 
 # JSON allows a key twice and keeps the last value; legion settings reject it.

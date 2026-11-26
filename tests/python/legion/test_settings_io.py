@@ -196,7 +196,7 @@ def test_save_preserves_non_windows_permission_error(tmp_path: Path, monkeypatch
     def denied(*_args: object, **_kwargs: object) -> None:
         raise PermissionError(13, "temporary directory denies creation")
 
-    monkeypatch.setattr(_settings_io.tempfile, "NamedTemporaryFile", denied)
+    monkeypatch.setattr("tempfile.NamedTemporaryFile", denied)
     with pytest.raises(SettingsError, match="temporary directory denies creation"):
         _settings_io.save(tmp_path, model())
 
@@ -223,8 +223,8 @@ def test_save_reports_replace_and_cleanup_failures_together(tmp_path: Path) -> N
     with pytest.MonkeyPatch.context() as patch:
         # Exercise named lock probes on Linux too; macOS has no O_TMPFILE.
         patch.delattr(os, "O_TMPFILE", raising=False)
-        patch.setattr(_settings_io.Path, "unlink", cleanup_denied)
-        patch.setattr(_settings_io.Path, "replace", held)
+        patch.setattr(Path, "unlink", cleanup_denied)
+        patch.setattr(Path, "replace", held)
         with pytest.raises(SettingsError) as failure:
             _settings_io.save(tmp_path, model())
     assert str(failure.value) == "legion settings are in use by another program; close it and run the command again; cleanup failed: cleanup denied"

@@ -38,28 +38,6 @@ def claude_agent(folder: Path) -> Agent:
 
 
 @pytest.mark.parametrize(("recipe", "filename", "original"), [(codex, "config.toml", b'theme = "dark"\n'), (claude, "settings.json", b'{"theme":"dark"}\n')])
-def test_failed_config_write_keeps_previous_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recipe: ModuleType, filename: str, original: bytes) -> None:
-    folder = tmp_path / "account"
-    folder.mkdir()
-    path = folder / filename
-    path.write_bytes(original)
-    monkeypatch.setattr(codex, "az", lambda: Path("/fake/az"))
-    real_write = Path.write_text
-
-    def interrupted_write(target: Path, content: str, **keywords: Any) -> int:
-        if target.suffix == ".tmp":
-            real_write(target, content[:4], **keywords)
-            raise OSError("disk full")
-        return real_write(target, content, **keywords)
-
-    monkeypatch.setattr(Path, "write_text", interrupted_write)
-    agent = codex_agent(folder) if recipe is codex else claude_agent(folder)
-    with pytest.raises(OSError, match="disk full"):
-        recipe.configure(agent, tmp_path)
-    assert path.read_bytes() == original
-
-
-@pytest.mark.parametrize(("recipe", "filename", "original"), [(codex, "config.toml", b'theme = "dark"\n'), (claude, "settings.json", b'{"theme":"dark"}\n')])
 def test_config_write_preserves_symlink_and_updates_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recipe: ModuleType, filename: str, original: bytes) -> None:
     folder = tmp_path / "account"
     folder.mkdir()

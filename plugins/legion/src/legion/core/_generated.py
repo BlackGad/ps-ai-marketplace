@@ -1,8 +1,8 @@
-import os
 import stat
 import sys
-import tempfile
 from pathlib import Path
+
+from legion.core._atomic_write import atomic_write_bytes
 
 
 def header(name: str, windows: bool) -> str:
@@ -23,23 +23,12 @@ def is_owned(path: Path, name: str) -> bool:
     return first == "#!/bin/sh" and second == header(name, False)
 
 
-def write_generated(path: Path, text: str, executable: bool) -> bool:
+def write_generated(path: Path, text: str | bytes, executable: bool) -> bool:
     path = path.resolve()
-    same = path.is_file() and path.read_bytes() == text.encode("utf-8")
+    data = text.encode("utf-8") if isinstance(text, str) else text
+    same = path.is_file() and path.read_bytes() == data
     if not same:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-        os.close(fd)
-        temp = Path(name)
-        try:
-            temp.write_text(text, encoding="utf-8", newline="")
-            if path.is_file():
-                temp.chmod(path.stat().st_mode)
-            if executable and sys.platform != "win32":
-                temp.chmod(temp.stat().st_mode | stat.S_IXUSR)
-            temp.replace(path)
-        finally:
-            temp.unlink(missing_ok=True)
+        atomic_write_bytes(path, data, add_mode=stat.S_IXUSR if executable and sys.platform != "win32" else 0)
     changed = not same
     if executable and sys.platform != "win32" and not path.stat().st_mode & stat.S_IXUSR:
         path.chmod(path.stat().st_mode | stat.S_IXUSR)

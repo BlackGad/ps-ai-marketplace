@@ -58,6 +58,15 @@ def same_path(left: Path, right: Path) -> bool:
     return os.path.normcase(str(left)) == os.path.normcase(str(right))
 
 
+def path_contains(value: str, folder: Path, *, separator: str = os.pathsep) -> bool:
+    target = resolve_directory(folder)
+    for entry in value.split(separator):
+        expanded = os.path.expandvars(entry.strip().strip('"')) if os.name == "nt" else entry
+        if expanded and same_path(resolve_directory(Path(expanded)), target):
+            return True
+    return False
+
+
 def is_under(path: Path, root: Path, allow_equal: bool = False) -> bool:
     candidate, base = full_path(path), full_path(root)
     if same_path(candidate, base):

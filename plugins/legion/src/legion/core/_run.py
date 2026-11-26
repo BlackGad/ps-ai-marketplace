@@ -3,6 +3,7 @@
 import ctypes
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -17,6 +18,10 @@ from legion.core._home import resolve_directory, same_path
 
 # After a timeout kill, how long to wait for the pipes to close; a process that left the tree can hold them.
 DRAIN_SECONDS = 5
+
+
+def display_command(words: Sequence[str]) -> str:
+    return subprocess.list2cmdline(words) if sys.platform == "win32" else shlex.join(words)
 
 
 def launch_environment() -> dict[str, str]:

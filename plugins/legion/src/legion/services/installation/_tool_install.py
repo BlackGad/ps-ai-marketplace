@@ -21,7 +21,7 @@ from legion.services.installation import _user_path
 from legion.core._http import HttpsError, download, failure_text, get_bytes
 from legion.core._home import full_path, is_under, owner_path_safe
 from legion.core._plugin import PLUGIN_ROOT
-from legion.core._run import run_command
+from legion.core._run import display_command, run_command
 from legion.core._settings_models import BinaryDownload, InstallRecipe, ScriptDownload, ToolDescriptor, Windows
 from legion.core._validate import load_descriptors
 
@@ -106,11 +106,11 @@ def install_hints(tool: str, platform: str) -> list[str]:
             hints.extend(install_hints(need, platform))
     npm = recipe.windows.npm_when_available if platform == "windows" and recipe.windows else None
     if npm is not None and command_available(npm.check):
-        return [*hints, " ".join(npm.command)]
+        return [*hints, display_command(npm.command)]
     commands = install_commands(recipe, platform)
     if not commands:
         return [*hints, unix.docs]
-    return [*hints, *(" ".join(command) for command in commands)]
+    return [*hints, *(display_command(command) for command in commands)]
 
 
 def _windows(recipe: InstallRecipe) -> Windows:
@@ -320,7 +320,7 @@ class ToolInstaller:
             return 0
         npm = windows.npm_when_available
         if npm is not None and command_available(npm.check):
-            self.say(f"{tool}: {' '.join(npm.command)}")
+            self.say(f"{tool}: {display_command(npm.command)}")
             if self.yes:
                 self.run_checked(tool, npm.command)
             return 0
@@ -334,7 +334,7 @@ class ToolInstaller:
                 self.download_install(tool, recipe, method)
             return 0
         command = winget_command(windows.winget_id)
-        self.say(f"{tool}: {' '.join(command)}")
+        self.say(f"{tool}: {display_command(command)}")
         winget_available = command_available("winget")
         if winget_available and not self.yes:
             return 0
@@ -363,7 +363,7 @@ class ToolInstaller:
             self.say(f"{tool}: install instructions: {platform.docs}")
             return 0
         for command in platform.commands:
-            self.say(f"{tool}: {' '.join(command)}")
+            self.say(f"{tool}: {display_command(command)}")
         if not self.yes:
             return 0
         manager = platform.commands[0][0]

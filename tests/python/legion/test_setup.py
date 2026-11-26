@@ -659,13 +659,21 @@ def test_other_systems_write_the_shell_profile_not_the_registry(bench: Bench) ->
 
 
 @windows_only
-def test_the_plan_and_status_agree_about_percent_variables_in_path(bench: Bench) -> None:
+def test_setup_status_and_installer_agree_about_expanded_path_entries(bench: Bench) -> None:
     folder = bin_folder(bench.home)
     folder.mkdir(parents=True)
-    bench.monkeypatch.setenv("LEGION_STATUS_BIN", str(folder))
-    bench.user_path_file.write_text("%LEGION_STATUS_BIN%", encoding="utf-8")
-    bench.monkeypatch.setenv("PATH", "%LEGION_STATUS_BIN%")
-    assert _setup.build_plan(bench.home, [], None).needs_path == (not _status.on_path(folder))
+    bench.monkeypatch.setenv("LEGION_STATUS_BIN", str(folder.parent))
+    bench.monkeypatch.delenv("OS", raising=False)
+    entry = rf"%LEGION_STATUS_BIN%\other\..\{folder.name}"
+    bench.user_path_file.write_text(entry, encoding="utf-8")
+    bench.monkeypatch.setenv("PATH", entry)
+    assert not _setup.build_plan(bench.home, [], None).needs_path
+    assert _status.on_path(folder)
+    lines: list[str] = []
+    _installer.ensure_path(bench.home, False, lines)
+    assert lines == ["skip: path (already done)"]
+    assert os.environ["PATH"] == entry
+    assert bench.user_path_file.read_text(encoding="utf-8") == entry
 
 
 @windows_only

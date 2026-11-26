@@ -2,7 +2,6 @@
 # On macOS and Linux the PATH line goes into the shell profile.
 # LEGION_TEST_USER_PATH_FILE stands in for the registry value in tests.
 
-import codecs
 import contextlib
 import ctypes
 import ntpath
@@ -15,7 +14,8 @@ from pathlib import Path
 from typing import Optional
 
 from legion.services.repository import _footprints
-from legion.core._home import owner_path_safe
+from legion.core._home import owner_path_safe, path_contains
+from legion.core._text import TextFormat, decode_text
 
 if sys.platform == "win32":
     import winreg
@@ -28,12 +28,6 @@ PROFILE_LINE = 'export PATH="$HOME/.legion/bin:$PATH"'
 
 class PathError(Exception):
     pass
-
-
-# Windows compares without case and expands %VARIABLES%; ntpath does that on every system.
-def has_entry(path: str, folder: str) -> bool:
-    target = folder.rstrip("\\/").lower()
-    return any(ntpath.expandvars(part).rstrip("\\/").lower() == target for part in path.split(";"))
 
 
 def _registry_path(machine: bool) -> str:
@@ -78,7 +72,7 @@ def set_user_path(value: str) -> None:
 # Add a folder once; callers get consent before calling. Returns whether the PATH changed.
 def add(home: Path, folder: Path) -> bool:
     current = user_path()
-    if has_entry(current, str(folder)):
+    if path_contains(current, folder, separator=";"):
         return False
     _footprints.add(home, "path-entry", "user PATH", "legion", value=str(folder).rstrip("\\/"))
     set_user_path(current.rstrip(";") + ";" + str(folder) if current else str(folder))
@@ -120,17 +114,9 @@ def shell_profile(home: Path) -> ShellProfile:
     return ShellProfile(path, text, PROFILE_LINE, PROFILE_LINE in re.split(r"\r?\n", text), marked)
 
 
-# The text and the codec it was read with. Only a byte-order mark names a codec other than UTF-8.
-def _read_profile(path: Path) -> tuple[str, str]:
-    data = path.read_bytes()
-    codec = "utf-8"
-    # UTF-32LE starts with the UTF-16LE mark, so the longer marks come first.
-    for mark, name in ((codecs.BOM_UTF8, "utf-8"), (codecs.BOM_UTF32_LE, "utf-32-le"), (codecs.BOM_UTF32_BE, "utf-32-be"), (codecs.BOM_UTF16_LE, "utf-16-le"), (codecs.BOM_UTF16_BE, "utf-16-be")):
-        if data.startswith(mark):
-            data, codec = data[len(mark) :], name
-            break
+def _read_profile(path: Path) -> tuple[str, TextFormat]:
     try:
-        return data.decode(codec), codec
+        return decode_text(path.read_bytes())
     except UnicodeError:
         raise PathError("File encoding is not lossless; resolve it manually before editing") from None
 
@@ -156,7 +142,7 @@ def shell_profile_lines(home: Path, dry_run: bool = False) -> list[str]:
     if profile.path.exists():
         # Appending keeps every original byte, in the codec the file already uses.
         with profile.path.open("ab") as file:
-            file.write(addition.encode(_read_profile(profile.path)[1]))
+            file.write(addition.encode(_read_profile(profile.path)[1].encoding))
     else:
         profile.path.write_text(addition, encoding="utf-8", newline="")
     return lines

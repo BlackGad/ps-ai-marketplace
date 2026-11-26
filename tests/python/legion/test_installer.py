@@ -7,6 +7,7 @@ import time
 import traceback
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -18,7 +19,7 @@ from legion import cli as _cli
 from legion.services.repository import _footprints
 from legion.services.installation import _user_path
 from legion.core._generated import header
-from legion.core import _http
+from legion.core import _http, _run
 from legion.core._http import https_client
 from legion.core._run import RunResult
 from app_fakes import FakeUv, make_source
@@ -778,6 +779,16 @@ def test_profile_path_preserves_owner_text_and_purge_restores_it(tmp_path: Path,
     assert profile.read_text(encoding="utf-8") == "owner line"
 
 
+def test_installer_reports_the_shared_profile_encoding_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_installer, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setenv("SHELL", "/bin/sh")
+    profile = tmp_path / ".profile"
+    profile.write_bytes(b"\xff")
+    with pytest.raises(_installer.InstallerError, match="File encoding is not lossless; resolve it manually before editing"):
+        _installer.ensure_path(tmp_path, False, [])
+    assert profile.read_bytes() == b"\xff"
+
+
 def test_purge_keeps_app_and_python_but_removes_other_legion_data(tmp_path: Path) -> None:
     home = tmp_path / "home"
     app = home / ".legion/app/1.2.3"
@@ -1225,7 +1236,7 @@ def test_purge_leaves_inline_legion_toml_for_manual_edit(tmp_path: Path, monkeyp
     assert path.read_text(encoding="utf-8") == text
 
 
-@pytest.mark.parametrize("encoding", ["utf-8-sig", "utf-16"])
+@pytest.mark.parametrize("encoding", ["utf-8-sig", "utf-16", "utf-32"])
 def test_purge_preserves_settings_bom_and_encoding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, encoding: str) -> None:
     home = tmp_path / "home"
     (home / ".legion").mkdir(parents=True)
@@ -1436,6 +1447,27 @@ def test_a_dry_run_never_prompts_and_changes_nothing(tmp_path: Path, monkeypatch
     assert not (tmp_path / "config").exists()
     assert not (tmp_path / ".legion").exists()
     assert lines[0] == "Install legion for claude"
+
+
+@pytest.mark.parametrize(("platform", "quote"), [("win32", '"'), ("linux", "'")])
+def test_install_preview_quotes_paths_with_spaces(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str, quote: str) -> None:
+    monkeypatch.setattr(_run, "sys", SimpleNamespace(platform=platform))
+    entry = catalog()["tools"][0]
+    folder = tmp_path / "account folder"
+    source = tmp_path / "local checkout"
+    source.mkdir()
+    command = f"claude plugin marketplace add {quote}{source.resolve().as_posix()}{quote}"
+    monkeypatch.setattr(_installer, "_marketplace", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (False, False, [], ""))
+    lines: list[str] = []
+    _installer._install_steps(entry, folder, source, "main", True, lines)
+    assert lines[0] == f"CLAUDE_CONFIG_DIR={quote}{folder}{quote} {command}"
+
+    monkeypatch.setattr(_installer, "_marketplace", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (True, True, [], ""))
+    lines.clear()
+    _installer._install_steps(entry, folder, source, "main", True, lines)
+    assert lines[0] == f"skip: {command} (already done)"
 
 
 def test_install_names_the_installed_version_track_and_next_step(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -21,9 +21,22 @@ from legion.services.installation import _user_path
 from legion.services.installation import _refresh
 from legion.core._generated import is_owned
 from legion.core._http import HttpsError, failure_text, get_bytes
-from legion.core._home import bin_folder, footprint_index, full_path, home_path, is_reparse, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
+from legion.core._home import (
+    bin_folder,
+    footprint_index,
+    full_path,
+    home_path,
+    is_reparse,
+    is_under,
+    owner_path_safe,
+    path_contains,
+    resolve_directory,
+    same_path,
+    tree_has_reparse,
+)
 from legion.core._plugin import PLUGIN_ROOT
-from legion.core._run import run_command
+from legion.core._run import display_command, run_command
+from legion.core._text import decode_text, encode_text
 
 
 DEFAULT_SOURCE = "BlackGad/ps-legion-marketplace"
@@ -195,23 +208,10 @@ def _strip_jsonc_comments(text: str) -> str:
     return "".join(result)
 
 
-# Hand-built, reason: preserve the original BOM and encoding while removing only Legion-owned settings text.
-def _decode_text(data: bytes) -> tuple[str, str, bytes]:
-    if data.startswith(b"\xff\xfe"):
-        encoding, bom = "utf-16-le", data[:2]
-    elif data.startswith(b"\xfe\xff"):
-        encoding, bom = "utf-16-be", data[:2]
-    elif data.startswith(b"\xef\xbb\xbf"):
-        encoding, bom = "utf-8", data[:3]
-    else:
-        encoding, bom = "utf-8", b""
-    return data[len(bom) :].decode(encoding), encoding, bom
-
-
 def _json_edit(path: Path, kind: str) -> Edit | None:
     before = path.read_bytes()
     try:
-        text, encoding, bom = _decode_text(before)
+        text, format = decode_text(before)
         clean = _strip_jsonc_comments(text)
         document = json.loads(clean)
         if not isinstance(document, dict):
@@ -269,7 +269,7 @@ def _json_edit(path: Path, kind: str) -> Edit | None:
             names.append("installedPlugins: legion@ps-legion-marketplace")
         if not names:
             return None
-        after = bom + changed.encode(encoding)
+        after = encode_text(changed, format)
         return Edit(path, before, after, names)
     except (UnicodeError, ValueError, TypeError):
         return None
@@ -341,7 +341,7 @@ def _allow_item_spans(clean: str, value: str) -> list[tuple[int, int]]:
 def _allow_edit(path: Path, value: str, data: bytes | None = None) -> Edit | None:
     before = data if data is not None else path.read_bytes()
     try:
-        text, encoding, bom = _decode_text(before)
+        text, format = decode_text(before)
         clean = _strip_jsonc_comments(text)
         document = json.loads(clean)
         allowed = document.get("permissions", {}).get("allow", [])
@@ -365,7 +365,7 @@ def _allow_edit(path: Path, value: str, data: bytes | None = None) -> Edit | Non
         expected["permissions"]["allow"].remove(value)
         if json.loads(_strip_jsonc_comments(changed)) != expected:
             return None
-        after = bom + changed.encode(encoding)
+        after = encode_text(changed, format)
         return Edit(path, before, after, [f"permissions.allow: {value}"])
     except (UnicodeError, ValueError, TypeError, AttributeError):
         return None
@@ -394,7 +394,7 @@ def remove_owned_edits(home: Path, owners: list[str], lines: list[str]) -> None:
 def _toml_edit(path: Path) -> Edit | None:
     before = path.read_bytes()
     try:
-        text, encoding, bom = _decode_text(before)
+        text, format = decode_text(before)
         document = tomlkit.parse(text)
         names: list[str] = []
         for section in ("plugins", "marketplaces", "hooks"):
@@ -411,75 +411,49 @@ def _toml_edit(path: Path) -> Edit | None:
                     names.append(f"hooks.state.{key}")
         if not names:
             return None
-        newline = "\r\n" if b"\r\n" in before else "\n"
-        after_text = tomlkit.dumps(document).replace("\r\n", "\n").replace("\n", newline)
-        after = bom + after_text.encode(encoding)
+        after = encode_text(tomlkit.dumps(document), format, normalize_newlines=True)
         return Edit(path, before, after, names)
     except (UnicodeError, ValueError, TypeError, KeyError):
         return None
 
 
-def _profile_path(home: Path) -> Path:
-    shell = Path(os.getenv("SHELL", "")).name
-    return home / (".zshrc" if shell == "zsh" else ".bashrc" if shell == "bash" else ".profile")
-
-
-def _path_equal(left: str, right: str) -> bool:
-    first = os.path.expandvars(left).rstrip("/\\")
-    second = os.path.expandvars(right).rstrip("/\\")
-    return first.lower() == second.lower() if sys.platform == "win32" else first == second
-
-
 def ensure_path(home: Path, dry_run: bool, lines: list[str]) -> None:
     bin_path = bin_folder(home)
     if sys.platform == "win32":
-        if not dry_run and not any(_path_equal(part, str(bin_path)) for part in os.environ.get("PATH", "").split(os.pathsep)):
+        if not dry_run and not path_contains(os.environ.get("PATH", ""), bin_path):
             os.environ["PATH"] = str(bin_path) + os.pathsep + os.environ.get("PATH", "")
-        saved = _user_path.user_path()
-        if _user_path.has_entry(saved, str(bin_path)):
-            lines.append("skip: path (already done)")
-            return
-        lines.append(f"add {bin_path} to your user PATH")
-        if not dry_run:
-            _footprints.add(home, "path-entry", "user PATH", "legion", value=str(bin_path))
-            _user_path.set_user_path((saved.rstrip(";") + ";" if saved else "") + str(bin_path))
+        added = not path_contains(_user_path.user_path(), bin_path) if dry_run else _user_path.add(home, bin_path)
+        lines.append(f"add {bin_path} to your user PATH" if added else "skip: path (already done)")
         return
-    profile = _profile_path(home)
-    line = 'export PATH="$HOME/.legion/bin:$PATH"'
-    text, encoding, bom = _decode_text(profile.read_bytes()) if profile.is_file() else ("", "utf-8", b"")
-    if line in text.splitlines():
-        lines.append("skip: shell profile PATH (already done)")
-        return
-    if not owner_path_safe(profile, home):
-        raise InstallerError("Shell profile contains a link; resolve it before writing")
-    lines.append(f"add # Added by legion and {line} to {profile}")
-    if dry_run:
-        return
-    separator = "\n" if text and not text.endswith("\n") else ""
-    _footprints.add(home, "path-entry", profile, "legion", key=separator, value=line)
-    profile.write_bytes(bom + (text + separator + "# Added by legion\n" + line + "\n").encode(encoding))
+    try:
+        lines.extend(_user_path.shell_profile_lines(home, dry_run=dry_run))
+    except _user_path.PathError as error:
+        raise InstallerError(str(error)) from None
 
 
 # Hand-built, reason: only recorded PATH entries may be removed while retaining the order and separators of other entries.
 def _path_removal(value: str, separator: str, owned: list[str]) -> tuple[str, list[str]]:
+    # Keep ownership lexical so another PATH entry that links to the same folder is left alone.
+    owned_entries = {os.path.normcase(os.path.expandvars(entry).rstrip("/\\")) for entry in owned}
     kept: list[str] = []
     removed: list[str] = []
     for part in value.split(separator):
-        (removed if any(_path_equal(part, target) for target in owned) else kept).append(part)
+        entry = os.path.normcase(os.path.expandvars(part).rstrip("/\\"))
+        (removed if entry in owned_entries else kept).append(part)
     return separator.join(kept), removed
 
 
 # Hand-built, reason: the recorded marker and line must be removed without changing the rest of the owner's profile.
 def _profile_edit(path: Path, key: str, value: str) -> Edit | None:
     before = path.read_bytes()
-    text, encoding, bom = _decode_text(before)
-    match = re.search(r"(?m)^# Added by legion\r?\n" + re.escape(value) + r"(?:\r?\n|$)", text)
+    text, format = decode_text(before)
+    match = re.search(rf"(?m)^{re.escape(_user_path.PROFILE_MARKER)}\r?\n{re.escape(value)}(?:\r?\n|$)", text)
     if not match:
         return None
     start = match.start()
     if key and match.end() == len(text) and text[:start].endswith(key):
         start -= len(key)
-    after = bom + (text[:start] + text[match.end() :]).encode(encoding)
+    after = encode_text(text[:start] + text[match.end() :], format)
     return Edit(path, before, after, [value])
 
 
@@ -847,7 +821,7 @@ def _refresh_target(entry: dict[str, Any], folder: Path, home: Path, root: Path)
 
 
 def _command_line(entry: dict[str, Any], arguments: list[str], folder: Path) -> str:
-    return f"{entry['configEnv']}={folder} {entry['command']} {' '.join(arguments)}"
+    return f"{entry['configEnv']}={display_command([str(folder)])} {display_command([entry['command'], *arguments])}"
 
 
 def _step(entry: dict[str, Any], arguments: list[str], folder: Path, dry_run: bool, lines: list[str]) -> None:
@@ -870,7 +844,7 @@ def _install_steps(entry: dict[str, Any], folder: Path, source: str | Path, ref:
     installed = _marketplace(entry, folder)
     listed, enabled, _, _ = _plugin_state(entry, folder)
     if installed and enabled and _marketplace(entry, folder, require_root=True):
-        lines.extend([f"skip: {entry['command']} {' '.join(marketplace_add)} (already done)", f"skip: {entry['command']} {' '.join(plugin['install'])} (already done)"])
+        lines.extend(f"skip: {display_command([entry['command'], *arguments])} (already done)" for arguments in (marketplace_add, plugin["install"]))
         return
     if not installed:
         _step(entry, marketplace_add, folder, dry_run, lines)

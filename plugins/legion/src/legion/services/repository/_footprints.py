@@ -2,7 +2,6 @@ import importlib
 import re
 import shutil
 import sys
-import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,6 +9,7 @@ from typing import Literal
 
 from filelock import FileLock, Timeout
 
+from legion.core._atomic_write import atomic_write_bytes
 from legion.core._generated import is_owned
 from legion.core._home import footprint_index, full_path, home_path, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
 from legion.core._settings_models import SchemaVersion, SettingsModel, Text, ToolDescriptor
@@ -93,15 +93,7 @@ def read(home: Path) -> FootprintIndex:
 
 def _write(home: Path, data: FootprintIndex) -> None:
     index = footprint_index(home)
-    temporary: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile("wb", dir=index.parent, prefix=f".{index.name}.", suffix=".tmp", delete=False) as file:
-            temporary = Path(file.name)
-            file.write((data.model_dump_json(by_alias=True, indent=2) + "\n").encode("utf-8"))
-        temporary.replace(index)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+    atomic_write_bytes(index, (data.model_dump_json(by_alias=True, indent=2) + "\n").encode("utf-8"), keep_mode=False)
 
 
 def stored_path(home: Path, path: Path | str) -> str:

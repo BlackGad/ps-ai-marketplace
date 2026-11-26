@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, JsonValue
 
 from legion.core import _process
 from legion.core._generated import is_owned
-from legion.core._home import home_path
+from legion.core._home import home_path, path_contains
 from legion.core._settings_models import (
     ChannelDescriptor,
     PersonalisationSettings,
@@ -126,13 +126,7 @@ def _path_key(path: Path) -> str:
 
 
 def on_path(folder: Path) -> bool:
-    for part in os.environ.get("PATH", "").split(os.pathsep):
-        if not part:
-            continue
-        expanded = re.sub(r"%([^%]+)%", lambda match: os.environ.get(match[1], match[0]), part) if os.environ.get("OS") == "Windows_NT" else part
-        if _path_key(Path(expanded)) == _path_key(folder):
-            return True
-    return False
+    return path_contains(os.environ.get("PATH", ""), folder)
 
 
 def repository_line(repository: RepositoryStatus) -> str:
