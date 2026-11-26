@@ -71,7 +71,9 @@ def test_command_checks_writes_and_skips(generator: ModuleType, plugin: Path, mo
 
     schema = plugin / "schemas" / "tool.schema.json"
     schema.unlink()
-    assert runner.invoke(generator.main).exit_code == 0
+    generation = runner.invoke(generator.main)
+    assert generation.exit_code == 0
+    assert "updated: tool.schema.json" in generation.output
     assert schema.read_text(encoding="utf-8") == (PLUGIN / "schemas" / schema.name).read_text(encoding="utf-8")
     expected = (PLUGIN / "tools.json").read_bytes()
     assert index.read_bytes() == expected
