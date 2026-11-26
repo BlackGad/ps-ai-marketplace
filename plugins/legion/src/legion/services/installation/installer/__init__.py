@@ -936,8 +936,6 @@ def install(
                     raise InstallerError(f"{entry['id']} legion is absent from the post-update listing; generated artifacts were not refreshed.")
                 try:
                     lines.extend(_refresh_target(entry, folder, home, after))
-                    # This process is the old version; the new app writes the files again with its own templates.
-                    lines.extend(_installed_runtime.refresh_with_new_app(home))
                 except Exception as error:
                     lines.append(f"commands not refreshed for {entry['id']} in {folder}: {error}; run legion setup")
                     rows.append((entry["id"], str(folder), f"commands not refreshed: {error}"))
@@ -946,6 +944,13 @@ def install(
                 lines.append(f"legion {before_version} -> {after_version}" if before_version != after_version else f"skip: legion {after_version} (already up to date)")
                 rows.append((entry["id"], str(folder), f"{before_version} -> {after_version}" if before_version != after_version else f"already up to date ({after_version})"))
         if targets and not dry_run:
+            # This process is the old version; the new app writes the files again with its own templates, once.
+            if any(not row[2].startswith("commands not refreshed") for row in rows):
+                try:
+                    lines.extend(_installed_runtime.refresh_with_new_app(home))
+                except Exception as error:
+                    lines.append(f"commands not refreshed: {error}; run legion setup")
+                    rows.append(("legion", str(home), f"commands not refreshed: {error}"))
             lines.extend(_results_table(rows))
             lines.append("done: restart your sessions; run legion in the repository")
         return lines
