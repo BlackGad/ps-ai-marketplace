@@ -1,67 +1,154 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["schemaVersion", "agents", "channels"],
-  "properties": {
-    "$schema": {"type": "string"},
-    "schemaVersion": {"const": 1},
-    "agents": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "tool", "configDir"],
-        "properties": {
-          "id": {"type": "string", "description": "Unique lowercase hyphenated account id.", "pattern": "^[a-z][a-z0-9-]*$"},
-          "tool": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "CLI provider."},
-          "configDir": {"type": "string", "description": "Concrete account configuration folder. New accounts use ~/.legion/agents/<id>/.", "minLength": 1},
-          "command": {"type": "string", "description": "The account's own CLI program, only when it is not the tool's stock command. Subscription accounts only.", "minLength": 1},
-          "provider": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["kind", "endpoint", "default", "deployments"],
-            "properties": {
-              "kind": {"type": "string", "minLength": 1},
-              "endpoint": {"type": "string", "pattern": "^https://[^/]+$", "description": "HTTPS endpoint scheme and host, without a path or trailing slash."},
-              "default": {"type": "string", "description": "Default deployment name from deployments."},
-              "deployments": {
-                "type": "array",
-                "minItems": 1,
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["name"],
-                  "properties": {
-                    "name": {"type": "string", "description": "Unique deployment name."},
-                    "model": {"type": "string", "description": "Underlying model name when discovery knows it."},
-                    "alias": {"type": "string", "minLength": 1, "description": "Optional unique model alias supported by the tool."}
-                  }
-                }
-              }
-            }
-          }
+  "$defs": {
+    "Agent": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Unique lowercase hyphenated account id.",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "type": "string"
+        },
+        "tool": {
+          "description": "CLI provider.",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "type": "string"
+        },
+        "configDir": {
+          "description": "Concrete account configuration folder. New accounts use ~/.legion/agents/<id>/.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "command": {
+          "description": "The account's own CLI program, only when it is not the tool's stock command. Subscription accounts only.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "#/$defs/Provider"
         }
-      }
+      },
+      "required": [
+        "id",
+        "tool",
+        "configDir"
+      ],
+      "type": "object"
+    },
+    "Channel": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "type": "string"
+        },
+        "kind": {
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "type": "string"
+        },
+        "target": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "accounts": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "target",
+        "accounts"
+      ],
+      "type": "object"
+    },
+    "Deployment": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Unique deployment name.",
+          "type": "string"
+        },
+        "model": {
+          "description": "Underlying model name when discovery knows it.",
+          "type": "string"
+        },
+        "alias": {
+          "description": "Optional unique model alias supported by the tool.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "Provider": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "endpoint": {
+          "description": "HTTPS endpoint scheme and host, without a path or trailing slash.",
+          "pattern": "^https://[^/]+$",
+          "type": "string"
+        },
+        "default": {
+          "type": "string",
+          "description": "Default deployment name from deployments."
+        },
+        "deployments": {
+          "items": {
+            "$ref": "#/$defs/Deployment"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "endpoint",
+        "default",
+        "deployments"
+      ],
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1,
+      "type": "integer"
+    },
+    "agents": {
+      "items": {
+        "$ref": "#/$defs/Agent"
+      },
+      "type": "array"
     },
     "channels": {
-      "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "kind", "target", "accounts"],
-        "properties": {
-          "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
-          "kind": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
-          "target": {"type": "string", "minLength": 1},
-          "accounts": {
-            "type": "array",
-            "minItems": 1,
-            "uniqueItems": true,
-            "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}
-          }
-        }
-      }
+        "$ref": "#/$defs/Channel"
+      },
+      "type": "array"
     }
-  }
+  },
+  "required": [
+    "schemaVersion",
+    "agents",
+    "channels"
+  ],
+  "type": "object"
 }
