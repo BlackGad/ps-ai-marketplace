@@ -61,10 +61,15 @@ def test_long_imports_are_parenthesized() -> None:
                     assert "(" in (ast.get_source_segment(source, node) or ""), f"{path.relative_to(REPO)}:{node.lineno}"
 
 
+# Path.replace takes one argument (str.replace takes two). _installed_runtime moves whole folders aside and back; that is not a file write.
 def test_no_handwritten_temp_replace() -> None:
+    exempt = {"_atomic_write.py", "_installed_runtime.py"}
     for path in SOURCE.rglob("*.py"):
-        if path.name == "_atomic_write.py":
+        if path.name in exempt:
             continue
-        text = path.read_text(encoding="utf-8-sig")
-        for word in ("os.replace", "NamedTemporaryFile"):
-            assert word not in text, f"{path.relative_to(REPO).as_posix()} writes through its own temporary file"
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                name = node.func.attr
+                one_argument_replace = name == "replace" and len(node.args) == 1 and not node.keywords
+                if one_argument_replace or name in ("mkstemp", "NamedTemporaryFile") or (name == "replace" and ast.unparse(node.func.value) == "os"):
+                    pytest.fail(f"{path.relative_to(REPO).as_posix()}:{node.lineno}: write through core/_atomic_write.py instead of a temporary file and replace")

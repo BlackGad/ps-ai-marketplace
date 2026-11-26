@@ -1,13 +1,15 @@
 # The shell profile PATH line that setup adds on macOS and Linux; no real profile or registry is touched.
 import codecs
+import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from legion.services.repository import _footprints
-from legion.services.installation import _user_path
+from legion.services.installation import _user_path, installer as _installer
 
 LINE = 'export PATH="$HOME/.legion/bin:$PATH"'
 MARKER = "# Added by legion"
@@ -125,3 +127,33 @@ def test_a_utf32_profile_gets_utf32_bytes_and_keeps_its_original_bytes(home: Pat
     profile.write_bytes(original)
     _user_path.shell_profile_lines(home)
     assert profile.read_bytes() == original + f"{MARKER}\n{LINE}\n".encode(codec)
+
+
+def test_a_crlf_profile_gets_a_crlf_block_and_purge_restores_the_original_bytes(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SHELL", "/bin/bash")
+    profile = home / ".bashrc"
+    original = b"alias x=y\r\nalias z=w"
+    profile.write_bytes(original)
+    _user_path.shell_profile_lines(home)
+    assert profile.read_bytes() == original + f"\r\n{MARKER}\r\n{LINE}\r\n".encode()
+    assert _user_path.shell_profile_lines(home) == ["skip: shell profile PATH (already done)"]
+    plan = _installer.purge_plan(home, json.loads((Path(__file__).resolve().parents[3] / "plugins/legion/tools.json").read_text(encoding="utf-8")))
+    _installer.apply_purge(plan)
+    assert profile.read_bytes() == original
+
+
+def test_a_profile_changed_after_it_was_read_is_kept_and_not_recorded(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SHELL", "/bin/bash")
+    profile = home / ".bashrc"
+    profile.write_text("alias x=y\n", encoding="utf-8")
+    real = _user_path.atomic_write_bytes
+
+    def write(path: Path, data: bytes, **options: Any) -> None:
+        path.write_text("alias x=y\nalias added=elsewhere\n", encoding="utf-8")
+        real(path, data, **options)
+
+    monkeypatch.setattr(_user_path, "atomic_write_bytes", write)
+    with pytest.raises(_user_path.PathError, match="changed while it was being written"):
+        _user_path.shell_profile_lines(home)
+    assert profile.read_text(encoding="utf-8") == "alias x=y\nalias added=elsewhere\n"
+    assert not _footprints.read(home).entries

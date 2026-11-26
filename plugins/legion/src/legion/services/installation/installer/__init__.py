@@ -10,7 +10,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from functools import cmp_to_key
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import click
 import httpx
@@ -39,7 +39,7 @@ from legion.core._home import (
 )
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import display_command, run_command
-from legion.core._atomic_write import atomic_write_bytes
+from legion.core._atomic_write import AtomicWriteError, FileChangedError, atomic_write_bytes
 from legion.core._text import decode_text, encode_text
 
 
@@ -375,6 +375,16 @@ def _allow_edit(path: Path, value: str, data: bytes | None = None) -> Edit | Non
         return None
 
 
+def _stop_root(path: Path, home: Path) -> Path:
+    return home if is_under(path, home) else Path(path.anchor)
+
+
+# The check runs after the temporary file is staged, so a save or a new link in between keeps the current file.
+def _write_edit(edit: Edit, home: Path) -> None:
+    stop = _stop_root(edit.path, home)
+    atomic_write_bytes(edit.path, edit.after, verify=lambda: owner_path_safe(edit.path, stop) and edit.path.read_bytes() == edit.before)
+
+
 def remove_owned_edits(home: Path, owners: list[str], lines: list[str]) -> None:
     for entry in _footprints.read(home).entries:
         if entry.kind != "edit" or not entry.owners or not all(any(_footprints.same_owner(owner, selected) for selected in owners) for owner in entry.owners):
@@ -382,15 +392,18 @@ def remove_owned_edits(home: Path, owners: list[str], lines: list[str]) -> None:
         path = home_path(entry.path, home)
         if not path.is_file():
             continue
-        stop = home if is_under(path, home) else Path(path.anchor)
-        if not owner_path_safe(path, stop):
+        if not owner_path_safe(path, _stop_root(path, home)):
             lines.append(f"skip: {path} (linked or could not match safely)")
             continue
         edit = _allow_edit(path, entry.value) if entry.key == "permissions.allow" else None
         if edit is None:
             lines.append(f"skip: {path} (linked or could not match safely)")
             continue
-        atomic_write_bytes(path, edit.after)
+        try:
+            _write_edit(edit, home)
+        except AtomicWriteError:
+            lines.append(f"skip: {path} (changed while it was being written; its record is kept)")
+            continue
         _footprints.remove_exact(home, "edit", path, entry.key, entry.value)
         lines.extend(f"Remove entry: {path}: {name}" for name in edit.names)
 
@@ -557,7 +570,11 @@ def purge_plan(home: Path, catalog: dict[str, Any], config_dir: Path | None = No
             continue
         existing = next((edit for edit in plan.edits if edit.path == path), None)
         data = existing.after if existing else path.read_bytes()
-        if record.value.encode("utf-8") not in data and record.value.encode("utf-16-le") not in data:
+        try:
+            text = decode_text(data)[0]
+        except UnicodeError:
+            text = ""
+        if record.value not in text:
             continue
         edit = _allow_edit(path, record.value, data)
         if edit:
@@ -604,6 +621,14 @@ def purge_plan(home: Path, catalog: dict[str, Any], config_dir: Path | None = No
     return plan
 
 
+def _partial_purge_message(failed: Path, error: AtomicWriteError, changed: list[Path]) -> str:
+    detail = " ".join(str(error.failure).split())
+    message = f"Settings changed after preview: {failed}" if isinstance(error.failure, FileChangedError) else f"Could not write {failed}: {detail}"
+    if changed:
+        message += "; already changed: " + ", ".join(str(path) for path in changed)
+    return message + "; run purge again"
+
+
 def apply_purge(plan: PurgePlan) -> None:
     # The lock lives under .legion; keep its file until every protected deletion has finished.
     if plan.legion is None and not plan.edits and not plan.paths and not plan.empty_paths and not plan.links and plan.user_path_before is None:
@@ -617,13 +642,15 @@ def apply_purge(plan: PurgePlan) -> None:
         if plan.process_path_after is not None and os.environ.get("PATH", "") != plan.process_path_before:
             raise InstallerError("Process PATH changed after preview; run purge again.")
         for edit in plan.edits:
-            stop = plan.home if is_under(edit.path, plan.home) else Path(edit.path.anchor)
-            if not owner_path_safe(edit.path, stop) or edit.path.read_bytes() != edit.before:
+            if not owner_path_safe(edit.path, _stop_root(edit.path, plan.home)) or edit.path.read_bytes() != edit.before:
                 raise InstallerError("Settings changed after preview; run again.")
+        changed: list[Path] = []
         for edit in plan.edits:
-            if edit.path.read_bytes() != edit.before:
-                raise InstallerError("Settings changed after preview; run again.")
-            atomic_write_bytes(edit.path, edit.after)
+            try:
+                _write_edit(edit, plan.home)
+            except AtomicWriteError as error:
+                raise InstallerError(_partial_purge_message(edit.path, error, changed)) from None
+            changed.append(edit.path)
         if plan.user_path_after is not None and plan.user_path_after != plan.user_path_before:
             _user_path.set_user_path(plan.user_path_after)
         if plan.process_path_after is not None and plan.process_path_after != plan.process_path_before:
@@ -635,7 +662,7 @@ def apply_purge(plan: PurgePlan) -> None:
             if _safe_path(root, str(path.relative_to(root)), plan.home, allow_file=True) == path:
                 shutil.rmtree(path) if path.is_dir() else path.unlink()
         for path in plan.empty_paths:
-            if path.is_dir() and not any(path.iterdir()):
+            if owner_path_safe(path, _stop_root(path, plan.home)) and path.is_dir() and not any(path.iterdir()):
                 path.rmdir()
         for path in plan.links:
             record = next((entry for entry in _footprints.read(plan.home).entries if entry.kind == "link" and same_path(home_path(entry.path, plan.home), path)), None)
@@ -708,6 +735,12 @@ def _marketplace(entry: dict[str, Any], folder: Path, require_root: bool = False
         raise InstallerError(f"{entry['id']} marketplace listing returned invalid JSON") from error
 
 
+# The id is the first word of a listing row (after Copilot's bullet); a continuation line such as "from <path>" has none.
+def _row_id(line: str) -> Optional[str]:
+    match = re.match(r"\s*(?:[•*-]\s+)?([^\s@]+@\S+)", line)
+    return match[1] if match else None
+
+
 # Hand-built, reason: the three CLIs expose different listing formats described by tools.json.
 def _plugin_state(entry: dict[str, Any], folder: Path) -> tuple[bool, bool, list[Path], str]:
     output = _listing(entry, folder, "plugin")
@@ -727,7 +760,7 @@ def _plugin_state(entry: dict[str, Any], folder: Path) -> tuple[bool, bool, list
                 paths.append(Path(item["installPath"]))
             version = item.get("version") or version
         return bool(matches), any(item[listing["enabledField"]] for item in matches), paths, version
-    lines = [line for line in output.splitlines() if re.search(r"(?<![\w-])legion@ps-legion-marketplace(?![\w-])", line) and "not installed" not in line]
+    lines = [line for line in output.splitlines() if _row_id(line) == "legion@ps-legion-marketplace" and "not installed" not in line]
     for line in lines:
         match = re.search(r"\b(v?\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b", line)
         if match:
@@ -755,9 +788,10 @@ def _plugin_root(entry: dict[str, Any], folder: Path) -> Path | None:
             except (OSError, ValueError, TypeError, KeyError):
                 pass
         for line in _listing(entry, folder, "plugin").splitlines():
-            if re.search(r"(?<![\w-])legion@ps-legion-marketplace(?![\w-])", line):
-                is_legion = "not installed" not in line
-            elif re.search(r"\S+@\S+\s+\(v?\d", line) or (line.strip() and not line[:1].isspace()):
+            row = _row_id(line)
+            if row is not None:
+                is_legion = row == "legion@ps-legion-marketplace" and "not installed" not in line
+            elif line.strip() and not line[:1].isspace():
                 is_legion = False
             marketplace = re.match(r"^\s+from (.+?)\s*$", line) if is_legion else None
             if marketplace is None:

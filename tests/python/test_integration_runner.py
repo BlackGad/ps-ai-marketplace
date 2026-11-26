@@ -28,6 +28,13 @@ def test_listing_parses_json_and_text_with_disabled_entries() -> None:
     assert not runner.listed(text_entry, "legion@ps-legion-marketplace disabled")
 
 
+def test_listing_compares_the_whole_plugin_id_on_text_rows() -> None:
+    entry = {"plugin": {"listing": {"format": "lines", "rejectPattern": "disabled"}}}
+    assert not runner.listed(entry, "extra-legion@ps-legion-marketplace 1.0.0")
+    assert not runner.listed(entry, "  • other@marketplace (v1.0.0)\n      from /x/legion@ps-legion-marketplace")
+    assert runner.listed(entry, "  • legion@ps-legion-marketplace (v1.0.0) (enabled)\n      from /x/checkout")
+
+
 def test_latest_release_chooses_the_highest_numeric_tag(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
     remote = "https://example.invalid/marketplace"

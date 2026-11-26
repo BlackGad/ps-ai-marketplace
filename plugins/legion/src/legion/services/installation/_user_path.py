@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from legion.services.repository import _footprints
-from legion.core._atomic_write import atomic_write_bytes
+from legion.core._atomic_write import AtomicWriteError, atomic_write_bytes
 from legion.core._home import owner_path_safe, path_contains
 from legion.core._text import TextFormat, decode_text
 
@@ -99,7 +99,10 @@ def find_persistent_command(name: str) -> Optional[str]:
 @dataclass(frozen=True)
 class ShellProfile:
     path: Path
+    # One read snapshot: the decision, the codec, the newline and the bytes to replace all come from it.
+    data: bytes
     text: str
+    format: TextFormat
     line: str
     has_path: bool
     # Marked: the line sits under legion's marker, so legion added it; a bare line is the owner's.
@@ -110,14 +113,15 @@ class ShellProfile:
 def shell_profile(home: Path) -> ShellProfile:
     name = {"zsh": ".zshrc", "bash": ".bashrc"}.get(Path(os.environ.get("SHELL", "")).name, ".profile")
     path = home / name
-    text = _read_profile(path)[0] if path.exists() else ""
+    data = path.read_bytes() if path.exists() else b""
+    text, format = _decode_profile(data)
     marked = re.search(rf"^{re.escape(PROFILE_MARKER)}\r?\n{re.escape(PROFILE_LINE)}\r?$", text, re.MULTILINE) is not None
-    return ShellProfile(path, text, PROFILE_LINE, PROFILE_LINE in re.split(r"\r?\n", text), marked)
+    return ShellProfile(path, data, text, format, PROFILE_LINE, PROFILE_LINE in re.split(r"\r?\n", text), marked)
 
 
-def _read_profile(path: Path) -> tuple[str, TextFormat]:
+def _decode_profile(data: bytes) -> tuple[str, TextFormat]:
     try:
-        return decode_text(path.read_bytes())
+        return decode_text(data)
     except UnicodeError:
         raise PathError("File encoding is not lossless; resolve it manually before editing") from None
 
@@ -137,14 +141,19 @@ def shell_profile_lines(home: Path, dry_run: bool = False) -> list[str]:
     if dry_run:
         return lines
     # Record a separating newline too, so purge restores a file without a final newline exactly.
-    separator = "\n" if profile.text and not profile.text.endswith("\n") else ""
+    newline = profile.format.newline
+    separator = newline if profile.text and not profile.text.endswith("\n") else ""
     _footprints.add(home, "path-entry", profile.path, "legion", key=separator, value=profile.line)
-    addition = f"{separator}{PROFILE_MARKER}\n{profile.line}\n"
-    # A whole-file replace keeps every original byte, in the codec the file already uses.
-    if profile.path.exists():
-        before = profile.path.read_bytes()
-        encoding = _read_profile(profile.path)[1].encoding
-        atomic_write_bytes(profile.path, before + addition.encode(encoding))
-    else:
-        atomic_write_bytes(profile.path, addition.encode("utf-8"))
+    addition = f"{separator}{PROFILE_MARKER}{newline}{profile.line}{newline}"
+
+    # A whole-file replace keeps every original byte in the codec the file uses; it is skipped if the file changed since the read.
+    def unchanged() -> bool:
+        current = profile.path.read_bytes() if profile.path.exists() else b""
+        return owner_path_safe(profile.path, home) and current == profile.data
+
+    try:
+        atomic_write_bytes(profile.path, profile.data + addition.encode(profile.format.encoding), verify=unchanged)
+    except AtomicWriteError:
+        _footprints.remove_exact(home, "path-entry", profile.path, separator, profile.line)
+        raise PathError("Shell profile changed while it was being written; run the command again") from None
     return lines

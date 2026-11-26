@@ -145,7 +145,9 @@ def listed(entry: dict[str, Any], output: str, include_disabled: bool = False, k
             if item.get(listing.get("nameField", listing.get("idField"))) == wanted:
                 return include_disabled or kind == "marketplace" or item.get(listing["enabledField"]) is True
         return False
-    matches = [line for line in output.splitlines() if re.search(r"legion@ps-legion-marketplace(?![\w-])", line) and "not installed" not in line]
+    # The id is the first word of a row (after Copilot's bullet); a "from <path>" line has none.
+    rows = [re.match(r"\s*(?:[•*-]\s+)?([^\s@]+@\S+)", line) for line in output.splitlines()]
+    matches = [line for line, row in zip(output.splitlines(), rows, strict=True) if row and row[1] == "legion@ps-legion-marketplace" and "not installed" not in line]
     return bool(matches) if include_disabled else any(not re.search(listing["rejectPattern"], line) for line in matches)
 
 

@@ -523,3 +523,23 @@ def test_malformed_index_template_refuses_before_writes(repo: Path, monkeypatch:
     with pytest.raises(RuntimeError, match=r"scripts-index-template\.md"):
         setup(repo)
     assert not (repo / ".legion").exists()
+
+
+def test_updating_a_bom_and_crlf_rules_file_keeps_its_format(tmp_path: Path) -> None:
+    rules = tmp_path / "AGENTS.md"
+    original = b"\xef\xbb\xbfowner rules\r\n"
+    rules.write_bytes(original)
+    assert _repository._update_rules(rules)
+    data = rules.read_bytes()
+    assert data.startswith(original)
+    assert data.count(b"\r\n") == data.count(b"\n")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_a_new_file_gets_the_umask_permissions(tmp_path: Path) -> None:
+    previous = os.umask(0o022)
+    try:
+        _repository._write(tmp_path / "new/file.md", "text\n")
+    finally:
+        os.umask(previous)
+    assert stat.S_IMODE((tmp_path / "new/file.md").stat().st_mode) == 0o644
