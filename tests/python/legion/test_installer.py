@@ -25,14 +25,197 @@ from legion.core._generated import header
 from legion.core import _http, _run
 from legion.core._http import https_client
 from legion.core._run import RunResult
+from legion.core._settings_models import CatalogTool, ToolsCatalog
 from app_fakes import FakeUv, make_link, make_source
 
 if os.name == "nt":
     import _winapi
 
 
-def catalog() -> dict:
-    return json.loads((Path(__file__).resolve().parents[3] / "plugins/legion/tools.json").read_text(encoding="utf-8"))
+CATALOG_PATH = Path(__file__).resolve().parents[3] / "plugins/legion/tools.json"
+
+
+def catalog() -> ToolsCatalog:
+    return ToolsCatalog.model_validate_json(CATALOG_PATH.read_bytes())
+
+
+def test_catalog_parses_tools_json_as_model() -> None:
+    tools = _installer._catalog(Path(__file__).resolve().parents[3], "release", None)
+    assert tools.schema_version == 1
+    codex = _installer._tool(tools, "codex")
+    assert codex.plugin.list_command == ["plugin", "list"]
+    assert codex.install_hint == "npm install -g @openai/codex"
+
+
+def test_catalog_rejects_unknown_shape(tmp_path: Path) -> None:
+    data = json.loads(CATALOG_PATH.read_bytes())
+    data["tools"][0]["unexpected"] = True
+    path = tmp_path / "plugins/legion/tools.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(_installer.InstallerError, match="unexpected"):
+        _installer._catalog(tmp_path, "release", None)
+
+
+def write_installer_accounts(home: Path, *accounts: tuple[str, Path, Optional[Path]]) -> Path:
+    path = home / ".legion/configuration/personalisation.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    agents = []
+    for name, folder, command in accounts:
+        agent = {"id": name, "tool": "claude", "configDir": str(folder)}
+        if command is not None:
+            agent["command"] = str(command)
+        agents.append(agent)
+    path.write_text(json.dumps({"schemaVersion": 1, "agents": agents, "channels": []}), encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize("suffix", [".ps1", ".cmd"])
+def test_installer_runs_registered_script(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, suffix: str) -> None:
+    folder = tmp_path / "account"
+    folder.mkdir()
+    script = tmp_path / f"claude account{suffix}"
+    script.touch()
+    write_installer_accounts(tmp_path, ("claude-a", folder, script))
+    monkeypatch.setattr(_installer.shutil, "which", lambda _name: None)
+    calls: list[tuple[str, list[str]]] = []
+
+    def run(program: str, arguments: list[str], **_options: object) -> RunResult:
+        calls.append((program, arguments))
+        return RunResult(exit_code=0, output="[]", error="", timed_out=False)
+
+    monkeypatch.setattr(_installer, "run_command", run)
+    _installer.install(tmp_path, ["claude"], config_dir=folder, dry_run=True, catalog=catalog())
+    program, prefix = ("pwsh", ["-NoProfile", "-File", str(script)]) if suffix == ".ps1" else (str(script), [])
+    assert calls == [
+        (program, [*prefix, "plugin", "marketplace", "list", "--json"]),
+        (program, [*prefix, "plugin", "list", "--json"]),
+    ]
+
+
+@pytest.mark.parametrize("stock", [None, "claude"])
+@pytest.mark.parametrize("mode", ["install", "update", "uninstall"])
+def test_installer_scopes_registered_command_to_its_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stock: Optional[str], mode: str) -> None:
+    a, b = tmp_path / "account-a", tmp_path / "account-b"
+    a.mkdir()
+    b.mkdir()
+    registered, missing = tmp_path / "registered-claude", tmp_path / "missing-claude"
+    registered.touch()
+    write_installer_accounts(tmp_path, ("claude-a", a, registered), ("claude-b", b, missing))
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: stock if name == "claude" else None)
+    calls: set[tuple[str, str]] = set()
+
+    def run(program: str, _arguments: list[str], *, env: dict[str, str], **_options: object) -> RunResult:
+        calls.add((program, env["CLAUDE_CONFIG_DIR"]))
+        return RunResult(exit_code=0, output="[]", error="", timed_out=False)
+
+    monkeypatch.setattr(_installer, "run_command", run)
+    lines = _installer.install(tmp_path, ["claude"], dry_run=True, catalog=catalog(), update=mode == "update", uninstall=mode == "uninstall")
+    expected = {(str(registered), str(a))}
+    skip_b = f"skip: claude in {b} (no command for this folder)"
+    if stock is not None:
+        expected.add((stock, str(b)))
+        assert skip_b not in lines
+    else:
+        assert skip_b in lines
+    assert calls == expected
+
+
+def test_missing_registered_command_gives_install_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_installer_accounts(tmp_path, ("claude-a", tmp_path / "a", tmp_path / "missing"))
+    monkeypatch.setattr(_installer.shutil, "which", lambda _name: None)
+    lines = _installer.install(tmp_path, ["claude"], dry_run=True, catalog=catalog())
+    assert "skip: claude (not installed)" in lines
+    assert "irm https://claude.ai/install.ps1 | iex" in lines
+
+
+def test_install_names_invalid_settings_file(tmp_path: Path) -> None:
+    path = write_installer_accounts(tmp_path)
+    path.write_text("{}", encoding="utf-8")
+    with pytest.raises(_installer.InstallerError) as error:
+        _installer.install(tmp_path, ["claude"], dry_run=True, catalog=catalog())
+    assert str(path) in str(error.value)
+
+
+@pytest.mark.parametrize("purge", [False, True])
+def test_uninstall_with_invalid_settings_uses_stock_and_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, purge: bool) -> None:
+    path = write_installer_accounts(tmp_path)
+    path.write_text("{}", encoding="utf-8")
+    folder = tmp_path / ".claude"
+    cache = folder / "plugins/cache/ps-legion-marketplace"
+    cache.mkdir(parents=True)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(folder))
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: "claude" if name == "claude" else None)
+    calls: set[tuple[str, str]] = set()
+
+    def run(program: str, _arguments: list[str], *, env: dict[str, str], **_options: object) -> RunResult:
+        calls.add((program, env["CLAUDE_CONFIG_DIR"]))
+        return RunResult(exit_code=0, output="[]", error="", timed_out=False)
+
+    monkeypatch.setattr(_installer, "run_command", run)
+    lines = _installer.install(tmp_path, ["claude"], uninstall=True, purge=purge, dry_run=True, catalog=catalog())
+    assert sum(line.startswith("skip: account folders (settings invalid: ") for line in lines) == 1
+    assert calls == {("claude", str(folder))}
+    assert any(line.startswith(f"Remove folder: {cache}") for line in lines) == purge
+
+
+@pytest.mark.parametrize(
+    ("operation", "stock"),
+    [
+        ("install", None),
+        ("explicit install", None),
+        ("update", None),
+        ("uninstall", None),
+        ("refresh_remaining", None),
+        ("kept_lines", None),
+        ("update", "claude"),
+        ("linked update", "claude"),
+    ],
+)
+def test_adopted_account_command_off_path_is_installed(operation: str, stock: Optional[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    folder = home / ".legion/agents/claude-a"
+    folder.mkdir(parents=True)
+    command = home / "adopted-claude"
+    command.touch()
+    settings = home / ".legion/configuration/personalisation.json"
+    settings.parent.mkdir()
+    settings.write_text(
+        json.dumps({"schemaVersion": 1, "agents": [{"id": "claude-a", "tool": "claude", "configDir": "~/.legion/agents/claude-a", "command": "~/adopted-claude"}], "channels": []}),
+        encoding="utf-8",
+    )
+    root = folder / "legion-plugin"
+    root.mkdir()
+    (root / "plugin.json").write_text('{"name":"legion","version":"1.0.0"}', encoding="utf-8")
+    target = folder
+    if operation == "linked update":
+        target = home / "linked-account"
+        make_link(target, folder)
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: stock if name == "claude" else None)
+    calls: list[str] = []
+    installed = [{"id": "legion@ps-legion-marketplace", "enabled": True, "installPath": str(root), "version": "1.0.0"}]
+
+    def run(program: str, arguments: list[str], **options: Any) -> RunResult:
+        if options["env"]["CLAUDE_CONFIG_DIR"] == str(target):
+            calls.append(program)
+        output = json.dumps(installed) if arguments == ["plugin", "list", "--json"] else "[]"
+        return RunResult(exit_code=0, output=output, error="", timed_out=False)
+
+    monkeypatch.setattr(_installer, "run_command", run)
+    if operation == "kept_lines":
+        assert f"Kept config folder and login: {folder}" in _installer._kept_lines(home, catalog(), None)
+        assert calls == []
+        return
+    if operation == "refresh_remaining":
+        _footprints.add(home, "file", home / ".legion/bin/legion", f"claude:{folder}")
+        monkeypatch.setattr(_installer, "_refresh_target", lambda *_args: ["refreshed"])
+        lines: list[str] = []
+        _installer.refresh_remaining(home, catalog(), lines)
+        assert lines == ["refreshed"]
+    else:
+        tools = ["claude"] if operation in ("explicit install", "uninstall") else None
+        _installer.install(home, tools=tools, config_dir=target, dry_run=True, catalog=catalog(), update=operation in ("update", "linked update"), uninstall=operation == "uninstall")
+    assert set(calls) == {str(command)}
 
 
 def test_no_coding_cli_installs_owner_command_without_plugin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -285,7 +468,7 @@ def test_closed_stdin_listing_and_only_needed_install_steps(tmp_path: Path, monk
 
 
 def test_windows_cli_uses_resolved_cmd_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "codex")
+    entry = next(tool for tool in catalog().tools if tool.id == "codex")
     command = str(tmp_path / "codex.cmd")
     monkeypatch.setattr(_installer.shutil, "which", lambda _name: command)
     monkeypatch.setattr(_installer, "run_command", lambda program, _args, **_kw: RunResult(exit_code=0, output=program, error="", timed_out=False))
@@ -303,7 +486,7 @@ def test_powershell_owner_spelling_matches_existing_index(tmp_path: Path, monkey
     command.parent.mkdir(parents=True)
     command.write_text("#!/bin/sh\n" + header("owner command", False) + "\n", encoding="utf-8")
     _footprints.add(home, "file", command, owner)
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "codex")
+    entry = next(tool for tool in catalog().tools if tool.id == "codex")
     assert _installer._owner(entry, folder) == owner
     monkeypatch.setattr(_installer.shutil, "which", lambda _name: "codex")
     monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (False, False, [], ""))
@@ -313,7 +496,7 @@ def test_powershell_owner_spelling_matches_existing_index(tmp_path: Path, monkey
 
 
 def test_local_source_is_absolute_when_cli_runs_elsewhere(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "claude")
+    entry = next(tool for tool in catalog().tools if tool.id == "claude")
     source = tmp_path / "marketplace"
     source.mkdir()
     monkeypatch.chdir(tmp_path)
@@ -342,19 +525,19 @@ def test_installer_cli_reports_footprint_error_without_traceback(tmp_path: Path,
 
 
 def test_plugin_listing_does_not_match_dev_fork(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "codex")
+    entry = next(tool for tool in catalog().tools if tool.id == "codex")
     monkeypatch.setattr(_installer, "_listing", lambda *_args: "legion@ps-legion-marketplace-dev 1.2.3")
     assert _installer._plugin_state(entry, tmp_path)[0] is False
 
 
 def test_codex_marketplace_without_root_is_not_ready(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "codex")
+    entry = next(tool for tool in catalog().tools if tool.id == "codex")
     monkeypatch.setattr(_installer, "_listing", lambda *_args: '{"marketplaces":[{"name":"ps-legion-marketplace"}]}')
     assert not _installer._marketplace(entry, tmp_path, require_root=True)
 
 
 def test_copilot_root_uses_from_line_only_for_legion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "copilot")
+    entry = next(tool for tool in catalog().tools if tool.id == "copilot")
     unrelated = tmp_path / "unrelated"
     expected = tmp_path / "expected"
     for root in (unrelated, expected):
@@ -370,7 +553,7 @@ def test_copilot_root_uses_from_line_only_for_legion(tmp_path: Path, monkeypatch
 
 
 def test_copilot_live_local_plugin_resolves_indented_listing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "copilot")
+    entry = next(tool for tool in catalog().tools if tool.id == "copilot")
     folder = tmp_path / "copilot"
     folder.mkdir()
     marketplace = tmp_path / "checkout"
@@ -412,7 +595,7 @@ def test_copilot_live_local_plugin_resolves_indented_listing(tmp_path: Path, mon
 
 
 def test_copilot_live_listing_rejects_ambiguous_legion_sources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "copilot")
+    entry = next(tool for tool in catalog().tools if tool.id == "copilot")
     roots = [tmp_path / "one", tmp_path / "two"]
     for root in roots:
         manifest = root / "plugins/legion/plugin.json"
@@ -428,7 +611,7 @@ def test_copilot_live_listing_rejects_ambiguous_legion_sources(tmp_path: Path, m
 
 
 def test_copilot_copied_plugin_keeps_installed_root_semantics(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "copilot")
+    entry = next(tool for tool in catalog().tools if tool.id == "copilot")
     folder = tmp_path / "copilot"
     manifest = folder / "installed-plugins/legion-marketplace/legion/plugin.json"
     manifest.parent.mkdir(parents=True)
@@ -443,6 +626,7 @@ def test_uninstall_refresh_failure_keeps_command_hint(tmp_path: Path, monkeypatc
     folder.mkdir()
     command = tmp_path / ".legion/bin/legion"
     _footprints.add(tmp_path, "file", command, _footprints.target_owner("codex", folder))
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: "codex" if name == "codex" else None)
     monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: (_ for _ in ()).throw(RuntimeError("ambiguous")))
     lines: list[str] = []
     _installer.refresh_remaining(tmp_path, catalog(), lines)
@@ -481,13 +665,13 @@ def test_purge_keeps_other_plugin_data_and_cache(tmp_path: Path, monkeypatch: py
 
 
 def test_partly_installed_target_only_installs_missing_plugin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "claude")
+    entry = next(tool for tool in catalog().tools if tool.id == "claude")
     monkeypatch.setattr(_installer, "_marketplace", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (False, False, [], ""))
     calls: list[list[str]] = []
     monkeypatch.setattr(_installer, "_step", lambda _entry, arguments, *_args: calls.append(arguments))
     _installer._install_steps(entry, tmp_path, tmp_path, "release", False, [])
-    assert entry["plugin"]["install"] in calls
+    assert entry.plugin.install in calls
     assert not any(arguments[:3] == ["plugin", "marketplace", "add"] for arguments in calls)
 
 
@@ -819,9 +1003,10 @@ def test_remaining_owner_refreshes_command_after_selected_uninstall(tmp_path: Pa
     _footprints.add(tmp_path, "file", command, f"codex:{folder}")
     root = tmp_path / "installed"
     root.mkdir()
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: "codex" if name == "codex" else None)
     monkeypatch.setattr(_installer, "_plugin_root", lambda *_: root)
     called: list[tuple[str, Path]] = []
-    monkeypatch.setattr(_installer, "_refresh_target", lambda entry, target, *_: called.append((entry["id"], target)) or [])
+    monkeypatch.setattr(_installer, "_refresh_target", lambda entry, target, *_: called.append((entry.id, target)) or [])
     _installer.refresh_remaining(tmp_path, catalog(), [])
     assert called == [("codex", folder)]
 
@@ -896,7 +1081,7 @@ def test_purge_with_selected_config_includes_other_accounts(tmp_path: Path) -> N
     account.mkdir(parents=True)
     settings = home / ".legion/configuration/personalisation.json"
     settings.parent.mkdir(parents=True)
-    settings.write_text(json.dumps({"agents": [{"tool": "claude", "configDir": str(account)}]}), encoding="utf-8")
+    settings.write_text(json.dumps({"schemaVersion": 1, "agents": [{"id": "claude-a", "tool": "claude", "configDir": str(account)}], "channels": []}), encoding="utf-8")
     cache = account / "plugins/cache/ps-legion-marketplace"
     cache.mkdir(parents=True)
     plan = _installer.purge_plan(home, catalog(), config_dir=tmp_path / "selected")
@@ -914,16 +1099,34 @@ def test_purge_edits_without_legion_home_do_not_create_it(tmp_path: Path, monkey
     assert not (home / ".legion").exists()
 
 
+def test_purge_runtime_rejects_path_outside_tool_folder(tmp_path: Path) -> None:
+    tools = catalog()
+    claude = _installer._tool(tools, "claude")
+    purge = claude.plugin.purge
+    assert purge is not None
+    invalid_purge = type(purge).model_construct(paths=["../outside"], settings=[])
+    plugin = claude.plugin.model_copy(update={"purge": invalid_purge})
+    invalid_tool = claude.model_copy(update={"plugin": plugin})
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    with pytest.raises(_installer.InstallerError, match="Unsafe relative path"):
+        _installer.purge_plan(tmp_path, ToolsCatalog.model_construct(schema_version=1, tools=[invalid_tool]))
+    assert outside.is_dir()
+
+
 def test_purge_rejects_catalog_path_outside_tool_folder(tmp_path: Path) -> None:
     home = tmp_path / "home"
     folder = home / ".claude"
     folder.mkdir(parents=True)
     outside = home / "outside"
     outside.mkdir()
-    selected = catalog()
+    selected = json.loads(CATALOG_PATH.read_bytes())
     selected["tools"][0]["plugin"]["purge"]["paths"] = ["../outside"]
-    with pytest.raises(_installer.InstallerError, match="Unsafe relative path"):
-        _installer.purge_plan(home, selected)
+    path = tmp_path / "plugins/legion/tools.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(selected), encoding="utf-8")
+    with pytest.raises(_installer.InstallerError, match=r"plugin.purge.paths"):
+        _installer._catalog(tmp_path, "release", None)
     assert outside.is_dir()
 
 
@@ -1035,8 +1238,8 @@ def test_copilot_jsonc_inventory_edit_keeps_owner_comments(tmp_path: Path, monke
 
 @pytest.mark.parametrize("tool_id", ["claude", "codex", "copilot"])
 def test_install_and_uninstall_target_use_fake_cli_and_refresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tool_id: str) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == tool_id)
-    command = entry["command"]
+    entry = next(tool for tool in catalog().tools if tool.id == tool_id)
+    command = entry.command
     folder = tmp_path / "config"
     root = folder / "installed-legion"
     installed = {"marketplace": False, "plugin": False}
@@ -1046,23 +1249,23 @@ def test_install_and_uninstall_target_use_fake_cli_and_refresh(tmp_path: Path, m
         assert program == command
         assert kwargs["cwd"] is not None
         calls.append(arguments)
-        if arguments == entry["plugin"]["marketplaceList"]:
+        if arguments == entry.plugin.marketplace_list:
             found = [{"name": "ps-legion-marketplace", "root": str(folder)}] if installed["marketplace"] else []
             output = json.dumps({"marketplaces": found} if tool_id == "codex" else found)
-        elif arguments == entry["plugin"]["list"]:
+        elif arguments == entry.plugin.list_command:
             if tool_id == "claude":
                 output = json.dumps([{"id": "legion@ps-legion-marketplace", "enabled": True, "installPath": str(root)}] if installed["plugin"] else [])
             else:
                 output = f"legion@ps-legion-marketplace 1.2.3 {root}" if installed["plugin"] else ""
         else:
             output = ""
-            if arguments == entry["plugin"]["install"]:
+            if arguments == entry.plugin.install:
                 installed["plugin"] = True
                 root.mkdir(parents=True, exist_ok=True)
                 (root / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
-            elif arguments == entry["plugin"]["uninstall"]:
+            elif arguments == entry.plugin.uninstall:
                 installed["plugin"] = False
-            elif arguments == entry["plugin"]["marketplaceRemove"]:
+            elif arguments == entry.plugin.marketplace_remove:
                 installed["marketplace"] = False
             elif arguments[:3] == ["plugin", "marketplace", "add"]:
                 installed["marketplace"] = True
@@ -1080,17 +1283,17 @@ def test_install_and_uninstall_target_use_fake_cli_and_refresh(tmp_path: Path, m
     assert refreshed == [root]
     assert "installed: legion 1.2.3 (release)" in first
     assert any(arguments[:3] == ["plugin", "marketplace", "add"] for arguments in calls)
-    assert entry["plugin"]["install"] in calls
+    assert entry.plugin.install in calls
     calls.clear()
     repeat = _installer.install(tmp_path, [tool_id], source=tmp_path, config_dir=folder, yes=True, catalog=catalog())
     assert any("already done" in line for line in repeat)
-    assert entry["plugin"]["install"] not in calls
+    assert entry.plugin.install not in calls
     _installer.install(tmp_path, [tool_id], config_dir=folder, yes=True, uninstall=True, catalog=catalog())
     assert installed == {"marketplace": False, "plugin": False}
 
 
 def test_update_refreshes_new_installed_copy_and_reports_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "claude")
+    entry = next(tool for tool in catalog().tools if tool.id == "claude")
     folder = tmp_path / "config"
     root = folder / "plugin"
     root.mkdir(parents=True)
@@ -1100,14 +1303,14 @@ def test_update_refreshes_new_installed_copy_and_reports_version(tmp_path: Path,
 
     def fake_run(_command: str, arguments: list[str], **_kwargs: object) -> RunResult:
         calls.append(arguments)
-        if arguments == entry["plugin"]["marketplaceList"]:
+        if arguments == entry.plugin.marketplace_list:
             output = '[{"name":"ps-legion-marketplace"}]'
-        elif arguments == entry["plugin"]["list"]:
+        elif arguments == entry.plugin.list_command:
             version = json.loads(manifest.read_text(encoding="utf-8"))["version"]
             output = json.dumps([{"id": "legion@ps-legion-marketplace", "enabled": False, "installPath": str(root), "version": version}])
         else:
             output = ""
-            if arguments == entry["plugin"]["update"]:
+            if arguments == entry.plugin.update:
                 manifest.write_text('{"name":"legion","version":"1.1.0"}', encoding="utf-8")
         return RunResult(exit_code=0, output=output, error="", timed_out=False)
 
@@ -1118,8 +1321,8 @@ def test_update_refreshes_new_installed_copy_and_reports_version(tmp_path: Path,
     lines = _installer.install(tmp_path, ["claude"], config_dir=folder, update=True, yes=True, catalog=catalog())
     assert refreshed == [root]
     assert "legion 1.0.0 -> 1.1.0" in lines
-    assert entry["plugin"]["marketplaceUpdate"] in calls
-    assert entry["plugin"]["update"] in calls
+    assert entry.plugin.marketplace_update in calls
+    assert entry.plugin.update in calls
 
 
 def _update_two_targets(
@@ -1132,13 +1335,13 @@ def _update_two_targets(
         roots[tool_id].mkdir(exist_ok=True)
         (roots[tool_id] / "plugin.json").write_text(json.dumps({"name": "legion", "version": versions.get(tool_id, "1.2.3")}), encoding="utf-8")
     monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
-    monkeypatch.setattr(_installer, "_plugin_root", lambda entry, _folder: roots[entry["id"]])
+    monkeypatch.setattr(_installer, "_plugin_root", lambda entry, _folder: roots[entry.id])
     monkeypatch.setattr(_installer, "_step", lambda *_args: None)
 
-    def refresh(entry: dict, *_args: object) -> list[str]:
-        if entry["id"] in failing:
+    def refresh(entry: CatalogTool, *_args: object) -> list[str]:
+        if entry.id in failing:
             raise RuntimeError("broken refresh")
-        return [f"wrote: {entry['id']}"]
+        return [f"wrote: {entry.id}"]
 
     monkeypatch.setattr(_installer, "_refresh_target", refresh)
     monkeypatch.setattr(_installed_runtime, "refresh_with_new_app", new_refresh)
@@ -1244,9 +1447,9 @@ def test_update_reports_refresh_failure_and_continues_to_next_target(tmp_path: P
     monkeypatch.setattr(_installer, "_step", lambda *_args: None)
     refreshed: list[str] = []
 
-    def refresh(entry: dict, *_args: object) -> list[str]:
-        refreshed.append(entry["id"])
-        if entry["id"] == "claude":
+    def refresh(entry: CatalogTool, *_args: object) -> list[str]:
+        refreshed.append(entry.id)
+        if entry.id == "claude":
             raise RuntimeError("broken refresh")
         return ["refreshed codex"]
 
@@ -1268,9 +1471,9 @@ def test_install_reports_refresh_failure_and_continues_to_next_target(tmp_path: 
     (tmp_path / "saved-path.txt").write_text("", encoding="utf-8")
     refreshed: list[str] = []
 
-    def refresh(entry: dict, *_args: object) -> list[str]:
-        refreshed.append(entry["id"])
-        if entry["id"] == "claude":
+    def refresh(entry: CatalogTool, *_args: object) -> list[str]:
+        refreshed.append(entry.id)
+        if entry.id == "claude":
             raise RuntimeError("broken refresh")
         return ["refreshed codex"]
 
@@ -1286,15 +1489,15 @@ def test_other_marketplace_source_loads_its_catalog_for_selected_ref(monkeypatch
 
     def fake_get(url: str, _timeout: float) -> bytes:
         urls.append(url)
-        return json.dumps(catalog()).encode("utf-8")
+        return CATALOG_PATH.read_bytes()
 
     monkeypatch.setattr(_installer, "get_bytes", fake_get)
-    assert _installer._catalog("example/marketplace", "main", None)["schemaVersion"] == 1
+    assert _installer._catalog("example/marketplace", "main", None).schema_version == 1
     assert urls == ["https://raw.githubusercontent.com/example/marketplace/main/plugins/legion/tools.json"]
 
 
 def test_copilot_directory_marketplace_listing_finds_plugin_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "copilot")
+    entry = next(tool for tool in catalog().tools if tool.id == "copilot")
     folder = tmp_path / "config"
     folder.mkdir()
     marketplace = tmp_path / "marketplace"
@@ -1309,7 +1512,7 @@ def test_copilot_directory_marketplace_listing_finds_plugin_root(tmp_path: Path,
 
 
 def test_missing_marketplace_reinstalls_plugin_even_when_stale_listing_is_enabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "claude")
+    entry = next(tool for tool in catalog().tools if tool.id == "claude")
     monkeypatch.setattr(_installer, "_marketplace", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (True, True, [], "1.0.0"))
     lines: list[str] = []
@@ -1462,8 +1665,8 @@ def _fake_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str 
     monkeypatch.setenv("LEGION_TEST_USER_PATH_FILE", str(tmp_path / "saved-path.txt"))
     (tmp_path / "saved-path.txt").write_text("", encoding="utf-8")
 
-    def refresh(entry: dict, *_args: object) -> list[str]:
-        if entry["id"] == failing:
+    def refresh(entry: CatalogTool, *_args: object) -> list[str]:
+        if entry.id == failing:
             raise RuntimeError("broken refresh")
         return []
 
@@ -1509,7 +1712,7 @@ def test_install_never_links_a_portable_pwsh(tmp_path: Path, monkeypatch: pytest
 
 def test_ref_main_with_the_default_source_reads_the_remote_catalog_not_the_local_one(monkeypatch: pytest.MonkeyPatch) -> None:
     urls: list[str] = []
-    remote = catalog()
+    remote = json.loads(CATALOG_PATH.read_bytes())
     remote["tools"][0]["installHint"] = "remote main catalog"
 
     def fake_get(url: str, _timeout: float) -> bytes:
@@ -1517,11 +1720,11 @@ def test_ref_main_with_the_default_source_reads_the_remote_catalog_not_the_local
         return json.dumps(remote).encode("utf-8")
 
     monkeypatch.setattr(_installer, "get_bytes", fake_get)
-    assert _installer._catalog("BlackGad/ps-legion-marketplace", "main", None)["tools"][0]["installHint"] == "remote main catalog"
+    assert _installer._catalog("BlackGad/ps-legion-marketplace", "main", None).tools[0].install_hint == "remote main catalog"
     assert urls == ["https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/plugins/legion/tools.json"]
     urls.clear()
     monkeypatch.setattr(_installer, "get_bytes", lambda *_a, **_k: pytest.fail("the release track reads the shipped catalog"))
-    assert _installer._catalog("BlackGad/ps-legion-marketplace", "release", None)["schemaVersion"] == 1
+    assert _installer._catalog("BlackGad/ps-legion-marketplace", "release", None).schema_version == 1
 
 
 def test_kept_lines_do_not_mention_powershell(tmp_path: Path) -> None:
@@ -1531,7 +1734,7 @@ def test_kept_lines_do_not_mention_powershell(tmp_path: Path) -> None:
 # Consent and next steps, ported from the PowerShell installer tests that went with it.
 def _steps_run(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     ran: list[str] = []
-    monkeypatch.setattr(_installer, "_install_steps", lambda entry, *_args: ran.append(entry["id"]))
+    monkeypatch.setattr(_installer, "_install_steps", lambda entry, *_args: ran.append(entry.id))
     return ran
 
 
@@ -1568,7 +1771,7 @@ def test_a_dry_run_never_prompts_and_changes_nothing(tmp_path: Path, monkeypatch
 @pytest.mark.parametrize(("platform", "quote"), [("win32", '"'), ("linux", "'")])
 def test_install_preview_quotes_paths_with_spaces(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str, quote: str) -> None:
     monkeypatch.setattr(_run, "sys", SimpleNamespace(platform=platform))
-    entry = catalog()["tools"][0]
+    entry = catalog().tools[0]
     folder = tmp_path / "account folder"
     source = tmp_path / "local checkout"
     source.mkdir()
@@ -1595,7 +1798,7 @@ def test_install_names_the_installed_version_track_and_next_step(tmp_path: Path,
 
 def test_install_prints_the_tool_hook_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_targets(tmp_path, monkeypatch)
-    hint = next(tool for tool in catalog()["tools"] if tool["id"] == "codex")["hooks"]["hint"]
+    hint = next(tool for tool in catalog().tools if tool.id == "codex").hooks.hint
     assert hint
     assert hint in _installer.install(tmp_path, ["codex"], config_dir=tmp_path / "config", yes=True, catalog=catalog())
 
@@ -1625,7 +1828,7 @@ def test_a_catalog_that_cannot_be_read_is_a_plain_installer_error(monkeypatch: p
 
 
 def test_plugin_listing_matches_whole_plugin_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "codex")
+    entry = next(tool for tool in catalog().tools if tool.id == "codex")
     for line in ("extra-legion@ps-legion-marketplace 1.2.3", "legion@ps-legion-marketplace-extra 1.2.3"):
         monkeypatch.setattr(_installer, "_listing", lambda *_args, line=line: line)
         assert _installer._plugin_state(entry, tmp_path)[0] is False
@@ -1758,7 +1961,7 @@ def test_purge_removes_a_recorded_permission_from_utf32_settings(tmp_path: Path,
 
 
 def test_plugin_rows_compare_the_whole_id_and_ignore_continuation_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "copilot")
+    entry = next(tool for tool in catalog().tools if tool.id == "copilot")
     rows = {
         "  • other@marketplace (v1.0.0) (enabled)\n      from /x/legion@ps-legion-marketplace": False,
         "other@marketplace 1.0.0\n  from /x/legion@ps-legion-marketplace": False,
@@ -1774,7 +1977,7 @@ def test_plugin_rows_compare_the_whole_id_and_ignore_continuation_paths(tmp_path
 
 @pytest.mark.parametrize("bullet", ["•", "ΓÇó", "?", "*", ""])
 def test_plugin_row_id_ignores_whatever_bullet_the_listing_prints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bullet: str) -> None:
-    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "copilot")
+    entry = next(tool for tool in catalog().tools if tool.id == "copilot")
     prefix = f"  {bullet} " if bullet else "  "
     cases = {
         f"{prefix}legion@ps-legion-marketplace (v1.0.0) (enabled)\n      from /x/checkout": True,

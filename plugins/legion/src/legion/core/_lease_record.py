@@ -5,7 +5,7 @@ import socket
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 
 class LeaseUnreadableError(ValueError):
@@ -22,6 +22,7 @@ class Lease:
     started_at: str = ""
     session: Optional[str] = None
 
+    # Hand-built, reason: the lease record is also read by the standard-library-only hook.
     # Reject records that are not leases with ValueError or TypeError.
     @classmethod
     def from_json(cls, text: str) -> "Lease":
@@ -83,7 +84,8 @@ def same_host(host: str) -> bool:
     return host.lower() == socket.gethostname().lower()
 
 
-def _text(data: dict[str, Any], key: str) -> str:
+# Hand-built, reason: the standard-library-only hook reads the raw lease JSON.
+def _text(data: dict[str, object], key: str) -> str:
     value = data.get(key)
     if value is None:
         return ""

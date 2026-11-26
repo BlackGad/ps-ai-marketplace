@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import click
 from pydantic import ValidationError
@@ -419,11 +419,8 @@ def set_path(plan: Plan, say: Callable[[str], None]) -> None:
 # The plugin goes into an account's folder by the installer module, without questions (yes); its output goes to a log.
 # Returns 0 when it finished, 1 when it failed.
 def install_plugin(tool_id: str, folder: Path, home: Path, source: Optional[str]) -> int:
-    options: dict[str, Any] = {"tools": [tool_id], "config_dir": folder, "update": True, "yes": True}
-    if source:
-        options["source"] = source
     try:
-        output = "\n".join(_installer.install(home, **options))
+        output = "\n".join(_installer.install(home, tools=[tool_id], config_dir=folder, update=True, yes=True, source=source or _installer.DEFAULT_SOURCE))
         code = 0
     except (_installer.InstallerError, _footprints.FootprintError, _launchers.LauncherError, _settings_io.SettingsError, OSError, ValueError) as error:
         output, code = str(error), 1

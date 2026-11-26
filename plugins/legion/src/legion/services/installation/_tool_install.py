@@ -29,6 +29,7 @@ from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import display_command, run_command
 from legion.core._settings_models import (
     BinaryDownload,
+    HelpersCatalog,
     InstallRecipe,
     ScriptDownload,
     ToolDescriptor,
@@ -59,10 +60,11 @@ def find_recipe(tool: str) -> InstallRecipe:
     for descriptor in load_tools():
         if descriptor.id == tool:
             return descriptor.install
-    helpers = json.loads(HELPERS_PATH.read_text(encoding="utf-8"))
-    if tool not in helpers:
+    helpers = HelpersCatalog.model_validate_json(HELPERS_PATH.read_bytes())
+    recipe = helpers.root.get(tool)
+    if recipe is None:
         raise ToolInstallError(f"unknown tool '{tool}'")
-    return InstallRecipe.model_validate(helpers[tool])
+    return recipe
 
 
 def command_available(name: str) -> bool:

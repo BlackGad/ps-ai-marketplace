@@ -61,10 +61,23 @@ def is_stock(command: Path, tool: ToolDescriptor, home: Path) -> bool:
     return stock is not None and same_path(resolve_directory(command), resolve_directory(stock))
 
 
+def registered_command(agent: Agent, home: Path) -> Optional[Path]:
+    if agent.command is None:
+        return None
+    command = full_path(home_path(agent.command, home))
+    return command if command.is_file() else None
+
+
+def command_prefix(program: Path) -> tuple[Path, list[str]]:
+    if program.suffix.lower() == ".ps1":
+        return Path("pwsh"), ["-NoProfile", "-File", str(program)]
+    return program, []
+
+
 def target(agent: Agent, tool: ToolDescriptor, home: Path) -> Path:
     if agent.command is not None:
-        command = full_path(home_path(agent.command, home))
-        if command.is_file():
+        command = registered_command(agent, home)
+        if command is not None:
             return command
         raise LauncherError(f"target needed: {agent.id}; ask the owner for the registered executable")
     stock = stock_command(tool, home)
