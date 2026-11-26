@@ -29,6 +29,13 @@ def test_mcp_sdk_imports_stay_in_mcp_package() -> None:
                 assert path.is_relative_to(SOURCE / "legion/mcp"), path
 
 
+def test_hook_import_closure_is_standard_library_only() -> None:
+    script = "import sys\nbefore = set(sys.modules)\nimport legion.hook\nprint(sorted({name.split('.')[0] for name in set(sys.modules) - before} - set(sys.stdlib_module_names)))"
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "['legion']", result.stdout
+
+
 def test_hook_and_cli_import_no_mcp() -> None:
     script = "import sys, legion.cli, legion.hook\nassert not any(name == 'mcp' or name.startswith('mcp.') for name in sys.modules)"
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
