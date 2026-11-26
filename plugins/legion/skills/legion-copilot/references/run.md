@@ -26,4 +26,4 @@ For interactive overseer launches with explicit account/model/argument choices a
 
 ## Keep the session responsive
 
-If this tool supports background commands, start long steps in the background and read the result when it finishes. Why and the blocking notice: [Keep the main session responsive](../../legion-overseer/SKILL.md#identity-and-hard-rules).
+Copilot CLI is not known to give a completion notice, so treat it like Codex CLI: ending the turn ends the watch. Before waiting, tell the owner in the console and every connected channel that replies will be slower, and why. Then wait in the foreground in chunks of a few minutes on the worker's process id (or on the CI run with a bounded `gh run watch`). Between chunks, read the repository inbox and answer the owner. Repeat until the result is terminal, then collect and act. Never end the turn while a promised result is pending, except at a real owner decision or blocker, recorded in the handoff first. Why and the blocking notice: [Keep the main session responsive](../../legion-overseer/SKILL.md#identity-and-hard-rules).
