@@ -1,67 +1,177 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "agents", "channels"],
   "properties": {
-    "$schema": {"type": "string"},
-    "schemaVersion": {"const": 1},
+    "$schema": {
+      "title": "$Schema",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1,
+      "title": "Schemaversion",
+      "type": "integer"
+    },
     "agents": {
-      "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "tool", "configDir"],
-        "properties": {
-          "id": {"type": "string", "description": "Unique lowercase hyphenated account id.", "pattern": "^[a-z][a-z0-9-]*$"},
-          "tool": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "CLI provider."},
-          "configDir": {"type": "string", "description": "Concrete account configuration folder. New accounts use ~/.legion/agents/<id>/.", "minLength": 1},
-          "command": {"type": "string", "description": "The account's own CLI program, only when it is not the tool's stock command. Subscription accounts only.", "minLength": 1},
-          "provider": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["kind", "endpoint", "default", "deployments"],
-            "properties": {
-              "kind": {"type": "string", "minLength": 1},
-              "endpoint": {"type": "string", "pattern": "^https://[^/]+$", "description": "HTTPS endpoint scheme and host, without a path or trailing slash."},
-              "default": {"type": "string", "description": "Default deployment name from deployments."},
-              "deployments": {
-                "type": "array",
-                "minItems": 1,
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["name"],
-                  "properties": {
-                    "name": {"type": "string", "description": "Unique deployment name."},
-                    "model": {"type": "string", "description": "Underlying model name when discovery knows it."},
-                    "alias": {"type": "string", "minLength": 1, "description": "Optional unique model alias supported by the tool."}
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
+        "$ref": "#/definitions/Agent"
+      },
+      "title": "Agents",
+      "type": "array"
     },
     "channels": {
-      "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "kind", "target", "accounts"],
-        "properties": {
-          "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
-          "kind": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
-          "target": {"type": "string", "minLength": 1},
-          "accounts": {
-            "type": "array",
-            "minItems": 1,
-            "uniqueItems": true,
-            "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}
-          }
+        "$ref": "#/definitions/Channel"
+      },
+      "title": "Channels",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "agents",
+    "channels"
+  ],
+  "type": "object",
+  "definitions": {
+    "Agent": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Unique lowercase hyphenated account id.",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "tool": {
+          "description": "CLI provider.",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "title": "Tool",
+          "type": "string"
+        },
+        "configDir": {
+          "description": "Concrete account configuration folder. New accounts use ~/.legion/agents/<id>/.",
+          "minLength": 1,
+          "title": "Configdir",
+          "type": "string"
+        },
+        "command": {
+          "description": "The account's own CLI program, only when it is not the tool's stock command. Subscription accounts only.",
+          "minLength": 1,
+          "title": "Command",
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "#/definitions/Provider"
         }
-      }
+      },
+      "required": [
+        "id",
+        "tool",
+        "configDir"
+      ],
+      "title": "Agent",
+      "type": "object"
+    },
+    "Channel": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "title": "Kind",
+          "type": "string"
+        },
+        "target": {
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        },
+        "accounts": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Accounts",
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "target",
+        "accounts"
+      ],
+      "title": "Channel",
+      "type": "object"
+    },
+    "Deployment": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Unique deployment name.",
+          "title": "Name",
+          "type": "string"
+        },
+        "model": {
+          "description": "Underlying model name when discovery knows it.",
+          "title": "Model",
+          "type": "string"
+        },
+        "alias": {
+          "description": "Optional unique model alias supported by the tool.",
+          "minLength": 1,
+          "title": "Alias",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Deployment",
+      "type": "object"
+    },
+    "Provider": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "endpoint": {
+          "description": "HTTPS endpoint scheme and host, without a path or trailing slash.",
+          "pattern": "^https://[^/]+$",
+          "title": "Endpoint",
+          "type": "string"
+        },
+        "default": {
+          "type": "string",
+          "description": "Default deployment name from deployments.",
+          "title": "Default"
+        },
+        "deployments": {
+          "items": {
+            "$ref": "#/definitions/Deployment"
+          },
+          "minItems": 1,
+          "title": "Deployments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "endpoint",
+        "default",
+        "deployments"
+      ],
+      "title": "Provider",
+      "type": "object"
     }
   }
 }

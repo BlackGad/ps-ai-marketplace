@@ -1,166 +1,745 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "legion tool descriptor",
-  "type": "object", "additionalProperties": false, "required": ["schemaVersion", "id", "command", "configEnv", "foundry", "overseerArgs", "plugin", "hooks", "install"],
-  "properties": {
-    "schemaVersion": {"type": "integer", "const": 1},
-    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
-    "command": {"type": "string", "minLength": 1},
-    "configEnv": {"type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$"},
-    "foundry": {
-      "oneOf": [
-        {"type": "null"},
+  "$defs": {
+    "BinaryDownload": {
+      "additionalProperties": false,
+      "allOf": [
         {
-          "type": "object", "additionalProperties": false, "required": ["deploymentPrefix", "aliases"],
-          "properties": {
-            "deploymentPrefix": {"type": "string", "minLength": 1},
-            "aliases": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+          "else": {
+            "properties": {
+              "pathFolder": false
+            }
+          },
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "zip"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "pathFolder"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "resolver": {
+                "const": "release-assets"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "verification": {
+                "const": "asset-digest"
+              },
+              "assetName": false,
+              "url": false,
+              "checksumUrl": false
+            },
+            "required": [
+              "metadataUrl",
+              "assetPattern"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "resolver": {
+                "const": "lts-index"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "verification": {
+                "const": "checksum-file"
+              },
+              "assetPattern": false
+            },
+            "required": [
+              "metadataUrl",
+              "assetName",
+              "url",
+              "checksumUrl"
+            ]
           }
         }
-      ]
-    },
-    "overseerArgs": {"$ref": "#/$defs/arguments"},
-    "allowRules": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-    "plugin": {
-      "type": "object", "additionalProperties": false,
-      "required": [
-        "marketplaceAdd", "marketplaceAddRef", "marketplaceRemove", "install", "uninstall", "marketplaceUpdate",
-        "update", "marketplaceList", "marketplaceListing", "list", "listing"
       ],
       "properties": {
-        "defaultConfigDir": {"type": "string", "pattern": "^(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))~/[^:]+$"},
-        "installedRoot": {"type": "string", "pattern": "^(?![/\\\\]|[A-Za-z]:|~[/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"},
-        "cacheDir": {"$ref": "#/$defs/exactRelativePath"},
-        "purge": {"$ref": "#/$defs/purge"},
-        "marketplaceAdd": {"$ref": "#/$defs/arguments"},
-        "marketplaceAddRef": {"$ref": "#/$defs/arguments"},
-        "marketplaceRemove": {"$ref": "#/$defs/arguments"},
-        "install": {"$ref": "#/$defs/arguments"},
-        "uninstall": {"$ref": "#/$defs/arguments"},
-        "marketplaceUpdate": {"$ref": "#/$defs/arguments"},
-        "update": {"$ref": "#/$defs/arguments"},
-        "marketplaceListing": {"$ref": "#/$defs/marketplaceListing"},
-        "listingEnv": {"type": "object", "propertyNames": {"pattern": "^[A-Z_][A-Z0-9_]*$"}, "additionalProperties": {"type": "string"}},
-        "marketplaceList": {"$ref": "#/$defs/arguments"},
-        "list": {"$ref": "#/$defs/arguments"},
-        "listing": {"$ref": "#/$defs/listing"}
-      }
+        "kind": {
+          "enum": [
+            "msi",
+            "exe",
+            "zip"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "resolver": {
+          "enum": [
+            "release-assets",
+            "lts-index"
+          ],
+          "title": "Resolver",
+          "type": "string"
+        },
+        "metadataUrl": {
+          "minLength": 1,
+          "title": "Metadataurl",
+          "type": "string"
+        },
+        "assetPattern": {
+          "format": "regex",
+          "minLength": 1,
+          "title": "Assetpattern",
+          "type": "string"
+        },
+        "assetName": {
+          "minLength": 1,
+          "title": "Assetname",
+          "type": "string"
+        },
+        "url": {
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        },
+        "checksumUrl": {
+          "minLength": 1,
+          "title": "Checksumurl",
+          "type": "string"
+        },
+        "verification": {
+          "enum": [
+            "asset-digest",
+            "checksum-file"
+          ],
+          "title": "Verification",
+          "type": "string"
+        },
+        "arguments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Arguments",
+          "type": "array"
+        },
+        "pathFolder": {
+          "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).*$",
+          "title": "Pathfolder",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "resolver",
+        "verification",
+        "arguments"
+      ],
+      "title": "BinaryDownload",
+      "type": "object"
+    },
+    "Foundry": {
+      "additionalProperties": false,
+      "properties": {
+        "deploymentPrefix": {
+          "minLength": 1,
+          "title": "Deploymentprefix",
+          "type": "string"
+        },
+        "aliases": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "deploymentPrefix",
+        "aliases"
+      ],
+      "title": "Foundry",
+      "type": "object"
+    },
+    "Hooks": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "hint": {
+          "title": "Hint",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "hint"
+      ],
+      "title": "Hooks",
+      "type": "object"
+    },
+    "JsonListing": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "json",
+          "title": "Format",
+          "type": "string"
+        },
+        "idField": {
+          "minLength": 1,
+          "title": "Idfield",
+          "type": "string"
+        },
+        "enabledField": {
+          "minLength": 1,
+          "title": "Enabledfield",
+          "type": "string"
+        }
+      },
+      "required": [
+        "format",
+        "idField",
+        "enabledField"
+      ],
+      "title": "JsonListing",
+      "type": "object"
+    },
+    "LinesListing": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "lines",
+          "title": "Format",
+          "type": "string"
+        },
+        "rejectPattern": {
+          "format": "regex",
+          "title": "Rejectpattern",
+          "type": "string"
+        }
+      },
+      "required": [
+        "format",
+        "rejectPattern"
+      ],
+      "title": "LinesListing",
+      "type": "object"
+    },
+    "MarketplaceListing": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "json",
+          "title": "Format",
+          "type": "string"
+        },
+        "collectionField": {
+          "minLength": 1,
+          "title": "Collectionfield",
+          "type": "string"
+        },
+        "rootField": {
+          "minLength": 1,
+          "title": "Rootfield",
+          "type": "string"
+        },
+        "nameField": {
+          "minLength": 1,
+          "title": "Namefield",
+          "type": "string"
+        }
+      },
+      "required": [
+        "format",
+        "nameField"
+      ],
+      "title": "MarketplaceListing",
+      "type": "object"
+    },
+    "NpmInstall": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "minLength": 1,
+          "title": "Check",
+          "type": "string"
+        },
+        "command": {
+          "additionalItems": {
+            "type": "string"
+          },
+          "items": [
+            {
+              "minLength": 1,
+              "type": "string"
+            }
+          ],
+          "minItems": 1,
+          "title": "Command",
+          "type": "array"
+        }
+      },
+      "required": [
+        "check",
+        "command"
+      ],
+      "title": "NpmInstall",
+      "type": "object"
+    },
+    "Platform": {
+      "additionalProperties": false,
+      "properties": {
+        "needs": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "type": "string"
+          },
+          "title": "Needs",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "commands": {
+          "items": {
+            "additionalItems": {
+              "type": "string"
+            },
+            "items": [
+              {
+                "minLength": 1,
+                "type": "string"
+              }
+            ],
+            "minItems": 1,
+            "type": "array"
+          },
+          "title": "Commands",
+          "type": "array"
+        },
+        "docs": {
+          "title": "Docs",
+          "type": "string"
+        }
+      },
+      "required": [
+        "needs",
+        "commands",
+        "docs"
+      ],
+      "title": "Platform",
+      "type": "object"
+    },
+    "Plugin": {
+      "additionalProperties": false,
+      "properties": {
+        "defaultConfigDir": {
+          "pattern": "^(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))~/[^:]+$",
+          "title": "Defaultconfigdir",
+          "type": "string"
+        },
+        "installedRoot": {
+          "pattern": "^(?![/\\\\]|[A-Za-z]:|~[/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$",
+          "title": "Installedroot",
+          "type": "string"
+        },
+        "cacheDir": {
+          "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$",
+          "title": "Cachedir",
+          "type": "string"
+        },
+        "purge": {
+          "$ref": "#/$defs/Purge"
+        },
+        "marketplaceAdd": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Marketplaceadd",
+          "type": "array"
+        },
+        "marketplaceAddRef": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Marketplaceaddref",
+          "type": "array"
+        },
+        "marketplaceRemove": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Marketplaceremove",
+          "type": "array"
+        },
+        "install": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Install",
+          "type": "array"
+        },
+        "uninstall": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Uninstall",
+          "type": "array"
+        },
+        "marketplaceUpdate": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Marketplaceupdate",
+          "type": "array"
+        },
+        "update": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Update",
+          "type": "array"
+        },
+        "marketplaceListing": {
+          "$ref": "#/$defs/MarketplaceListing"
+        },
+        "listingEnv": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "pattern": "^[A-Z_][A-Z0-9_]*$"
+          },
+          "title": "Listingenv",
+          "type": "object"
+        },
+        "marketplaceList": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Marketplacelist",
+          "type": "array"
+        },
+        "list": {
+          "items": {
+            "type": "string"
+          },
+          "title": "List",
+          "type": "array"
+        },
+        "listing": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LinesListing"
+            },
+            {
+              "$ref": "#/$defs/JsonListing"
+            }
+          ],
+          "title": "Listing"
+        }
+      },
+      "required": [
+        "marketplaceAdd",
+        "marketplaceAddRef",
+        "marketplaceRemove",
+        "install",
+        "uninstall",
+        "marketplaceUpdate",
+        "update",
+        "marketplaceListing",
+        "marketplaceList",
+        "list",
+        "listing"
+      ],
+      "title": "Plugin",
+      "type": "object"
+    },
+    "Purge": {
+      "additionalProperties": false,
+      "properties": {
+        "paths": {
+          "items": {
+            "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$",
+            "type": "string"
+          },
+          "title": "Paths",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "emptyDirs": {
+          "items": {
+            "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$",
+            "type": "string"
+          },
+          "title": "Emptydirs",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "settings": {
+          "items": {
+            "$ref": "#/$defs/PurgeSetting"
+          },
+          "title": "Settings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "paths",
+        "settings"
+      ],
+      "title": "Purge",
+      "type": "object"
+    },
+    "PurgeSetting": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$",
+          "title": "Path",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "settings",
+            "marketplaces",
+            "claude",
+            "copilot",
+            "toml"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "kind"
+      ],
+      "title": "PurgeSetting",
+      "type": "object"
+    },
+    "ScriptDownload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "script",
+          "title": "Kind",
+          "type": "string"
+        },
+        "url": {
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        },
+        "verification": {
+          "const": "vendor",
+          "title": "Verification",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "url",
+        "verification"
+      ],
+      "title": "ScriptDownload",
+      "type": "object"
+    },
+    "Windows": {
+      "additionalProperties": false,
+      "properties": {
+        "wingetId": {
+          "minLength": 1,
+          "title": "Wingetid",
+          "type": "string"
+        },
+        "portableCommand": {
+          "minLength": 1,
+          "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).*$",
+          "title": "Portablecommand",
+          "type": "string"
+        },
+        "npmWhenAvailable": {
+          "$ref": "#/$defs/NpmInstall"
+        },
+        "download": {
+          "$ref": "#/$defs/WindowsDownload"
+        }
+      },
+      "required": [
+        "wingetId",
+        "portableCommand",
+        "download"
+      ],
+      "title": "Windows",
+      "type": "object"
+    },
+    "WindowsDownload": {
+      "additionalProperties": false,
+      "properties": {
+        "msi": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ScriptDownload"
+            },
+            {
+              "$ref": "#/$defs/BinaryDownload"
+            }
+          ],
+          "title": "Msi"
+        },
+        "zip": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ScriptDownload"
+            },
+            {
+              "$ref": "#/$defs/BinaryDownload"
+            }
+          ],
+          "title": "Zip"
+        }
+      },
+      "required": [
+        "msi",
+        "zip"
+      ],
+      "title": "WindowsDownload",
+      "type": "object"
+    },
+    "install": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "additionalItems": {
+            "type": "string"
+          },
+          "items": [
+            {
+              "minLength": 1,
+              "type": "string"
+            }
+          ],
+          "minItems": 1,
+          "title": "Check",
+          "type": "array"
+        },
+        "windows": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Windows"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "macos": {
+          "$ref": "#/$defs/Platform"
+        },
+        "linux": {
+          "$ref": "#/$defs/Platform"
+        },
+        "hint": {
+          "title": "Hint",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check",
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "title": "Install",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1,
+      "title": "Schemaversion",
+      "type": "integer"
+    },
+    "id": {
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "title": "Id",
+      "type": "string"
+    },
+    "command": {
+      "minLength": 1,
+      "title": "Command",
+      "type": "string"
+    },
+    "configEnv": {
+      "pattern": "^[A-Z_][A-Z0-9_]*$",
+      "title": "Configenv",
+      "type": "string"
+    },
+    "foundry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Foundry"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "overseerArgs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Overseerargs",
+      "type": "array"
+    },
+    "allowRules": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Allowrules",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "plugin": {
+      "$ref": "#/$defs/Plugin"
     },
     "hooks": {
-      "type": "object", "additionalProperties": false, "required": ["status", "hint"],
-      "properties": {"status": {"type": "string"}, "hint": {"type": "string"}}
+      "$ref": "#/$defs/Hooks"
     },
-    "install": {"allOf": [{"$ref": "#/$defs/install"}], "required": ["hint"]}
-  },
-  "$defs": {
-    "exactRelativePath": {"type": "string", "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$"},
-    "purge": {
-      "type": "object", "additionalProperties": false, "required": ["paths", "settings"],
-      "properties": {
-        "paths": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/exactRelativePath"}},
-        "emptyDirs": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/exactRelativePath"}},
-        "settings": {
-          "type": "array", "items": {
-            "type": "object", "additionalProperties": false, "required": ["path", "kind"],
-            "properties": {
-              "path": {"$ref": "#/$defs/exactRelativePath"},
-              "kind": {"enum": ["settings", "marketplaces", "claude", "copilot", "toml"]}
-            }
-          }
-        }
-      }
-    },
-    "marketplaceListing": {
-      "type": "object", "additionalProperties": false, "required": ["format", "nameField"],
-      "properties": {
-        "format": {"const": "json"},
-        "collectionField": {"type": "string", "minLength": 1},
-        "rootField": {"type": "string", "minLength": 1},
-        "nameField": {"type": "string", "minLength": 1}
-      }
-    },
-    "arguments": {"type": "array", "items": {"type": "string"}},
-    "command": {"type": "array", "minItems": 1, "items": [{"type": "string", "minLength": 1}], "additionalItems": {"type": "string"}},
-    "platform": {
-      "type": "object", "additionalProperties": false, "required": ["needs", "commands", "docs"],
-      "properties": {
-        "needs": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}, "uniqueItems": true},
-        "commands": {"type": "array", "items": {"$ref": "#/$defs/command"}},
-        "docs": {"type": "string"}
-      }
-    },
-    "scriptDownload": {
-      "type": "object", "additionalProperties": false, "required": ["kind", "url", "verification"],
-      "properties": {"kind": {"const": "script"}, "url": {"type": "string", "minLength": 1}, "verification": {"const": "vendor"}}
-    },
-    "binaryDownload": {
-      "type": "object", "additionalProperties": false, "required": ["kind", "resolver", "verification", "arguments"],
-      "properties": {
-        "kind": {"enum": ["msi", "exe", "zip"]},
-        "resolver": {"enum": ["release-assets", "lts-index"]},
-        "metadataUrl": {"type": "string", "minLength": 1},
-        "assetPattern": {"type": "string", "minLength": 1, "format": "regex"},
-        "assetName": {"type": "string", "minLength": 1},
-        "url": {"type": "string", "minLength": 1},
-        "checksumUrl": {"type": "string", "minLength": 1},
-        "verification": {"enum": ["asset-digest", "checksum-file"]},
-        "arguments": {"$ref": "#/$defs/arguments"},
-        "pathFolder": {"type": "string", "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).*$"}
-      },
-      "allOf": [
-        {"if": {"properties": {"kind": {"const": "zip"}}}, "then": {"required": ["pathFolder"]}, "else": {"properties": {"pathFolder": false}}},
-        {
-          "if": {"properties": {"resolver": {"const": "release-assets"}}},
-          "then": {
-            "required": ["metadataUrl", "assetPattern"],
-            "properties": {"verification": {"const": "asset-digest"}, "assetName": false, "url": false, "checksumUrl": false}
-          }
-        },
-        {
-          "if": {"properties": {"resolver": {"const": "lts-index"}}},
-          "then": {
-            "required": ["metadataUrl", "assetName", "url", "checksumUrl"],
-            "properties": {"verification": {"const": "checksum-file"}, "assetPattern": false}
-          }
-        }
-      ]
-    },
-    "download": {"oneOf": [{"$ref": "#/$defs/scriptDownload"}, {"$ref": "#/$defs/binaryDownload"}]},
     "install": {
-      "type": "object", "additionalProperties": false, "required": ["check", "windows", "macos", "linux"],
-      "properties": {
-        "check": {"$ref": "#/$defs/command"},
-        "hint": {"type": "string"},
-        "windows": {
-          "type": ["object", "null"], "additionalProperties": false, "required": ["wingetId", "portableCommand", "download"],
-          "properties": {
-            "wingetId": {"type": "string", "minLength": 1},
-            "portableCommand": {"type": "string", "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).*$", "minLength": 1},
-            "npmWhenAvailable": {
-              "type": "object", "additionalProperties": false, "required": ["check", "command"],
-              "properties": {"check": {"type": "string", "minLength": 1}, "command": {"$ref": "#/$defs/command"}}
-            },
-            "download": {
-              "type": "object", "additionalProperties": false, "required": ["msi", "zip"],
-              "properties": {"msi": {"$ref": "#/$defs/download"}, "zip": {"$ref": "#/$defs/download"}}
-            }
-          }
-        },
-        "macos": {"$ref": "#/$defs/platform"},
-        "linux": {"$ref": "#/$defs/platform"}
-      }
-    },
-    "listing": {
-      "oneOf": [
+      "allOf": [
         {
-          "type": "object", "additionalProperties": false, "required": ["format", "rejectPattern"],
-          "properties": {"format": {"const": "lines"}, "rejectPattern": {"type": "string", "format": "regex"}}
-        },
-        {
-          "type": "object", "additionalProperties": false, "required": ["format", "idField", "enabledField"],
-          "properties": {"format": {"const": "json"}, "idField": {"type": "string", "minLength": 1}, "enabledField": {"type": "string", "minLength": 1}}
+          "$ref": "#/$defs/install"
         }
+      ],
+      "required": [
+        "hint"
       ]
     }
-  }
+  },
+  "required": [
+    "schemaVersion",
+    "id",
+    "command",
+    "configEnv",
+    "foundry",
+    "overseerArgs",
+    "plugin",
+    "hooks",
+    "install"
+  ],
+  "title": "legion tool descriptor",
+  "type": "object"
 }

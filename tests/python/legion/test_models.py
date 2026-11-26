@@ -3,11 +3,11 @@ from pathlib import Path
 
 import pytest
 from pydantic import (
-    BaseModel,
     JsonValue,
     ValidationError,
 )
 
+from legion.core._schemas import generated_schemas
 from legion.core._settings_models import ChannelDescriptor, PersonalisationSettings, ProjectSettings, ToolDescriptor
 
 REPO = Path(__file__).resolve().parents[3]
@@ -169,20 +169,10 @@ def test_tool_foundry_and_windows_may_be_null() -> None:
     assert tool.install.windows is None
 
 
-def patterns(node: JsonValue) -> set[str]:
-    if isinstance(node, list):
-        return set().union(*(patterns(item) for item in node))
-    if not isinstance(node, dict):
-        return set()
-    found = {value for key, value in node.items() if key == "pattern" and isinstance(value, str)}
-    return found.union(*(patterns(value) for value in node.values()))
-
-
-# Until the schema files are generated from the models, both must hold the same patterns.
-@pytest.mark.parametrize(("name", "model"), [("personalisation", PersonalisationSettings), ("tool", ToolDescriptor)])
-def test_model_patterns_match_the_schema_file(name: str, model: type[BaseModel]) -> None:
-    schema = json.loads((REPO / "plugins" / "legion" / "schemas" / f"{name}.schema.json").read_text(encoding="utf-8"))
-    assert patterns(model.model_json_schema()) == patterns(schema)
+def test_committed_schemas_match_generated_output() -> None:
+    schema_dir = REPO / "plugins" / "legion" / "schemas"
+    committed = {path.name: path.read_text(encoding="utf-8") for path in schema_dir.glob("*.schema.json")}
+    assert committed == generated_schemas()
 
 
 def test_agent_command_is_a_non_empty_text_and_stays_in_field_order() -> None:
@@ -195,10 +185,3 @@ def test_agent_command_is_a_non_empty_text_and_stays_in_field_order() -> None:
     with pytest.raises(ValidationError) as error:
         PersonalisationSettings.model_validate(data)
     assert problems(error) == ["agents.5.command: String should have at least 1 character"]
-
-
-def test_schema_file_describes_the_agent_command() -> None:
-    schema = json.loads((REPO / "plugins" / "legion" / "schemas" / "personalisation.schema.json").read_text(encoding="utf-8"))
-    agent = schema["properties"]["agents"]["items"]
-    assert agent["properties"]["command"]["minLength"] == 1
-    assert "command" not in agent["required"]
