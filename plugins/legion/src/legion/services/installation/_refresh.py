@@ -17,6 +17,10 @@ def refresh(home: Path, source: Path = PLUGIN_ROOT, lock_timeout: float = 60) ->
         raise _settings_io.SettingsError("The legion folder contains a link; resolve it before refreshing")
     lines: list[str] = []
     changed = False
+    # Broken settings stop the refresh before anything is published; the lock is released before the app lock.
+    with _settings_io.writer(home, require_existing=False):
+        if settings_path(home).is_file():
+            _settings_io.load(home)
     with _installed_runtime.app_lock(home, lock_timeout) as held:
         ready = None
         if not held:
@@ -30,14 +34,18 @@ def refresh(home: Path, source: Path = PLUGIN_ROOT, lock_timeout: float = 60) ->
                 lines.append("skip: command legion (the legion app is not ready)")
             else:
                 changed = bool(_installed_runtime.write_owner_commands(ready, home)) or changed
-                if sync.state != "fell back" and _installed_runtime.has_account_run(ready, home) and _installed_runtime.owner_commands_run(ready, home):
-                    with _settings_io.writer(home, require_existing=False):
-                        settings = _settings_io.load(home) if settings_path(home).is_file() else None
-                        lines.extend(_launchers.remove_old_launchers(settings.agents if settings else [], home))
-                else:
+                # The app's legion is asked about `run` only when there is something to clean up.
+                if sync.state == "fell back" or not _installed_runtime.owner_commands_run(ready, home):
                     lines.append("skip: old account launchers (the legion command cannot start accounts yet)")
+                elif _launchers.candidates(home):
+                    if _installed_runtime.has_account_run(ready, home):
+                        with _settings_io.writer(home, require_existing=False):
+                            settings = _settings_io.load(home) if settings_path(home).is_file() else None
+                            lines.extend(_launchers.remove_old_launchers(settings.agents if settings else [], home))
+                    else:
+                        lines.append("skip: old account launchers (the legion command cannot start accounts yet)")
         if ready is not None:
-            if _launchers.old_launchers(home):
+            if _launchers.old_launchers_may_remain(home):
                 lines.append("skip: pruning older legion apps (an old account launcher may still run one)")
             else:
                 lines.extend(_installed_runtime.prune_old_versions(ready, home))

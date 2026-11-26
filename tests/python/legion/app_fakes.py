@@ -42,18 +42,25 @@ class FakeUv:
         self.exit_code = 0
         self.error = ""
         self.effect: Callable[[Path], None] | None = None
-        # What the app's own legion answers to `run --help`; 0 means it can start accounts.
+        # What the app's own legion answers to `run --help`; 0 means it can start accounts. Each probe is counted.
         self.run_help_exit = 0
+        self.probes = 0
         monkeypatch.setattr(_installed_runtime, "find_uv", lambda: "uv")
         monkeypatch.setattr(_installed_runtime, "run_command", self.run)
 
     def run(self, command: str, arguments: list[str], timeout: float | None = None, env: Mapping[str, str] | None = None) -> RunResult:
         if arguments == ["run", "--help"]:
+            self.probes += 1
             return RunResult(exit_code=self.run_help_exit, output="", error="", timed_out=False)
         assert env is not None
         self.calls.append((command, list(arguments), env["UV_PROJECT_ENVIRONMENT"]))
         if self.effect:
             self.effect(Path(arguments[2]))
+        if self.exit_code == 0:
+            # A synced environment holds the app's own legion.
+            program = Path(env["UV_PROJECT_ENVIRONMENT"]) / ("Scripts/legion.exe" if sys.platform == "win32" else "bin/legion")
+            program.parent.mkdir(parents=True, exist_ok=True)
+            program.touch()
         return RunResult(exit_code=self.exit_code, output="", error=self.error, timed_out=False)
 
 

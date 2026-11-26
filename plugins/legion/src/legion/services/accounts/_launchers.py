@@ -77,35 +77,39 @@ def target(agent: Agent, tool: ToolDescriptor, home: Path) -> Path:
 OTHER_NAMES = ("legion", "uv")
 
 
+# The files in the bin folder named like an account; none when the folder is missing or linked.
+def candidates(home: Path) -> list[Path]:
+    folder = bin_folder(home)
+    if not folder.is_dir() or not owner_path_safe(folder, home):
+        return []
+    names = [(path, path.name.removesuffix(".cmd")) for path in sorted(folder.iterdir())]
+    return [path for path, name in names if re.fullmatch(NAME_PATTERN, name) and name not in OTHER_NAMES]
+
+
+def _is_old_launcher(path: Path, home: Path) -> bool:
+    return owner_path_safe(path, home) and is_owned(path, _owner_name(path.name.removesuffix(".cmd")))
+
+
+# True while an old launcher legion wrote may still be in the bin folder: one is there, or the folder is linked and
+# cannot be looked into safely. Such a launcher may run an older app's legion, so older apps stay.
+def old_launchers_may_remain(home: Path) -> bool:
+    folder = bin_folder(home)
+    if os.path.lexists(folder) and not owner_path_safe(folder, home):
+        return True
+    return any(_is_old_launcher(path, home) for path in candidates(home))
+
+
 # A file in the bin folder whose header names the account it is called after is an old launcher of legion's.
 # It goes, with any footprint of it, once legion can start that account itself: the account is gone or its program is found.
 # It stays while an account's own command is that file, and every other file stays; each kept candidate is reported.
-# The old launchers legion wrote that are still in the bin folder.
-def old_launchers(home: Path) -> list[Path]:
-    folder = bin_folder(home)
-    if not folder.is_dir() or not owner_path_safe(folder, home):
-        return []
-    found: list[Path] = []
-    for path in sorted(folder.iterdir()):
-        name = path.name.removesuffix(".cmd")
-        if re.fullmatch(NAME_PATTERN, name) and name not in OTHER_NAMES and owner_path_safe(path, home) and is_owned(path, _owner_name(name)):
-            found.append(path)
-    return found
-
-
 def remove_old_launchers(agents: list[Agent], home: Path) -> list[str]:
-    folder = bin_folder(home)
-    if not folder.is_dir() or not owner_path_safe(folder, home):
-        return []
     tools = {tool.id: tool for tool in load_descriptors(ToolDescriptor, "tool.json")}
     configured = {agent.id: agent for agent in agents}
     # The real files the accounts' own commands run, links followed.
     programs = {agent.id: Path(os.path.realpath(full_path(home_path(agent.command, home)))) for agent in agents if agent.command is not None}
     lines: list[str] = []
-    for path in sorted(folder.iterdir()):
+    for path in candidates(home):
         name = path.name.removesuffix(".cmd")
-        if not re.fullmatch(NAME_PATTERN, name) or name in OTHER_NAMES:
-            continue
         if not owner_path_safe(path, home):
             lines.append(f"skip: {path} (linked)")
             continue

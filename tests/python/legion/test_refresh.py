@@ -139,18 +139,24 @@ def test_refresh_with_no_settings_file_publishes_the_app_and_then_does_nothing(t
     assert run(tmp_path) == [f"skip: legion app {VERSION} (already done)", UNCHANGED]
 
 
-def test_refresh_with_a_broken_settings_file_still_fails(tmp_path: Path) -> None:
+# Broken settings stop the refresh before the app is synced, whether the sync would succeed or fail.
+@pytest.mark.parametrize("sync_exit", [0, 3])
+def test_refresh_with_a_broken_settings_file_still_fails(tmp_path: Path, uv: FakeUv, sync_exit: int) -> None:
     path = settings_path(tmp_path)
     path.parent.mkdir(parents=True)
     path.write_text("{", encoding="utf-8")
+    uv.exit_code = sync_exit
     with pytest.raises(_refresh._settings_io.SettingsError):
         run(tmp_path)
+    assert uv.calls == []
+    assert not (tmp_path / ".legion" / "app").exists()
 
 
 def test_refresh_publishes_then_removes_launchers_and_prunes_in_order(tmp_path: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch) -> None:
     old_app(tmp_path, "0.0.1")
     old_app(tmp_path, "0.0.2")
     account_settings(tmp_path, ["claude-a"])
+    old_launchers(tmp_path, "codex-gone")
     order: list[str] = []
 
     def recorded(name: str, real: Callable[..., Any]) -> Callable[..., Any]:
@@ -264,7 +270,7 @@ def test_refresh_keeps_old_launchers_when_the_upgrade_fails_and_the_old_app_has_
 
 
 # An owner command that is not legion's blocks that entry point, so the launchers it would replace stay.
-def test_refresh_keeps_old_launchers_behind_a_foreign_owner_command(tmp_path: Path) -> None:
+def test_refresh_keeps_old_launchers_behind_a_foreign_owner_command(tmp_path: Path, uv: FakeUv) -> None:
     ready_app(tmp_path)
     account_settings(tmp_path, ["codex-a"])
     launchers = old_launchers(tmp_path, "codex-a")
@@ -272,6 +278,7 @@ def test_refresh_keeps_old_launchers_behind_a_foreign_owner_command(tmp_path: Pa
     foreign.write_text("#!/bin/sh\nowner file\n", encoding="utf-8")
     lines = run(tmp_path)
     assert kept(lines, launchers)
+    assert uv.probes == 0
     assert foreign.read_text(encoding="utf-8") == "#!/bin/sh\nowner file\n"
     assert "skip: old account launchers (the legion command cannot start accounts yet)" in lines
 
@@ -372,3 +379,45 @@ def test_older_apps_stay_through_two_upgrades_while_an_old_foundry_launcher_stay
     assert old.is_dir()
     assert environment.is_dir()
     assert launchers[-1].is_file()
+
+
+# Behind a linked bin folder an old Foundry launcher may still run an older app, so older apps stay through two upgrades.
+def test_older_apps_stay_through_two_upgrades_behind_a_linked_bin_folder(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    elsewhere = tmp_path / "elsewhere"
+    old, environment = old_app(home, "0.0.1")
+    account_settings(home, ["claude-a"])
+    old_launchers(elsewhere, "claude-a")
+    make_link(bin_folder(home), bin_folder(elsewhere))
+    for version in ("1.0.0", "2.0.0"):
+        lines = run(home, source=make_source(tmp_path / f"source {version}", version))
+        assert f"legion app {version} ready" in lines
+        assert "skip: pruning older legion apps (an old account launcher may still run one)" in lines
+    assert old.is_dir()
+    assert environment.is_dir()
+
+
+# The app's legion is probed only through a file reached without a link; a linked one keeps the launchers.
+def test_a_linked_app_executable_is_not_probed(tmp_path: Path, uv: FakeUv) -> None:
+    program = ready_app(tmp_path)
+    account_settings(tmp_path, ["codex-a"])
+    launchers = old_launchers(tmp_path, "codex-a")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / program.name).touch()
+    program.unlink()
+    program.parent.rmdir()
+    make_link(program.parent, elsewhere)
+    lines = run(tmp_path)
+    assert uv.probes == 0
+    assert kept(lines, launchers)
+    assert "skip: old account launchers (the legion command cannot start accounts yet)" in lines
+
+
+# The app's legion is not started when the bin folder holds nothing to clean up.
+def test_nothing_to_clean_up_starts_no_probe(tmp_path: Path, uv: FakeUv) -> None:
+    ready_app(tmp_path)
+    account_settings(tmp_path, ["codex-a"])
+    lines = run(tmp_path)
+    assert uv.probes == 0
+    assert not any("old account launchers" in line for line in lines)

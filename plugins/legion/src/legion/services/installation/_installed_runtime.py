@@ -173,10 +173,19 @@ def app_executable(app: Path, home: Path) -> Path:
     return python_environment(app, home) / ("Scripts/legion.exe" if sys.platform == "win32" else "bin/legion")
 
 
+# The app's own legion, when it is a file reached without a link; None otherwise.
+def safe_executable(app: Path, home: Path) -> Optional[Path]:
+    executable = app_executable(app, home)
+    return executable if executable.is_file() and owner_path_safe(executable, home) else None
+
+
 # True when the app's own legion answers `run --help`, so accounts can start through it.
 def has_account_run(app: Path, home: Path) -> bool:
+    executable = safe_executable(app, home)
+    if executable is None:
+        return False
     try:
-        return run_command(str(app_executable(app, home)), ["run", "--help"], timeout=60).exit_code == 0
+        return run_command(str(executable), ["run", "--help"], timeout=60).exit_code == 0
     except OSError:
         return False
 
@@ -186,8 +195,8 @@ def refresh_with_new_app(home: Path, version: str) -> list[str]:
     ready = next((item for item in ready_versions(home) if item.version == version), None)
     if ready is None:
         raise AppError(f"legion {version} is not ready")
-    executable = app_executable(ready.path, home)
-    if not executable.is_file() or not owner_path_safe(executable, home):
+    executable = safe_executable(ready.path, home)
+    if executable is None:
         raise AppError(f"legion {version} executable is missing")
     result = run_command(str(executable), ["--home", str(home), "refresh"])
     if result.exit_code != 0:
