@@ -1,4 +1,5 @@
 import contextlib
+import errno
 import json
 import os
 import signal
@@ -6,7 +7,9 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
+from unittest.mock import Mock
 
 import pytest
 from process_ready import timeout_after_ready
@@ -105,6 +108,24 @@ def test_timeout_kills_the_whole_tree(tmp_path: Path, monkeypatch: pytest.Monkey
     assert (result.exit_code, result.timed_out) == (-1, True)
     assert "tree started" in result.output
     wait_until_gone(int(marker.read_text(encoding="utf-8")))
+
+
+# Hand-built: macOS answers EPERM for a group of only zombies when the exit races the timeout.
+@pytest.mark.parametrize("leader_exited", [True, False])
+def test_group_permission_error_keeps_timeout_only_for_an_exited_group(monkeypatch: pytest.MonkeyPatch, leader_exited: bool) -> None:
+    process = Mock(spec=subprocess.Popen, pid=101, returncode=-9)
+    process.communicate.side_effect = [subprocess.TimeoutExpired("fake", 0), (b"started\n", b"")]
+    process.poll.return_value = -9 if leader_exited else None
+    monkeypatch.setattr(_run, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(_run, "signal", SimpleNamespace(SIGKILL=9))
+    monkeypatch.setattr(subprocess, "Popen", Mock(return_value=process))
+    monkeypatch.setattr(os, "killpg", Mock(side_effect=PermissionError(errno.EPERM, "Operation not permitted")), raising=False)
+    if leader_exited:
+        result = run_command("fake", [], timeout=0)
+        assert (result.exit_code, result.timed_out, result.output) == (-1, True, "started\n")
+    else:
+        with pytest.raises(PermissionError):
+            run_command("fake", [], timeout=0)
 
 
 def test_child_that_starts_a_process_and_exits_at_once_is_still_stopped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

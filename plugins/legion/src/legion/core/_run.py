@@ -1,6 +1,5 @@
 # Run a command with stdin closed, capture both streams and kill the whole tree on timeout.
 
-import contextlib
 import ctypes
 import os
 import re
@@ -99,8 +98,14 @@ def _kill_tree(process: subprocess.Popen[bytes], job: Optional[int]) -> None:
             process.kill()
         return
     # The child leads its own session, so its process group holds every descendant that did not leave it.
-    with contextlib.suppress(ProcessLookupError):
+    try:
         os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        # macOS answers EPERM for a group of only zombies when the exit races the timeout; a live leader is a real denial.
+        if process.poll() is None:
+            raise
 
 
 _CREATE_SUSPENDED = 0x00000004

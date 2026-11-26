@@ -185,7 +185,7 @@ def test_eof_closes_server(connection: Connection) -> None:
 
 @pytest.mark.parametrize("stop", ["eof", "cancel"])
 @pytest.mark.parametrize("target", ["claude", "codex", "copilot", "az", "git"])
-def test_interrupted_limits_kills_tree(connection: Connection, bench: Bench, stop: str, target: str) -> None:
+def test_interrupted_limits_kills_tree_and_removes_folder(connection: Connection, bench: Bench, stop: str, target: str) -> None:
     # The subprocess inherited its environment at startup; put the sleep setting in the fake executable.
     folder = bench.path if target in {"az", "git"} else bench.home / ".legion/bin"
     name = target if target in {"az", "git"} else f"{target}-a"
@@ -194,6 +194,7 @@ def test_interrupted_limits_kills_tree(connection: Connection, bench: Bench, sto
     connection.send("tools/call", {"name": "limits", "arguments": {"accounts": [account]}}, 3)
     pid = int(wait_file(bench.logs / "grandchild.pid"))
     call = bench.calls(target)[0]
+    ping_folder = Path(call["arguments"][1] if target == "git" else call["folder"])
     if stop == "eof":
         connection.eof()
         assert connection.process.wait(timeout=5) == 0
@@ -203,6 +204,11 @@ def test_interrupted_limits_kills_tree(connection: Connection, bench: Bench, sto
         assert "result" in connection.receive(4)
     assert_dead(pid)
     assert_dead(call["pid"])
+    if target != "az":
+        deadline = time.monotonic() + 5
+        while ping_folder.exists():
+            assert time.monotonic() < deadline, "ping folder survived cancellation"
+            time.sleep(0.01)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix process sessions")
@@ -227,6 +233,11 @@ def test_detached_descendant_is_stopped(connection: Connection, bench: Bench, st
         connection.send("notifications/cancelled", {"requestId": 3})
     assert_dead(pid)
     assert_dead(call["pid"])
+    if target != "az":
+        deadline = time.monotonic() + 5
+        while Path(call["arguments"][1] if target == "git" else call["folder"]).exists():
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
     if stop != "eof":
         connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["copilot-a" if target != "copilot" else "claude-a"], "timeout": 1}}, 4)
         assert not connection.receive(4)["result"].get("isError", False)
@@ -267,6 +278,39 @@ def test_probe_timeout_cleans_tree_and_allows_next_call(connection: Connection, 
     assert not Path(bench.calls("claude")[0]["folder"]).exists()
     connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["copilot-a"]}}, 4)
     assert not connection.receive(4)["result"].get("isError", False)
+
+
+def test_mcp_deadline_ends_the_child_tree_and_allows_next_call(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_executable(bench.home / ".legion/bin", "claude-a", {"LEGION_FAKE_CLAUDE_SLEEP": "60"})
+    # The CLI's own probe timeout equals the budget but starts after the child's startup, so the MCP deadline comes first.
+    monkeypatch.setattr(mcp_server, "CALL_BUDGET", 6.0)
+
+    async def check() -> None:
+        async with create_connected_server_and_client_session(build(bench.home)) as session:
+            result = await session.call_tool("limits", {"accounts": ["claude-a"]})
+            assert result.isError
+            assert "MCP call deadline exceeded" in str(result.content)
+            assert_dead(int((bench.logs / "grandchild.pid").read_text(encoding="utf-8")))
+            assert_dead(bench.calls("claude")[0]["pid"])
+            assert not (await session.call_tool("limits", {"accounts": ["copilot-a"]})).isError
+
+    anyio.run(check)
+    assert not Path(bench.calls("claude")[0]["folder"]).exists()
+
+
+def test_status_does_not_import_modules_from_the_repository(bench: Bench, tmp_path: Path) -> None:
+    repo = tmp_path / "repository"
+    (repo / "legion").mkdir(parents=True)
+    marker = tmp_path / "shadow-imported"
+    (repo / "legion/__init__.py").write_text(f"from pathlib import Path\nPath({str(marker)!r}).write_text('x')\n", encoding="utf-8")
+
+    async def check() -> None:
+        async with create_connected_server_and_client_session(build(bench.home)) as session:
+            result = await session.call_tool("status", {"repo": str(repo)})
+            assert not result.isError
+
+    anyio.run(check)
+    assert not marker.exists()
 
 
 def test_cancelling_one_request_leaves_the_other_probe_alive(connection: Connection, bench: Bench) -> None:
