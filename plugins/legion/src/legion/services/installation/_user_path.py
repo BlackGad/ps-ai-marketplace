@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from legion.services.repository import _footprints
-from legion.core._home import owner_path_safe
+from legion.core._home import owner_path_safe, path_contains
 from legion.core._text import TextFormat, decode_text
 
 if sys.platform == "win32":
@@ -28,12 +28,6 @@ PROFILE_LINE = 'export PATH="$HOME/.legion/bin:$PATH"'
 
 class PathError(Exception):
     pass
-
-
-# Windows compares without case and expands %VARIABLES%; ntpath does that on every system.
-def has_entry(path: str, folder: str) -> bool:
-    target = folder.rstrip("\\/").lower()
-    return any(ntpath.expandvars(part).rstrip("\\/").lower() == target for part in path.split(";"))
 
 
 def _registry_path(machine: bool) -> str:
@@ -78,7 +72,7 @@ def set_user_path(value: str) -> None:
 # Add a folder once; callers get consent before calling. Returns whether the PATH changed.
 def add(home: Path, folder: Path) -> bool:
     current = user_path()
-    if has_entry(current, str(folder)):
+    if path_contains(current, folder, separator=";"):
         return False
     _footprints.add(home, "path-entry", "user PATH", "legion", value=str(folder).rstrip("\\/"))
     set_user_path(current.rstrip(";") + ";" + str(folder) if current else str(folder))

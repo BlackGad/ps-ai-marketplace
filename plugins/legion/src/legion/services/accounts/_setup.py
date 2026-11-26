@@ -21,7 +21,15 @@ from legion.services.status import _status
 from legion.services.repository import _footprints
 from legion.core import _generated, _settings_io
 from legion.services.installation import _user_path
-from legion.core._home import bin_folder, full_path, home_path, resolve_directory, same_path, settings_path
+from legion.core._home import (
+    bin_folder,
+    full_path,
+    home_path,
+    path_contains,
+    resolve_directory,
+    same_path,
+    settings_path,
+)
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._settings_models import Agent, PersonalisationSettings, ToolDescriptor
 from legion.core._validate import read_text
@@ -109,7 +117,7 @@ def add_saved_folders() -> None:
         return
     path = os.environ.get("PATH", "")
     for folder in _user_path.persistent_folders():
-        if not _user_path.has_entry(path, folder):
+        if not path_contains(path, Path(folder)):
             path += f";{folder}"
     os.environ["PATH"] = path
 
@@ -276,7 +284,7 @@ def build_plan(home: Path, adds: list[str], account_id: Optional[str]) -> Plan:
     needs_stock = {row.tool.id for row in accounts if row.usable and row.command is None}
     missing = [tool for tool in tools.values() if tool.id in needs_stock and not command_available(tool.command)]
     commands = bin_folder(home)
-    needs_path = not _user_path.has_entry(_user_path.user_path(), str(commands)) if WINDOWS else not _user_path.shell_profile(home).has_path
+    needs_path = not path_contains(_user_path.user_path(), commands) if WINDOWS else not _user_path.shell_profile(home).has_path
     return Plan(home, file, accounts, uv_missing, missing, commands, _status.command_states(commands), needs_path)
 
 
@@ -421,7 +429,7 @@ def set_path(plan: Plan, say: Callable[[str], None]) -> None:
         return
     if not _user_path.add(plan.home, plan.bin):
         say("skip: path (already done)")
-    if not _user_path.has_entry(os.environ.get("PATH", ""), str(plan.bin)):
+    if not path_contains(os.environ.get("PATH", ""), plan.bin):
         os.environ["PATH"] += f";{plan.bin}"
 
 

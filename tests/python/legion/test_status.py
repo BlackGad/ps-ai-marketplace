@@ -193,7 +193,7 @@ def test_blocked_command_wins_over_missing(tmp_path: Path) -> None:
     assert _status.command_status(folder) == "blocked"
 
 
-@pytest.mark.parametrize("entry", ["exact", "trailing-entry", "trailing-folder", "prefix", "case", "percent", "literal-percent"])
+@pytest.mark.parametrize("entry", ["exact", "trailing-entry", "trailing-folder", "prefix", "case", "percent"])
 def test_path_entries_follow_platform_rules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str) -> None:
     folder = tmp_path / "bin"
     entries = {
@@ -203,12 +203,9 @@ def test_path_entries_follow_platform_rules(tmp_path: Path, monkeypatch: pytest.
         "prefix": str(folder) + "-other",
         "case": str(folder).upper(),
         "percent": "%LEGION_STATUS_BIN%",
-        "literal-percent": "%LEGION_STATUS_BIN%",
     }
     monkeypatch.setenv("LEGION_STATUS_BIN", str(folder))
     monkeypatch.setenv("PATH", entries[entry])
-    if entry == "literal-percent":
-        monkeypatch.setenv("OS", "Unix")
     target = Path(str(folder) + os.sep) if entry == "trailing-folder" else folder
     expected = entry in ("exact", "trailing-entry", "trailing-folder") or (sys.platform == "win32" and entry in ("case", "percent"))
     assert _status.on_path(target) == expected

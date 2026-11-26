@@ -734,13 +734,6 @@ def test_a_vendor_command_in_local_bin_counts_as_installed(platform: str, tmp_pa
 # --- the saved user PATH ---
 
 
-def test_user_path_entries_compare_without_case_and_expand_variables(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEGION_TEST_FOLDER", "C:\\Tools")
-    assert _user_path.has_entry("C:\\a;%LEGION_TEST_FOLDER%\\bin\\", "c:\\tools\\BIN")
-    assert not _user_path.has_entry("C:\\a;C:\\b", "C:\\c")
-    assert not _user_path.has_entry("", "C:\\c")
-
-
 def test_adding_to_the_user_path_keeps_the_existing_value(bench: Bench, tmp_path: Path) -> None:
     folder = tmp_path / "tool" / "bin"
     assert _user_path.add(bench.home, folder) is True
