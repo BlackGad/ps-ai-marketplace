@@ -26,6 +26,29 @@ def test_listing_parses_json_and_text_with_disabled_entries() -> None:
     assert not runner.listed(text_entry, "legion@ps-legion-marketplace disabled")
 
 
+def test_stage_candidate_commits_distinct_versions_only_in_the_fixture(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    source = instance.new_repo("source")
+    instance.checkout = source
+    manifests = ["plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json"]
+    for name in manifests:
+        path = source / "plugins/legion" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"name":"legion","version":"0.17.0"}', encoding="utf-8")
+    instance.run(["git", "-C", str(source), "add", "."])
+    instance.run(["git", "-C", str(source), "commit", "--quiet", "-m", "add manifests"])
+
+    candidate = instance.new_repo("candidate")
+    release = instance.run(["git", "-C", str(candidate), "rev-parse", "HEAD"])
+    assert instance.stage_candidate(candidate) == "0.17.1"
+    assert instance.run(["git", "-C", str(candidate), "rev-parse", "HEAD^"]) == release
+    for name in manifests:
+        relative = f"plugins/legion/{name}"
+        assert json.loads(instance.run(["git", "-C", str(candidate), "show", f"HEAD:{relative}"]))["version"] == "0.17.1"
+        assert json.loads((source / relative).read_text(encoding="utf-8"))["version"] == "0.17.0"
+    assert not instance.run(["git", "-C", str(source), "status", "--porcelain"])
+
+
 def test_report_writes_all_evidence_and_omits_failed_benchmark(tmp_path: Path) -> None:
     cases = [runner.Case("install", False, "passed", 1.25, "", "ok"), runner.Case("install", True, "failed", 0.5, "repeat failed", "failure")]
     runner.write_report(tmp_path, "linux", cases, ["git: 2.0"], "claude 1.0")
@@ -121,6 +144,7 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "uninstall",
         "reinstall",
         "restore-launchers",
+        "update-from-0.17.0",
         "purge",
     ]
 

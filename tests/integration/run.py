@@ -20,6 +20,7 @@ from typing import Any
 
 TOOLS = ("claude", "codex", "copilot")
 MARKETPLACE = "BlackGad/ps-legion-marketplace"
+UPGRADE_FROM = "0.17.0"
 ENDPOINT = "https://example-resource.cognitiveservices.azure.com"
 WINDOWS = sys.platform == "win32"
 
@@ -486,6 +487,106 @@ class Runner:
             self.state["update_snapshot"] = self.home_snapshot(update=True)
         return output
 
+    def stage_candidate(self, release: Path) -> str:
+        # Replace the tree but keep the release as the parent so host updates can fast-forward.
+        git = ["git", "-C", str(release)]
+        self.run([*git, "fetch", "--quiet", "--update-shallow", str(self.checkout), "HEAD"])
+        self.run([*git, "read-tree", "--reset", "-u", "FETCH_HEAD"])
+        plugin = release / "plugins/legion"
+        manifest = json.loads((plugin / "plugin.json").read_text(encoding="utf-8"))
+        major, minor, patch = re.split(r"[-+]", manifest["version"], maxsplit=1)[0].split(".")
+        version = f"{major}.{minor}.{int(patch) + 1}"
+        require(version != UPGRADE_FROM, "staged candidate must differ from the release")
+        for name in ("plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+            path = plugin / name
+            document = json.loads(path.read_text(encoding="utf-8"))
+            document["version"] = version
+            path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        self.run([*git, "add", "--", str(plugin)])
+        self.run([*git, "-c", "user.name=Integration fixture", "-c", "user.email=integration@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Stage candidate"])
+        return version
+
+    def update_from_release(self, repeat: bool) -> None:
+        root = self.work / ("p3-repeat" if repeat else "p3")
+        release = root / "release"
+        remote = f"https://github.com/{MARKETPLACE}"
+        root.mkdir()
+        self.run(["git", "clone", "--quiet", "--depth", "1", "--branch", f"v{UPGRADE_FROM}", "--config", "core.longpaths=true", remote, str(release)])
+        git = ["git", "-C", str(release)]
+        self.run([*git, "branch", "stable"])
+        upgrade = Runner(release, root / "home", self.out, False)
+        upgrade.log = self.log
+        # Host marketplace commands use both Git URL spellings.
+        rewrite = f"url.{release.resolve().as_uri()}.insteadOf"
+        upgrade.env.update(
+            {
+                "PATH": os.pathsep.join((str(upgrade.launcher("legion").parent), self.env["PATH"])),
+                "GIT_CONFIG_COUNT": "2",
+                "GIT_CONFIG_KEY_0": rewrite,
+                "GIT_CONFIG_VALUE_0": remote + ".git",
+                "GIT_CONFIG_KEY_1": rewrite,
+                "GIT_CONFIG_VALUE_1": remote,
+            }
+        )
+        for name in ("LEGION_ROLE", "LEGION_TASK"):
+            upgrade.env.pop(name, None)
+        for tool in TOOLS:
+            upgrade.targets[tool] = (MARKETPLACE, "release")
+            upgrade.install_legion(tool)
+            require(upgrade.version(tool, upgrade.folder(tool)) == UPGRADE_FROM, f"{tool} did not install {UPGRADE_FROM}")
+        require(upgrade.legion("--version", owner=True) == f"legion {UPGRADE_FROM}", "owner shim did not run the released app")
+
+        version = self.stage_candidate(release)
+        self.run([*git, "update-ref", "refs/heads/stable", "HEAD"])
+        upgrade.legion("update", "--yes", owner=True)
+        require(upgrade.legion("--version", owner=True) == f"legion {version}", "owner shim did not run the candidate app")
+        status = json.loads(upgrade.legion("status", "--json", owner=True))
+        require(Path(status["settings"]["path"]).resolve() == (upgrade.home / ".legion/configuration/personalisation.json").resolve(), "status used the wrong home")
+
+        # Run the client from a separate environment with the explicit MCP extra. Only the
+        # server runs through the 0.17.0 shim, which selects the candidate's default groups.
+        client = """
+import asyncio
+import json
+import os
+import sys
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+async def main():
+    env = dict(os.environ)
+    env.pop("VIRTUAL_ENV", None)
+    env.pop("UV_PROJECT_ENVIRONMENT", None)
+    server = StdioServerParameters(command=sys.argv[1], args=["mcp"], env=env)
+    async with asyncio.timeout(60), stdio_client(server) as (read, write), ClientSession(read, write) as session:
+        await session.initialize()
+        result = await session.call_tool("status")
+        if result.isError:
+            raise RuntimeError(str(result))
+        print(json.dumps(result.structuredContent))
+
+asyncio.run(main())
+"""
+        mcp = upgrade.run(
+            [self.command("uv"), "run", "--project", str(self.checkout / "plugins/legion"), "--frozen", "--extra", "mcp", "--quiet", "python", "-c", client, str(upgrade.launcher("legion"))],
+            env={**upgrade.env, "UV_PROJECT_ENVIRONMENT": str(self.work / "python-env")},
+        )
+        require(json.loads(mcp) == status, "MCP status differs from CLI status")
+
+        hook = upgrade.home / ".legion/app" / version / "hooks/session_start.py"
+        hook_env = {**upgrade.env, "LEGION_ROLE": "member", "LEGION_TASK": "upgrade-fixture"}
+        reply = upgrade.run([sys.executable, "-I", "-S", "-B", str(hook), "--format", "context-json"], env=hook_env)
+        contains(json.loads(reply)["additionalContext"], "you are a legion member")
+
+        upgrade.legion("uninstall", "--purge", "--yes", owner=True)
+        require(not (upgrade.home / ".legion").exists(), "upgrade left an owner installation after purge")
+        require(upgrade.profile_count() == 0, "upgrade left a PATH entry in a shell profile")
+        require(not (upgrade.work / "user-path.txt").read_text(encoding="utf-8").strip(), "upgrade left a saved user PATH entry")
+        for tool in TOOLS:
+            folder = upgrade.folder(tool)
+            upgrade.check_uninstalled(tool, folder)
+            require(not upgrade.listing(tool, folder, "marketplace"), f"{tool} marketplace remains")
+
     def setup_accounts(self) -> str:
         return "\n".join(self.legion("add", tool, "--id", f"{tool}1", "--source", self.targets[tool][0], "--yes") for tool in self.active())
 
@@ -832,6 +933,7 @@ class Runner:
             ("uninstall", self.uninstall),
             ("reinstall", self.reinstall),
             ("restore-launchers", lambda repeat: self.reinstall(repeat, restore=True)),
+            (f"update-from-{UPGRADE_FROM}", self.update_from_release),
             ("purge", self.purge),
         ]
         return steps
