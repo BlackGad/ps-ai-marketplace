@@ -1,3 +1,5 @@
+import os
+import stat
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -23,6 +25,22 @@ def test_failed_replace_preserves_the_target_and_removes_the_temp_file(tmp_path:
         atomic_write_bytes(target, b"new")
     assert target.read_bytes() == b"old"
     assert list(tmp_path.iterdir()) == [target]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows refuses to replace a read-only file")
+def test_read_only_target_leaves_no_temp_file(tmp_path: Path) -> None:
+    target = tmp_path / "data"
+    target.write_bytes(b"old")
+    target.chmod(stat.S_IREAD)
+    try:
+        with pytest.raises(OSError):
+            atomic_write_bytes(target, b"new")
+        assert target.read_bytes() == b"old"
+        assert not target.stat().st_mode & stat.S_IWRITE
+        assert list(tmp_path.iterdir()) == [target]
+    finally:
+        for file in tmp_path.iterdir():
+            file.chmod(stat.S_IWRITE)
 
 
 def test_partial_write_preserves_the_target_and_removes_the_temp_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
