@@ -5,16 +5,18 @@ import socket
 import subprocess
 import sys
 import time
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from multiprocessing.synchronize import Barrier, Event
 from pathlib import Path
 from typing import Optional
+from unittest.mock import Mock
 
+import psutil
 import pytest
 
 from legion.services.repository import _lease
 from legion.services.repository._lease import Lease, LeaseError, lease_path, release, state, take
-from legion.core._process import process_started_at
+from legion.core._process import ProcessInfo, owner_process, process_started_at
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEAD_PID = 99_999_999
@@ -452,3 +454,39 @@ def test_from_json_rejects_wrong_types() -> None:
     for text in ("[]", '{"pid": "7"}', '{"pid": true}', '{"host": 3}', '{"processStartedAt": "soon"}', "{"):
         with pytest.raises((ValueError, TypeError)):
             Lease.from_json(text)
+
+
+# The Codex app-server daemon outlives sessions, so it is never recorded as the owner.
+
+
+def chain_owner(monkeypatch: pytest.MonkeyPatch, command_line: list[str]) -> None:
+    base = datetime(2026, 11, 20, tzinfo=UTC)
+    processes = {
+        10: ProcessInfo(10, 9, "legion.exe", base + timedelta(seconds=30)),
+        9: ProcessInfo(9, 8, "pwsh.exe", base + timedelta(seconds=20)),
+        8: ProcessInfo(8, 1, "codex.exe", base + timedelta(seconds=10)),
+        1: ProcessInfo(1, 0, "init", base),
+    }
+    monkeypatch.setattr(_lease, "owner_process", lambda: owner_process(10, processes.get))
+    fake = Mock(cmdline=Mock(return_value=command_line))
+    monkeypatch.setattr(psutil, "Process", Mock(return_value=fake))
+
+
+def test_take_refuses_the_codex_app_server_and_names_process_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    chain_owner(monkeypatch, ["codex.exe", "app-server", "--listen", "unix://", "--managed-daemon"])
+    with pytest.raises(LeaseError, match="--process-id"):
+        take(tmp_path, "codex", "owner")
+    assert not lease_path(tmp_path).exists()
+
+
+def test_take_records_a_normal_codex_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    chain_owner(monkeypatch, ["codex.exe", "-c", "features.x=true"])
+    assert take(tmp_path, "codex", "owner") == "lease taken"
+    lease = state(tmp_path).lease
+    assert lease is not None
+    assert lease.pid == 8
+
+
+def test_process_id_overrides_the_app_server_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    chain_owner(monkeypatch, ["codex.exe", "app-server"])
+    assert take(tmp_path, "codex", "owner", process_id=os.getpid()) == "lease taken"
