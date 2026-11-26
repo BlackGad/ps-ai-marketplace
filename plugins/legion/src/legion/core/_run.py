@@ -6,14 +6,27 @@ import re
 import signal
 import subprocess
 import sys
+import sysconfig
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Optional, Union
 
 from pydantic import BaseModel, ConfigDict
 
+from legion.core._home import resolve_directory, same_path
+
 # After a timeout kill, how long to wait for the pipes to close; a process that left the tree can hold them.
 DRAIN_SECONDS = 5
+
+
+def launch_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    environment.pop("VIRTUAL_ENV", None)
+    environment.pop("UV_PROJECT_ENVIRONMENT", None)
+    if sys.prefix != sys.base_prefix and "PATH" in environment:
+        scripts = resolve_directory(Path(sysconfig.get_path("scripts")))
+        environment["PATH"] = os.pathsep.join(entry for entry in environment["PATH"].split(os.pathsep) if not entry or not same_path(resolve_directory(Path(entry)), scripts))
+    return environment
 
 
 class RunResult(BaseModel):
@@ -93,6 +106,7 @@ def _text(data: bytes) -> str:
 
 
 def _kill_tree(process: subprocess.Popen[bytes], job: Optional[int]) -> None:
+    # The job or process group still contains descendants after the original child exits.
     if sys.platform == "win32":
         if not job or not ctypes.WinDLL("kernel32").TerminateJobObject(ctypes.c_void_p(job), 1):
             process.kill()

@@ -4,6 +4,7 @@ import os
 import signal
 import subprocess
 import sys
+import sysconfig
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -87,6 +88,10 @@ def bench(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Bench:
 def test_claude_child_gets_foundry_environment_and_parent_is_untouched(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "1")
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", "parent-config")
+    monkeypatch.setenv("VIRTUAL_ENV", sys.prefix)
+    monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", sys.prefix)
+    parent_path = os.pathsep.join([sysconfig.get_path("scripts"), os.environ["PATH"]])
+    monkeypatch.setenv("PATH", parent_path)
     assert _run.run("claude-dev", ["-p", "hi"], bench.home) == 0
     environment = bench.environment("claude")
     assert environment["CLAUDE_CODE_USE_FOUNDRY"] == "1"
@@ -94,10 +99,14 @@ def test_claude_child_gets_foundry_environment_and_parent_is_untouched(bench: Be
     assert environment["ANTHROPIC_MODEL"] == "claude-opus-x"
     assert environment["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "claude-opus-x"
     assert "CLAUDE_CODE_USE_BEDROCK" not in environment
+    assert "VIRTUAL_ENV" not in environment
+    assert "UV_PROJECT_ENVIRONMENT" not in environment
+    assert environment["PATH"] == os.pathsep.join([str(bench.home / ".legion" / "bin"), str(bench.bin)])
     assert Path(environment["CLAUDE_CONFIG_DIR"]) == bench.home / ".legion" / "agents" / "claude-dev"
     assert bench.calls("claude")[0]["arguments"] == ["-p", "hi"]
     assert os.environ["CLAUDE_CODE_USE_BEDROCK"] == "1"
     assert os.environ["CLAUDE_CONFIG_DIR"] == "parent-config"
+    assert os.environ["PATH"] == parent_path
 
 
 def test_codex_child_gets_only_its_config_home_and_arguments_keep_their_boundaries(bench: Bench) -> None:

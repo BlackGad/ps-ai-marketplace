@@ -1,4 +1,3 @@
-import ctypes
 import os
 import sys
 import time
@@ -7,34 +6,37 @@ from functools import partial
 from pathlib import Path
 from typing import Optional
 
+import psutil
 from pydantic import TypeAdapter
 
 from legion.services.channels import _inbox
-from legion.core._process import open_query_handle
-from legion.services.channels._telegram import Access, Message, Post, TelegramError, Update, User, bot_folder, call_bot, read_token
+from legion.services.channels._telegram import (
+    Access,
+    Message,
+    Post,
+    TelegramError,
+    Update,
+    User,
+    bot_folder,
+    call_bot,
+    read_token,
+)
 
 MAX_BACKOFF = 60
 _UPDATES = TypeAdapter(list[Update])
 
 
 def process_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    if sys.platform == "win32":
-        process = open_query_handle(pid)
-        if not process:
-            return False
-        code = ctypes.c_ulong()
-        ok = ctypes.windll.kernel32.GetExitCodeProcess(ctypes.c_void_p(process), ctypes.byref(code))
-        ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(process))
-        return bool(ok) and code.value == 259  # STILL_ACTIVE
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
+        if pid <= 0 or not psutil.pid_exists(pid):
+            return False
+        process = psutil.Process(pid)
+        return process.status() != psutil.STATUS_ZOMBIE and process.is_running()
+    except (psutil.NoSuchProcess, OverflowError):
         return False
-    except PermissionError:
+    except psutil.AccessDenied:
+        # A PID we cannot inspect may still hold the bridge.
         return True
-    return True
 
 
 def _live_pid(path: Path, alive: Callable[[int], bool]) -> bool:

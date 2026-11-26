@@ -8,6 +8,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -429,9 +430,20 @@ def test_terminal_selection_and_literal_transport(repo: Path, monkeypatch: pytes
 
 
 def test_in_place_inherits_console_and_cleans_environment(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    markers = {"NO_COLOR": "1", "TERM": "dumb", "CLAUDECODE": "1", "CLAUDE_CODE_FIXTURE": "x", "TELEGRAM_BOT_TOKEN": "fake-token"}
+    markers = {
+        "NO_COLOR": "1",
+        "TERM": "dumb",
+        "CLAUDECODE": "1",
+        "CLAUDE_CODE_FIXTURE": "x",
+        "TELEGRAM_BOT_TOKEN": "fake-token",
+        "VIRTUAL_ENV": sys.prefix,
+        "UV_PROJECT_ENVIRONMENT": sys.prefix,
+    }
     for name, value in markers.items():
         monkeypatch.setenv(name, value)
+    scripts = sysconfig.get_path("scripts")
+    owner_bin = str(repo / ".legion" / "bin")
+    monkeypatch.setenv("PATH", os.pathsep.join([scripts, owner_bin, scripts + os.sep]))
     launch = _overseer.Launch(command="fixture", arguments=["x"], environment={"TELEGRAM_STATE_DIR": "bot folder"}, remove=["TELEGRAM_BOT_TOKEN"])
     before = dict(os.environ)
     cwd = Path.cwd()
@@ -439,6 +451,7 @@ def test_in_place_inherits_console_and_cleans_environment(repo: Path, monkeypatc
     def child(_command: object, **kwargs: Any) -> SimpleNamespace:
         environment = kwargs["env"]
         assert not any(name in environment for name in markers)
+        assert environment["PATH"] == owner_bin
         assert environment["TELEGRAM_STATE_DIR"] == "bot folder"
         assert kwargs["cwd"] == repo
         assert not any(name in kwargs for name in ("stdin", "stdout", "stderr", "capture_output"))
