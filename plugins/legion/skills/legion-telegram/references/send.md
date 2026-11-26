@@ -1,6 +1,6 @@
 # Sending
 
-Before every send, apply the owner's notes for both voice and format. Use the specified voice throughout the update. Keep it compact and easy to scan. Say what happened and give the actual outcome when known. If work is pending, say what is still happening or what comes next. Render the text using [formats.md](formats.md) and pass the selected format explicitly.
+Before every send, apply [formats.md](formats.md).
 
 Resolve every requested destination separately from `channels` in the owner settings; use its `target` with the connected session's tool. Do not collapse two same-kind destinations. Verify that the session account is bound and that the session exposes the expected tools. Claude sessions send only through the plugin tools below; never call the Bot API directly from Claude. Codex has no plugin: it uses `legion telegram send` and `react` from the Codex section, which read the token inside their own process.
 

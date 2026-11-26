@@ -34,14 +34,7 @@ For a Foundry agent, resolve a requested tier word against separate tokens in di
 
 ## Default routing
 
-This is the one rule for choosing accounts. Owner-named routes, sequences, selection logic, exclusions, careful use, paid-use approval and existing agreements always win, as do higher-tier research choices under [model tiers](#model-tiers), but only for the roles they name; apply the defaults below to every open choice. If the owner names only the coding agent, the reviewer is still chosen by default and must be distinct. If an owner sequence assigns the author to review their own code, ask the owner to resolve the conflict.
-
-- For each dispatch, choose among eligible accounts (allowed, not excluded, not out of credit after a ping) by task, [model tier](#model-tiers), capacity and availability, permissions and cost. Keep no favorite account and no fixed rotation; decide again each time.
-- Code and review use distinct agents: the reviewer is never the account that wrote the code.
-- For independent review prefer a different provider from the implementer, to reduce shared blind spots.
-- If no eligible account of another provider is available, use a distinct account of the same provider and tell the owner plainly that the review is not provider-independent, and why.
-- A reviewer must still pass every review rule: tool-enforced read-only access, higher-tier consent, and paid-use approval. If no distinct account meets them, record the limitation and ask the owner how to proceed.
-- Say which agent was chosen.
+Owner notes win for the roles they name; apply this to the rest. Choose among eligible accounts (allowed, not excluded, credit confirmed by a ping) by task tier, capacity and cost, and say which one. The reviewer is never the author and preferably another provider; if no such account is usable, ask the owner.
 
 ## First legion dispatch
 
