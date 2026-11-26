@@ -77,7 +77,6 @@
             "exe",
             "zip"
           ],
-          "title": "Kind",
           "type": "string"
         },
         "resolver": {
@@ -85,33 +84,27 @@
             "release-assets",
             "lts-index"
           ],
-          "title": "Resolver",
           "type": "string"
         },
         "metadataUrl": {
           "minLength": 1,
-          "title": "Metadataurl",
           "type": "string"
         },
         "assetPattern": {
           "format": "regex",
           "minLength": 1,
-          "title": "Assetpattern",
           "type": "string"
         },
         "assetName": {
           "minLength": 1,
-          "title": "Assetname",
           "type": "string"
         },
         "url": {
           "minLength": 1,
-          "title": "Url",
           "type": "string"
         },
         "checksumUrl": {
           "minLength": 1,
-          "title": "Checksumurl",
           "type": "string"
         },
         "verification": {
@@ -119,19 +112,16 @@
             "asset-digest",
             "checksum-file"
           ],
-          "title": "Verification",
           "type": "string"
         },
         "arguments": {
           "items": {
             "type": "string"
           },
-          "title": "Arguments",
           "type": "array"
         },
         "pathFolder": {
           "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).*$",
-          "title": "Pathfolder",
           "type": "string"
         }
       },
@@ -141,7 +131,6 @@
         "verification",
         "arguments"
       ],
-      "title": "BinaryDownload",
       "type": "object"
     },
     "Foundry": {
@@ -149,7 +138,6 @@
       "properties": {
         "deploymentPrefix": {
           "minLength": 1,
-          "title": "Deploymentprefix",
           "type": "string"
         },
         "aliases": {
@@ -157,7 +145,6 @@
             "minLength": 1,
             "type": "string"
           },
-          "title": "Aliases",
           "type": "array",
           "uniqueItems": true
         }
@@ -166,18 +153,15 @@
         "deploymentPrefix",
         "aliases"
       ],
-      "title": "Foundry",
       "type": "object"
     },
     "Hooks": {
       "additionalProperties": false,
       "properties": {
         "status": {
-          "title": "Status",
           "type": "string"
         },
         "hint": {
-          "title": "Hint",
           "type": "string"
         }
       },
@@ -185,7 +169,6 @@
         "status",
         "hint"
       ],
-      "title": "Hooks",
       "type": "object"
     },
     "JsonListing": {
@@ -193,17 +176,14 @@
       "properties": {
         "format": {
           "const": "json",
-          "title": "Format",
           "type": "string"
         },
         "idField": {
           "minLength": 1,
-          "title": "Idfield",
           "type": "string"
         },
         "enabledField": {
           "minLength": 1,
-          "title": "Enabledfield",
           "type": "string"
         }
       },
@@ -212,7 +192,6 @@
         "idField",
         "enabledField"
       ],
-      "title": "JsonListing",
       "type": "object"
     },
     "LinesListing": {
@@ -220,12 +199,10 @@
       "properties": {
         "format": {
           "const": "lines",
-          "title": "Format",
           "type": "string"
         },
         "rejectPattern": {
           "format": "regex",
-          "title": "Rejectpattern",
           "type": "string"
         }
       },
@@ -233,7 +210,6 @@
         "format",
         "rejectPattern"
       ],
-      "title": "LinesListing",
       "type": "object"
     },
     "MarketplaceListing": {
@@ -241,22 +217,18 @@
       "properties": {
         "format": {
           "const": "json",
-          "title": "Format",
           "type": "string"
         },
         "collectionField": {
           "minLength": 1,
-          "title": "Collectionfield",
           "type": "string"
         },
         "rootField": {
           "minLength": 1,
-          "title": "Rootfield",
           "type": "string"
         },
         "nameField": {
           "minLength": 1,
-          "title": "Namefield",
           "type": "string"
         }
       },
@@ -264,7 +236,6 @@
         "format",
         "nameField"
       ],
-      "title": "MarketplaceListing",
       "type": "object"
     },
     "NpmInstall": {
@@ -272,7 +243,6 @@
       "properties": {
         "check": {
           "minLength": 1,
-          "title": "Check",
           "type": "string"
         },
         "command": {
@@ -286,7 +256,6 @@
             }
           ],
           "minItems": 1,
-          "title": "Command",
           "type": "array"
         }
       },
@@ -294,7 +263,6 @@
         "check",
         "command"
       ],
-      "title": "NpmInstall",
       "type": "object"
     },
     "Platform": {
@@ -305,7 +273,6 @@
             "pattern": "^[a-z][a-z0-9-]*$",
             "type": "string"
           },
-          "title": "Needs",
           "type": "array",
           "uniqueItems": true
         },
@@ -323,11 +290,9 @@
             "minItems": 1,
             "type": "array"
           },
-          "title": "Commands",
           "type": "array"
         },
         "docs": {
-          "title": "Docs",
           "type": "string"
         }
       },
@@ -336,7 +301,6 @@
         "commands",
         "docs"
       ],
-      "title": "Platform",
       "type": "object"
     },
     "Plugin": {
@@ -344,17 +308,14 @@
       "properties": {
         "defaultConfigDir": {
           "pattern": "^(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))~/[^:]+$",
-          "title": "Defaultconfigdir",
           "type": "string"
         },
         "installedRoot": {
           "pattern": "^(?![/\\\\]|[A-Za-z]:|~[/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$",
-          "title": "Installedroot",
           "type": "string"
         },
         "cacheDir": {
           "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$",
-          "title": "Cachedir",
           "type": "string"
         },
         "purge": {
@@ -364,49 +325,42 @@
           "items": {
             "type": "string"
           },
-          "title": "Marketplaceadd",
           "type": "array"
         },
         "marketplaceAddRef": {
           "items": {
             "type": "string"
           },
-          "title": "Marketplaceaddref",
           "type": "array"
         },
         "marketplaceRemove": {
           "items": {
             "type": "string"
           },
-          "title": "Marketplaceremove",
           "type": "array"
         },
         "install": {
           "items": {
             "type": "string"
           },
-          "title": "Install",
           "type": "array"
         },
         "uninstall": {
           "items": {
             "type": "string"
           },
-          "title": "Uninstall",
           "type": "array"
         },
         "marketplaceUpdate": {
           "items": {
             "type": "string"
           },
-          "title": "Marketplaceupdate",
           "type": "array"
         },
         "update": {
           "items": {
             "type": "string"
           },
-          "title": "Update",
           "type": "array"
         },
         "marketplaceListing": {
@@ -419,21 +373,18 @@
           "propertyNames": {
             "pattern": "^[A-Z_][A-Z0-9_]*$"
           },
-          "title": "Listingenv",
           "type": "object"
         },
         "marketplaceList": {
           "items": {
             "type": "string"
           },
-          "title": "Marketplacelist",
           "type": "array"
         },
         "list": {
           "items": {
             "type": "string"
           },
-          "title": "List",
           "type": "array"
         },
         "listing": {
@@ -444,8 +395,7 @@
             {
               "$ref": "#/$defs/JsonListing"
             }
-          ],
-          "title": "Listing"
+          ]
         }
       },
       "required": [
@@ -461,7 +411,6 @@
         "list",
         "listing"
       ],
-      "title": "Plugin",
       "type": "object"
     },
     "Purge": {
@@ -472,7 +421,6 @@
             "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$",
             "type": "string"
           },
-          "title": "Paths",
           "type": "array",
           "uniqueItems": true
         },
@@ -481,7 +429,6 @@
             "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$",
             "type": "string"
           },
-          "title": "Emptydirs",
           "type": "array",
           "uniqueItems": true
         },
@@ -489,7 +436,6 @@
           "items": {
             "$ref": "#/$defs/PurgeSetting"
           },
-          "title": "Settings",
           "type": "array"
         }
       },
@@ -497,7 +443,6 @@
         "paths",
         "settings"
       ],
-      "title": "Purge",
       "type": "object"
     },
     "PurgeSetting": {
@@ -505,7 +450,6 @@
       "properties": {
         "path": {
           "pattern": "^(?![/\\\\]|~)(?!.*[:*?])(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))(?!.*[/\\\\]{2})(?!.*[/\\\\]$).+$",
-          "title": "Path",
           "type": "string"
         },
         "kind": {
@@ -516,7 +460,6 @@
             "copilot",
             "toml"
           ],
-          "title": "Kind",
           "type": "string"
         }
       },
@@ -524,7 +467,6 @@
         "path",
         "kind"
       ],
-      "title": "PurgeSetting",
       "type": "object"
     },
     "ScriptDownload": {
@@ -532,17 +474,14 @@
       "properties": {
         "kind": {
           "const": "script",
-          "title": "Kind",
           "type": "string"
         },
         "url": {
           "minLength": 1,
-          "title": "Url",
           "type": "string"
         },
         "verification": {
           "const": "vendor",
-          "title": "Verification",
           "type": "string"
         }
       },
@@ -551,7 +490,6 @@
         "url",
         "verification"
       ],
-      "title": "ScriptDownload",
       "type": "object"
     },
     "Windows": {
@@ -559,13 +497,11 @@
       "properties": {
         "wingetId": {
           "minLength": 1,
-          "title": "Wingetid",
           "type": "string"
         },
         "portableCommand": {
           "minLength": 1,
           "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).*$",
-          "title": "Portablecommand",
           "type": "string"
         },
         "npmWhenAvailable": {
@@ -580,7 +516,6 @@
         "portableCommand",
         "download"
       ],
-      "title": "Windows",
       "type": "object"
     },
     "WindowsDownload": {
@@ -594,8 +529,7 @@
             {
               "$ref": "#/$defs/BinaryDownload"
             }
-          ],
-          "title": "Msi"
+          ]
         },
         "zip": {
           "oneOf": [
@@ -605,15 +539,13 @@
             {
               "$ref": "#/$defs/BinaryDownload"
             }
-          ],
-          "title": "Zip"
+          ]
         }
       },
       "required": [
         "msi",
         "zip"
       ],
-      "title": "WindowsDownload",
       "type": "object"
     },
     "install": {
@@ -630,7 +562,6 @@
             }
           ],
           "minItems": 1,
-          "title": "Check",
           "type": "array"
         },
         "windows": {
@@ -650,7 +581,6 @@
           "$ref": "#/$defs/Platform"
         },
         "hint": {
-          "title": "Hint",
           "type": "string"
         }
       },
@@ -660,7 +590,6 @@
         "macos",
         "linux"
       ],
-      "title": "Install",
       "type": "object"
     }
   },
@@ -668,22 +597,18 @@
   "properties": {
     "schemaVersion": {
       "const": 1,
-      "title": "Schemaversion",
       "type": "integer"
     },
     "id": {
       "pattern": "^[a-z][a-z0-9-]*$",
-      "title": "Id",
       "type": "string"
     },
     "command": {
       "minLength": 1,
-      "title": "Command",
       "type": "string"
     },
     "configEnv": {
       "pattern": "^[A-Z_][A-Z0-9_]*$",
-      "title": "Configenv",
       "type": "string"
     },
     "foundry": {
@@ -700,7 +625,6 @@
       "items": {
         "type": "string"
       },
-      "title": "Overseerargs",
       "type": "array"
     },
     "allowRules": {
@@ -708,7 +632,6 @@
         "minLength": 1,
         "type": "string"
       },
-      "title": "Allowrules",
       "type": "array",
       "uniqueItems": true
     },
@@ -740,6 +663,6 @@
     "hooks",
     "install"
   ],
-  "title": "legion tool descriptor",
-  "type": "object"
+  "type": "object",
+  "title": "legion tool descriptor"
 }

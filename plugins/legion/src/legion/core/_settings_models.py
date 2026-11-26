@@ -25,9 +25,9 @@ def _unique(items: list[str]) -> list[str]:
     return items
 
 
-_Item = TypeVar("_Item", bound=str)
-_UNIQUE_ITEMS_SCHEMA: JsonSchemaValue = {"uniqueItems": True}
-UniqueItems = Annotated[list[_Item], Field(json_schema_extra=_UNIQUE_ITEMS_SCHEMA), AfterValidator(_unique)]
+# Apply constraints on the list before checking its uniqueness.
+_StringList = TypeVar("_StringList", bound=list[str])
+UniqueItems = Annotated[_StringList, Field(json_schema_extra={"uniqueItems": True}), AfterValidator(_unique)]
 
 
 def _regex(pattern: str) -> str:
@@ -73,11 +73,10 @@ SchemaVersion = Annotated[int, Field(ge=_SCHEMA_VERSION, le=_SCHEMA_VERSION, jso
 
 def _settings_schema(schema: JsonSchemaValue, model: type["SettingsModel"]) -> None:
     properties = schema["properties"]
-    for name, field in model.model_fields.items():
+    for field in model.model_fields.values():
         if field.is_required():
             continue
-        key = field.alias if field.alias in properties else name
-        property_schema = properties[key]
+        property_schema = properties[field.alias]
         choices = property_schema.get("anyOf")
         if choices is None:
             continue
@@ -134,7 +133,7 @@ class Channel(SettingsModel):
     id: Name
     kind: Name
     target: Text
-    accounts: Annotated[list[Name], Field(min_length=1, json_schema_extra=_UNIQUE_ITEMS_SCHEMA), AfterValidator(_unique)]
+    accounts: UniqueItems[Annotated[list[Name], Field(min_length=1)]]
 
 
 class PersonalisationSettings(SettingsModel):
@@ -190,7 +189,7 @@ def _listing_env_schema(schema: JsonSchemaValue) -> None:
 
 class Foundry(ToolModel):
     deployment_prefix: Text
-    aliases: UniqueItems[Text]
+    aliases: UniqueItems[list[Text]]
 
 
 class PurgeSetting(ToolModel):
@@ -199,8 +198,8 @@ class PurgeSetting(ToolModel):
 
 
 class Purge(ToolModel):
-    paths: UniqueItems[ExactRelativePath]
-    empty_dirs: Optional[UniqueItems[ExactRelativePath]] = None
+    paths: UniqueItems[list[ExactRelativePath]]
+    empty_dirs: Optional[UniqueItems[list[ExactRelativePath]]] = None
     settings: list[PurgeSetting]
 
 
@@ -247,7 +246,7 @@ class Hooks(ToolModel):
 
 
 class Platform(ToolModel):
-    needs: UniqueItems[Name]
+    needs: UniqueItems[list[Name]]
     commands: list[Command]
     docs: str
 
@@ -269,8 +268,7 @@ _PATH_FOLDER = "path_folder"
 
 def _binary_download_schema(schema: JsonSchemaValue, model: type[SettingsModel]) -> None:
     _settings_schema(schema, model)
-    name_key = to_camel if to_camel(_PATH_FOLDER) in schema["properties"] else str
-    path_folder = name_key(_PATH_FOLDER)
+    path_folder = to_camel(_PATH_FOLDER)
     rules: list[JsonSchemaValue] = [
         {
             "if": {"properties": {"kind": {"const": _ZIP_KIND}}},
@@ -283,8 +281,8 @@ def _binary_download_schema(schema: JsonSchemaValue, model: type[SettingsModel])
             {
                 "if": {"properties": {"resolver": {"const": resolver}}},
                 "then": {
-                    "required": [name_key(name) for name in needed],
-                    "properties": {"verification": {"const": verification}, **dict.fromkeys(map(name_key, refused), False)},
+                    "required": [to_camel(name) for name in needed],
+                    "properties": {"verification": {"const": verification}, **dict.fromkeys(map(to_camel, refused), False)},
                 },
             }
         )
@@ -363,7 +361,7 @@ class ToolDescriptor(ToolModel):
     config_env: EnvironmentName
     foundry: Optional[Foundry]
     overseer_args: list[str]
-    allow_rules: Optional[UniqueItems[Text]] = None
+    allow_rules: Optional[UniqueItems[list[Text]]] = None
     plugin: Plugin
     hooks: Hooks
     install: Install

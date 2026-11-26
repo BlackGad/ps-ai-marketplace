@@ -15,6 +15,14 @@ from ._settings_models import (
 
 
 class _Draft7Schema(GenerateJsonSchema):
+    def field_title_should_be_set(self, schema: object) -> bool:
+        return False
+
+    def model_schema(self, schema: core_schema.ModelSchema) -> JsonSchemaValue:
+        generated = super().model_schema(schema)
+        generated.pop("title", None)
+        return generated
+
     def tagged_union_schema(self, schema: core_schema.TaggedUnionSchema) -> JsonSchemaValue:
         generated = super().tagged_union_schema(schema)
         # Draft-07 uses oneOf alone to validate tagged unions.
@@ -41,15 +49,10 @@ def generated_schemas() -> dict[str, str]:
         ("project", ProjectSettings, None),
         ("tool", ToolDescriptor, "legion tool descriptor"),
     ):
-        ref_template = "#/$defs/{model}" if model is ToolDescriptor else "#/definitions/{model}"
-        schema = model.model_json_schema(schema_generator=_Draft7Schema, ref_template=ref_template)
+        schema = model.model_json_schema(schema_generator=_Draft7Schema, ref_template="#/$defs/{model}")
         if model is ToolDescriptor:
             _share_install_schema(schema)
-        elif "$defs" in schema:
-            schema["definitions"] = schema.pop("$defs")
-        if title is None:
-            schema.pop("title")
-        else:
+        if title is not None:
             schema["title"] = title
         published = {"$schema": "http://json-schema.org/draft-07/schema#", **schema}
         files[f"{name}.schema.json"] = json.dumps(published, indent=2) + "\n"
