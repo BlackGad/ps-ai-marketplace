@@ -12,6 +12,14 @@ SOURCE = REPO / "plugins/legion/src"
 HOOKS = REPO / "plugins/legion/hooks"
 
 
+def test_no_dict_any_in_src() -> None:
+    for path in SOURCE.rglob("*.py"):
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+        for node in ast.walk(ast.parse("\n".join(lines), filename=str(path))):
+            if isinstance(node, ast.Subscript) and ast.unparse(node) == "dict[str, Any]":
+                assert any("Hand-built, reason:" in line for line in lines[max(0, node.lineno - 2) : node.lineno]), f"{path.relative_to(REPO)}:{node.lineno}"
+
+
 def test_mcp_sdk_imports_stay_in_mcp_package() -> None:
     for path in SOURCE.rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8-sig"))):

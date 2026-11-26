@@ -157,6 +157,17 @@ def test_recipe_data_comes_from_descriptors_and_helpers() -> None:
     assert PLUGIN_ROOT.joinpath("helpers.json").is_file()
 
 
+def test_helpers_json_typed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _tool_install.find_recipe("git").check == ["git", "--version"]
+    helpers = json.loads(_tool_install.HELPERS_PATH.read_text(encoding="utf-8"))
+    helpers["az"]["unexpected"] = True
+    path = tmp_path / "helpers.json"
+    path.write_text(json.dumps(helpers), encoding="utf-8")
+    monkeypatch.setattr(_tool_install, "HELPERS_PATH", path)
+    with pytest.raises(ValueError, match=r"az\.unexpected"):
+        _tool_install.find_recipe("git")
+
+
 def test_unknown_tool_is_refused(bench: Bench) -> None:
     with pytest.raises(ToolInstallError, match="unknown tool 'nope'"):
         bench.run("nope", "linux")

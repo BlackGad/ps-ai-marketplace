@@ -13,6 +13,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    RootModel,
     model_validator,
 )
 from pydantic.alias_generators import to_camel
@@ -365,6 +366,24 @@ class ToolDescriptor(ToolModel):
     plugin: Plugin
     hooks: Hooks
     install: Install
+
+
+class CatalogTool(ToolModel):
+    id: Name
+    command: Text
+    config_env: EnvironmentName
+    plugin: Plugin
+    hooks: Hooks
+    install_hint: str
+
+
+class ToolsCatalog(ToolModel):
+    schema_version: SchemaVersion
+    tools: list[CatalogTool]
+
+
+class HelpersCatalog(RootModel[dict[Name, InstallRecipe]]):
+    model_config = ConfigDict(strict=True)
 
 
 class PluginManifest(BaseModel):

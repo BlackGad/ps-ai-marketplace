@@ -678,7 +678,7 @@ def test_the_plugin_installer_gets_its_options_and_a_log(bench: Bench) -> None:
     calls = installer_calls(bench, ["inert installer output", "second line"])
     folder = bench.base / "target folder"
     assert REAL_INSTALL_PLUGIN("codex", folder, bench.home, None) == 0
-    assert calls == [(bench.home, {"tools": ["codex"], "config_dir": folder, "update": True, "yes": True})]
+    assert calls == [(bench.home, {"tools": ["codex"], "config_dir": folder, "update": True, "yes": True, "source": _setup._installer.DEFAULT_SOURCE})]
     assert (bench.home / ".legion" / "temp" / "setup-install-codex.log").read_text(encoding="utf-8") == "inert installer output\nsecond line"
 
 

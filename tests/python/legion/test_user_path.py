@@ -1,6 +1,5 @@
 # The shell profile PATH line that setup adds on macOS and Linux; no real profile or registry is touched.
 import codecs
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -137,7 +136,8 @@ def test_a_crlf_profile_gets_a_crlf_block_and_purge_restores_the_original_bytes(
     _user_path.shell_profile_lines(home)
     assert profile.read_bytes() == original + f"\r\n{MARKER}\r\n{LINE}\r\n".encode()
     assert _user_path.shell_profile_lines(home) == ["skip: shell profile PATH (already done)"]
-    plan = _installer.purge_plan(home, json.loads((Path(__file__).resolve().parents[3] / "plugins/legion/tools.json").read_text(encoding="utf-8")))
+    catalog = _installer._catalog(Path(__file__).resolve().parents[3], "release", None)
+    plan = _installer.purge_plan(home, catalog)
     _installer.apply_purge(plan)
     assert profile.read_bytes() == original
 
