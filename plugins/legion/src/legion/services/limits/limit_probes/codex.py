@@ -2,14 +2,11 @@
 
 import os
 import re
-from collections.abc import Iterator
-from os import scandir
 from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel, ValidationError
 
-from legion.core._run import check_command_context
 from legion.services.limits.limit_probes._ping import LimitRow, Ping, format_reset_time, format_used_percent, ping, ping_failure
 
 ARGUMENTS = ["exec", "ping"]
@@ -87,44 +84,22 @@ def window_name(minutes: Optional[int], fallback: str) -> str:
 # Only the ping's disposable working folder can identify its session; timestamps cannot.
 # A record of another shape is skipped like unreadable JSON, and a file that cannot be read or decoded like a foreign one.
 def _session_limits(sessions: Path, ping_folder: Path) -> Optional[RateLimits]:
-    # Stream the traversal; sorting would consume the whole history before a check.
-    for file in _session_files(sessions):
-        check_command_context()
+    for file in sorted(sessions.rglob("*.jsonl")):
         try:
             if not file.is_file():
                 continue
             with file.open(encoding="utf-8") as lines:
-                check_command_context()
                 if not _is_session_of(lines.readline(), ping_folder):
                     continue
                 limits = None
                 for line in lines:
-                    check_command_context()
                     found = _rate_limits(line) if '"rate_limits"' in line else None
                     if found:
                         limits = found
         except (OSError, UnicodeDecodeError):
             continue
-        check_command_context()
         return limits
-    check_command_context()
     return None
-
-
-def _session_files(sessions: Path) -> Iterator[Path]:
-    pending = [sessions]
-    while pending:
-        check_command_context()
-        try:
-            with scandir(pending.pop()) as entries:
-                for entry in entries:
-                    check_command_context()
-                    if entry.is_dir(follow_symlinks=False):
-                        pending.append(Path(entry.path))
-                    elif os.path.normcase(entry.name).endswith(".jsonl"):
-                        yield Path(entry.path)
-        except OSError:
-            continue
 
 
 def _rate_limits(line: str) -> Optional[RateLimits]:
