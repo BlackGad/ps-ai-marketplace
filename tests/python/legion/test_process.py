@@ -101,9 +101,23 @@ def test_legion_launcher_chain_finds_the_agent() -> None:
     assert owner_process(10, lookup).pid == 6
 
 
-def test_shell_only_chain_keeps_the_oldest_shell() -> None:
+def test_shell_only_chain_is_refused() -> None:
     lookup = table((10, 9, "python", 30), (9, 8, "bash", 20), (8, 7, "zsh", 10))
-    assert owner_process(10, lookup).pid == 8
+    with pytest.raises(LookupError, match="pass --process-id"):
+        owner_process(10, lookup)
+
+
+def test_git_bash_shim_chain_with_an_exited_parent_is_refused() -> None:
+    # Measured: an exec'd sh.exe shim keeps the pid of a parent that has already exited, so the chain stops at sh.exe.
+    lookup = table(
+        (17, 16, "python.exe", 60),
+        (16, 15, "python.exe", 50),
+        (15, 14, "legion.exe", 40),
+        (14, 13, "uv.exe", 30),
+        (13, 12, "sh.exe", 20),
+    )
+    with pytest.raises(LookupError, match="pass --process-id"):
+        owner_process(17, lookup)
 
 
 def test_reused_parent_pid_ends_the_chain() -> None:
@@ -123,9 +137,10 @@ def test_same_tick_parent_stays_in_the_chain() -> None:
     assert [item.pid for item in ancestors(10, processes.get)] == [9]
 
 
-def test_reused_pid_behind_a_shell_falls_back_to_the_shell() -> None:
+def test_reused_pid_behind_a_shell_is_refused() -> None:
     lookup = table((10, 9, "python", 30), (9, 8, "bash", 20), (8, 1, "claude", 25))
-    assert owner_process(10, lookup).pid == 9
+    with pytest.raises(LookupError, match="pass --process-id"):
+        owner_process(10, lookup)
 
 
 def test_exited_parent_ends_the_chain() -> None:

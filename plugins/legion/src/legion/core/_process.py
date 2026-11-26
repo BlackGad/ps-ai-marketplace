@@ -54,14 +54,12 @@ def ancestors(pid: int, lookup: Optional[Lookup] = None) -> list[ProcessInfo]:
     return chain
 
 
-# Prefer the nearest non-shell ancestor; fall back to the oldest live shell.
+# The nearest ancestor that is not a shell or launcher; a chain of only shells is refused, since a shell may be short-lived.
 def owner_process(pid: Optional[int] = None, lookup: Optional[Lookup] = None) -> ProcessInfo:
     chain = ancestors(os.getpid() if pid is None else pid, lookup)
     for process in chain:
         if not is_skipped(process.name):
             return process
-    if chain:
-        return chain[-1]
     raise LookupError("cannot find the agent session process; pass --process-id explicitly")
 
 
