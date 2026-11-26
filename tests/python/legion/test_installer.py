@@ -1119,6 +1119,41 @@ def test_update_refreshes_new_installed_copy_and_reports_version(tmp_path: Path,
     assert entry["plugin"]["update"] in calls
 
 
+def test_update_runs_the_new_apps_refresh_after_publishing_it_and_a_repeat_skips(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "claude")
+    folder = tmp_path / "config"
+    root = folder / "plugin"
+    root.mkdir(parents=True)
+    (root / "plugin.json").write_text('{"name":"legion","version":"1.0.0"}', encoding="utf-8")
+
+    def fake_run(_command: str, arguments: list[str], **_kwargs: object) -> RunResult:
+        output = ""
+        if arguments == entry["plugin"]["marketplaceList"]:
+            output = '[{"name":"ps-legion-marketplace"}]'
+        elif arguments == entry["plugin"]["list"]:
+            output = json.dumps([{"id": "legion@ps-legion-marketplace", "enabled": True, "installPath": str(root), "version": "1.0.0"}])
+        return RunResult(exit_code=0, output=output, error="", timed_out=False)
+
+    monkeypatch.setattr(_installer, "run_command", fake_run)
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
+    order: list[str] = []
+    monkeypatch.setattr(_installer, "_refresh_target", lambda *_args: order.append("old") or ["wrote: old"])
+    published = {"done": False}
+
+    def new_refresh(_home: Path) -> list[str]:
+        order.append("new")
+        first = not published["done"]
+        published["done"] = True
+        return ["legion generated runtimes and launchers refreshed"] if first else ["skip: legion generated runtimes and launchers (already done)"]
+
+    monkeypatch.setattr(_installed_runtime, "refresh_with_new_app", new_refresh)
+    first = _installer.install(tmp_path, ["claude"], config_dir=folder, update=True, yes=True, catalog=catalog())
+    repeat = _installer.install(tmp_path, ["claude"], config_dir=folder, update=True, yes=True, catalog=catalog())
+    assert order == ["old", "new", "old", "new"]
+    assert "legion generated runtimes and launchers refreshed" in first
+    assert "skip: legion generated runtimes and launchers (already done)" in repeat
+
+
 def test_update_reports_refresh_failure_and_continues_to_next_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "plugin"
     root.mkdir()

@@ -18,6 +18,7 @@ from tomlkit.items import InlineTable
 
 from legion.services.repository import _footprints
 from legion.services.installation import _user_path
+from legion.services.installation import _installed_runtime
 from legion.services.installation import _refresh
 from legion.core._generated import is_owned
 from legion.core._http import HttpsError, failure_text, get_bytes
@@ -935,6 +936,8 @@ def install(
                     raise InstallerError(f"{entry['id']} legion is absent from the post-update listing; generated artifacts were not refreshed.")
                 try:
                     lines.extend(_refresh_target(entry, folder, home, after))
+                    # This process is the old version; the new app writes the files again with its own templates.
+                    lines.extend(_installed_runtime.refresh_with_new_app(home))
                 except Exception as error:
                     lines.append(f"commands not refreshed for {entry['id']} in {folder}: {error}; run legion setup")
                     rows.append((entry["id"], str(folder), f"commands not refreshed: {error}"))

@@ -9,6 +9,7 @@ from filelock import FileLock
 from legion.services.installation import _installed_runtime
 from legion.services.repository import _footprints
 from legion.core._generated import is_owned, shell_literal
+from legion.core._run import RunResult
 
 from app_fakes import (
     MARKER,
@@ -487,3 +488,38 @@ def test_owner_commands_are_not_written_through_a_linked_bin_folder(tmp_path: Pa
     make_link(tmp_path / ".legion" / "bin", elsewhere)
     assert _installed_runtime.write_owner_commands(app, tmp_path) == []
     assert list(elsewhere.iterdir()) == []
+
+
+def test_refresh_with_new_app_runs_the_newest_apps_own_refresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app, environment = old_app(tmp_path, "1.2.3")
+    executable = _installed_runtime.app_executable(app, tmp_path)
+    executable.parent.mkdir(parents=True)
+    executable.touch()
+    calls: list[tuple[str, list[str]]] = []
+
+    def fake_run(command: str, arguments: list[str], **_kwargs: Any) -> RunResult:
+        calls.append((command, arguments))
+        return RunResult(exit_code=0, output="skip: legion generated runtimes and launchers (already done)\n", error="", timed_out=False)
+
+    monkeypatch.setattr(_installed_runtime, "run_command", fake_run)
+    lines = _installed_runtime.refresh_with_new_app(tmp_path)
+    assert calls == [(str(executable), ["--home", str(tmp_path), "refresh"])]
+    assert executable.is_relative_to(environment)
+    assert lines == ["skip: legion generated runtimes and launchers (already done)"]
+
+
+def test_refresh_with_new_app_keeps_todays_behaviour_when_the_app_is_not_ready(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_installed_runtime, "run_command", lambda *_args, **_kwargs: pytest.fail("no app is ready"))
+    assert _installed_runtime.refresh_with_new_app(tmp_path) == []
+    old_app(tmp_path, "1.2.3")
+    assert _installed_runtime.refresh_with_new_app(tmp_path) == []
+
+
+def test_refresh_with_new_app_reports_a_failed_refresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app, _ = old_app(tmp_path, "1.2.3")
+    executable = _installed_runtime.app_executable(app, tmp_path)
+    executable.parent.mkdir(parents=True)
+    executable.touch()
+    monkeypatch.setattr(_installed_runtime, "run_command", lambda *_args, **_kwargs: RunResult(exit_code=2, output="", error="boom", timed_out=False))
+    with pytest.raises(_installed_runtime.AppError, match="boom"):
+        _installed_runtime.refresh_with_new_app(tmp_path)

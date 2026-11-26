@@ -161,6 +161,24 @@ def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> tuple[list[str], Optiona
     return [f"legion app {version} ready"], target
 
 
+def app_executable(app: Path, home: Path) -> Path:
+    return python_environment(app, home) / ("Scripts/legion.exe" if sys.platform == "win32" else "bin/legion")
+
+
+# An update runs old code. Once the new app is ready, its own refresh writes every generated file with the new templates.
+def refresh_with_new_app(home: Path) -> list[str]:
+    ready = ready_versions(home)
+    if not ready:
+        return []
+    executable = app_executable(ready[0].path, home)
+    if not executable.is_file():
+        return []
+    result = run_command(str(executable), ["--home", str(home), "refresh"])
+    if result.exit_code != 0:
+        raise AppError(f"legion {ready[0].version} refresh exited {result.exit_code}: {(result.error or result.output).strip()}")
+    return result.output.splitlines()
+
+
 def shim_home_argument(home: Path, windows: bool) -> str:
     if same_path(full_path(home), full_path(Path.home())):
         return ""
@@ -207,7 +225,7 @@ def shim_text(app: Path, home: Path, windows: bool) -> str:
         lines.append('if [ "$1" = uninstall ]; then exec "$(dirname "$0")/legion.cmd" "$@"; fi')
     lines.extend(
         [
-            f'if [ "$1" = mcp ]; then exec {shell_literal(str(environment / ("Scripts/legion.exe" if sys.platform == "win32" else "bin/legion")))}{home_argument} "$@"; fi',
+            f'if [ "$1" = mcp ]; then exec {shell_literal(str(app_executable(app, home)))}{home_argument} "$@"; fi',
             f"command -v uv >/dev/null 2>&1 || {{ echo '{UV_MISSING}' >&2; exit 127; }}",
             f'if [ "$1" = uninstall ]; then exec uv run --no-project --python ">=3.12" {shell_literal(str(app / "src/legion/_self_uninstall.py"))} {shell_literal(str(app))} "$@"; fi',
             f"export UV_PROJECT_ENVIRONMENT={shell_literal(str(environment))}",
