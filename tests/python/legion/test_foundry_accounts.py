@@ -4,7 +4,6 @@ import re
 from pathlib import Path
 
 import pytest
-from launcher_fakes import ready_app
 from test_foundry_run import (
     ENDPOINT,
     ACCESS_CALL,
@@ -15,7 +14,6 @@ from test_foundry_run import (
 from legion.services.accounts import _accounts
 from legion.core import _settings_io
 from legion.core._home import settings_path
-from legion.services.accounts._launchers import LauncherError, launcher_paths
 from legion.core._settings_models import Agent, PersonalisationSettings
 from legion.core._validate import settings_issues
 from legion.services.foundry import codex
@@ -70,18 +68,7 @@ def test_list_prints_the_matching_deployments_changes_nothing_and_needs_no_ready
     assert list((bench.home / ".legion" / "bin").iterdir()) == []
 
 
-def test_add_without_a_ready_app_refuses_before_any_write_or_az_call(bench: Bench) -> None:
-    before = settings_path(bench.home).read_bytes()
-    with pytest.raises(LauncherError, match="the legion app is not ready; run legion setup"):
-        add(bench)
-    assert settings_path(bench.home).read_bytes() == before
-    assert az_calls(bench) == 0
-    assert not (bench.home / ".legion" / "agents" / "claude-dev" / "settings.json").exists()
-    assert list((bench.home / ".legion" / "bin").iterdir()) == []
-
-
-def test_add_saves_the_account_writes_the_picker_and_launchers_and_a_repeat_changes_nothing(bench: Bench) -> None:
-    ready_app(bench.home)
+def test_add_saves_the_account_and_writes_the_picker_but_no_launcher_and_a_repeat_changes_nothing(bench: Bench) -> None:
     folder = bench.home / ".legion" / "agents" / "claude-dev"
     folder.mkdir(parents=True)
     (folder / "settings.json").write_text('{"theme":"dark"}', encoding="utf-8")
@@ -99,9 +86,8 @@ def test_add_saves_the_account_writes_the_picker_and_launchers_and_a_repeat_chan
     assert picker["modelPicker"]["replaceBuiltInOptions"] is True
     assert [item["model"] for item in picker["modelPicker"]["options"]] == ["claude-opus-x", "claude-sonnet-x"]
     assert [item["label"] for item in picker["modelPicker"]["options"]] == ["claude-opus-x", "claude-sonnet-x"]
-    launchers = launcher_paths("claude-dev", bench.home)
-    assert all(path.is_file() for path in launchers)
-    tracked = [settings_path(bench.home), folder / "settings.json", *launchers]
+    assert list((bench.home / ".legion" / "bin").iterdir()) == []
+    tracked = [settings_path(bench.home), folder / "settings.json"]
     stamps = [(path.read_bytes(), path.stat().st_mtime_ns) for path in tracked]
     calls = az_calls(bench)
     assert add(bench) == ["skip: account claude-dev (already done)"]
@@ -110,30 +96,13 @@ def test_add_saves_the_account_writes_the_picker_and_launchers_and_a_repeat_chan
     assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in tracked] == stamps
 
 
-def test_repeat_foundry_add_repairs_missing_launcher_without_discovery(bench: Bench) -> None:
-    ready_app(bench.home)
-    add(bench)
-    for path in launcher_paths("claude-dev", bench.home):
-        path.unlink()
-    calls = az_calls(bench)
-    lines = add(bench)
-    assert all(path.is_file() for path in launcher_paths("claude-dev", bench.home))
-    assert any(line.startswith("wrote: launcher ") for line in lines)
-    assert az_calls(bench) == calls
-
-
-def test_an_account_for_a_tool_with_the_same_id_is_refused_without_az_when_the_launchers_collide(bench: Bench) -> None:
-    ready_app(bench.home)
-    owner_file = bench.home / ".legion" / "bin" / "claude-dev"
-    owner_file.write_text("owner file", encoding="utf-8")
-    with pytest.raises(LauncherError, match="wrapper collision"):
-        add(bench)
+def test_an_id_that_is_a_command_is_refused_without_az(bench: Bench) -> None:
+    with pytest.raises(_accounts.AccountError, match="'claude' is already a command"):
+        add(bench, "claude")
     assert az_calls(bench) == 0
-    assert owner_file.read_text(encoding="utf-8") == "owner file"
 
 
 def test_models_refuses_a_default_that_is_not_selected_and_leaves_settings_alone(bench: Bench) -> None:
-    ready_app(bench.home)
     add(bench)
     before = settings_path(bench.home).read_bytes()
     with pytest.raises(ValueError, match="default 'x' is not one of --deployment"):
@@ -142,7 +111,6 @@ def test_models_refuses_a_default_that_is_not_selected_and_leaves_settings_alone
 
 
 def test_models_list_marks_new_kept_and_gone_and_a_failed_discovery_never_marks_gone(bench: Bench) -> None:
-    ready_app(bench.home)
     add(bench)
     before = settings_path(bench.home).read_bytes()
     rows = [CLAUDE_ROWS[0], {"name": "claude-haiku-x", "properties": {"model": {"name": "claude-haiku-x"}}}]
@@ -160,7 +128,6 @@ def test_models_list_marks_new_kept_and_gone_and_a_failed_discovery_never_marks_
 
 
 def test_models_changes_default_aliases_and_picker_and_prints_nothing(bench: Bench) -> None:
-    ready_app(bench.home)
     add(bench)
     rows = [CLAUDE_ROWS[0], {"name": "claude-haiku-x", "properties": {"model": {"name": "claude-haiku-x"}}}]
     bench.answers({**ANSWERS, DEPLOYMENTS_KEY: {"stdout": json.dumps(rows)}})
@@ -174,7 +141,6 @@ def test_models_changes_default_aliases_and_picker_and_prints_nothing(bench: Ben
 
 
 def test_unreadable_claude_settings_stop_add_and_leave_everything_as_it_was(bench: Bench) -> None:
-    ready_app(bench.home)
     add(bench)
     folder = bench.home / ".legion" / "agents" / "claude-bad"
     folder.mkdir(parents=True)
@@ -185,16 +151,11 @@ def test_unreadable_claude_settings_stop_add_and_leave_everything_as_it_was(benc
     assert len(_settings_io.load(bench.home).agents) == 1
 
 
-def test_rename_moves_a_foundry_account_and_rewrites_its_launchers(bench: Bench) -> None:
-    ready_app(bench.home)
+def test_rename_moves_a_foundry_account(bench: Bench) -> None:
     add(bench)
     _accounts.rename(bench.home, "claude-dev", "claude-new")
     assert [agent.id for agent in _settings_io.load(bench.home).agents] == ["claude-new"]
-    assert not any(path.exists() for path in launcher_paths("claude-dev", bench.home))
-    for path in launcher_paths("claude-new", bench.home):
-        assert "foundry run --account" in path.read_text(encoding="utf-8")
-        assert "claude-new" in path.read_text(encoding="utf-8")
-        assert "claude-dev" not in path.read_text(encoding="utf-8")
+    assert list((bench.home / ".legion" / "bin").iterdir()) == []
 
 
 # Each case is the old config and the text that must survive; lines are joined so the quotes stay readable.

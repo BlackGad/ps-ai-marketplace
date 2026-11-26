@@ -1,10 +1,9 @@
 # Setup and add: work out what is missing, show it as a plan, and with consent do it, step by step.
-# Accounts, launchers, the app and the CLI installs are the code the other verbs use; this file only orders them.
+# Accounts, the app and the CLI installs are the code the other verbs use; this file only orders them.
 
 import json
 import os
 import shutil
-import stat
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -69,12 +68,11 @@ class Row:
     version: Optional[str] = None
     next_step: str = "ready"
     usable: bool = True
-    missing_launchers: bool = False
     command: Optional[str] = None
     provider: bool = False
     missing_allow_rules: list[str] = field(default_factory=list[str])
 
-    # The launchers are gone and only the owner can name the program again.
+    # The account's own program is gone and only the owner can name it again.
     @property
     def blocked(self) -> bool:
         return self.next_step.startswith("target needed:")
@@ -140,22 +138,10 @@ def _managed_folder(account: str, home: Path) -> Path:
     return full_path(home / ".legion" / "agents" / account)
 
 
-def _launcher_missing(account: str, home: Path) -> bool:
-    paths = _launchers.launcher_paths(account, home)
-    return any(not path.is_file() or (not WINDOWS and not path.stat().st_mode & stat.S_IXUSR) for path in paths)
-
-
-# True when the account's launchers are missing and the owner must name the program again (legion account register).
-def _target_needed(agent: Agent, tool: ToolDescriptor, home: Path) -> bool:
-    if agent.command is not None:
-        return not _resolve(agent.command, home).is_file()
-    # Without a command, none left means the stock CLI can be installed. A surviving launcher
-    # cannot be repaired when its stock CLI is gone; an intact target can have its permission restored.
-    paths = _launchers.launcher_paths(agent.id, home)
-    present = [path for path in paths if os.path.lexists(path)]
-    if present and not command_available(tool.command):
-        return True
-    return 0 < len(present) < len(paths)
+# True when the account's own program is gone and the owner must name it again (legion account register);
+# a missing stock CLI is installed instead.
+def _target_needed(agent: Agent, home: Path) -> bool:
+    return agent.command is not None and not _resolve(agent.command, home).is_file()
 
 
 def _read_json(file: Path) -> dict[str, object]:
@@ -195,9 +181,8 @@ def _missing_allow_rules(tool: ToolDescriptor, folder: Path) -> list[str]:
 def _row(agent: Agent, tool: ToolDescriptor, home: Path, requested: bool = False, new: bool = False, adopted: bool = False) -> Row:
     folder = _resolve(agent.config_dir, home)
     # Login is owner-only; infer the guidance from our managed folder without reading credentials.
-    next_step = f"log in: run {agent.id}" if not adopted and agent.provider is None and same_path(folder, _managed_folder(agent.id, home)) else "ready"
-    missing_launchers = _launcher_missing(agent.id, home)
-    if missing_launchers and not new and agent.provider is None and _target_needed(agent, tool, home):
+    next_step = f"log in: {_accounts.login_command(tool, folder, agent.command, home)}" if not adopted and agent.provider is None and same_path(folder, _managed_folder(agent.id, home)) else "ready"
+    if not new and agent.provider is None and _target_needed(agent, home):
         next_step = f"target needed: {agent.id}; ask the owner for the registered executable"
     return Row(
         id=agent.id,
@@ -209,7 +194,6 @@ def _row(agent: Agent, tool: ToolDescriptor, home: Path, requested: bool = False
         version=_status.installed_version(folder, tool),
         next_step=next_step,
         usable=not next_step.startswith("target needed:"),
-        missing_launchers=missing_launchers,
         command=agent.command,
         provider=agent.provider is not None,
         missing_allow_rules=_missing_allow_rules(tool, folder),
@@ -284,7 +268,7 @@ def build_plan(home: Path, adds: list[str], account_id: Optional[str]) -> Plan:
     uv_missing = _installed_runtime.find_uv() is None
     if uv_missing:
         for row in accounts:
-            if row.usable and (row.requested or row.missing_launchers):
+            if row.usable and row.requested:
                 row.usable, row.next_step = False, "uv is missing"
     needs_stock = {row.tool.id for row in accounts if row.usable and row.command is None}
     missing = [tool for tool in tools.values() if tool.id in needs_stock and not command_available(tool.command)]
@@ -309,12 +293,9 @@ def plan_lines(plan: Plan) -> list[str]:
     for row in plan.accounts:
         if row.new:
             lines.append(f"  add      {row.id} ({row.tool.id}) {'existing' if row.adopted else 'new'} folder {row.folder}")
-    repairs = [row.id for row in plan.accounts if not row.new and row.missing_launchers and row.usable]
-    if repairs:
-        lines.append(f"  wrappers repair {', '.join(repairs)}")
     if plan.uv_missing:
         lines.append("  uv       missing; ask the owner before installing it")
-    lines.extend(f"  wrappers {row.next_step}" for row in plan.accounts if row.blocked)
+    lines.extend(f"  account  {row.next_step}" for row in plan.accounts if row.blocked)
     folders = list(dict.fromkeys(str(row.folder) for row in plan.accounts if row.usable and row.version is None))
     if folders:
         lines.append(f"  install  legion into {', '.join(folders)}")
@@ -384,10 +365,7 @@ def add_accounts(plan: Plan, say: Callable[[str], None]) -> None:
     for row in plan.accounts:
         if not row.usable:
             continue
-        if row.provider and row.missing_launchers:
-            say(f"skip: account {row.id} (already done)")
-            continue
-        if row.requested or row.missing_launchers:
+        if row.requested:
             adopted = row.adopted or not same_path(row.folder, _managed_folder(row.id, plan.home))
             # The account verb takes the settings lock itself, so no lock is held here.
             try:
@@ -400,7 +378,7 @@ def add_accounts(plan: Plan, say: Callable[[str], None]) -> None:
         else:
             say(f"skip: account {row.id} (already done)")
         if row.new and not row.adopted:
-            row.next_step = f"log in: run {row.id}"
+            row.next_step = f"log in: {_accounts.login_command(row.tool, row.folder, row.command, plan.home)}"
 
 
 def add_allow_rules(plan: Plan, say: Callable[[str], None]) -> None:
@@ -485,7 +463,7 @@ def write_commands(plan: Plan, say: Callable[[str], None]) -> None:
             for path, _state in plan.commands:
                 _footprints.add(plan.home, "file", path, owner)
             _footprints.add(plan.home, "app", plan.home / ".legion" / "app", owner)
-    for line in _refresh.refresh(plan.home, skip={row.id for row in plan.accounts if row.blocked}):
+    for line in _refresh.refresh(plan.home):
         say(line)
     if any(state == "owned" for _path, state in plan.commands):
         say("skip: command legion (already done)")

@@ -141,9 +141,8 @@ def test_stdio_limits_equals_cli_explicit_accounts(bench: Bench, capsys: pytest.
 
     anyio.run(check)
     assert len(bench.calls("copilot")) == len(bench.calls("claude")) == 2
-    assert shutil.which("claude") is None
-    assert shutil.which("codex") is None
-    assert shutil.which("copilot") is None
+    # Both interfaces start the stock CLI with the account's own config folder.
+    assert {Path(call["config"]["CLAUDE_CONFIG_DIR"]) for call in bench.calls("claude")} == {bench.config("claude-a")}
 
 
 @pytest.mark.parametrize(
@@ -191,10 +190,8 @@ def test_eof_closes_server(connection: Connection) -> None:
 @pytest.mark.parametrize("target", ["claude", "codex", "copilot", "az", "git"])
 def test_interrupted_limits_kills_tree_and_removes_folder(connection: Connection, bench: Bench, stop: str, target: str) -> None:
     # The subprocess inherited its environment at startup; put the sleep setting in the fake executable.
-    folder = bench.path if target in {"az", "git"} else bench.home / ".legion/bin"
-    name = target if target in {"az", "git"} else f"{target}-a"
-    account = "foundry-a" if target == "az" else "codex-a" if target == "git" else name
-    write_executable(folder, name, {f"LEGION_FAKE_{target.upper()}_SLEEP": "60"})
+    account = "foundry-a" if target == "az" else "codex-a" if target == "git" else f"{target}-a"
+    write_executable(bench.path, target, {f"LEGION_FAKE_{target.upper()}_SLEEP": "60"})
     connection.send("tools/call", {"name": "limits", "arguments": {"accounts": [account]}}, 3)
     pid = int(wait_file(bench.logs / "grandchild.pid"))
     call = bench.calls(target)[0]
@@ -219,14 +216,12 @@ def test_interrupted_limits_kills_tree_and_removes_folder(connection: Connection
 @pytest.mark.parametrize("stop", ["eof", "cancel"])
 @pytest.mark.parametrize("target", ["claude", "codex", "copilot", "az", "git"])
 def test_detached_descendant_is_stopped(connection: Connection, bench: Bench, stop: str, target: str) -> None:
-    folder = bench.path if target in {"az", "git"} else bench.home / ".legion/bin"
-    name = target if target in {"az", "git"} else f"{target}-a"
-    account = "foundry-a" if target == "az" else "codex-a" if target == "git" else name
-    write_executable(folder, name, {f"LEGION_FAKE_{target.upper()}_SLEEP": "60", f"LEGION_FAKE_{target.upper()}_DETACH": "1"})
+    account = "foundry-a" if target == "az" else "codex-a" if target == "git" else f"{target}-a"
+    write_executable(bench.path, target, {f"LEGION_FAKE_{target.upper()}_SLEEP": "60", f"LEGION_FAKE_{target.upper()}_DETACH": "1"})
     connection.send("tools/call", {"name": "limits", "arguments": {"accounts": [account]}}, 3)
     pid = int(wait_file(bench.logs / "grandchild.pid"))
     call = bench.calls(target)[0]
-    # Establish that the fixture really left the launcher's process group and session.
+    # Establish that the fixture really left the probe's process group and session.
     if sys.platform != "win32":
         assert os.getpgid(pid) == os.getsid(pid) == pid
         assert os.getpgid(call["pid"]) != os.getpgid(pid)
@@ -274,7 +269,7 @@ def test_limits_bounds_single_account_default(bench: Bench, monkeypatch: pytest.
 
 
 def test_probe_timeout_cleans_tree_and_allows_next_call(connection: Connection, bench: Bench) -> None:
-    write_executable(bench.home / ".legion/bin", "claude-a", {"LEGION_FAKE_CLAUDE_SLEEP": "60"})
+    write_executable(bench.path, "claude", {"LEGION_FAKE_CLAUDE_SLEEP": "60"})
     connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["claude-a"], "timeout": 5}}, 3)
     pid = int(wait_file(bench.logs / "grandchild.pid"))
     assert "ping timed out" in str(connection.receive(3))
@@ -285,7 +280,7 @@ def test_probe_timeout_cleans_tree_and_allows_next_call(connection: Connection, 
 
 
 def test_mcp_deadline_ends_the_child_tree_and_allows_next_call(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
-    write_executable(bench.home / ".legion/bin", "claude-a", {"LEGION_FAKE_CLAUDE_SLEEP": "60"})
+    write_executable(bench.path, "claude", {"LEGION_FAKE_CLAUDE_SLEEP": "60"})
     # The CLI's own probe timeout equals the budget but starts after the child's startup, so the MCP deadline comes first.
     monkeypatch.setattr(mcp_server, "CALL_BUDGET", 6.0)
 
@@ -322,7 +317,7 @@ def test_cancelling_one_request_leaves_the_other_probe_alive(connection: Connect
     for request, tool in ((3, "claude"), (4, "copilot")):
         log = bench.logs / tool
         log.mkdir()
-        write_executable(bench.home / ".legion/bin", f"{tool}-a", {"LEGION_FAKE_LOG": str(log), f"LEGION_FAKE_{tool.upper()}_SLEEP": "60"})
+        write_executable(bench.path, tool, {"LEGION_FAKE_LOG": str(log), f"LEGION_FAKE_{tool.upper()}_SLEEP": "60"})
         connection.send("tools/call", {"name": "limits", "arguments": {"accounts": [f"{tool}-a"]}}, request)
         probes.append(int(wait_file(log / "grandchild.pid")))
     connection.send("notifications/cancelled", {"requestId": 3})

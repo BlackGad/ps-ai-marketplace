@@ -592,7 +592,7 @@ def purge_plan(home: Path, catalog: dict[str, Any], config_dir: Path | None = No
     for path in [*plan.paths, *plan.empty_paths, *([plan.legion] if plan.legion else [])]:
         if path.is_dir():
             count = sum(1 for child in path.rglob("*") if child.is_file())
-            last = " (last: all settings, notes, account folders, logins and launchers)" if path == plan.legion and not app_in_use else ""
+            last = " (last: all settings, notes, account folders, logins and the legion command)" if path == plan.legion and not app_in_use else ""
             keeping = ", keeping app and python" if path == plan.legion and app_in_use else ""
             empty = " (if empty)" if path in plan.empty_paths else ""
             plan.lines.append(f"Remove folder: {path} ({count} files){empty}{last}{keeping}")
@@ -1018,7 +1018,7 @@ def install(
 
 def _kept_lines(home: Path, catalog: dict[str, Any], config_dir: Path | None) -> list[str]:
     lines: list[str] = []
-    for name, label in (("configuration", "settings and notes"), ("agents", "account folders and logins"), ("bin", "account launchers")):
+    for name, label in (("configuration", "settings and notes"), ("agents", "account folders and logins"), ("bin", "the legion command")):
         path = home / ".legion" / name
         if path.exists():
             lines.append(f"Kept {label}: {path}")

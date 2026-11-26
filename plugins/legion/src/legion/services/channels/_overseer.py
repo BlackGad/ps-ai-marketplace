@@ -23,7 +23,9 @@ from legion.core import (
     _validate,
 )
 from legion.core._atomic_write import atomic_write_bytes
-from legion.services.accounts._accounts import get_tool
+from legion.services.accounts._accounts import AccountError, get_tool
+from legion.services.accounts._launch import run_account
+from legion.services.accounts._launchers import LauncherError
 from legion.core._settings_models import Agent, PersonalisationSettings
 
 WINDOWS = sys.platform == "win32"
@@ -42,8 +44,10 @@ class LastLaunch(BaseModel):
     session: str = ""
 
 
+# The account starts through legion's own account launch, in this terminal or in a new Terminal tab.
 class Launch(BaseModel):
-    command: str
+    account: str
+    home: str
     arguments: list[str]
     environment: dict[str, str] = Field(default_factory=dict)
     remove: list[str] = Field(default_factory=list)
@@ -133,7 +137,8 @@ def _session(last: Optional[LastLaunch], agent: Agent, home: Path) -> tuple[str,
 
 def _launch(settings: PersonalisationSettings, agent: Agent, channels: tuple[str, ...], arguments: tuple[str, ...], session: str, resume: bool, repo: Path, home: Path) -> Launch:
     tool = get_tool(agent.tool)
-    launch = Launch(command=str(_home.wrapper_command(agent.id, home)), arguments=[], environment={"LEGION_HOME": str(_home.full_path(home))})
+    full_home = str(_home.full_path(home))
+    launch = Launch(account=agent.id, home=full_home, arguments=[], environment={"LEGION_HOME": full_home})
     bindings = [_channel.binding(settings, channel) for channel in channels]
     if bindings and not set.intersection(*(set(binding.accounts) for binding in bindings)):
         raise OverseerError("selected channels cannot share one launch")
@@ -214,7 +219,7 @@ def start_launch(repo: Path, launch: Launch, *, dry_run: bool = False, in_place:
     if dry_run:
         for name, value in launch.environment.items():
             click.echo(f"env {name}={value}")
-        for word in [str(repo), launch.command, *launch.arguments]:
+        for word in [str(repo), f"account {launch.account}", *launch.arguments]:
             click.echo(word)
         if launch.bridge:
             click.echo("bridge: " + _run.display_command(launch.bridge))
@@ -226,9 +231,7 @@ def start_launch(repo: Path, launch: Launch, *, dry_run: bool = False, in_place:
         return subprocess.run([terminal, "new-tab", "-d", str(repo), sys.executable, "-m", "legion.services.channels._overseer", str(repo), payload], check=False).returncode
     process = start_bridge(launch, repo)
     try:
-        words = [launch.command, *launch.arguments]
-        command = _run._cmd_line(words) if WINDOWS and Path(launch.command).suffix.lower() in (".cmd", ".bat") else words
-        return subprocess.run(command, cwd=repo, env=_environment(launch), check=False).returncode
+        return run_account(launch.account, launch.arguments, Path(launch.home), cwd=repo, environment=_environment(launch))
     finally:
         if launch.bot_folder is not None:
             stop_bridge(process, Path(launch.bot_folder))
@@ -306,7 +309,7 @@ def run(
     click.echo(f"{'resuming' if resume else 'starting'} overseer: {selected.id}, channel {', '.join(channels) or 'none'}")
     try:
         code = start_launch(repo, launch, dry_run=dry_run, in_place=owner_launch)
-    except (OSError, ValueError, KeyboardInterrupt):
+    except (AccountError, LauncherError, _settings_io.SettingsError, OSError, ValueError, KeyboardInterrupt):
         if not dry_run:
             save_last(repo, home, saved.model_copy(update={"session": ""}))
         raise

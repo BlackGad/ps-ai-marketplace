@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import stat
-import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from legion.core._home import home_path, wrapper_command
+from legion.core._home import home_path
 from legion.core._settings_models import Agent
+from legion.services.accounts._launch import AccountCommand, account_command
 from legion.services.limits.limit_probes import (
     claude,
     codex,
@@ -23,7 +22,7 @@ if TYPE_CHECKING:
 
 __all__ = ["LimitRow", "LimitsError", "account_rows", "report_lines"]
 
-Reader = Callable[[str, Path, float], list[LimitRow]]
+Reader = Callable[[AccountCommand, Path, float], list[LimitRow]]
 READERS: dict[str, Reader] = {"claude": claude.read, "codex": codex.read, "copilot": copilot.read}
 COLUMNS = ["Account", "Tool", "Window", "Left", "Resets at", "Status"]
 DEFAULT_TIMEOUT = 120
@@ -61,15 +60,6 @@ def account_rows(agent: Agent, home: Path, timeout: float) -> list[LimitRow]:
         reader = READERS.get(agent.tool)
         if reader is None:
             return [LimitRow(status=f"no limits reader for {agent.tool}")]
-        command = wrapper_command(agent.id, home)
-        if not _is_executable(command):
-            return [LimitRow(status="launcher missing; run legion setup")]
-        return reader(str(command), home_path(agent.config_dir, home), timeout)
+        return reader(account_command(agent, home), home_path(agent.config_dir, home), timeout)
     except Exception as error:
         return [LimitRow(status="error: " + first_line(str(error)))]
-
-
-def _is_executable(path: Path) -> bool:
-    if not path.is_file():
-        return False
-    return sys.platform == "win32" or bool(path.stat().st_mode & stat.S_IXUSR)

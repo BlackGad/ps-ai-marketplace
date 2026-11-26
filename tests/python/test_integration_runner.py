@@ -162,11 +162,11 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "repo-private",
         "repo-shared",
         "channel",
-        "foundry-launcher",
+        "foundry-launch",
         "no-pwsh",
         "uninstall",
         "reinstall",
-        "restore-launchers",
+        "remove-old-launchers",
         "update-from-latest-release",
         "purge",
     ]
@@ -306,7 +306,7 @@ def test_first_uninstall_runs_installed_owner_command(tmp_path: Path) -> None:
     seen: list[bool] = []
     instance.targets_for_uninstall = list
     instance.active = list
-    instance.check_launchers = lambda: None
+    instance.check_account_launch = lambda: None
     instance.legion = lambda *_args, owner=False: seen.append(owner) or "removed"
     instance.uninstall(False)
     assert seen == [True]

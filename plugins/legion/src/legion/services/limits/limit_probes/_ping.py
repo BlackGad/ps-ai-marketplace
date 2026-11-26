@@ -11,6 +11,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, computed_field
 
 from legion.core._run import run_command
+from legion.services.accounts._launch import AccountCommand
 
 
 # One row of the limits table; every field a tool does not expose stays 'unknown'.
@@ -64,7 +65,7 @@ def find_executable(name: str) -> str:
 
 # A fresh empty folder keeps a ping away from every project's settings, rules and hooks.
 # The git init a Codex ping needs and the ping itself share one deadline.
-def ping(command: str, arguments: Sequence[str], timeout: float, *, git: bool = False) -> Ping:
+def ping(command: AccountCommand, arguments: Sequence[str], timeout: float, *, git: bool = False) -> Ping:
     deadline = time.monotonic() + timeout
     work = Path(tempfile.mkdtemp(prefix="legion-limits-"))
     try:
@@ -74,7 +75,8 @@ def ping(command: str, arguments: Sequence[str], timeout: float, *, git: bool = 
                 raise RuntimeError("git init timed out")
             if initialised.exit_code != 0:
                 raise RuntimeError(f"git init failed (exit code {initialised.exit_code})")
-        result = run_command(command, arguments, timeout=max(0.0, deadline - time.monotonic()), cwd=work)
+        words = command.words(arguments)
+        result = run_command(words[0], words[1:], timeout=max(0.0, deadline - time.monotonic()), env=command.environment(), cwd=work)
         return Ping(exit_code=result.exit_code, output=result.output, error=result.error, timed_out=result.timed_out, folder=work.resolve())
     finally:
         shutil.rmtree(work, ignore_errors=True)

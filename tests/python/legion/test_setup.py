@@ -1,5 +1,5 @@
 # Setup and add against fakes: fake CLIs on a private PATH, a fake uv, no real winget, npm, installer or network.
-# The account, launcher, app and tool-install code under it runs for real; only the two outside seams are fakes:
+# The account, app and tool-install code under it runs for real; only the two outside seams are fakes:
 # the CLI install (`install_tool`) and the plugin install (`install_plugin`).
 import json
 import os
@@ -12,9 +12,14 @@ import pytest
 from app_fakes import FakeUv, make_source
 from cli_runner import run
 from filelock import FileLock, Timeout
-from launcher_fakes import WINDOWS, fake_cli, only_on_path
+from launcher_fakes import (
+    WINDOWS,
+    fake_cli,
+    login,
+    only_on_path,
+)
 
-from legion.services.accounts import _accounts, _launchers, _setup
+from legion.services.accounts import _accounts, _setup
 from legion.services.installation import (
     _installed_runtime,
     installer as _installer,
@@ -114,11 +119,8 @@ class Bench:
     def folder(self, account: str) -> Path:
         return self.home / ".legion" / "agents" / account
 
-    def launcher_paths(self, account: str) -> list[Path]:
-        return _launchers.launcher_paths(account, self.home)
-
     def seed(self, account: str, tool_id: str, command: Optional[Path] = None, folder: Optional[Path] = None) -> None:
-        # An account as the verbs leave it: settings with its command when it has one, and its launchers.
+        # An account as the verbs leave it: settings with its command when it has one.
         self.apply()
         data = self.settings()
         entry: dict[str, str] = {"id": account, "tool": tool_id, "configDir": str(folder or self.folder(account))}
@@ -126,8 +128,6 @@ class Bench:
             entry["command"] = str(command)
         data["agents"].append(entry)
         settings_path(self.home).write_text(json.dumps(data), encoding="utf-8")
-        agent = _accounts.Agent.model_validate(entry)
-        _launchers.write_subscription(agent, descriptor(tool_id), self.home)
 
 
 @pytest.fixture
@@ -188,9 +188,9 @@ def test_accounts_plan_apply_and_repeat(bench: Bench) -> None:
     assert bench.plugin_installs[1][1] == adopt
     assert (adopt / "owner.txt").read_text(encoding="utf-8") == "keep login data"
     assert "account  tool  folder  legion  next step" in apply
-    assert any(line.startswith("claude1  claude  ") and line.endswith("  log in: run claude1") for line in apply)
+    assert any(line.startswith("claude1  claude  ") and line.endswith(f"  log in: {login('CLAUDE_CONFIG_DIR', bench.home / '.legion' / 'agents' / 'claude1', 'claude')}") for line in apply)
     assert any(line.startswith("codex1  codex  ") and line.endswith(f"  {VERSION}  ready") for line in apply)
-    assert "Run 'claude1' in a terminal and log in once." not in text(apply)
+    assert "Log in once:" not in text(apply)
     assert "Existing account folder kept at" not in text(apply)
     app = bench.home / ".legion" / "app" / VERSION
     assert (app / ".legion-app-ready").is_file()
@@ -287,16 +287,13 @@ def test_setup_plans_under_the_settings_lock_and_does_the_outside_work_without_i
 
 def test_missing_uv_is_a_plan_line_and_a_next_step_but_no_python_work(bench: Bench) -> None:
     bench.seed("ready-a", "codex")
-    bench.seed("broken-a", "codex")
-    for path in bench.launcher_paths("broken-a"):
-        path.unlink()
     calls: list[str] = []
     bench.monkeypatch.setattr(_installed_runtime, "find_uv", lambda: None)
     bench.monkeypatch.setattr(_accounts, "add_subscription", lambda *args: calls.append(args[1]) or [])
-    assert "  uv       missing; ask the owner before installing it" in bench.preview()
-    output = bench.apply()
+    assert "  uv       missing; ask the owner before installing it" in bench.preview(["codex"])
+    output = bench.apply(["codex"])
     assert "uv is missing. Ask the owner before installing it." in output
-    assert any(line.startswith("broken-a  codex") and line.endswith("uv is missing") for line in output)
+    assert any(line.startswith("codex1  codex") and line.endswith("uv is missing") for line in output)
     assert calls == []
 
 
@@ -353,46 +350,38 @@ def test_an_unreadable_settings_file_of_the_account_stops_the_plan(bench: Bench)
 # --- repair, adoption and ids ---
 
 
-@pytest.mark.parametrize("kind", ["stock", "custom"])
-def test_a_missing_target_needs_the_owner_and_is_never_repaired(bench: Bench, kind: str) -> None:
+# A custom program that is gone can only be named again by the owner; a missing stock CLI is installed instead.
+def test_a_missing_target_needs_the_owner_and_is_never_repaired(bench: Bench) -> None:
     target = bench.base / "custom command.ps1"
     target.write_text("# inert target", encoding="utf-8")
-    bench.seed("recover-a", "codex", command=target if kind == "custom" else None)
-    broken = bench.launcher_paths("recover-a")[-1]
-    broken.unlink() if WINDOWS else broken.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    if kind == "custom":
-        target.unlink()
-    else:
-        bench.hide("codex")
+    bench.seed("recover-a", "codex", command=target)
+    target.unlink()
     before = bench.tree()
-    assert "target needed: recover-a" in text(bench.preview())
+    assert "  account  target needed: recover-a" in text(bench.preview())
     assert bench.tree() == before
     assert "target needed: recover-a" in text(bench.apply())
-    assert not broken.exists() if WINDOWS else not os.access(broken, os.X_OK)
+    assert bench.tree() == before
     assert bench.plugin_installs == []
 
 
-def test_a_custom_launcher_repairs_even_when_the_stock_cli_cannot_install(bench: Bench) -> None:
+def test_a_custom_command_account_stays_usable_when_the_stock_cli_cannot_install(bench: Bench) -> None:
     for add_stock in (False, True):
         custom = bench.base / f"custom command {add_stock}.ps1"
         custom.write_text("# inert custom command", encoding="utf-8")
         account = f"custom-{int(add_stock)}"
         bench.seed(account, "codex", command=custom)
-        broken = bench.launcher_paths(account)[-1]
-        broken.unlink() if WINDOWS else broken.chmod(stat.S_IRUSR | stat.S_IWUSR)
         bench.hide("codex")
         bench.tool_failure = "fixture failure"
         bench.tool_installs.clear()
         adds = ["codex"] if add_stock else []
-        bench.apply(adds)
-        assert _launchers.launcher_state(_accounts.Agent.model_validate({"id": account, "tool": "codex", "configDir": str(bench.folder(account)), "command": str(custom)}), bench.home) == "intact"
-        assert broken.is_file()
-        assert WINDOWS or os.access(broken, os.X_OK)
+        output = text(bench.apply(adds))
+        assert f"target needed: {account}" not in output
+        assert not any(bin_folder(bench.home).glob(f"{account}*"))
         assert len(bench.tool_installs) == int(add_stock)
         fake_cli(bench.tools, "codex", "CODEX_HOME")
 
 
-def test_a_stored_custom_command_restores_any_missing_launcher_and_a_repeat_keeps_settings(bench: Bench) -> None:
+def test_a_stored_custom_command_is_kept_and_needs_no_stock_cli(bench: Bench) -> None:
     folder = bench.base / "custom account"
     folder.mkdir()
     custom = bench.base / "custom'100% command.ps1"
@@ -405,56 +394,29 @@ def test_a_stored_custom_command_restores_any_missing_launcher_and_a_repeat_keep
     settings = settings_path(bench.home).read_bytes()
     bench.apply([f"codex:{folder}"], "custom-a")
     assert settings_path(bench.home).read_bytes() == settings
-    originals = {path: path.read_bytes() for path in bench.launcher_paths("custom-a")}
-    for path in originals:
-        path.unlink()
-    plan = bench.preview()
-    assert "  wrappers repair custom-a" in text(plan)
-    assert "cli      install" not in text(plan)
-    output = bench.apply()
-    assert f"wrote: launcher {bench.launcher_paths('custom-a')[0]}" in output
-    assert "skip: account custom-a (already done)" not in output
-    assert {path: path.read_bytes() for path in originals} == originals
+    plan = text(bench.preview())
+    assert "cli      install" not in plan
+    assert "custom-a" not in plan
 
 
-def test_an_account_without_a_command_and_no_launcher_falls_back_to_the_stock_cli(bench: Bench) -> None:
+def test_an_account_without_a_command_uses_the_stock_cli(bench: Bench) -> None:
     folder = bench.base / "stock account"
     folder.mkdir()
     bench.seed("stock-a", "codex", folder=folder)
-    for path in bench.launcher_paths("stock-a"):
-        path.unlink()
-    assert "  wrappers repair stock-a" in bench.preview()
-    bench.apply()
-    assert all(path.is_file() for path in bench.launcher_paths("stock-a"))
-    for path in bench.launcher_paths("stock-a"):
-        path.unlink()
+    assert "stock-a" not in text(bench.preview())
     bench.hide("codex")
-    assert "install codex" in text(bench.preview())
-
-
-@windows_only
-def test_a_lone_surviving_launcher_without_a_stored_command_is_never_guessed(bench: Bench) -> None:
-    bench.seed("stock-a", "codex")
-    bench.launcher_paths("stock-a")[-1].unlink()
-    output = bench.apply()
-    assert "target needed" in text(output)
-    assert not bench.launcher_paths("stock-a")[-1].exists()
+    plan = text(bench.preview())
+    assert "install codex" in plan
+    assert "target needed" not in plan
 
 
 @posix_only
-def test_a_launcher_that_lost_its_execute_permission_is_restored(bench: Bench) -> None:
+def test_the_legion_command_that_lost_its_execute_permission_is_restored(bench: Bench) -> None:
     bench.apply(["codex"])
-    account = bench.launcher_paths("codex1")[0]
     command = bin_folder(bench.home) / "legion"
-    before = account.read_bytes()
-    for file in (account, command):
-        file.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    plan = text(bench.preview())
-    assert "  wrappers repair codex1" in plan
-    assert "  commands restore execute permission for legion" in plan
+    command.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    assert "  commands restore execute permission for legion" in text(bench.preview())
     bench.apply()
-    assert account.read_bytes() == before
-    assert os.access(account, os.X_OK)
     assert os.access(command, os.X_OK)
 
 
@@ -480,25 +442,6 @@ def test_adopting_the_same_new_folder_twice_in_one_run_records_it_once(bench: Be
     assert plan.accounts[0].new
     bench.apply([f"codex:{folder}", f"codex:{folder}"])
     assert len(bench.settings()["agents"]) == 1
-
-
-def test_an_interruption_after_the_settings_is_repaired_by_the_next_setup(bench: Bench) -> None:
-    real = _launchers.write_subscription
-
-    def interrupted(*_args: object) -> list[Path]:
-        raise OSError("fixture interrupted launcher write")
-
-    bench.monkeypatch.setattr(_launchers, "write_subscription", interrupted)
-    with pytest.raises(_setup.ERRORS):
-        bench.apply(["codex"])
-    bench.monkeypatch.setattr(_launchers, "write_subscription", real)
-    assert bench.ids() == ["codex1"]
-    assert "  wrappers repair codex1" in bench.preview()
-    bench.apply()
-    assert all(path.is_file() for path in bench.launcher_paths("codex1"))
-    before = bench.tree()
-    bench.apply()
-    assert bench.tree() == before
 
 
 def test_an_id_is_never_a_command_on_the_path_or_a_recorded_account(bench: Bench) -> None:
@@ -550,7 +493,7 @@ def test_copilot_setup_reports_login_when_plugin_installed_despite_installer_err
 
     bench.monkeypatch.setattr(_setup, "install_plugin", installed_with_error)
     output = bench.apply(["copilot"])
-    assert any(line.startswith("copilot1  copilot  ") and line.endswith(f"  {VERSION}  log in: run copilot1") for line in output)
+    assert any(line.startswith("copilot1  copilot  ") and line.endswith(f"  {VERSION}  log in: {login('COPILOT_HOME', bench.home / '.legion' / 'agents' / 'copilot1', 'copilot')}") for line in output)
 
 
 def test_a_plugin_installer_that_raises_is_a_failure_row_for_each_target(bench: Bench) -> None:
@@ -682,7 +625,7 @@ def test_setup_status_and_installer_agree_about_expanded_path_entries(bench: Ben
 
 
 @windows_only
-def test_a_cli_installed_onto_a_new_saved_path_folder_gets_its_launchers_and_this_path_is_restored(bench: Bench) -> None:
+def test_a_cli_installed_onto_a_new_saved_path_folder_is_found_and_this_path_is_restored(bench: Bench) -> None:
     saved = bench.base / "saved"
     folders: list[str] = []
     bench.monkeypatch.setattr(_user_path, "persistent_folders", lambda: list(folders))
@@ -697,7 +640,6 @@ def test_a_cli_installed_onto_a_new_saved_path_folder_gets_its_launchers_and_thi
     before = os.environ["PATH"]
     bench.apply(["codex"])
     assert bench.ids() == ["codex1"]
-    assert all(path.is_file() for path in bench.launcher_paths("codex1"))
     assert os.environ["PATH"] == before
 
 
@@ -888,18 +830,6 @@ def test_a_plan_that_fails_stops_before_any_prompt(bench: Bench, monkeypatch: py
 
 
 # --- review fixes ---
-
-
-def test_a_blocked_account_is_left_alone_by_the_final_refresh(bench: Bench) -> None:
-    bench.seed("recover-a", "codex")
-    broken = bench.launcher_paths("recover-a")[-1]
-    broken.unlink() if WINDOWS else broken.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    bench.hide("codex")
-    skipped: list[object] = []
-    real = _refresh.refresh
-    bench.monkeypatch.setattr(_refresh, "refresh", lambda home, **keywords: (skipped.append(keywords.get("skip")), real(home, **keywords))[1])
-    bench.apply()
-    assert skipped == [{"recover-a"}]
 
 
 def link_to(link: Path, real: Path) -> Path:

@@ -47,7 +47,7 @@ def test_ready_versions_uses_recorded_marked_safe_versions(tmp_path: Path) -> No
 
 def test_fresh_sync_copies_syncs_in_the_versions_environment_marks_and_records(tmp_path: Path, uv: FakeUv) -> None:
     home, source = tmp_path / "home", make_source(tmp_path)
-    lines, ready = _installed_runtime.sync_app(home, source)
+    lines, ready, _state = _installed_runtime.sync_app(home, source)
     target = home / ".legion" / "app" / VERSION
     assert lines == [f"legion app {VERSION} ready"]
     assert ready == target
@@ -77,7 +77,7 @@ def test_the_copy_is_recorded_before_it_is_renamed_into_place(tmp_path: Path, mo
 def test_same_version_again_skips_without_running_uv(tmp_path: Path, uv: FakeUv) -> None:
     home, source = tmp_path / "home", make_source(tmp_path)
     _installed_runtime.sync_app(home, source)
-    lines, ready = _installed_runtime.sync_app(home, source)
+    lines, ready, _state = _installed_runtime.sync_app(home, source)
     assert lines == [f"skip: legion app {VERSION} (already done)"]
     assert ready == home / ".legion" / "app" / VERSION
     assert len(uv.calls) == 1
@@ -89,7 +89,7 @@ def test_an_unfinished_version_is_synced_again_in_place(tmp_path: Path, uv: Fake
     target = home / ".legion" / "app" / VERSION
     (target / MARKER).unlink()
     assert _installed_runtime.ready_versions(home) == []
-    lines, ready = _installed_runtime.sync_app(home, source)
+    lines, ready, _state = _installed_runtime.sync_app(home, source)
     assert lines == [f"legion app {VERSION} ready"]
     assert uv.calls[-1][1] == ["sync", "--project", str(target), "--frozen", "--extra", "mcp", "--quiet"]
     assert (target / MARKER).is_file()
@@ -99,7 +99,7 @@ def test_an_unfinished_version_is_synced_again_in_place(tmp_path: Path, uv: Fake
 def test_an_older_source_never_replaces_a_newer_app(tmp_path: Path, uv: FakeUv) -> None:
     home, source = tmp_path / "home", make_source(tmp_path)
     newer, _ = old_app(home, "99.0.0")
-    lines, ready = _installed_runtime.sync_app(home, source)
+    lines, ready, _state = _installed_runtime.sync_app(home, source)
     assert lines == [f"skip: legion app {VERSION} (newer 99.0.0 in place)"]
     assert ready == newer
     assert uv.calls == []
@@ -110,7 +110,7 @@ def test_an_older_source_never_replaces_a_newer_app(tmp_path: Path, uv: FakeUv) 
 def test_a_newer_source_goes_in_beside_the_older_version(tmp_path: Path) -> None:
     home, source = tmp_path / "home", make_source(tmp_path, "2.0.0")
     old, _ = old_app(home, "1.9.0")
-    lines, ready = _installed_runtime.sync_app(home, source)
+    lines, ready, _state = _installed_runtime.sync_app(home, source)
     assert lines == ["legion app 2.0.0 ready"]
     assert ready == home / ".legion" / "app" / "2.0.0"
     assert old.is_dir()
@@ -121,7 +121,7 @@ def test_a_version_folder_that_is_not_legions_is_left_alone(tmp_path: Path, uv: 
     foreign = home / ".legion" / "app" / VERSION
     foreign.mkdir(parents=True)
     (foreign / "note.txt").write_text("mine", encoding="utf-8")
-    lines, ready = _installed_runtime.sync_app(home, source)
+    lines, ready, _state = _installed_runtime.sync_app(home, source)
     assert lines == [f"skip: {foreign} (not legion's)"]
     assert ready is None
     assert [path.name for path in foreign.iterdir()] == ["note.txt"]
@@ -133,7 +133,7 @@ def test_a_linked_environment_folder_is_refused_before_uv_runs(tmp_path: Path, u
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     make_link(home / ".legion" / "python", elsewhere)
-    lines, ready = _installed_runtime.sync_app(home, source)
+    lines, ready, _state = _installed_runtime.sync_app(home, source)
     assert len(lines) == 1
     assert lines[0].endswith("(linked version or environment)")
     assert ready is None
@@ -148,7 +148,7 @@ def test_a_linked_version_folder_is_refused(tmp_path: Path, uv: FakeUv) -> None:
     target = home / ".legion" / "app" / VERSION
     make_link(target, elsewhere)
     _footprints.add(home, "app-version", target, "legion")
-    lines, ready = _installed_runtime.sync_app(home, source)
+    lines, ready, _state = _installed_runtime.sync_app(home, source)
     assert lines == [f"skip: {target} (linked version or environment)"]
     assert ready is None
     assert uv.calls == []
@@ -160,7 +160,7 @@ def test_a_link_that_appears_during_the_sync_stops_it_before_the_marker(tmp_path
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     uv.effect = lambda target: make_link(target / "linked", elsewhere)
-    lines, ready = _installed_runtime.sync_app(home, source)
+    lines, ready, _state = _installed_runtime.sync_app(home, source)
     target = home / ".legion" / "app" / VERSION
     assert lines == [f"skip: {target} (linked)"]
     assert ready is None
@@ -171,7 +171,7 @@ def test_a_failed_sync_shows_the_error_keeps_the_old_version_and_marks_nothing(t
     home, source = tmp_path / "home", make_source(tmp_path)
     old, _ = old_app(home, "0.0.1")
     uv.exit_code, uv.error = 3, "fixture sync failure\n"
-    lines, ready = _installed_runtime.sync_app(home, source)
+    lines, ready, _state = _installed_runtime.sync_app(home, source)
     assert lines == ["fixture sync failure", f"legion app {VERSION} not ready (uv sync exited 3); run legion setup again"]
     assert ready == old
     assert not (home / ".legion" / "app" / VERSION / MARKER).exists()
@@ -186,7 +186,7 @@ def test_a_copy_of_a_published_app_carries_no_ready_marker_into_the_next_home(tm
     published = first / ".legion" / "app" / VERSION
     assert (published / MARKER).is_file()
     uv.exit_code = 3
-    lines, ready = _installed_runtime.sync_app(second, published)
+    lines, ready, _state = _installed_runtime.sync_app(second, published)
     target = second / ".legion" / "app" / VERSION
     assert lines[-1] == f"legion app {VERSION} not ready (uv sync exited 3); run legion setup again"
     assert ready is None
@@ -203,7 +203,7 @@ def test_a_recorded_unfinished_version_with_a_link_is_refused_before_uv_reads_it
     elsewhere.mkdir()
     unfinished, _ = old_app(home, VERSION, ready=False)
     make_link(unfinished / "linked", elsewhere)
-    lines, ready = _installed_runtime.sync_app(home, source)
+    lines, ready, _state = _installed_runtime.sync_app(home, source)
     assert lines == [f"skip: {unfinished} (linked)"]
     assert ready is None
     assert uv.calls == []
@@ -223,7 +223,7 @@ def test_a_manifest_version_that_is_not_a_version_is_refused_before_any_path_is_
 def test_missing_uv_is_one_plain_line_and_copies_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home, source = tmp_path / "home", make_source(tmp_path)
     monkeypatch.setattr(_installed_runtime, "find_uv", lambda: None)
-    lines, ready = _installed_runtime.sync_app(home, source)
+    lines, ready, _state = _installed_runtime.sync_app(home, source)
     assert lines == [MISSING]
     assert ready is None
     assert not (home / ".legion" / "app" / VERSION).exists()

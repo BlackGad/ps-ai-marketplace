@@ -32,7 +32,7 @@ $run = Get-Content (Join-Path $skills 'legion-copilot/references/run.md') -Raw
 Assert-True ($run.Contains('--deny-tool=write --deny-tool=shell')) 'Copilot keeps exact reviewer denials'
 Assert-True ($run -match 'cannot enforce.*stop') 'Copilot stops when denials are unavailable'
 $accounts = Get-Content (Join-Path $skills 'legion-copilot/references/accounts.md') -Raw
-Assert-True ($accounts.Contains('fixed bearer token') -and $accounts.Contains('does not refresh') -and $accounts.Contains('<id> --resume')) 'Copilot keeps expiry and restart limits'
+Assert-True ($accounts.Contains('fixed bearer token') -and $accounts.Contains('does not refresh') -and $accounts.Contains('legion run --account <id> -- --resume')) 'Copilot keeps expiry and restart limits'
 $codex = Get-Content (Join-Path $skills 'legion-codex/references/accounts.md') -Raw
 Assert-True ($codex.Contains('not yet proven against Foundry')) 'Codex keeps verification limit'
 $reviews = Get-Content (Join-Path $skills 'legion-overseer/references/reviews.md') -Raw

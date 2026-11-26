@@ -8,9 +8,9 @@ Route channel operations through `skills/legion-<kind>/SKILL.md`; stop if missin
 | --- | --- |
 | `$schema` | The Python settings writer normalizes the stable editor URL; runtime uses the bundled schema. |
 | `schemaVersion` | `legion validate` checks the bundled runtime format. |
-| `agents[].id` | Account operations select identity; the launcher derives a canonical wrapper. |
+| `agents[].id` | Account operations, `legion --account <id>` and member runs select the account by id. |
 | `agents[].tool` | Tool discovery chooses account, Foundry and launch adapters. |
-| `agents[].configDir` | Account wrappers, Foundry adapters and root installer select the account folder. Use a concrete folder, never `default`. |
+| `agents[].configDir` | The account launch, Foundry adapters and root installer select the account folder. Use a concrete folder, never `default`. |
 | `agents[].command` | Optional. The account's own CLI program, set only when it is not the tool's stock command; `legion account register` stores it. Subscription accounts only. |
 | `agents[].provider.kind` | Foundry runner selects provider dispatch; only Foundry is implemented. |
 | `provider.endpoint` | Foundry adapters connect to the selected HTTPS host. |
@@ -32,6 +32,6 @@ For tool operations read `skills/legion-<agent.tool>/SKILL.md`; stop if missing.
 
 ## Account setup
 
-Keep existing account folders, settings, shortcuts and logins. Never read credentials or test sign-in. Only the owner logs in if the CLI asks. Use the matching tool's account guide for commands.
+Keep existing account folders, settings and logins. Never read credentials or test sign-in. Only the owner logs in, by starting the tool itself with the account's folder variable set, as setup's `log in:` column shows; `legion` and `legion pick` start only the overseer. Use the matching tool's account guide for commands.
 
 Every new, adopted, registered or Foundry account needs legion installed in its recorded config folder; setup installs it only where the folder has none, and moving versions is the update flow's job. Explain the install and get the owner's yes; reuse approval already given. Expand `~/` against the chosen home. Only `legion setup` and `legion add` install: a missing CLI through `legion tool install`, and legion, only with `--yes` after the owner's yes. Report setup as incomplete if installation fails or is declined.

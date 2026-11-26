@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cmp_to_key
 from pathlib import Path
-from typing import Optional
+from typing import Literal, NamedTuple, Optional
 
 from filelock import FileLock, Timeout
 
@@ -94,6 +94,14 @@ def _recorded(path: Path, home: Path) -> bool:
     return any(entry.kind == "app-version" and same_path(full_path(home_path(entry.path, home)), path) for entry in read(home).entries)
 
 
+# What a sync did: "published" made `ready` the new version now, "confirmed" found the wanted or a newer version
+# already in place, and "fell back" left `ready` as an older ready version, or None.
+class AppSync(NamedTuple):
+    lines: list[str]
+    ready: Optional[Path]
+    state: Literal["published", "confirmed", "fell back"]
+
+
 # One sync, command write and prune at a time; the next one waits, then compares versions again.
 # Yields False when another one still holds the lock after `timeout` seconds.
 @contextmanager
@@ -119,7 +127,7 @@ def app_lock(home: Path, timeout: float = 60) -> Iterator[bool]:
 # the marker is written only after uv sync succeeds and the version still holds no link. A recorded folder
 # without the marker is unfinished: never run, repaired by the next sync of its version or removed with the
 # older ones. Returns the lines to print and the ready version the commands should run, or None.
-def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> tuple[list[str], Optional[Path]]:
+def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> AppSync:
     version = json.loads((source / "plugin.json").read_text(encoding="utf-8-sig"))["version"]
     try:
         compare_versions(version, version)
@@ -131,16 +139,16 @@ def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> tuple[list[str], Optiona
     ready = ready_versions(home)
     ready_path = ready[0].path if ready else None
     if ready and compare_versions(ready[0].version, version) > 0:
-        return [f"skip: legion app {version} (newer {ready[0].version} in place)"], ready_path
+        return AppSync([f"skip: legion app {version} (newer {ready[0].version} in place)"], ready_path, "confirmed")
     if ready and same_path(ready[0].path, target):
-        return [f"skip: legion app {version} (already done)"], ready_path
+        return AppSync([f"skip: legion app {version} (already done)"], ready_path, "confirmed")
     if os.path.lexists(target) and not _recorded(target, home):
-        return [f"skip: {target} (not legion's)"], ready_path
+        return AppSync([f"skip: {target} (not legion's)"], ready_path, "fell back")
     if not owner_path_safe(target, home) or not owner_path_safe(environment, home):
-        return [f"skip: {target} (linked version or environment)"], ready_path
+        return AppSync([f"skip: {target} (linked version or environment)"], ready_path, "fell back")
     uv = find_uv()
     if uv is None:
-        return [UV_MISSING], ready_path
+        return AppSync([UV_MISSING], ready_path, "fell back")
     if not target.exists():
         staging = app / f".staging-{os.urandom(16).hex()}"
         app.mkdir(parents=True, exist_ok=True)
@@ -150,19 +158,36 @@ def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> tuple[list[str], Optiona
         staging.rename(target)
     # An unfinished version may hold a link; uv reads the project, so the tree is checked before it runs.
     if not version_safe(target, home):
-        return [f"skip: {target} (linked)"], ready_path
+        return AppSync([f"skip: {target} (linked)"], ready_path, "fell back")
     result = run_command(uv, ["sync", "--project", str(target), "--frozen", "--extra", "mcp", "--quiet"], env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(environment)})
     if result.exit_code != 0:
         lines = [result.error.strip()] if result.error.strip() else []
-        return [*lines, f"legion app {version} not ready (uv sync exited {result.exit_code}); run legion setup again"], ready_path
+        return AppSync([*lines, f"legion app {version} not ready (uv sync exited {result.exit_code}); run legion setup again"], ready_path, "fell back")
     if not version_safe(target, home):
-        return [f"skip: {target} (linked)"], ready_path
+        return AppSync([f"skip: {target} (linked)"], ready_path, "fell back")
     write_generated(target / MARKER, environment.name, executable=False)
-    return [f"legion app {version} ready"], target
+    return AppSync([f"legion app {version} ready"], target, "published")
 
 
 def app_executable(app: Path, home: Path) -> Path:
     return python_environment(app, home) / ("Scripts/legion.exe" if sys.platform == "win32" else "bin/legion")
+
+
+# The app's own legion, when it is a file reached without a link; None otherwise.
+def safe_executable(app: Path, home: Path) -> Optional[Path]:
+    executable = app_executable(app, home)
+    return executable if executable.is_file() and owner_path_safe(executable, home) else None
+
+
+# True when the app's own legion answers `run --help`, so accounts can start through it.
+def has_account_run(app: Path, home: Path) -> bool:
+    executable = safe_executable(app, home)
+    if executable is None:
+        return False
+    try:
+        return run_command(str(executable), ["run", "--help"], timeout=60).exit_code == 0
+    except OSError:
+        return False
 
 
 # An update runs old code. The version it confirmed writes every generated file again with its own templates.
@@ -170,8 +195,8 @@ def refresh_with_new_app(home: Path, version: str) -> list[str]:
     ready = next((item for item in ready_versions(home) if item.version == version), None)
     if ready is None:
         raise AppError(f"legion {version} is not ready")
-    executable = app_executable(ready.path, home)
-    if not executable.is_file() or not owner_path_safe(executable, home):
+    executable = safe_executable(ready.path, home)
+    if executable is None:
         raise AppError(f"legion {version} executable is missing")
     result = run_command(str(executable), ["--home", str(home), "refresh"])
     if result.exit_code != 0:
@@ -250,6 +275,17 @@ def write_owner_commands(app: Path, home: Path) -> list[Path]:
         if write_generated(path, shim_text(app, home, windows), executable=not windows):
             changed.append(path)
     return changed
+
+
+# True when every owner command of this home is legion's, holds no link and runs `app` exactly as written for it.
+def owner_commands_run(app: Path, home: Path) -> bool:
+    for windows in [False, True] if sys.platform == "win32" else [False]:
+        path = bin_folder(home) / ("legion.cmd" if windows else "legion")
+        if not owner_path_safe(path, home) or not is_owned(path, "owner command"):
+            return False
+        if path.read_bytes() != shim_text(app, home, windows).encode("utf-8"):
+            return False
+    return True
 
 
 # Rename both trees before deleting either. On Windows, an open file blocks the whole folder rename,

@@ -5,6 +5,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
+from legion.services.accounts._launch import AccountCommand
 from legion.services.limits.limit_probes._ping import (
     LimitRow,
     Ping,
@@ -36,7 +37,7 @@ class RateLimitEvent(BaseModel):
     rate_limit_info: Optional[RateLimitInfo] = None
 
 
-def read(command: str, _folder: Path, timeout: float) -> list[LimitRow]:
+def read(command: AccountCommand, _folder: Path, timeout: float) -> list[LimitRow]:
     return rows(ping(command, ARGUMENTS, timeout))
 
 

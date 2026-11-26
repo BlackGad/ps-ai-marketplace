@@ -7,6 +7,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ValidationError
 
+from legion.services.accounts._launch import AccountCommand
 from legion.services.limits.limit_probes._ping import (
     LimitRow,
     Ping,
@@ -51,7 +52,7 @@ class SessionMeta(BaseModel):
 
 
 # Codex needs a git folder to run.
-def read(command: str, folder: Path, timeout: float) -> list[LimitRow]:
+def read(command: AccountCommand, folder: Path, timeout: float) -> list[LimitRow]:
     return rows(ping(command, ARGUMENTS, timeout, git=True), folder)
 
 
