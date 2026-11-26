@@ -36,6 +36,8 @@ def configured_accounts(home: Optional[Path]) -> list[Agent]:
 
 
 def limits(home: Optional[Path], accounts: Sequence[str], timeout: float = DEFAULT_TIMEOUT) -> list[AccountLimits]:
+    if isinstance(accounts, (str, bytes)):
+        raise LimitsError("pass account ids as a list or tuple")
     if not accounts:
         raise LimitsError("name at least one account")
     home = legion_home(home)

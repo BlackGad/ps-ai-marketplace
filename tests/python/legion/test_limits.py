@@ -123,6 +123,17 @@ def test_limits_omitted_selection_cannot_use_manual_default(bench: Bench) -> Non
     assert not list(bench.logs.iterdir())
 
 
+@pytest.mark.parametrize("selection", ["ab", "a", b"ab"])
+def test_limits_rejects_scalar_selection_without_probes(bench: Bench, selection: Any) -> None:
+    write_settings(bench.home, [{"id": account, "tool": "claude", "configDir": f"~/{account}"} for account in ("a", "b")])
+    for account in ("a", "b"):
+        write_executable(bench.home / ".legion/bin", account, {"LEGION_FAKE_NAME": "claude"})
+
+    with pytest.raises(LimitsError, match="pass account ids as a list or tuple"):
+        limits(bench.home, selection)
+    assert not list(bench.logs.iterdir())
+
+
 @pytest.mark.parametrize("interface", ["service", "text", "json", "manual"])
 def test_limits_rejects_duplicate_configured_ids_without_probes(bench: Bench, interface: str, capsys: pytest.CaptureFixture[str]) -> None:
     # The second definition would change a subscription check into a provider check.
