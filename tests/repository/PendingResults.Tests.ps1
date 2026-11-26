@@ -21,10 +21,11 @@ $copilot = Get-Content (Join-Path $root 'plugins/legion/skills/legion-copilot/re
 foreach ($tool in @('legion-claude', 'legion-codex', 'legion-copilot')) {
     Assert-True ($rule.Contains("../../$tool/references/run.md#keep-the-session-responsive")) "Pending-result rule links the $tool wait section"
 }
-Assert-True ($codex -match 'no completion notice') 'Codex gets no completion notice'
-Assert-True ($codex -match 'chunks of a few minutes') 'Codex waits in the foreground in chunks'
-Assert-True ($codex -match 'repository inbox') 'Codex reads the inbox between chunks'
+Assert-True ($rule -match "tool running the overseer") "The overseer's tool chooses the wait"
+Assert-True ($rule -match 'without pushing') 'Shared mode records CI transitions locally without another CI run'
+Assert-True ($copilot.Contains('legion-codex/references/run.md#keep-the-session-responsive')) 'Copilot links the Codex recipe'
+Assert-True ($codex -match 'within about 60 seconds') 'Codex waits are bounded'
+Assert-True ($codex -match 'repository inbox') 'Codex reads the inbox between waits'
+Assert-True ($codex -match 'answer the owner') 'Codex answers the owner between waits'
 Assert-True ($codex -match 'Before waiting, tell the owner') 'Codex tells the owner before waiting'
-Assert-True ($copilot -match 'chunks of a few minutes') 'Copilot uses the chunked wait'
-Assert-True ($claude -match 'never ends a turn on a promised result unless a background command') 'Claude never ends a turn without a notifying background command'
-Assert-True ($claude -match 'gh run watch') 'Claude watches hosted CI in the background'
+Assert-True ($claude -match 'unless a background command is running that will notify') 'Claude ends a turn only with an armed completion notice'
