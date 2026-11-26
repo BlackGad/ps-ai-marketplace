@@ -1,7 +1,8 @@
+import logging
 import re
 import sys
-from collections.abc import Callable
-from contextlib import ExitStack
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import (
     Literal,
@@ -72,6 +73,7 @@ class EmojiReaction(BaseModel):
 
 
 _REACTIONS = TypeAdapter(list[EmojiReaction])
+_UPDATES = TypeAdapter(list[Update])
 
 
 class Reply(BaseModel):
@@ -107,10 +109,27 @@ def read_token(channel: str, home: Optional[Path] = None) -> str:
     raise TelegramError(f"no bot token for channel '{channel}'; pair the bot on Claude first")
 
 
+# httpx and httpcore log request URLs and response headers, and a Telegram URL holds the bot token. During a
+# Telegram call their loggers (and every child logger) are silent and cut off from the handlers above them.
+@contextmanager
+def _http_logging_silenced() -> Iterator[None]:
+    names = [name for name in logging.Logger.manager.loggerDict if name in ("httpx", "httpcore") or name.startswith(("httpx.", "httpcore."))]
+    saved = [(logger, logger.level, logger.propagate) for logger in map(logging.getLogger, names)]
+    try:
+        for logger, _level, _propagate in saved:
+            logger.setLevel(logging.CRITICAL + 1)
+            logger.propagate = False
+        yield
+    finally:
+        for logger, level, propagate in saved:
+            logger.setLevel(level)
+            logger.propagate = propagate
+
+
 # The response, or None for any failure of the HTTP layer: its errors can quote the URL, which holds the token.
 def _post(url: str, fields: dict[str, str], files: list[tuple[str, Path]]) -> Optional[httpx.Response]:
     try:
-        with ExitStack() as stack:
+        with ExitStack() as stack, _http_logging_silenced():
             uploads = {name: (path.name, stack.enter_context(path.open("rb"))) for name, path in files}
             with https_client(60) as client:
                 return client.post(url, data=fields, files=uploads or None)
@@ -147,11 +166,25 @@ def call_bot(token: str, method: str, fields: dict[str, str], files: list[tuple[
     return reply.result
 
 
+# A malformed result can hold the token, and pydantic's error quotes it: the fixed-message error is raised after the handler.
 def _sent(result: JsonValue, method: str) -> Message:
     try:
-        return Message.model_validate(result)
+        message: Optional[Message] = Message.model_validate(result)
     except ValidationError:
-        raise TelegramError(f"Telegram sent an unexpected reply to {method}") from None
+        message = None
+    if message is None:
+        raise TelegramError(f"Telegram sent an unexpected reply to {method}")
+    return message
+
+
+def parse_updates(result: JsonValue) -> list[Update]:
+    try:
+        updates: Optional[list[Update]] = _UPDATES.validate_python(result)
+    except ValidationError:
+        updates = None
+    if updates is None:
+        raise TelegramError("Telegram sent an unexpected reply to getUpdates")
+    return updates
 
 
 def _split(text: str) -> list[str]:

@@ -1,7 +1,5 @@
 # The one HTTPS client: certificates from the operating system store, redirects followed only over https.
 
-import logging
-import re
 import ssl
 from pathlib import Path
 from typing import Optional
@@ -12,17 +10,6 @@ import truststore
 
 class HttpsError(Exception):
     pass
-
-
-# httpx logs each request URL, and a Telegram URL holds the bot token; the filter runs whatever the log level.
-class _HideBotToken(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.msg = re.sub(r"/bot[^/\s]+/", "/bot<hidden>/", record.getMessage())
-        record.args = None
-        return True
-
-
-logging.getLogger("httpx").addFilter(_HideBotToken())
 
 
 # Plain words for a failed transfer, or None when the error is not one of this helper's.

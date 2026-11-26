@@ -213,18 +213,57 @@ def test_a_description_that_echoes_the_token_reports_the_status_only(monkeypatch
     assert (caught.value.code, str(caught.value)) == (400, "request failed")
 
 
-@pytest.mark.parametrize("status", [200, 409])
-def test_httpx_logs_never_carry_the_token(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, status: int) -> None:
-    body = {"ok": True, "result": True} if status == 200 else {"ok": False, "error_code": status, "description": "Conflict"}
-    use_transport(monkeypatch, lambda _request: httpx.Response(status, json=body))
-    caplog.set_level(logging.DEBUG)
-    logging.getLogger("httpx").setLevel(logging.DEBUG)
-    with contextlib.suppress(TelegramError):
-        _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
-    records = [record for record in caplog.records if record.name.startswith("http")]
-    assert any(record.name == "httpx" for record in records)
-    assert BOT_KEY not in caplog.text
-    assert all(BOT_KEY not in record.getMessage() for record in records)
+class Collector(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__(logging.DEBUG)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+def respond(request: httpx.Request, status: int, body: dict[str, Any], headers: Optional[dict[str, str]] = None) -> httpx.Response:
+    # What httpcore would log at DEBUG for this exchange, since the mock transport skips httpcore.
+    logging.getLogger("httpcore.http11").debug("receive_response_headers.complete %s", request.url)
+    return httpx.Response(status, json=body, headers=headers)
+
+
+@pytest.mark.parametrize("case", ["success", "http error", "network error", "location echo"])
+def test_http_loggers_are_silent_during_a_telegram_call_and_restored_after(monkeypatch: pytest.MonkeyPatch, case: str) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if case == "network error":
+            logging.getLogger("httpcore.connection").debug("connect_tcp.failed %s", request.url)
+            raise httpx.ConnectError("no route", request=request)
+        if case == "http error":
+            return respond(request, 409, {"ok": False, "error_code": 409, "description": "Conflict"})
+        headers = {"Location": str(request.url)} if case == "location echo" else None
+        return respond(request, 200, {"ok": True, "result": True}, headers)
+
+    use_transport(monkeypatch, handler)
+    collector = Collector()
+    root = logging.getLogger()
+    monkeypatch.setattr(root, "level", logging.DEBUG)
+    root.addHandler(collector)
+    httpx_logger = logging.getLogger("httpx")
+    monkeypatch.setattr(httpx_logger, "level", logging.DEBUG)
+    child = logging.getLogger("httpcore.http11")
+    before = [(logger.level, logger.propagate) for logger in (httpx_logger, logging.getLogger("httpcore"), child)]
+    try:
+        with contextlib.suppress(TelegramError):
+            _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
+        assert [record for record in collector.records if record.name.startswith(("httpx", "httpcore"))] == []
+        assert before == [(logger.level, logger.propagate) for logger in (httpx_logger, logging.getLogger("httpcore"), child)]
+        logging.getLogger("httpx").info("after the call")
+        assert [record.getMessage() for record in collector.records] == ["after the call"]
+    finally:
+        root.removeHandler(collector)
+
+
+def test_a_malformed_result_in_a_successful_reply_hides_the_token() -> None:
+    with pytest.raises(TelegramError) as caught:
+        _telegram._sent({"message_id": BOT_KEY, "chat": BOT_KEY}, "sendMessage")
+    assert BOT_KEY not in str(caught.value)
+    assert (caught.value.__cause__, caught.value.__context__) == (None, None)
 
 
 @pytest.mark.parametrize("token", ["no-colon", "123456:has space", "abc:def", "123456:"])

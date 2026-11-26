@@ -6,7 +6,7 @@ from typing import Any, Optional
 import pytest
 
 from legion.services.channels import _bridge
-from legion.services.channels._telegram import TelegramError
+from legion.services.channels._telegram import TelegramError, parse_updates
 
 BOT_KEY = "123456:secret-token"
 
@@ -97,6 +97,19 @@ def test_network_errors_back_off_and_retry(tmp_path: Path) -> None:
     assert run(tmp_path, script, delivered, sleeps=sleeps) == 0
     assert sleeps == [1, 2]
     assert len(delivered) == 1
+
+
+@pytest.mark.usefixtures("bot_folder")
+def test_a_malformed_result_backs_off_without_showing_the_token(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    sleeps: list[float] = []
+    script = Script([{"update_id": BOT_KEY, "message": BOT_KEY}], KeyboardInterrupt())
+    assert run(tmp_path, script, [], sleeps=sleeps) == 0
+    assert sleeps == [1]
+    captured = capsys.readouterr()
+    assert BOT_KEY not in captured.out + captured.err
+    with pytest.raises(TelegramError) as caught:
+        parse_updates([{"update_id": BOT_KEY}])
+    assert (str(caught.value), caught.value.__cause__, caught.value.__context__) == ("Telegram sent an unexpected reply to getUpdates", None, None)
 
 
 @pytest.mark.parametrize("name", ["bridge.pid", "bot.pid"])
