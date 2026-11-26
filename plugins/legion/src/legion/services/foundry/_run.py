@@ -6,6 +6,7 @@ from pathlib import Path
 
 from legion.services.accounts import _launchers
 from legion.core import _settings_io
+from legion.core._home import full_path
 from legion.core._run import _cmd_line
 from legion.core._settings_models import ToolDescriptor
 from legion.core._validate import load_descriptors
@@ -31,6 +32,7 @@ def run(account: str, arguments: list[str], home: Path) -> int:
     for name in launch.clear:
         environment.pop(name, None)
     environment.update(launch.set)
+    environment["LEGION_HOME"] = str(full_path(home))
     path = launch.provider_file[0] if launch.provider_file else None
     try:
         if launch.provider_file:

@@ -4,7 +4,7 @@ Installer options, CLI guides and repository details for maintainers and power u
 
 ## Requirements
 
-- [uv](https://docs.astral.sh/uv/) on every machine. The bootstrap installs it after asking when it is missing; legion itself runs in Python through uv, and uv downloads the Python it needs. No PowerShell 7 is needed.
+- [uv](https://docs.astral.sh/uv/) on every machine. The bootstrap installs it after asking when it is missing; legion itself runs in Python through uv, and uv downloads the Python it needs.
 - On Windows: the built-in Windows PowerShell 5.1 (or PowerShell 7) to start the bootstrap.
 - On macOS and Linux: `sh`, `curl` and `tar`.
 - At least one of: Claude Code, Codex CLI, Copilot CLI.
@@ -256,7 +256,11 @@ A hook at session start decides the mode:
 
 A session you start yourself is never a legion member.
 
-The hook is a small Python script in the plugin copy. `uv` starts it with Python 3.12 or later, offline and without downloads, so a session start needs no PowerShell. When uv or Python is missing, the hook prints one line asking you to run the legion installer, and the session starts normally.
+The hook is a small Python script in the plugin copy. `uv` starts it with Python 3.12 or later, offline and without downloads. When uv or Python is missing, the hook prints one line asking you to run the legion installer, and the session starts normally. Update notices use the local cache.
+
+Legion passes the configured home when it launches a host through the overseer, Foundry runner, or a newly generated subscription launcher. The hook uses the login home by default. When starting a host directly for an alternate `legion --home` installation, set `LEGION_HOME` to the same absolute path. Use the same setting for an older subscription launcher that refresh preserved.
+
+The hook reports whether a repository lease file is present. `legion lease status`, `legion lease take`, and `legion status` check whether the process in the lease is still live.
 
 On Windows, `legion status` also warns when a bound channel's launch flag is absent from a recognized native CLI session, including outside an orchestrated repo. Members, unknown or ambiguous accounts, and unsupported or unreadable sessions stay silent.
 

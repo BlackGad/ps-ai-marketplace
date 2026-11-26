@@ -138,9 +138,11 @@ def test_copilot_exit_code_passes_and_provider_file_lives_only_while_the_tool_ru
 
 def test_exit_code_three_survives_a_real_process_through_the_command_line(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEGION_FAKE_EXIT", "3")
+    monkeypatch.setenv("LEGION_HOME", str(bench.home.parent / "different home"))
     arguments = [sys.executable, "-c", RUNNER, "--home", str(bench.home), "foundry", "run", "--account", "codex-dev", "--", "--flag", "two words"]
     assert subprocess.run(arguments, capture_output=True, text=True, check=False).returncode == 3
     assert bench.calls("codex")[0]["arguments"] == ["--flag", "two words"]
+    assert Path(bench.environment("codex")["LEGION_HOME"]) == bench.home
 
 
 def test_token_failure_exits_one_after_one_login_and_starts_no_tool(bench: Bench) -> None:

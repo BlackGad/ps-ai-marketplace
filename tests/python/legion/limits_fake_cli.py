@@ -44,6 +44,7 @@ def main() -> int:
     }
     # Keep only the variables asserted by the Foundry tests; the parent may carry credentials.
     names = (
+        "LEGION_HOME",
         "CLAUDE_CONFIG_DIR",
         "CODEX_HOME",
         "COPILOT_HOME",

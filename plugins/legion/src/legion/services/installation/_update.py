@@ -112,7 +112,7 @@ def _download(deadline: float) -> str:
     return downloaded[0]
 
 
-def get_update(plugin_root: Path, home: Optional[Path] = None, *, force: bool = False) -> Optional[Update]:
+def get_update(plugin_root: Path, home: Optional[Path] = None, *, force: bool = False, cache_only: bool = False) -> Optional[Update]:
     deadline = time.monotonic() + CHECK_SECONDS
     try:
         installed = _manifest_version((plugin_root / "plugin.json").read_text(encoding="utf-8-sig"))
@@ -127,6 +127,8 @@ def get_update(plugin_root: Path, home: Optional[Path] = None, *, force: bool = 
             except (OSError, ValueError, TypeError):
                 pass
         if cached is None:
+            if cache_only:
+                return None
             checked_at = datetime.now(UTC)
             try:
                 cached = UpdateCache(SOURCE, checked_at, _manifest_version(_download(deadline)), False)

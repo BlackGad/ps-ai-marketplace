@@ -45,7 +45,7 @@ def test_fresh_sync_copies_syncs_in_the_versions_environment_marks_and_records(t
     assert ready == target
     assert (target / "src" / "module.py").read_text(encoding="utf-8") == "x = 1\n"
     assert uv.calls == [("uv", ["sync", "--project", str(target), "--frozen", "--extra", "mcp", "--quiet"], str(_installed_runtime.python_environment(target, home)))]
-    assert (target / MARKER).is_file()
+    assert (target / MARKER).read_text(encoding="utf-8") == Path(uv.calls[0][2]).name
     assert [entry.path for entry in _footprints.read(home).entries if entry.kind == "app-version"] == [f"~/.legion/app/{VERSION}"]
     assert [path.name for path in (home / ".legion" / "app").iterdir()] == [VERSION]
     assert [item.path for item in _installed_runtime.ready_versions(home)] == [target]

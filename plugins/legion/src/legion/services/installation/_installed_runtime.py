@@ -138,7 +138,7 @@ def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> tuple[list[str], Optiona
         return [*lines, f"legion app {version} not ready (uv sync exited {result.exit_code}); run legion setup again"], ready_path
     if not version_safe(target, home):
         return [f"skip: {target} (linked)"], ready_path
-    (target / MARKER).write_text("", encoding="utf-8")
+    write_generated(target / MARKER, environment.name, executable=False)
     return [f"legion app {version} ready"], target
 
 
