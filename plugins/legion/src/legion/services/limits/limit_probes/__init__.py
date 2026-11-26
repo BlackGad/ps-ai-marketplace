@@ -25,7 +25,7 @@ __all__ = ["LimitRow", "LimitsError", "account_rows", "report_lines"]
 
 Reader = Callable[[str, Path, float], list[LimitRow]]
 READERS: dict[str, Reader] = {"claude": claude.read, "codex": codex.read, "copilot": copilot.read}
-COLUMNS = ["Account", "Tool", "Window", "Used", "Resets at", "Status"]
+COLUMNS = ["Account", "Tool", "Window", "Left", "Resets at", "Status"]
 DEFAULT_TIMEOUT = 120
 
 
@@ -34,7 +34,7 @@ class LimitsError(Exception):
 
 
 def report_lines(reports: list[AccountLimits]) -> list[str]:
-    rows = [[item.account, item.tool, row.window, row.used, row.resets, row.status] for item in reports for row in item.rows]
+    rows = [[item.account, item.tool, row.window, row.left, row.resets, row.status] for item in reports for row in item.rows]
     if not rows:
         return ["No accounts yet; run legion add."]
     return table_lines(rows)
