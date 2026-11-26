@@ -107,29 +107,43 @@ def read_token(channel: str, home: Optional[Path] = None) -> str:
     raise TelegramError(f"no bot token for channel '{channel}'; pair the bot on Claude first")
 
 
-# Telegram explains a failed call in the body; a body that is not that explanation is ignored.
-def _failure_description(response: httpx.Response) -> Optional[str]:
-    try:
-        return Reply.model_validate_json(response.content).description
-    except ValidationError:
-        return None
-
-
-def call_bot(token: str, method: str, fields: dict[str, str], files: list[tuple[str, Path]]) -> JsonValue:
-    url = f"https://api.telegram.org/bot{token}/{method}"
+# The response, or None for any failure of the HTTP layer: its errors can quote the URL, which holds the token.
+def _post(url: str, fields: dict[str, str], files: list[tuple[str, Path]]) -> Optional[httpx.Response]:
     try:
         with ExitStack() as stack:
             uploads = {name: (path.name, stack.enter_context(path.open("rb"))) for name, path in files}
             with https_client(60) as client:
-                response = client.post(url, data=fields, files=uploads or None)
-        reply = Reply.model_validate_json(response.content) if response.is_success else Reply()
+                return client.post(url, data=fields, files=uploads or None)
     except Exception:
-        # Any HTTP-layer error can quote the URL, which holds the token, so none is chained or shown.
-        raise TelegramError("network error", 0) from None
+        return None
+
+
+def _reply(response: httpx.Response) -> Optional[Reply]:
+    try:
+        return Reply.model_validate_json(response.content)
+    except ValidationError:
+        return None
+
+
+# Telegram's own explanation, unless it echoes the token.
+def _explanation(reply: Optional[Reply], token: str) -> Optional[str]:
+    if reply is None or not reply.description or token in reply.description:
+        return None
+    return reply.description
+
+
+# Every error is raised outside an except block, so no HTTP-layer error is chained or shown.
+def call_bot(token: str, method: str, fields: dict[str, str], files: list[tuple[str, Path]]) -> JsonValue:
+    response = _post(f"https://api.telegram.org/bot{token}/{method}", fields, files)
+    if response is None:
+        raise TelegramError("network error", 0)
+    reply = _reply(response)
     if not response.is_success:
-        raise TelegramError(_failure_description(response) or f"HTTP {response.status_code}", response.status_code)
+        raise TelegramError(_explanation(reply, token) or f"HTTP {response.status_code}", response.status_code)
+    if reply is None:
+        raise TelegramError("network error", 0)
     if not reply.ok:
-        raise TelegramError(reply.description or "request failed", reply.error_code)
+        raise TelegramError(_explanation(reply, token) or "request failed", reply.error_code)
     return reply.result
 
 

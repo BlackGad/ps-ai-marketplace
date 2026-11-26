@@ -5,8 +5,10 @@ import sys
 import threading
 import time
 import traceback
+from collections.abc import Callable
 from pathlib import Path
 
+import httpx
 import pytest
 from click.testing import CliRunner
 from filelock import FileLock
@@ -16,6 +18,8 @@ from legion import cli as _cli
 from legion.services.repository import _footprints
 from legion.services.installation import _user_path
 from legion.core._generated import header
+from legion.core import _http
+from legion.core._http import https_client
 from legion.core._run import RunResult
 from app_fakes import FakeUv, make_source
 
@@ -1455,3 +1459,18 @@ def test_update_asks_once_across_folders(tmp_path: Path, monkeypatch: pytest.Mon
     _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", update=True, catalog=catalog())
     assert len(questions) == 1
     assert questions[0].endswith("Update legion? [y/N]")
+
+
+def catalog_not_found(_request: httpx.Request) -> httpx.Response:
+    return httpx.Response(404)
+
+
+def catalog_times_out(request: httpx.Request) -> httpx.Response:
+    raise httpx.ReadTimeout("timed out", request=request)
+
+
+@pytest.mark.parametrize("handler", [catalog_not_found, catalog_times_out])
+def test_a_catalog_that_cannot_be_read_is_a_plain_installer_error(monkeypatch: pytest.MonkeyPatch, handler: Callable[[httpx.Request], httpx.Response]) -> None:
+    monkeypatch.setattr(_http, "https_client", lambda timeout: https_client(timeout, httpx.MockTransport(handler)))
+    with pytest.raises(_installer.InstallerError, match="could not read the tools catalog"):
+        _installer._catalog("example/marketplace", "main", None)

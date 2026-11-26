@@ -9,9 +9,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
 
+import httpx
 import pytest
 from cli_runner import run
 
+from legion.core import _http
+from legion.core._http import https_client
 from legion.services.installation import _tool_install
 from legion.services.installation import _user_path
 from legion.services.repository._footprints import read as read_footprints
@@ -843,3 +846,31 @@ def test_hints_fall_back_to_the_docs_when_there_is_no_command(monkeypatch: pytes
     item = fourth(lambda data: data["linux"].update(commands=[], needs=[]))
     monkeypatch.setattr(_tool_install, "find_recipe", lambda _tool: item)
     assert _tool_install.install_hints("fourth", "linux") == [item.linux.docs]
+
+
+def refuse_with(monkeypatch: pytest.MonkeyPatch, handler: Callable[[httpx.Request], httpx.Response]) -> None:
+    monkeypatch.setattr(_http, "https_client", lambda timeout: https_client(timeout, httpx.MockTransport(handler)))
+
+
+def not_found(_request: httpx.Request) -> httpx.Response:
+    return httpx.Response(404)
+
+
+def offline(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectTimeout("timed out", request=request)
+
+
+@pytest.mark.parametrize(("handler", "reason"), [(not_found, "HTTP 404"), (offline, "timed out")])
+def test_a_failed_transfer_is_a_plain_tool_install_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, handler: Callable[[httpx.Request], httpx.Response], reason: str) -> None:
+    refuse_with(monkeypatch, handler)
+    installer = ToolInstaller(tmp_path, "windows", True, lambda _line: None)
+    with pytest.raises(ToolInstallError, match=reason):
+        installer.fetch_text("https://vendor.test/metadata.json")
+    with pytest.raises(ToolInstallError, match=reason):
+        installer.download_file("https://vendor.test/file.zip", tmp_path / "file.zip")
+
+
+def test_a_download_that_is_not_https_is_a_tool_install_error(tmp_path: Path) -> None:
+    installer = ToolInstaller(tmp_path, "windows", True, lambda _line: None)
+    with pytest.raises(ToolInstallError, match="not https"):
+        installer.fetch_text("http://vendor.test/metadata.json")

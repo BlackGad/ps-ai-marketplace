@@ -1,15 +1,18 @@
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Optional
 
 import httpx
 import pytest
+from pydantic import JsonValue
 
 from cli_runner import run
 from legion.core._http import https_client
 from legion.services.channels import _telegram
-from legion.services.channels._telegram import TelegramError
+from legion.services.channels._telegram import Access, TelegramError
+import contextlib
 
 BOT_KEY = "123456:secret-token"
 
@@ -133,6 +136,7 @@ def test_real_post_hides_token_in_errors(monkeypatch: pytest.MonkeyPatch) -> Non
     assert caught.value.code == 0
     assert BOT_KEY not in str(caught.value)
     assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
 
 
 def test_a_failure_without_a_description_names_the_http_status(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -194,4 +198,62 @@ def test_http_layer_errors_never_show_the_token(monkeypatch: pytest.MonkeyPatch)
         _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
     assert BOT_KEY not in str(caught.value)
     assert caught.value.__cause__ is None
-    assert caught.value.__suppress_context__
+    assert caught.value.__context__ is None
+
+
+def test_a_description_that_echoes_the_token_reports_the_status_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    echo = f"Not Found: /bot{BOT_KEY}/getUpdates"
+    use_transport(monkeypatch, lambda _request: httpx.Response(404, json={"ok": False, "error_code": 404, "description": echo}))
+    with pytest.raises(TelegramError) as caught:
+        _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
+    assert (caught.value.code, str(caught.value)) == (404, "HTTP 404")
+    use_transport(monkeypatch, lambda _request: httpx.Response(200, json={"ok": False, "error_code": 400, "description": echo}))
+    with pytest.raises(TelegramError) as caught:
+        _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
+    assert (caught.value.code, str(caught.value)) == (400, "request failed")
+
+
+@pytest.mark.parametrize("status", [200, 409])
+def test_httpx_logs_never_carry_the_token(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, status: int) -> None:
+    body = {"ok": True, "result": True} if status == 200 else {"ok": False, "error_code": status, "description": "Conflict"}
+    use_transport(monkeypatch, lambda _request: httpx.Response(status, json=body))
+    caplog.set_level(logging.DEBUG)
+    logging.getLogger("httpx").setLevel(logging.DEBUG)
+    with contextlib.suppress(TelegramError):
+        _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
+    records = [record for record in caplog.records if record.name.startswith("http")]
+    assert any(record.name == "httpx" for record in records)
+    assert BOT_KEY not in caplog.text
+    assert all(BOT_KEY not in record.getMessage() for record in records)
+
+
+@pytest.mark.parametrize("token", ["no-colon", "123456:has space", "abc:def", "123456:"])
+def test_malformed_token_is_refused_before_use(bot_folder: Path, capsys: pytest.CaptureFixture[str], token: str) -> None:
+    (bot_folder / ".env").write_text(f"TELEGRAM_BOT_TOKEN={token}\n", encoding="utf-8")
+    post = FakePost()
+    assert _telegram.send("main", "42", "hi", "text", None, [], post=post) == 1
+    error = capsys.readouterr().err
+    assert "wrong format" in error
+    assert token not in error
+    assert post.calls == []
+
+
+def test_access_file_round_trips_with_the_plugin_fields_it_does_not_use() -> None:
+    text = json.dumps({"dmPolicy": "allowlist", "allowFrom": ["42"], "groups": {"-100": {"requireMention": True, "allowFrom": []}}, "pending": {}, "ackReaction": "👀"})
+    access = Access.model_validate_json(text)
+    assert (access.dm_policy, access.allow_from) == ("allowlist", ["42"])
+    assert json.loads(access.model_dump_json(by_alias=True)) == json.loads(text)
+
+
+def test_access_defaults_match_the_plugin() -> None:
+    access = Access.model_validate_json("{}")
+    assert (access.dm_policy, access.allow_from) == ("pairing", [])
+
+
+@pytest.mark.usefixtures("bot_folder")
+def test_send_refuses_a_reply_that_is_not_a_message(capsys: pytest.CaptureFixture[str]) -> None:
+    def post(_token: str, _method: str, _fields: dict[str, str], _files: list[tuple[str, Path]]) -> JsonValue:
+        return True
+
+    assert _telegram.send("main", "42", "hi", "text", None, [], post=post) == 1
+    assert capsys.readouterr().err == "telegram: Telegram sent an unexpected reply to sendMessage\n"

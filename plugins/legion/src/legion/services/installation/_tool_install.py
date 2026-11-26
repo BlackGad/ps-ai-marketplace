@@ -14,10 +14,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
 
+import httpx
 from pydantic import BaseModel
 
 from legion.services.installation import _user_path
-from legion.core._http import HttpsError, download, get_bytes
+from legion.core._http import HttpsError, download, failure_text, get_bytes
 from legion.core._home import full_path, is_under, owner_path_safe
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import run_command
@@ -191,14 +192,14 @@ class ToolInstaller:
     def fetch_text(self, url: str) -> str:
         try:
             return get_bytes(url, DOWNLOAD_TIMEOUT_SECONDS).decode("utf-8-sig")
-        except HttpsError as error:
-            raise ToolInstallError(str(error)) from error
+        except (HttpsError, httpx.HTTPError) as error:
+            raise ToolInstallError(f"could not read {url}: {failure_text(error)}") from error
 
     def download_file(self, url: str, path: Path) -> None:
         try:
             download(url, path, DOWNLOAD_TIMEOUT_SECONDS)
-        except HttpsError as error:
-            raise ToolInstallError(str(error)) from error
+        except (HttpsError, httpx.HTTPError) as error:
+            raise ToolInstallError(f"could not download {url}: {failure_text(error)}") from error
 
     # The official download for a method, with its SHA-256 unless the vendor's own script verifies its payload.
     def resolve_download(self, tool: str, method: str) -> Download:
