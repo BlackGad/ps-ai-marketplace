@@ -1,8 +1,10 @@
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -544,3 +546,89 @@ def test_update_snapshot_still_detects_other_claude_config_changes(tmp_path: Pat
     (instance.home / ".claude/plugins/installed_plugins.json").write_text("{}", encoding="utf-8")
     with pytest.raises(AssertionError, match=r"added: .claude/plugins/installed_plugins.json"):
         runner.unchanged(first, instance.home_snapshot(update=True))
+
+
+def test_codex_inventory_requires_connected_legion_with_status() -> None:
+    listed = {"name": "legion", "runtimeStatus": "connected", "tools": {"status": {}, "limits": {}}}
+    assert runner.codex_legion_server([{"name": "other", "runtimeStatus": "connected", "tools": {"status": {}}}, listed]) == listed
+    assert runner.codex_legion_server([]) is None
+    assert runner.codex_legion_server([{**listed, "tools": {"limits": {}}}]) is None
+    assert runner.codex_legion_server([{**listed, "runtimeStatus": "failed"}]) is None
+
+
+FAKE_APP_SERVER = """
+import json, sys
+lists = 0
+for line in sys.stdin:
+    message = json.loads(line)
+    if "id" not in message:
+        continue
+    method = message["method"]
+    if method == "thread/start":
+        result = {"thread": {"id": "t1"}}
+    elif method == "mcpServerStatus/list":
+        assert message["params"] == {"threadId": "t1", "serverName": "legion"}
+        lists += 1
+        listed = [{"name": "legion", "runtimeStatus": "connected", "tools": {"status": {}}}]
+        result = {"data": listed if lists >= LISTS_BEFORE_LEGION else []}
+    else:
+        result = {}
+    print(json.dumps({"id": message["id"], "result": result}), flush=True)
+"""
+
+
+def probe(tmp_path: Path, script: str, seconds: float) -> list[dict[str, Any]]:
+    return runner.probe_codex_mcp([sys.executable, "-c", script], os.environ.copy(), tmp_path, seconds)
+
+
+def test_codex_probe_asks_for_legion_and_returns_its_status(tmp_path: Path) -> None:
+    servers = probe(tmp_path, "LISTS_BEFORE_LEGION = 1" + FAKE_APP_SERVER, 30)
+    assert runner.codex_legion_server(servers) == servers[0]
+
+
+def test_codex_probe_fails_when_app_server_exits(tmp_path: Path) -> None:
+    with pytest.raises(AssertionError, match="closed its output"):
+        probe(tmp_path, "", 30)
+
+
+def test_codex_probe_fails_on_unreadable_output(tmp_path: Path) -> None:
+    with pytest.raises(AssertionError, match="JSONDecodeError"):
+        probe(tmp_path, "print('not json', flush=True); import time; time.sleep(60)", 30)
+
+
+def pid_exists(pid: int) -> bool:
+    if os.name == "nt":
+        listing = subprocess.run([shutil.which("tasklist") or "tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True, check=False).stdout
+        return str(pid) in listing
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def test_codex_probe_stops_at_one_deadline_and_ends_the_process_tree(tmp_path: Path) -> None:
+    # The fake ignores closed stdin and keeps a child alive, like an npm shim around a native server.
+    pid_file = tmp_path / "child.pid"
+    script = f"""
+import subprocess, sys, time
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+open({str(pid_file)!r}, "w").write(str(child.pid))
+for line in sys.stdin:
+    print('{{"method": "noise"}}', flush=True)
+time.sleep(120)
+"""
+    start = time.monotonic()
+    with pytest.raises(AssertionError, match="timed out"):
+        probe(tmp_path, script, 2)
+    assert time.monotonic() - start < 40
+    child_pid = int(pid_file.read_text(encoding="utf-8"))
+    for _ in range(50):
+        if not pid_exists(child_pid):
+            break
+        time.sleep(0.1)
+    assert not pid_exists(child_pid)
+
+
+def test_codex_probe_retries_until_legion_appears(tmp_path: Path) -> None:
+    assert runner.codex_legion_server(probe(tmp_path, "LISTS_BEFORE_LEGION = 3" + FAKE_APP_SERVER, 30)) is not None

@@ -8,11 +8,15 @@ import os
 import re
 import shlex
 import shutil
+import signal
+import queue
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 import xml.etree.ElementTree as ET
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,6 +26,7 @@ TOOLS = ("claude", "codex", "copilot")
 MARKETPLACE = "BlackGad/ps-legion-marketplace"
 ENDPOINT = "https://example-resource.cognitiveservices.azure.com"
 WINDOWS = sys.platform == "win32"
+CODEX_PROBE_SECONDS = 120
 
 
 @dataclass
@@ -36,6 +41,93 @@ class Case:
     @property
     def title(self) -> str:
         return self.name + (" (repeat)" if self.repeat else "")
+
+
+def codex_legion_server(servers: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return the connected legion server that lists the status tool, from a Codex mcpServerStatus/list reply."""
+    return next((server for server in servers if server.get("name") == "legion" and server.get("runtimeStatus") == "connected" and "status" in server.get("tools", {})), None)
+
+
+def stop_process_tree(process: "subprocess.Popen[str]") -> None:
+    """Close stdin, give the process a moment to leave, then end its whole process group so an npm shim cannot leave the native app-server running."""
+    if process.stdin:
+        process.stdin.close()
+    with suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=5)
+    if sys.platform == "win32":
+        subprocess.run([shutil.which("taskkill") or "taskkill", "/T", "/F", "/PID", str(process.pid)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)  # noqa: S603
+    else:
+        for signal_number in (signal.SIGTERM, signal.SIGKILL):
+            with suppress(ProcessLookupError, OSError):
+                os.killpg(process.pid, signal_number)
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and group_exists(process.pid):
+                time.sleep(0.1)
+    process.wait(timeout=5)
+
+
+def group_exists(group: int) -> bool:
+    if sys.platform == "win32":
+        return False
+    try:
+        os.killpg(group, 0)
+    except (ProcessLookupError, OSError):
+        return False
+    return True
+
+
+def probe_codex_mcp(command: list[str], env: dict[str, str], cwd: Path, seconds: float) -> list[dict[str, Any]]:
+    """Ask a Codex app-server for legion's MCP status within one deadline; retry while legion is absent or starting."""
+    deadline = time.monotonic() + seconds
+    flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+    process = subprocess.Popen(  # noqa: S603
+        command, cwd=cwd, env=env, encoding="utf-8", stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=flags, start_new_session=sys.platform != "win32"
+    )
+    replies: queue.Queue[dict[str, Any] | Exception] = queue.Queue()
+
+    def read_replies() -> None:
+        try:
+            for line in process.stdout or []:
+                replies.put(json.loads(line))
+            replies.put(EOFError("codex app-server closed its output"))
+        except Exception as error:
+            replies.put(error)
+
+    threading.Thread(target=read_replies, daemon=True).start()
+
+    def send(message: dict[str, Any]) -> None:
+        assert process.stdin is not None
+        process.stdin.write(json.dumps(message) + "\n")
+        process.stdin.flush()
+
+    def call(number: int, method: str, params: dict[str, Any]) -> Any:
+        send({"id": number, "method": method, "params": params})
+        while True:
+            try:
+                reply = replies.get(timeout=max(deadline - time.monotonic(), 0))
+            except queue.Empty:
+                raise AssertionError(f"codex app-server timed out in {method}") from None
+            require(not isinstance(reply, Exception), f"codex app-server failed in {method}: {type(reply).__name__}: {reply}")
+            if isinstance(reply, dict) and reply.get("id") == number:
+                require("error" not in reply, f"codex app-server {method} failed: {reply.get('error')}")
+                return reply["result"]
+
+    servers: list[dict[str, Any]] = []
+    try:
+        call(1, "initialize", {"clientInfo": {"name": "legion-integration", "version": "1"}})
+        send({"method": "initialized"})
+        thread = call(2, "thread/start", {"cwd": str(cwd)})["thread"]["id"]
+        number = 3
+        while time.monotonic() < deadline:
+            servers = call(number, "mcpServerStatus/list", {"threadId": thread, "serverName": "legion"})["data"]
+            number += 1
+            settled = any(server.get("name") == "legion" and server.get("runtimeStatus") not in (None, "notStarted", "starting") for server in servers)
+            if settled:
+                break
+            time.sleep(1)
+    finally:
+        stop_process_tree(process)
+    return servers
 
 
 def listed(entry: dict[str, Any], output: str, include_disabled: bool = False, kind: str = "plugin") -> bool:
@@ -444,8 +536,25 @@ class Runner:
             control.mkdir(exist_ok=True)
             require(not self.listing(tool, control, include_disabled=True), f"{tool} lists legion in empty control folder")
             require(self.version(tool, self.folder(tool)) == expected, f"{tool} plugin version is wrong")
+        if "codex" in self.active():
+            self.check_codex_mcp()
         self.state["snapshot"] = self.home_snapshot()
         return "\n".join(lines)
+
+    def check_codex_mcp(self) -> None:
+        """The installed plugin must bring a connected legion MCP server that Codex lists, asked without login or model turn."""
+        self.command("legion")
+        # The app-server starts a background clone of Codex's curated marketplace, and Codex has no setting to stop it,
+        # so the probe works on a throwaway copy and nothing it writes reaches the snapshotted home.
+        probe_home = Path(tempfile.mkdtemp(prefix="codex-probe-home-", dir=self.work))
+        shutil.copytree(self.folder("codex"), probe_home, dirs_exist_ok=True)
+        env = {**self.env, self.catalog["codex"]["configEnv"]: str(probe_home)}
+        try:
+            servers = probe_codex_mcp([self.command("codex"), "app-server"], env, self.work, CODEX_PROBE_SECONDS)
+        finally:
+            shutil.rmtree(probe_home, ignore_errors=True)
+        self.log.append(json.dumps(servers))
+        require(codex_legion_server(servers) is not None, "Codex does not list a connected legion MCP server with the status tool")
 
     def install_repeat(self) -> str:
         lines = "\n".join(self.install_legion(tool) for tool in self.active())
