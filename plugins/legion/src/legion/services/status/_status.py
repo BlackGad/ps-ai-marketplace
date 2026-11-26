@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ctypes
 import os
 import re
 import stat
@@ -8,12 +7,18 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Optional
 
+import psutil
 from pydantic import BaseModel, Field, JsonValue
 
 from legion.core import _process
 from legion.core._generated import is_owned
 from legion.core._home import home_path
-from legion.core._settings_models import ChannelDescriptor, PersonalisationSettings, PluginManifest, ToolDescriptor
+from legion.core._settings_models import (
+    ChannelDescriptor,
+    PersonalisationSettings,
+    PluginManifest,
+    ToolDescriptor,
+)
 from legion.services.installation._update import compare_versions
 from legion.core._validate import load_descriptors, read_text
 
@@ -115,11 +120,6 @@ def command_status(folder: Path) -> Literal["yes", "blocked", "missing", "not ex
     return "yes"
 
 
-def command_line(folder: Path) -> str:
-    value = command_status(folder)
-    return "commands: yes" if value == "yes" else f"commands: {value} legion"
-
-
 def _path_key(path: Path) -> str:
     # Resolve linked ancestors before applying the platform's path comparer.
     return os.path.normcase(str(path.resolve()))
@@ -141,40 +141,18 @@ def repository_line(repository: RepositoryStatus) -> str:
     return f"repo {repository.mode}   lease: {repository.lease}   handoff: {'yes' if repository.handoff else 'no'}"
 
 
-class _UnicodeString(ctypes.Structure):
-    _fields_ = (("length", ctypes.c_ushort), ("maximum_length", ctypes.c_ushort), ("buffer", ctypes.c_void_p))
-
-
-# Query only the owner, directly through Windows: no shell or CLI starts to inspect its arguments.
-def _windows_command_line(pid: int) -> str:
-    assert sys.platform == "win32"
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel.CloseHandle.argtypes = (ctypes.c_void_p,)
-    query = ctypes.WinDLL("ntdll").NtQueryInformationProcess
-    query.argtypes = (ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p)
-    handle = _process.open_query_handle(pid)
-    if not handle:
-        return ""
+def _read_command_line(pid: int) -> str:
     try:
-        size = ctypes.c_uint32()
-        # ProcessCommandLineInformation returns a UNICODE_STRING followed by its text.
-        query(handle, 60, None, 0, ctypes.byref(size))
-        if not size.value:
-            return ""
-        buffer = ctypes.create_string_buffer(size.value)
-        if query(handle, 60, buffer, size, ctypes.byref(size)) < 0:
-            return ""
-        value = _UnicodeString.from_buffer(buffer)
-        return ctypes.wstring_at(value.buffer, value.length // 2) if value.buffer else ""
-    finally:
-        kernel.CloseHandle(handle)
+        return " ".join(psutil.Process(pid).cmdline())
+    except psutil.Error:
+        return ""
 
 
 def _session() -> Optional[tuple[str, str]]:
     if sys.platform != "win32":
         return None
     owner = _process.owner_process()
-    return owner.name.removesuffix(".exe"), _windows_command_line(owner.pid)
+    return owner.name.removesuffix(".exe"), _read_command_line(owner.pid)
 
 
 def channel_warnings(settings: PersonalisationSettings, home: Path, tools: list[ToolDescriptor]) -> list[str]:

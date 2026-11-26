@@ -54,6 +54,9 @@ def main() -> int:
         "ANTHROPIC_MODEL",
         "ANTHROPIC_DEFAULT_OPUS_MODEL",
         "CLAUDE_CODE_USE_BEDROCK",
+        "PATH",
+        "UV_PROJECT_ENVIRONMENT",
+        "VIRTUAL_ENV",
     )
     call["environment"] = {name: os.environ[name] for name in names if name in os.environ}
     call["foundry_names"] = sorted(name for name in os.environ if name.startswith("ANTHROPIC_FOUNDRY"))

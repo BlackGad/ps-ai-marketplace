@@ -179,10 +179,10 @@ def test_command_ownership_and_severity(tmp_path: Path, state: str) -> None:
         (folder / "legion").unlink()
     elif state == "blocked":
         write(folder / "legion", "#!/bin/sh\nexec legion\n")
-    expected = {"missing": "missing legion", "blocked": "blocked legion", "permission": "not executable legion", "owned": "yes"}[state]
+    expected = {"missing": "missing", "blocked": "blocked", "permission": "not executable", "owned": "yes"}[state]
     if state == "permission" and sys.platform == "win32":
         expected = "yes"  # Windows has no executable bit; the Unix case runs on Linux/macOS too.
-    assert _status.command_line(folder) == f"commands: {expected}"
+    assert _status.command_status(folder) == expected
 
 
 def test_blocked_command_wins_over_missing(tmp_path: Path) -> None:
@@ -190,7 +190,7 @@ def test_blocked_command_wins_over_missing(tmp_path: Path) -> None:
     write(folder / "legion", "owner command")
     if sys.platform == "win32":
         (folder / "legion.cmd").unlink()
-    assert _status.command_line(folder) == "commands: blocked legion"
+    assert _status.command_status(folder) == "blocked"
 
 
 @pytest.mark.parametrize("entry", ["exact", "trailing-entry", "trailing-folder", "prefix", "case", "percent", "literal-percent"])
@@ -403,15 +403,14 @@ def test_session_queries_only_the_lease_owner(monkeypatch: pytest.MonkeyPatch) -
         queried.append(pid)
         return "claude --resume"
 
-    monkeypatch.setattr(_status, "_windows_command_line", command)
+    monkeypatch.setattr(_status, "_read_command_line", command)
     assert _status._session() == ("claude", "claude --resume")
     assert queried == [123]
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows native command line")
 def test_native_command_line_and_unreadable_pid() -> None:
-    assert "python" in _status._windows_command_line(os.getpid()).lower()
-    assert _status._windows_command_line(99_999_999) == ""
+    assert "python" in _status._read_command_line(os.getpid()).lower()
+    assert _status._read_command_line(99_999_999) == ""
 
 
 # Moved assertion 5: unsupported platforms never inspect the process tree or its arguments.

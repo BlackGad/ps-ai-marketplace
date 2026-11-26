@@ -1,13 +1,16 @@
 import os
-import subprocess
-import sys
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import pytest
 
 from legion.core import _process
-from legion.core._process import ProcessInfo, ancestors, owner_process, process_started_at, same_start_time
+from legion.core._process import (
+    ProcessInfo,
+    ancestors,
+    owner_process,
+    process_started_at,
+    same_start_time,
+)
 
 BASE = datetime(2026, 11, 23, 8, 0, tzinfo=UTC)
 
@@ -33,9 +36,10 @@ def test_start_time_is_stable_across_calls() -> None:
     assert same_start_time(first, second)
 
 
-def test_missing_process_has_no_start_time() -> None:
+@pytest.mark.parametrize("pid", [4_194_303, 2**64])
+def test_missing_process_has_no_start_time(pid: int) -> None:
     # Pid 2**22 - 1 is above the default pid limit on Linux and unlikely on Windows and macOS.
-    assert process_started_at(4_194_303) is None
+    assert process_started_at(pid) is None
 
 
 def test_own_chain_starts_at_the_parent_and_goes_back_in_time() -> None:
@@ -133,17 +137,3 @@ def test_exited_parent_ends_the_chain() -> None:
 def test_parent_loops_end_the_chain() -> None:
     lookup = table((10, 9, "python", 30), (9, 9, "bash", 20))
     assert [item.pid for item in ancestors(10, lookup)] == [9]
-
-
-def test_module_imports_without_third_party_packages() -> None:
-    source = Path(_process.__file__)
-    script = (
-        "import importlib.util, sys\n"
-        f"spec = importlib.util.spec_from_file_location('probe', {str(source)!r})\n"
-        "module = importlib.util.module_from_spec(spec)\n"
-        "spec.loader.exec_module(module)\n"
-        "assert module.process_started_at(module.os.getpid()) is not None\n"
-        "print(sorted(name for name in ('click', 'pydantic', 'legion') if name in sys.modules))\n"
-    )
-    result = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True)
-    assert result.stdout.strip() == "[]"

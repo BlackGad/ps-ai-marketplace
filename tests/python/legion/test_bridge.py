@@ -133,6 +133,7 @@ def test_missing_bot_folder_is_plain_error(tmp_path: Path, monkeypatch: pytest.M
 def test_process_alive_for_this_process_only() -> None:
     assert _bridge.process_alive(os.getpid())
     assert not _bridge.process_alive(0)
+    assert not _bridge.process_alive(2**64)
 
 
 @pytest.mark.usefixtures("bot_folder")
