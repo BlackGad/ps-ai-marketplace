@@ -455,6 +455,18 @@ def test_used_percent_rounds_like_powershell(percent: float, expected: str) -> N
     assert format_used_percent(percent) == expected
 
 
+@pytest.mark.parametrize(
+    ("used", "left"),
+    [("38%", "62%"), ("0%", "100%"), ("100%", "0%"), ("120%", "0%"), ("-5%", "100%"), ("unknown", "unknown"), ("-", "-")],
+)
+def test_left_is_what_the_used_percent_leaves(used: str, left: str) -> None:
+    assert LimitRow(used=used).left == left
+
+
+def test_json_row_has_used_and_left() -> None:
+    assert LimitRow(window="5h", used="38%").model_dump(mode="json") == {"window": "5h", "used": "38%", "left": "62%", "resets": "unknown", "status": "unknown"}
+
+
 def test_codex_skips_unreadable_session_lines(tmp_path: Path) -> None:
     probe = tmp_path / "probe"
     probe.mkdir()
@@ -556,12 +568,12 @@ ACCOUNTS = [
 # The table the PowerShell limits command printed for these fakes (Format-Table -AutoSize): a blank line first,
 # one space between columns, the last column not padded.
 EXPECTED_TABLE = """
-Account   Tool    Window    Used    Resets at        Status
+Account   Tool    Window    Left    Resets at        Status
 -------   ----    ------    ----    ---------        ------
-claude-a  claude  five_hour 69%     {five_hour} allowed
-claude-a  claude  seven_day 55%     {seven_day} allowed
-codex-a   codex   5h        12%     {five_hour} unknown
-codex-a   codex   7d        40%     {seven_day} unknown
+claude-a  claude  five_hour 31%     {five_hour} allowed
+claude-a  claude  seven_day 45%     {seven_day} allowed
+codex-a   codex   5h        88%     {five_hour} unknown
+codex-a   codex   7d        60%     {seven_day} unknown
 copilot-a copilot -         unknown unknown          answers; no limit readout
 foundry-a claude  -         -       -                token ok
 """
@@ -584,7 +596,7 @@ def test_limits_for_one_account_pings_only_that_account(bench: Bench, capsys: py
     write_settings(bench.home, ACCOUNTS)
     assert run(["--home", str(bench.home), "limits", "--id", "copilot-a"]) == 0
     assert capsys.readouterr().out.splitlines()[1:] == [
-        "Account   Tool    Window Used    Resets at Status",
+        "Account   Tool    Window Left    Resets at Status",
         "-------   ----    ------ ----    --------- ------",
         "copilot-a copilot -      unknown unknown   answers; no limit readout",
     ]

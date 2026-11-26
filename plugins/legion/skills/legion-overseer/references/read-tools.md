@@ -2,7 +2,7 @@
 
 Use the `status` and `limits` tools on the plugin's `legion` MCP server first. If discovery or startup fails, use `legion status --json` or `legion limits --id <id> --timeout 20 --json`. Report that fallback. Members never call these tools.
 
-For limits, choose account IDs from configuration, the owner's request and prose preferences. Scripts never parse notes. Ask only when scope or paid-use permission is unclear. Always pass an explicit, nonempty `accounts` list; omitted or empty selection never pings all accounts. Call once per account. Unknown results stay unknown.
+For limits, choose account IDs from configuration, the owner's request and prose preferences. Scripts never parse notes. Ask only when scope or paid-use permission is unclear. Always pass an explicit, nonempty `accounts` list; omitted or empty selection never pings all accounts. Call once per account. The table shows how much of each window is left; JSON has `used` and `left`. Unknown results stay unknown.
 
 Every limits call pings each named account with a real minimal prompt through its launcher, consumes quota and is billable on paid accounts. It creates and removes a disposable ping folder; Codex leaves a session record in the account's sessions folder. Foundry runs `az account get-access-token` instead and reports only the token check. This does not prove deployment access.
 

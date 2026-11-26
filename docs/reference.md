@@ -206,7 +206,7 @@ repo none
 | `legion status` | Show accounts, commands, channels and this repository |
 | `legion [--no-channel]` | Start the overseer here, set up if needed; resumes the last conversation (see [launcher defaults](../plugins/legion/skills/legion-personalisation/references/launcher.md)) |
 | `legion pick [--no-channel]` | Choose which account leads the overseer |
-| `legion limits [--id <id>]` | Show each account's usage windows (used %, reset time, status), or one account's; `unknown` when the tool gives no readout |
+| `legion limits [--id <id>]` | Show each account's usage windows (how much is left in %, reset time, status; JSON has `used` and `left`), or one account's; `unknown` when the tool gives no readout |
 | `legion lease take\|status\|release` | Take, check or release this repository's overseer lease; the overseer skill runs it |
 | `legion update [--yes]` | Update legion along the track it was installed from |
 | `legion update --check [--force]` | Check for a newer release; `--force` refreshes the cached result |

@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 
 from legion.core._run import run_command
 
@@ -21,6 +21,14 @@ class LimitRow(BaseModel):
     used: str = "unknown"
     resets: str = "unknown"
     status: str = "unknown"
+
+    # What is left of the window: 100 minus the used percent; 'unknown' and '-' pass through.
+    @computed_field
+    @property
+    def left(self) -> str:
+        if not self.used.endswith("%"):
+            return self.used
+        return f"{min(100, max(0, 100 - int(self.used.removesuffix('%'))))}%"
 
 
 # A finished ping. folder is the resolved ping folder, which a Codex session names as its working folder.
