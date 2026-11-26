@@ -28,7 +28,7 @@ from legion.core._settings_models import Agent, PersonalisationSettings
 
 WINDOWS = sys.platform == "win32"
 SETUP_QUESTION = "This repository is not set up. Set it up (private)? [Y/n]"
-PARENT_VARIABLES = ("NO_COLOR", "TERM", "CLAUDECODE", "CLAUDE_CODE_*")
+PARENT_VARIABLES = ("NO_COLOR", "TERM", "CLAUDECODE", "CLAUDE_CODE_*", "LEGION_ROLE", "LEGION_TASK")
 
 
 class OverseerError(Exception):

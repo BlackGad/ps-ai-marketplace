@@ -440,6 +440,8 @@ def test_in_place_inherits_console_and_cleans_environment(repo: Path, monkeypatc
         "TERM": "dumb",
         "CLAUDECODE": "1",
         "CLAUDE_CODE_FIXTURE": "x",
+        "LEGION_ROLE": "member",
+        "LEGION_TASK": "task.md",
         "TELEGRAM_BOT_TOKEN": "fake-token",
         "VIRTUAL_ENV": sys.prefix,
         "UV_PROJECT_ENVIRONMENT": sys.prefix,
