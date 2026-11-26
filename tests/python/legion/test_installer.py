@@ -626,6 +626,7 @@ def test_uninstall_refresh_failure_keeps_command_hint(tmp_path: Path, monkeypatc
     folder.mkdir()
     command = tmp_path / ".legion/bin/legion"
     _footprints.add(tmp_path, "file", command, _footprints.target_owner("codex", folder))
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: "codex" if name == "codex" else None)
     monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: (_ for _ in ()).throw(RuntimeError("ambiguous")))
     lines: list[str] = []
     _installer.refresh_remaining(tmp_path, catalog(), lines)
@@ -1002,6 +1003,7 @@ def test_remaining_owner_refreshes_command_after_selected_uninstall(tmp_path: Pa
     _footprints.add(tmp_path, "file", command, f"codex:{folder}")
     root = tmp_path / "installed"
     root.mkdir()
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: "codex" if name == "codex" else None)
     monkeypatch.setattr(_installer, "_plugin_root", lambda *_: root)
     called: list[tuple[str, Path]] = []
     monkeypatch.setattr(_installer, "_refresh_target", lambda entry, target, *_: called.append((entry.id, target)) or [])
