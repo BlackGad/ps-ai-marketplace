@@ -4,9 +4,11 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional, cast
 from unittest.mock import ANY, MagicMock
 
@@ -439,12 +441,12 @@ def test_emoji_and_cyrillic_survive_a_narrow_default_encoding(inbox_home: Path, 
     assert [lines[0], lines[2], lines[3]] == ["from: repo-a", "text:", f"    {text}"]
 
 
-# An expired Azure login makes a Foundry nudge fail with the usual warning; the sender's terminal never waits for az login.
-def test_a_foundry_nudge_never_starts_an_az_login(inbox_home: Path, repo: Path, fake_wrapper: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+# The lease account codex-a as a Foundry account whose Azure login has expired; returns the token check timeouts.
+def expired_foundry_account(home: Path, monkeypatch: pytest.MonkeyPatch) -> list[Optional[float]]:
     foundry = {"kind": "foundry", "endpoint": "https://example.test", "default": "m", "deployments": [{"name": "m"}]}
-    codex = {"id": "codex-a", "tool": "codex", "configDir": str(tmp_path / CODEX_HOME), "provider": foundry}
-    settings_path(tmp_path).write_text(json.dumps({"schemaVersion": 1, "agents": [codex], "channels": []}), encoding="utf-8")
-    monkeypatch.setattr(_launch, "target", lambda *_args: fake_command(tmp_path))
+    codex = {"id": "codex-a", "tool": "codex", "configDir": str(home / CODEX_HOME), "provider": foundry}
+    settings_path(home).write_text(json.dumps({"schemaVersion": 1, "agents": [codex], "channels": []}), encoding="utf-8")
+    monkeypatch.setattr(_launch, "target", lambda *_args: fake_command(home))
     timeouts: list[Optional[float]] = []
 
     def expired(timeout: Optional[float] = None) -> AzAccessToken:
@@ -453,10 +455,30 @@ def test_a_foundry_nudge_never_starts_an_az_login(inbox_home: Path, repo: Path, 
 
     monkeypatch.setattr(_az, "token", expired)
     monkeypatch.setattr(_az.subprocess, "run", lambda *_args, **_options: pytest.fail("az login started"))
+    return timeouts
+
+
+# An expired Azure login makes a Foundry nudge fail with the usual warning; the sender's terminal never waits for az login.
+def test_a_foundry_nudge_never_starts_an_az_login(inbox_home: Path, repo: Path, fake_wrapper: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    timeouts = expired_foundry_account(tmp_path, monkeypatch)
     take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
     assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
     output = capsys.readouterr()
     assert output.err == "warning: inbox message saved; Codex nudge failed.\n"
     assert (inbox_path(inbox_home, repo) / "new" / output.out.strip()).is_file()
-    assert timeouts == [15]
+    assert len(timeouts) == 1
+    assert 0 < (timeouts[0] or 0) <= 15
     assert not fake_wrapper.exists()
+
+
+# The token check gets only the time left of the one nudge deadline, and az never starts once it has passed.
+@pytest.mark.usefixtures("inbox_home", "fake_wrapper")
+@pytest.mark.parametrize(("spent", "expected"), [(8.0, [7.0]), (16.0, [])])
+def test_the_token_check_gets_only_the_time_left(repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], spent: float, expected: list[float]) -> None:
+    timeouts = expired_foundry_account(tmp_path, monkeypatch)
+    take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
+    readings = [100.0, 100.0 + spent]
+    monkeypatch.setattr(_inbox, "time", SimpleNamespace(monotonic=lambda: readings.pop(0) if len(readings) > 1 else readings[0], time_ns=time.time_ns))
+    assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
+    assert capsys.readouterr().err == "warning: inbox message saved; Codex nudge failed.\n"
+    assert timeouts == expected

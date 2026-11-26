@@ -313,3 +313,62 @@ def test_a_failed_footprint_removal_keeps_the_launcher(tmp_path: Path, monkeypat
     assert launchers[0].is_file()
     busy.clear()
     assert f"removed {launchers[0]}" in run(tmp_path)
+
+
+# An account registered while the app syncs is seen: cleanup reads the settings again under their lock.
+def test_a_registration_during_the_sync_keeps_the_launcher_it_names(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ready_app(tmp_path)
+    account_settings(tmp_path, ["codex-a", "codex-b"])
+    launchers = old_launchers(tmp_path, "codex-a")
+    real = _installed_runtime.write_owner_commands
+
+    def register(app: Path, home: Path) -> list[Path]:
+        settings = _settings_io.load(home)
+        settings.agents[1].command = str(launchers[-1])
+        _settings_io.save(home, settings)
+        return real(app, home)
+
+    monkeypatch.setattr(_refresh._installed_runtime, "write_owner_commands", register)
+    lines = run(tmp_path)
+    assert f"skip: {launchers[-1]} (account codex-b runs it)" in lines
+    assert launchers[-1].is_file()
+
+
+# The ready app's own legion must answer `run --help` before the launchers it replaces go.
+def test_refresh_keeps_old_launchers_when_the_app_cannot_run_accounts(tmp_path: Path, uv: FakeUv) -> None:
+    ready_app(tmp_path)
+    account_settings(tmp_path, ["codex-a"])
+    launchers = old_launchers(tmp_path, "codex-a")
+    uv.run_help_exit = 2
+    lines = run(tmp_path)
+    assert kept(lines, launchers)
+    assert "skip: old account launchers (the legion command cannot start accounts yet)" in lines
+
+
+# A failed sync falls back to the older app whatever its diagnostics say, so nothing is removed against it.
+def test_a_failed_sync_whose_message_ends_in_ready_keeps_the_launchers(tmp_path: Path, uv: FakeUv) -> None:
+    old_app(tmp_path, "0.0.1")
+    account_settings(tmp_path, ["codex-a"])
+    launchers = old_launchers(tmp_path, "codex-a")
+    uv.exit_code = 3
+    uv.error = "resolver ready"
+    lines = run(tmp_path)
+    assert "resolver ready" in lines
+    assert kept(lines, launchers)
+
+
+# A kept Foundry launcher runs its own version's legion, so older apps stay through two upgrades in a row.
+def test_older_apps_stay_through_two_upgrades_while_an_old_foundry_launcher_stays(tmp_path: Path) -> None:
+    old, environment = old_app(tmp_path, "0.0.1")
+    account_settings(tmp_path, ["claude-a", "codex-b"])
+    launchers = old_launchers(tmp_path, "claude-a")
+    settings = _settings_io.load(tmp_path)
+    settings.agents[1].command = str(launchers[-1])
+    _settings_io.save(tmp_path, settings)
+    for version in ("1.0.0", "2.0.0"):
+        lines = run(tmp_path, source=make_source(tmp_path / f"source {version}", version))
+        assert f"legion app {version} ready" in lines
+        assert "skip: pruning older legion apps (an old account launcher may still run one)" in lines
+    assert old.is_dir()
+    assert environment.is_dir()
+    assert launchers[-1].is_file()

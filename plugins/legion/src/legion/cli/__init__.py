@@ -574,7 +574,7 @@ def tool_install(context: click.Context, tool_id: str, yes: bool, method: Option
 
 
 # Starts an account's program with its config folder: `legion run --account <id> -- <tool arguments>`.
-@main.command("run", hidden=True, add_help_option=False, context_settings={"ignore_unknown_options": True, "allow_interspersed_args": False})
+@main.command("run", hidden=True, context_settings={"ignore_unknown_options": True, "allow_interspersed_args": False})
 @click.option("--account", required=True)
 @click.argument("arguments", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context

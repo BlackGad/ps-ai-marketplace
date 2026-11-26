@@ -23,7 +23,7 @@ from pydantic import (
 from legion.services.accounts._accounts import AccountError
 from legion.services.accounts._launch import account_command
 from legion.services.accounts._launchers import LauncherError
-from legion.services.foundry._az import check_token
+from legion.services.foundry._az import AzAccessToken, check_token
 from legion.services.repository import _lease
 from legion.core import _settings_io
 from legion.core._home import inbox_root, legion_home
@@ -119,11 +119,18 @@ def _queue_pointer(account: str, session: str, sender: str, home: Path) -> bool:
         return False
     # Preparing the account and queueing share one deadline; a Foundry account never starts an interactive az login here.
     deadline = time.monotonic() + NUDGE_TIMEOUT_SECONDS
+
+    def token() -> AzAccessToken:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError("the nudge deadline has passed")
+        return check_token(login=False, timeout=remaining)
+
     try:
         agent = next((item for item in _settings_io.load(home).agents if item.id == account), None)
         if agent is None:
             return False
-        command = account_command(agent, home, token_check=lambda: check_token(login=False, timeout=NUDGE_TIMEOUT_SECONDS))
+        command = account_command(agent, home, token_check=token)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return False

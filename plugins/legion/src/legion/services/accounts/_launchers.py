@@ -80,6 +80,19 @@ OTHER_NAMES = ("legion", "uv")
 # A file in the bin folder whose header names the account it is called after is an old launcher of legion's.
 # It goes, with any footprint of it, once legion can start that account itself: the account is gone or its program is found.
 # It stays while an account's own command is that file, and every other file stays; each kept candidate is reported.
+# The old launchers legion wrote that are still in the bin folder.
+def old_launchers(home: Path) -> list[Path]:
+    folder = bin_folder(home)
+    if not folder.is_dir() or not owner_path_safe(folder, home):
+        return []
+    found: list[Path] = []
+    for path in sorted(folder.iterdir()):
+        name = path.name.removesuffix(".cmd")
+        if re.fullmatch(NAME_PATTERN, name) and name not in OTHER_NAMES and owner_path_safe(path, home) and is_owned(path, _owner_name(name)):
+            found.append(path)
+    return found
+
+
 def remove_old_launchers(agents: list[Agent], home: Path) -> list[str]:
     folder = bin_folder(home)
     if not folder.is_dir() or not owner_path_safe(folder, home):

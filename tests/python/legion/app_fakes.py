@@ -32,10 +32,6 @@ def make_source(root: Path, version: str = VERSION) -> Path:
     (source / "plugin.json").write_text(json.dumps({"name": "legion", "version": version}), encoding="utf-8")
     (source / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     (source / "src" / "module.py").write_text("x = 1\n", encoding="utf-8")
-    # An app with this module has `legion run`, so refresh may remove the old account launchers.
-    launch = source / "src" / "legion" / "services" / "accounts" / "_launch.py"
-    launch.parent.mkdir(parents=True, exist_ok=True)
-    launch.write_text("", encoding="utf-8")
     return source
 
 
@@ -46,10 +42,14 @@ class FakeUv:
         self.exit_code = 0
         self.error = ""
         self.effect: Callable[[Path], None] | None = None
+        # What the app's own legion answers to `run --help`; 0 means it can start accounts.
+        self.run_help_exit = 0
         monkeypatch.setattr(_installed_runtime, "find_uv", lambda: "uv")
         monkeypatch.setattr(_installed_runtime, "run_command", self.run)
 
     def run(self, command: str, arguments: list[str], timeout: float | None = None, env: Mapping[str, str] | None = None) -> RunResult:
+        if arguments == ["run", "--help"]:
+            return RunResult(exit_code=self.run_help_exit, output="", error="", timed_out=False)
         assert env is not None
         self.calls.append((command, list(arguments), env["UV_PROJECT_ENVIRONMENT"]))
         if self.effect:
