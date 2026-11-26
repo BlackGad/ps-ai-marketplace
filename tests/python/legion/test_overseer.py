@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import pytest
 from cli_runner import run
@@ -642,14 +642,35 @@ def test_bridge_start_uses_direct_python_logs_and_repo(home: Path, repo: Path, m
     assert (home / "bridge.err").exists()
 
 
-def test_dry_run_shows_bridge_and_creates_nothing(home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    monkeypatch.setattr(_overseer, "interactive", lambda: False)
-    assert _overseer.run(repo, home, account="codex-a", dry_run=True) == 0
+@pytest.mark.parametrize("windows_terminal", [False, True])
+def test_dry_run_overseer_starts_nothing(home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], windows_terminal: bool) -> None:
+    repo = tmp_path / "repo"
+    project = repo / ".legion/configuration/project.json"
+    project.parent.mkdir(parents=True)
+    project.write_text('{"schemaVersion":1}', encoding="utf-8")
+    if not windows_terminal:
+        (home / ".legion/channels/telegram/main").mkdir(parents=True)
+
+    def snapshot() -> dict[Path, Optional[bytes]]:
+        return {path.relative_to(tmp_path): path.read_bytes() if path.is_file() else None for path in tmp_path.rglob("*")}
+
+    def refuse_process(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("Dry-run overseer tried to start a process")
+
+    # Supply the result of read-only Git discovery so any child process is an unexpected launch.
+    monkeypatch.setattr(_repository, "_code_root", lambda path: path)
+    monkeypatch.setattr(_overseer, "WINDOWS", windows_terminal)
+    monkeypatch.setattr(shutil, "which", lambda command: "fake-wt" if command == "wt" and windows_terminal else None)
+    monkeypatch.setattr(subprocess, "Popen", refuse_process)
+    monkeypatch.setenv("PATH", "")
+
+    before = snapshot()
+    assert run(["--home", str(home), "--repo", str(repo), "--account", "codex-a", "--dry-run"]) == 0
     output = capsys.readouterr().out
     assert "bridge:" in output
     assert "telegram bridge --channel main --repo" in output
-    assert not history(home).exists()
-    assert not (home / ".legion/channels").exists()
+    assert ("wt" in output.splitlines()) == windows_terminal
+    assert snapshot() == before
 
 
 # The overseer names the account and its home; no per-account launcher path is part of the launch.
