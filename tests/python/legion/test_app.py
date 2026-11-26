@@ -415,6 +415,8 @@ def test_unix_command_text_quotes_the_app_the_environment_and_the_selected_home(
         f"command -v uv >/dev/null 2>&1 || {{ echo '{MISSING}' >&2; exit 127; }}\n"
         f'if [ "$1" = uninstall ]; then exec uv run --no-project --python ">=3.12" {shell_literal(str(app / "src/legion/_self_uninstall.py"))} {shell_literal(str(app))} "$@"; fi\n'
         f"export UV_PROJECT_ENVIRONMENT={shell_literal(str(_installed_runtime.python_environment(app, home)))}\n"
+        "unset LEGION_SHELL_WINPID LEGION_SHIM_WINPID\n"
+        "[ -r /proc/$PPID/winpid ] && [ -r /proc/$$/winpid ] && export LEGION_SHELL_WINPID=$(cat /proc/$PPID/winpid) LEGION_SHIM_WINPID=$(cat /proc/$$/winpid)\n"
         f'exec uv run --project {shell_literal(str(app))} --frozen --quiet legion --home {shell_literal(str(home))} "$@"\n'
     )
     if sys.platform == "win32":
