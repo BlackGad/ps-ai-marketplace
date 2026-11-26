@@ -7,7 +7,7 @@ description: Use when the owner wants to talk using Telegram or add a Telegram d
 
 Read the [owner's notes](../legion-personalisation/references/fields.md) first. Reuse known answers.
 
-Follow [sending](references/send.md) for every owner-facing Telegram update, including receipts, progress, decisions, completions, handoffs and spontaneous updates. Use the owner's voice and formatting preferences each time.
+Follow [sending](references/send.md) for every owner-facing Telegram update, including receipts, progress, decisions, completions, handoffs and spontaneous updates.
 
 Choose supported accounts. Check what is already ready. Preview missing work and wait for yes. Follow [installation](references/install.md).
 

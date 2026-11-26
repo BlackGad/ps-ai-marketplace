@@ -37,3 +37,6 @@ Assert-Equal 'Connection test\.' $sent[0].Text 'MarkdownV2 escapes punctuation'
 $codexUsage = [regex]::Match($send, '(?m)^legion telegram send .+$').Value
 $requiredArguments = $codexUsage -replace '\[[^\]]*\]', ''
 Assert-True ($requiredArguments -cmatch '(?:^|\s)--format\s') 'Codex owner sends specify format explicitly'
+$formats = Get-Content (Join-Path $skill 'references/formats.md') -Raw
+Assert-True ($send.Contains('[formats.md](formats.md)')) 'Sending points to formats.md'
+Assert-True ($formats -match 'Default each independently' -and $formats -match 'format the notes name stays') 'Tone and format default independently'
