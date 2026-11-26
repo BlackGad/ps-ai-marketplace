@@ -7,6 +7,7 @@ import time
 import traceback
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -776,6 +777,16 @@ def test_profile_path_preserves_owner_text_and_purge_restores_it(tmp_path: Path,
     assert profile.read_text(encoding="utf-8") == 'owner line\n# Added by legion\nexport PATH="$HOME/.legion/bin:$PATH"\n'
     _installer.apply_purge(_installer.purge_plan(home, catalog()))
     assert profile.read_text(encoding="utf-8") == "owner line"
+
+
+def test_installer_reports_the_shared_profile_encoding_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_installer, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setenv("SHELL", "/bin/sh")
+    profile = tmp_path / ".profile"
+    profile.write_bytes(b"\xff")
+    with pytest.raises(_installer.InstallerError, match="File encoding is not lossless; resolve it manually before editing"):
+        _installer.ensure_path(tmp_path, False, [])
+    assert profile.read_bytes() == b"\xff"
 
 
 def test_purge_keeps_app_and_python_but_removes_other_legion_data(tmp_path: Path) -> None:

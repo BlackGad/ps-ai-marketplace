@@ -417,39 +417,18 @@ def _toml_edit(path: Path) -> Edit | None:
         return None
 
 
-def _profile_path(home: Path) -> Path:
-    shell = Path(os.getenv("SHELL", "")).name
-    return home / (".zshrc" if shell == "zsh" else ".bashrc" if shell == "bash" else ".profile")
-
-
 def ensure_path(home: Path, dry_run: bool, lines: list[str]) -> None:
     bin_path = bin_folder(home)
     if sys.platform == "win32":
         if not dry_run and not path_contains(os.environ.get("PATH", ""), bin_path):
             os.environ["PATH"] = str(bin_path) + os.pathsep + os.environ.get("PATH", "")
-        saved = _user_path.user_path()
-        if path_contains(saved, bin_path):
-            lines.append("skip: path (already done)")
-            return
-        lines.append(f"add {bin_path} to your user PATH")
-        if not dry_run:
-            _footprints.add(home, "path-entry", "user PATH", "legion", value=str(bin_path))
-            _user_path.set_user_path((saved.rstrip(";") + ";" if saved else "") + str(bin_path))
+        added = not path_contains(_user_path.user_path(), bin_path) if dry_run else _user_path.add(home, bin_path)
+        lines.append(f"add {bin_path} to your user PATH" if added else "skip: path (already done)")
         return
-    profile = _profile_path(home)
-    line = 'export PATH="$HOME/.legion/bin:$PATH"'
-    text, format = decode_text(profile.read_bytes() if profile.is_file() else b"")
-    if line in text.splitlines():
-        lines.append("skip: shell profile PATH (already done)")
-        return
-    if not owner_path_safe(profile, home):
-        raise InstallerError("Shell profile contains a link; resolve it before writing")
-    lines.append(f"add # Added by legion and {line} to {profile}")
-    if dry_run:
-        return
-    separator = "\n" if text and not text.endswith("\n") else ""
-    _footprints.add(home, "path-entry", profile, "legion", key=separator, value=line)
-    profile.write_bytes(encode_text(text + separator + "# Added by legion\n" + line + "\n", format))
+    try:
+        lines.extend(_user_path.shell_profile_lines(home, dry_run=dry_run))
+    except _user_path.PathError as error:
+        raise InstallerError(str(error)) from None
 
 
 # Hand-built, reason: only recorded PATH entries may be removed while retaining the order and separators of other entries.
@@ -468,7 +447,7 @@ def _path_removal(value: str, separator: str, owned: list[str]) -> tuple[str, li
 def _profile_edit(path: Path, key: str, value: str) -> Edit | None:
     before = path.read_bytes()
     text, format = decode_text(before)
-    match = re.search(r"(?m)^# Added by legion\r?\n" + re.escape(value) + r"(?:\r?\n|$)", text)
+    match = re.search(rf"(?m)^{re.escape(_user_path.PROFILE_MARKER)}\r?\n{re.escape(value)}(?:\r?\n|$)", text)
     if not match:
         return None
     start = match.start()
