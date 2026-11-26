@@ -11,7 +11,7 @@ from typing import Optional
 import pytest
 from legion.services.installation import installer
 import conftest
-from conftest import Fence, fence_git, pwsh_path
+from conftest import Fence, fence_git, pwsh_path, refuse_registry_write
 
 if sys.platform == "win32":
     import winreg
@@ -134,6 +134,7 @@ def test_fixture_git_ignores_inherited_settings(fence: Fence, tmp_path: Path) ->
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows saved PATH")
 def test_default_fence_sends_user_path_writes_to_the_fence_file_not_the_registry(fence: Fence, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert sys.platform == "win32"
     writes: list[tuple[object, ...]] = []
     monkeypatch.setattr(winreg, "SetValueEx", lambda *args: writes.append(args))
     installer.ensure_path(fence.home, False, [])
@@ -143,10 +144,11 @@ def test_default_fence_sends_user_path_writes_to_the_fence_file_not_the_registry
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows registry")
 def test_fence_refuses_direct_registry_writes() -> None:
+    assert sys.platform == "win32"
+    assert winreg.SetValueEx is refuse_registry_write
+    assert winreg.DeleteValue is refuse_registry_write
     with pytest.raises(AssertionError, match="wrote the registry"):
-        winreg.SetValueEx(winreg.HKEY_CURRENT_USER, "Path", 0, winreg.REG_SZ, "x")
-    with pytest.raises(AssertionError, match="wrote the registry"):
-        winreg.DeleteValue(winreg.HKEY_CURRENT_USER, "Path")
+        refuse_registry_write()
 
 
 @pytest.mark.parametrize(
