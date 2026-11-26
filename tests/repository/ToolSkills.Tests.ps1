@@ -45,7 +45,7 @@ $update = Get-Content (Join-Path $skills 'legion-update/SKILL.md') -Raw
 Assert-True ($update -match "owner.s yes" -and $update -match 'run .legion. in the repository') 'Updates require approval and a legion run in the repository'
 $taskLoop = Get-Content (Join-Path $skills 'legion-overseer/references/task-loop.md') -Raw
 $routing = [regex]::Match($taskLoop, '(?s)## Default routing.*?## First legion dispatch').Value
-Assert-True ($routing -match 'reviewer is never the author' -and $routing -match 'another provider' -and $routing -match 'ask the owner') 'Default routing keeps the reviewer distinct, prefers another provider and asks the owner when none is usable'
+Assert-True ($routing -match 'reviewer is never the author' -and $routing -match 'another provider' -and $routing -match 'task tier, capacity and cost' -and $routing -match 'not provider-independent' -and $routing -match 'no distinct account' -and $routing -match 'must establish exhaustion') 'Default routing keeps the reviewer distinct, prefers another provider and asks the owner when none is usable'
 Assert-True ($routing -match 'Owner notes win for the roles they name') 'Default routing keeps owner choices first'
 Assert-True ($reviews -match 'settle only the roles they name' -and $reviews -notmatch 'Without preferences' -and $reviews -match 'always distinct') 'Reviews apply defaults to roles the owner left open'
 foreach ($file in @('SKILL.md', 'references/reviews.md', 'references/task-loop.md')) {

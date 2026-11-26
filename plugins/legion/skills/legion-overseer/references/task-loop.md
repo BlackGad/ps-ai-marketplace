@@ -34,7 +34,7 @@ For a Foundry agent, resolve a requested tier word against separate tokens in di
 
 ## Default routing
 
-Owner notes win for the roles they name; apply this to the rest. Choose among eligible accounts (allowed, not excluded, credit confirmed by a ping) by task tier, capacity and cost, and say which one. The reviewer is never the author and preferably another provider; if no such account is usable, ask the owner.
+Owner notes win for the roles they name; apply this to the rest. Choose among eligible accounts (allowed, not excluded, not shown out of credit by a ping; a ping must establish exhaustion, and no balance readout is not exhaustion) by task tier, capacity and cost, and say which one. The reviewer is never the author and preferably another provider. If no other-provider account is usable, a distinct account of the same provider reviews and you tell the owner plainly that the review is not provider-independent; ask the owner only when no distinct account can review at all.
 
 ## First legion dispatch
 
