@@ -55,5 +55,7 @@ def test_long_imports_are_parenthesized() -> None:
         for path in folder.rglob("*.py"):
             source = path.read_text(encoding="utf-8-sig")
             for node in ast.walk(ast.parse(source, filename=str(path))):
+                if isinstance(node, ast.Import) and len(node.names) > 3:
+                    raise AssertionError(f"{path.relative_to(REPO)}:{node.lineno} import of more than three names; split it into one import per line")
                 if isinstance(node, ast.ImportFrom) and len(node.names) > 3:
                     assert "(" in (ast.get_source_segment(source, node) or ""), f"{path.relative_to(REPO)}:{node.lineno}"
