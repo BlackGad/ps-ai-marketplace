@@ -75,26 +75,6 @@ def _recorded(path: Path, home: Path) -> bool:
     return any(entry.kind == "app-version" and same_path(full_path(home_path(entry.path, home)), path) for entry in read(home).entries)
 
 
-def _migrate_ready_markers(ready: list[AppVersion], home: Path) -> list[str]:
-    lines: list[str] = []
-    for version in ready:
-        marker = version.path / MARKER
-        try:
-            if marker.stat().st_size != 0:
-                continue
-            environment = python_environment(version.path, home)
-            python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python3")
-            # Unix uv environments can link the executable to their base Python.
-            if not owner_path_safe(python if sys.platform == "win32" else python.parent, home):
-                continue
-            # Refresh holds the app lock. Publish by rename so hooks see either complete format.
-            if python.is_file() and os.access(python, os.X_OK) and write_generated(marker, environment.name, executable=False):
-                lines.append(f"wrote: environment marker for legion app {version.version}")
-        except OSError:
-            lines.append(f"skip: environment marker for legion app {version.version} (could not refresh)")
-    return lines
-
-
 # One sync, command write and prune at a time; the next one waits, then compares versions again.
 # Yields False when another one still holds the lock after `timeout` seconds.
 @contextmanager
@@ -130,19 +110,18 @@ def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> tuple[list[str], Optiona
     target = app / version
     environment = python_environment(target, home)
     ready = ready_versions(home)
-    migrated = _migrate_ready_markers(ready, home)
     ready_path = ready[0].path if ready else None
     if ready and compare_versions(ready[0].version, version) > 0:
-        return [*migrated, f"skip: legion app {version} (newer {ready[0].version} in place)"], ready_path
+        return [f"skip: legion app {version} (newer {ready[0].version} in place)"], ready_path
     if ready and same_path(ready[0].path, target):
-        return [*migrated, f"skip: legion app {version} (already done)"], ready_path
+        return [f"skip: legion app {version} (already done)"], ready_path
     if os.path.lexists(target) and not _recorded(target, home):
-        return [*migrated, f"skip: {target} (not legion's)"], ready_path
+        return [f"skip: {target} (not legion's)"], ready_path
     if not owner_path_safe(target, home) or not owner_path_safe(environment, home):
-        return [*migrated, f"skip: {target} (linked version or environment)"], ready_path
+        return [f"skip: {target} (linked version or environment)"], ready_path
     uv = find_uv()
     if uv is None:
-        return [*migrated, UV_MISSING], ready_path
+        return [UV_MISSING], ready_path
     if not target.exists():
         staging = app / f".staging-{os.urandom(16).hex()}"
         app.mkdir(parents=True, exist_ok=True)
@@ -152,15 +131,15 @@ def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> tuple[list[str], Optiona
         staging.rename(target)
     # An unfinished version may hold a link; uv reads the project, so the tree is checked before it runs.
     if not version_safe(target, home):
-        return [*migrated, f"skip: {target} (linked)"], ready_path
+        return [f"skip: {target} (linked)"], ready_path
     result = run_command(uv, ["sync", "--project", str(target), "--frozen", "--extra", "mcp", "--quiet"], env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(environment)})
     if result.exit_code != 0:
         lines = [result.error.strip()] if result.error.strip() else []
-        return [*migrated, *lines, f"legion app {version} not ready (uv sync exited {result.exit_code}); run legion setup again"], ready_path
+        return [*lines, f"legion app {version} not ready (uv sync exited {result.exit_code}); run legion setup again"], ready_path
     if not version_safe(target, home):
-        return [*migrated, f"skip: {target} (linked)"], ready_path
+        return [f"skip: {target} (linked)"], ready_path
     write_generated(target / MARKER, environment.name, executable=False)
-    return [*migrated, f"legion app {version} ready"], target
+    return [f"legion app {version} ready"], target
 
 
 def shim_home_argument(home: Path, windows: bool) -> str:

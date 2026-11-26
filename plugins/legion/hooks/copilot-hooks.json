@@ -4,8 +4,8 @@
     "sessionStart": [
       {
         "type": "command",
-        "powershell": "& { try { $root = $env:COPILOT_PLUGIN_ROOT; if (!$root) { throw \"Legion root missing\" }; $entries = [regex]::Matches([IO.File]::ReadAllText(\"$root/hooks/hooks.json\"), '(?m)^\\s*\"commandWindows\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"'); if ($entries.Count -ne 1) { throw \"Legion Windows hook missing\" }; $hook = [regex]::Unescape($entries[0].Groups[1].Value); & ([scriptblock]::Create($hook)) $root context-json; return } catch { }; '{\"additionalContext\":\"legion: uv or Python 3.12 is missing, so mode detection did not run; run the legion installer. If LEGION_ROLE=member is set, load the legion-member skill.\"}' }",
-        "bash": "[ -n \"${COPILOT_PLUGIN_ROOT:-}\" ] && command . \"${COPILOT_PLUGIN_ROOT:-}/hooks/session_start.sh\" 2>/dev/null && legion_session_start \"${COPILOT_PLUGIN_ROOT:-}/hooks/session_start.py\" context-json 2>/dev/null || printf '%s\\n' '{\"additionalContext\":\"legion: uv or Python 3.12 is missing, so mode detection did not run; run the legion installer. If LEGION_ROLE=member is set, load the legion-member skill.\"}'",
+        "powershell": "uv run --no-project --no-python-downloads --offline --quiet --python \">=3.12\" \"$env:COPILOT_PLUGIN_ROOT\\hooks\\session_start.py\" --format context-json; if (-not $?) { '{\"additionalContext\":\"legion: uv or Python 3.12 is missing, so mode detection did not run; run the legion installer. If LEGION_ROLE=member is set, load the legion-member skill.\"}' }",
+        "bash": "uv run --no-project --no-python-downloads --offline --quiet --python \">=3.12\" \"$COPILOT_PLUGIN_ROOT/hooks/session_start.py\" --format context-json || echo '{\"additionalContext\":\"legion: uv or Python 3.12 is missing, so mode detection did not run; run the legion installer. If LEGION_ROLE=member is set, load the legion-member skill.\"}'",
         "timeoutSec": 10
       }
     ]

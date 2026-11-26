@@ -4,37 +4,15 @@ import os
 import shutil
 import subprocess
 import sys
-import time
-import venv
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
-from legion.core._settings_models import Agent
-from legion.hook._hook import MEMBER
-from legion.services.accounts._accounts import get_tool
-from legion.services.accounts._launchers import write_subscription
-from legion.services.installation._installed_runtime import MARKER, app_lock, python_environment, sync_app
-
-from app_fakes import FakeUv, make_link
-
 PLUGIN = Path(__file__).resolve().parents[3] / "plugins" / "legion"
 FALLBACK = "legion: uv or Python 3.12 is missing, so mode detection did not run; run the legion installer. If LEGION_ROLE=member is set, load the legion-member skill."
-CASES = [
-    "default",
-    "configured",
-    "member",
-    "missing",
-    "pruned",
-    "bad marker",
-    "absolute marker",
-    "legacy marker",
-    "legacy default",
-    "legacy foreign",
-    "legacy linked",
-    "missing root",
-]
+MEMBER = "legion: you are a legion member. Load the legion-member skill"
+CASES = ["ok", "uv missing", "no python"]
 
 
 def manifest_commands() -> dict[str, str]:
@@ -44,6 +22,12 @@ def manifest_commands() -> dict[str, str]:
 
 
 COMMANDS = manifest_commands()
+
+
+def uv_path() -> Path:
+    found = os.environ.get("UV") or shutil.which("uv")
+    assert found, "uv must be on PATH or named by UV"
+    return Path(found)
 
 
 # Claude Code runs hooks in Git Bash on Windows; never pick the WSL bash from System32.
@@ -71,23 +55,6 @@ def without(path: str, *names: str) -> str:
     return os.pathsep.join(folder for folder in path.split(os.pathsep) if folder and not has(folder))
 
 
-def posix_hook_path(path: str, trap: Path, case: str) -> None:
-    # PowerShell can share /usr/bin with the utilities the hook needs.
-    sed = shutil.which("sed", path=path)
-    assert sed, "The POSIX hook requires sed"
-    (trap / "sed").symlink_to(Path(sed).absolute())
-    if case.startswith("legacy "):
-        # Exercise both implementations where available, and support hosts with only one.
-        hash_tools = ("shasum", "sha256sum") if case == "legacy marker" else ("sha256sum", "shasum")
-        for tool in hash_tools:
-            executable = shutil.which(tool, path=path)
-            if executable:
-                (trap / tool).symlink_to(Path(executable).absolute())
-                break
-        else:
-            pytest.fail("The legacy POSIX hook requires sha256sum or shasum")
-
-
 @pytest.fixture
 def plugin(tmp_path: Path) -> Path:
     root = tmp_path / "plugin O'Brien x"
@@ -97,158 +64,117 @@ def plugin(tmp_path: Path) -> Path:
     return root
 
 
-def ready(home: Path, version: str, name: str, *, pruned: bool = False) -> Path:
-    marker = home / ".legion" / "app" / version / ".legion-app-ready"
-    marker.parent.mkdir(parents=True)
-    marker.write_text(name, encoding="utf-8")
-    if not pruned:
-        venv.EnvBuilder(with_pip=False).create(home / ".legion" / "python" / name)
-    return marker
+def run(shell: Path, flag: str, command: str, plugin_root: str, case: str, *, root_name: str, folder: Path, member: bool) -> subprocess.CompletedProcess[str]:
+    env = {key: value for key, value in os.environ.items() if key == "LEGION_TEST_USER_PATH_FILE" or not key.startswith(("LEGION_", "UV_PYTHON"))}
+    env[root_name] = plugin_root
+    if member:
+        env.update(LEGION_ROLE="member", LEGION_TASK="task.md")
+    uv = uv_path()
+    # A POSIX hook must work on machines without PowerShell.
+    path = without(env["PATH"], "pwsh", "pwsh.exe") if flag == "-c" else env["PATH"]
+    path = without(path, "uv", "uv.exe")
+    if case != "uv missing":
+        path = str(uv.parent) + os.pathsep + path
+    if case == "no python":
+        empty = folder / "no-managed-python"
+        empty.mkdir(exist_ok=True)
+        env.update(UV_PYTHON_PREFERENCE="only-managed", UV_PYTHON_INSTALL_DIR=str(empty))
+        env.pop("VIRTUAL_ENV", None)
+    env["PATH"] = path
+    args = [str(shell), "-NoProfile", "-Command", command] if flag == "-Command" else [str(shell), "-c", command]
+    stdin = json.dumps({"cwd": str(folder), "hook_event_name": "SessionStart"})
+    return subprocess.run(args, input=stdin, capture_output=True, text=True, cwd=folder, env=env, timeout=60, check=False)
 
 
-def cache_update(home: Path, version: str) -> None:
-    cache = home / ".legion" / "temp" / "update.json"
-    cache.parent.mkdir(parents=True)
-    record = {"Source": "BlackGad/ps-legion-marketplace", "CheckedAt": datetime.now(UTC).isoformat(), "Available": version, "Failed": False}
-    cache.write_text(json.dumps(record), encoding="utf-8")
+def check(result: subprocess.CompletedProcess[str], case: str, *, copilot: bool, member: bool) -> None:
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    if case != "ok":
+        assert lines == [json.dumps({"additionalContext": FALLBACK}, separators=(",", ":")) if copilot else FALLBACK]
+        assert result.stderr != ""  # the shell or uv says what is missing; hosts do not show it in context
+        return
+    assert result.stderr == ""
+    if not member:
+        assert lines == (["{}"] if copilot else [])
+        return
+    assert len(lines) == 1
+    assert (json.loads(lines[0])["additionalContext"] if copilot else lines[0]).startswith(MEMBER)
 
 
-def shell_cases() -> list[tuple[str, str, Path, str]]:
-    cases = [(key, name, path, "-c") for key in ("command", "bash") for name, path in posix_shells().items()]
-    if sys.platform == "win32":
-        cases.extend((key, name, path, "-Command") for key in ("commandWindows", "powershell") for name, path in powershells().items())
-    return cases
-
-
-SHELL_CASES = shell_cases()
-
-
-@pytest.mark.skipif(sys.platform != "win32", reason="Uses a native Windows host through Git Bash")
-def test_git_bash_launcher_passes_configured_home_to_windows_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    home = tmp_path / "owner O'Brien ü"
-    script = tmp_path / "probe.py"
-    script.write_text('import json, os\nprint(json.dumps(os.environ["LEGION_HOME"]))\n', encoding="utf-8")
-    account = Agent.model_validate({"id": "codex-a", "tool": "codex", "configDir": str(home / "config"), "command": sys.executable})
-    wrapper = next(path for path in write_subscription(account, get_tool(account.tool), home) if not path.suffix)
-    monkeypatch.setenv("LEGION_HOME", str(tmp_path / "different home"))
-    result = subprocess.run([str(posix_shells()["bash"]), str(wrapper), str(script)], cwd=tmp_path, capture_output=True, text=True, timeout=10, check=True)
-    assert Path(json.loads(result.stdout)).resolve() == home.resolve()
-
-
-def prepare_runtime(home: Path, plugin: Path, version: str, case: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
-    name = "env-abcdef012345"
-    if case in ("legacy marker", "legacy default"):
-        name = python_environment(home / ".legion" / "app" / version, home).name
-        ready(home, version, name).write_bytes(b"")
-        ready(home, "999.0.0", "env-111111111111")
-    if case == "legacy foreign":
-        ready(home, version, name).write_bytes(b"")
-    if case == "legacy linked":
-        environment = python_environment(home / ".legion" / "app" / version, home)
-        name = environment.name
-        ready(home, version, name, pruned=True).write_bytes(b"")
-        outside = tmp_path / "outside"
-        venv.EnvBuilder(with_pip=False).create(outside)
-        make_link(environment, outside)
-    if case == "configured":
-        uv = FakeUv(monkeypatch)
-        uv.effect = lambda app: venv.EnvBuilder(with_pip=False).create(python_environment(app, home))
-        with app_lock(home) as held:
-            assert held
-            _, published = sync_app(home, plugin)
-        assert published is not None
-        name = Path(uv.calls[0][2]).name
-        assert (published / MARKER).read_text(encoding="utf-8") == name
-    if case in ("default", "member"):
-        ready(home, version, name)
-    elif case in ("pruned", "bad marker", "absolute marker"):
-        marker = ready(home, version, name, pruned=True)
-        marker_contents = {"bad marker": "../outside", "absolute marker": str(tmp_path / "outside")}
-        if case in marker_contents:
-            marker.write_text(marker_contents[case], encoding="utf-8")
-    if case == "configured":
-        # The highest ready version is intentionally unusable. The loaded plugin owns version selection.
-        ready(home, "999.0.0", "env-111111111111", pruned=True)
-    return name
-
-
-@pytest.mark.parametrize(("key", "shell_name", "shell", "flag"), SHELL_CASES, ids=[f"{key}-{name}" for key, name, _, _ in SHELL_CASES])
 @pytest.mark.parametrize("case", CASES)
-def test_manifest_hook_command(plugin: Path, tmp_path: Path, key: str, shell_name: str, shell: Path, flag: str, case: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    login = Path.home()
-    configured = tmp_path / "owner O'Brien ü"
-    root_name = "CLAUDE_PLUGIN_ROOT" if key in ("command", "commandWindows") else "COPILOT_PLUGIN_ROOT"
-    env = {key: value for key, value in os.environ.items() if not key.startswith(("LEGION_", "UV_PYTHON")) and key not in ("CLAUDE_PLUGIN_ROOT", "COPILOT_PLUGIN_ROOT")}
-    if case != "missing root":
-        env[root_name] = str(plugin)
-    home = login if case in ("default", "legacy default") else configured
-    if home != login:
-        env["LEGION_HOME"] = str(home)
-    version = json.loads((plugin / "plugin.json").read_text(encoding="utf-8"))["version"]
-    name = prepare_runtime(home, plugin, version, case, tmp_path, monkeypatch)
-    if home != login:
-        # Any fallback to the login home would find a valid runtime and a different update notice.
-        ready(login, version, "env-012345abcdef")
-    cache_update(login, "777.0.0")
-    cache_update(configured, "888.0.0")
-    hook = plugin / "hooks" / "session_start.py"
-    original = hook.read_text(encoding="utf-8")
-    probe = f"""
-import os
-import sys
-from pathlib import Path
+@pytest.mark.parametrize("key", ["command", "bash"])
+@pytest.mark.parametrize("shell", sorted(posix_shells()))
+def test_posix_hook_command(plugin: Path, tmp_path: Path, shell: str, key: str, case: str) -> None:
+    root_name = "CLAUDE_PLUGIN_ROOT" if key == "command" else "COPILOT_PLUGIN_ROOT"
+    for member in (True, False):
+        result = run(posix_shells()[shell], "-c", COMMANDS[key], plugin.as_posix(), case, root_name=root_name, folder=tmp_path, member=member)
+        check(result, case, copilot=key == "bash", member=member)
 
-assert sys.flags.isolated
-assert Path(sys.executable).parents[1].name == {name!r}
 
-def reject_network(event, _args):
-    if event in ("socket.getaddrinfo", "socket.connect"):
-        with open(os.environ["PYTHON_TEST_SOCKET_RECORD"], "a", encoding="utf-8") as log:
-            log.write(event)
-        raise RuntimeError("hook tried the network")
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows only: Codex and Copilot run these keys in PowerShell")
+@pytest.mark.parametrize("case", CASES)
+@pytest.mark.parametrize("key", ["commandWindows", "powershell"])
+@pytest.mark.parametrize("shell", sorted(powershells()))
+def test_windows_hook_command(plugin: Path, tmp_path: Path, shell: str, key: str, case: str) -> None:
+    root_name = "CLAUDE_PLUGIN_ROOT" if key == "commandWindows" else "COPILOT_PLUGIN_ROOT"
+    for member in (True, False):
+        result = run(powershells()[shell], "-Command", COMMANDS[key], str(plugin), case, root_name=root_name, folder=tmp_path, member=member)
+        check(result, case, copilot=key == "powershell", member=member)
 
-sys.addaudithook(reject_network)
-"""
-    hook.write_text(probe + original, encoding="utf-8")
-    # Keep uv trapped and run the POSIX hooks without PowerShell on PATH.
-    trap = tmp_path / "uv-trap"
-    trap.mkdir()
-    (trap / "uv").write_text("#!/bin/sh\nprintf 'unexpected uv call' > uv-called\nexit 99\n", encoding="utf-8", newline="\n")
-    (trap / "uv").chmod(0o755)
-    (trap / "uv.cmd").write_text("@echo unexpected uv call > uv-called\n@exit /b 99\n", encoding="utf-8")
-    if sys.platform != "win32":
-        posix_hook_path(env["PATH"], trap, case)
-        env["PATH"] = str(trap)
-        # Hash the Unicode app path under a non-UTF-8 shell locale too.
-        env["LC_ALL"] = "C"
-        env.pop("BASH_ENV", None)
-        env.pop("ENV", None)
-    else:
-        path = without(env["PATH"], "uv", "uv.exe", "uv.cmd")
-        paths = [str(trap)]
-        if flag == "-c":
-            path = without(path, "pwsh", "pwsh.exe")
-            paths.append(str(posix_shells()["sh"].parent))
-        env["PATH"] = os.pathsep.join([*paths, path])
+
+def test_cached_run_imports_only_the_standard_library(plugin: Path, tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     (repo / ".legion" / "state").mkdir(parents=True)
-    (repo / ".legion" / "state" / "handoff.md").touch()
-    # Exercise stdin cwd, separate from the directory where the shell starts.
-    hook_input = json.dumps({"cwd": str(repo), "hook_event_name": "SessionStart"})
-    args = [str(shell), "-NoProfile", flag, COMMANDS[key]] if flag == "-Command" else [str(shell), flag, COMMANDS[key]]
-    expected_version = "777.0.0" if home == login else "888.0.0"
-    expected = f'legion: this repo is orchestrated. Say continue to act as the overseer. legion {expected_version} is available (installed {version}); say "update legion" to update.'
-    if case not in ("default", "configured", "legacy marker", "legacy default"):
-        env.update(LEGION_ROLE="member", LEGION_TASK="task.md")
-        expected = MEMBER if case == "member" else FALLBACK
-    if key in ("bash", "powershell"):
-        expected = json.dumps({"additionalContext": expected}, separators=(",", ":"))
-    start = time.monotonic()
-    result = subprocess.run(args, input=hook_input, capture_output=True, encoding="utf-8", cwd=tmp_path, env=env, timeout=10, check=False)
-    elapsed = time.monotonic() - start
-    print(f"{key} / {shell_name} / {case}: {elapsed:.3f}s")
-    assert not (tmp_path / "uv-called").exists()
-    assert elapsed < 10
-    assert result.returncode == 0, result.stderr
+    (repo / ".legion" / "state" / "handoff.md").write_text("## Goal\nM1\n", encoding="utf-8")
+    home = tmp_path / "home"
+    cache = home / ".legion" / "temp" / "update.json"
+    cache.parent.mkdir(parents=True)
+    record = {"Source": "BlackGad/ps-legion-marketplace", "CheckedAt": datetime.now(UTC).isoformat(), "Available": "999.0.0", "Failed": False}
+    cache.write_text(json.dumps(record), encoding="utf-8")
+    script = """
+import runpy, sys
+hook = sys.argv[1]
+sys.argv = [hook, "--format", "text"]
+try:
+    runpy.run_path(hook, run_name="__main__")
+except SystemExit:
+    pass
+# pathlib itself imports urllib.parse; the slow part is urllib.request and its HTTP stack.
+loaded = sorted(name for name in sys.modules if name.split(".")[0] in ("pydantic", "click") or name in ("urllib.request", "http.client", "ssl"))
+sys.stderr.write(",".join(loaded))
+"""
+    env = {key: value for key, value in os.environ.items() if key == "LEGION_TEST_USER_PATH_FILE" or not key.startswith("LEGION_")}
+    env.update(HOME=str(home), USERPROFILE=str(home))
+    stdin = json.dumps({"cwd": str(repo)})
+    result = subprocess.run([sys.executable, "-c", script, str(plugin / "hooks" / "session_start.py")], input=stdin, capture_output=True, text=True, env=env, check=False)
+    assert result.returncode == 0
     assert result.stderr == ""
-    assert result.stdout.splitlines() == [expected]
+    assert len(result.stdout.splitlines()) == 1
+    assert "legion 999.0.0 is available" in result.stdout
+
+
+@pytest.mark.parametrize("key", ["command", "bash", "commandWindows", "powershell"])
+def test_manifest_update_notice_is_one_line(plugin: Path, tmp_path: Path, key: str) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".legion" / "state").mkdir(parents=True)
+    (repo / ".legion" / "state" / "handoff.md").write_text("## Goal\nM1\n", encoding="utf-8")
+    cache = Path.home() / ".legion" / "temp" / "update.json"
+    cache.parent.mkdir(parents=True)
+    record = {"Source": "BlackGad/ps-legion-marketplace", "CheckedAt": datetime.now(UTC).isoformat(), "Available": "999.0.0", "Failed": False}
+    cache.write_text(json.dumps(record), encoding="utf-8")
+    before = cache.read_bytes()
+    version = json.loads((plugin / "plugin.json").read_text(encoding="utf-8"))["version"]
+    expected = f'legion: this repo is orchestrated. Say continue to act as the overseer. legion 999.0.0 is available (installed {version}); say "update legion" to update.'
+    if key in ("commandWindows", "powershell"):
+        if sys.platform != "win32":
+            pytest.skip("Windows manifest command")
+        shells, flag = powershells(), "-Command"
+    else:
+        shells, flag = posix_shells(), "-c"
+    root_name = "CLAUDE_PLUGIN_ROOT" if key in ("command", "commandWindows") else "COPILOT_PLUGIN_ROOT"
+    for shell in shells.values():
+        result = run(shell, flag, COMMANDS[key], plugin.as_posix(), "ok", root_name=root_name, folder=repo, member=False)
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == ""
+        assert result.stdout.splitlines() == [json.dumps({"additionalContext": expected}, separators=(",", ":")) if key in ("bash", "powershell") else expected]
+        assert cache.read_bytes() == before

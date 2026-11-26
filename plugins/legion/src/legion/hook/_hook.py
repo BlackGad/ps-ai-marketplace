@@ -46,8 +46,7 @@ class HookInput:
 def main(argv: list[str]) -> int:
     as_json = argv[-2:] == ["--format", "context-json"]
     try:
-        home = Path(argv[1]) if argv[:1] == ["--home"] else None
-        text = mode_text(session_folder(sys.stdin), os.environ, home)
+        text = mode_text(session_folder(sys.stdin), os.environ)
     except Exception:
         text = FAILURE  # Mode detection must never stop a session from starting.
     if as_json:
@@ -57,15 +56,15 @@ def main(argv: list[str]) -> int:
     return 0
 
 
-def mode_text(folder: Path, environment: Mapping[str, str], home: Optional[Path] = None) -> str:
+def mode_text(folder: Path, environment: Mapping[str, str]) -> str:
     if environment.get("LEGION_ROLE", "").lower() == "member":
         return MEMBER if environment.get("LEGION_TASK") else MEMBER_WITHOUT_TASK
     repo = find_repo_root(folder)
     if not (repo / ".legion" / "state" / "handoff.md").exists():
         return ""
     lines = [ORCHESTRATED + lease_note(repo)]
-    if home is None and (configured_home := environment.get("LEGION_HOME")):
-        home = Path(configured_home)
+    configured_home = environment.get("LEGION_HOME")
+    home = Path(configured_home) if configured_home else None
     try:
         update = _update.get_update(PLUGIN_ROOT, home, cache_only=True)
         if update is not None and update.newer:
