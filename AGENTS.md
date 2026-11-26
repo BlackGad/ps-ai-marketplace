@@ -17,13 +17,13 @@ A plugin marketplace with one plugin, `legion`: orchestration as skills for Clau
 | `docs/reference.md` | Installer options, CLI guides and technical details |
 | `tests/repository/` | PowerShell repository checks (`*.Tests.ps1`); shared fakes and fixtures stay under `tests/` |
 | `tests/python/` | Python tests, with root `pytest.ini`, `ruff.toml` and `pyrightconfig.json` kept outside the client plugin |
-| `tools/` | Maintenance scripts, such as `update-tools-index.ps1` |
+| `tools/` | Python maintenance scripts, including `generate.py` for the tools index and editor schemas |
 
 ## Rules
 
 A settings field exists only if a script reads it. Everything else is a plain-words preference in the owner's `legion-notes.md`, which agents read. Do not add a property for each decision.
 
-- **Legion runs in Python.** PowerShell remains only in the Windows bootstrap `install.ps1` (5.1 and 7), the test runner and the `tools/` maintenance scripts (PowerShell 7, Windows, macOS and Linux).
+- **Legion runs in Python.** PowerShell remains only in the Windows bootstrap `install.ps1` (5.1 and 7) and the repository tests (PowerShell 7, Windows, macOS and Linux).
 - **Safe to run again.** Every script checks before it acts; a repeat prints `skip: <what> (already done)` and changes nothing.
 - **Ask before installing.** Install commands are shown as hints and run only after the owner's yes (`-Yes`).
 - **No secrets, no personal data.** Never store or print tokens or keys. Never commit user names, host names, local paths, endpoints, chat ids or account names from a real setup; use neutral examples (`codex-a`, `my-project`, `https://<resource>.cognitiveservices.azure.com`).

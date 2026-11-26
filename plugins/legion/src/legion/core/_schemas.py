@@ -31,7 +31,7 @@ class _Draft7Schema(GenerateJsonSchema):
 
 
 def _share_install_schema(schema: JsonSchemaValue) -> None:
-    # The tools index reads #/$defs/install for helpers, where the descriptor's hint is optional.
+    # Helpers reuse the install recipe without the descriptor's hint.
     definitions = schema["$defs"]
     install = definitions.pop("Install")
     recipe_fields = {field.alias or name for name, field in InstallRecipe.model_fields.items()}
@@ -59,8 +59,7 @@ def generated_schemas() -> dict[str, str]:
     return files
 
 
-def main() -> None:
-    schema_dir = Path(__file__).resolve().parents[3] / "schemas"
+def main(schema_dir: Path = Path(__file__).resolve().parents[3] / "schemas") -> None:
     for name, content in generated_schemas().items():
         path = schema_dir / name
         if path.exists() and path.read_text(encoding="utf-8") == content:
