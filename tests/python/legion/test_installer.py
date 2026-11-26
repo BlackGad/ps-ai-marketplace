@@ -1770,3 +1770,18 @@ def test_plugin_rows_compare_the_whole_id_and_ignore_continuation_paths(tmp_path
     for listing, expected in rows.items():
         monkeypatch.setattr(_installer, "_listing", lambda *_args, listing=listing: listing)
         assert _installer._plugin_state(entry, tmp_path)[0] is expected, listing
+
+
+@pytest.mark.parametrize("bullet", ["•", "ΓÇó", "?", "*", ""])
+def test_plugin_row_id_ignores_whatever_bullet_the_listing_prints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bullet: str) -> None:
+    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "copilot")
+    prefix = f"  {bullet} " if bullet else "  "
+    cases = {
+        f"{prefix}legion@ps-legion-marketplace (v1.0.0) (enabled)\n      from /x/checkout": True,
+        f"{prefix}other@marketplace (v1.0.0)\n      from /x/legion@ps-legion-marketplace": False,
+        f"{prefix}extra-legion@ps-legion-marketplace (v1.0.0)": False,
+        f"{prefix}legion@ps-legion-marketplace-extra (v1.0.0)": False,
+    }
+    for listing, expected in cases.items():
+        monkeypatch.setattr(_installer, "_listing", lambda *_args, listing=listing: listing)
+        assert _installer._plugin_state(entry, tmp_path)[0] is expected, listing

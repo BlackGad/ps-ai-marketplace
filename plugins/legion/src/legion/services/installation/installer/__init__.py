@@ -735,10 +735,15 @@ def _marketplace(entry: dict[str, Any], folder: Path, require_root: bool = False
         raise InstallerError(f"{entry['id']} marketplace listing returned invalid JSON") from error
 
 
-# The id is the first word of a listing row (after Copilot's bullet); a continuation line such as "from <path>" has none.
+# The id is the first word of a listing row, or the second after a bullet in any spelling (the Windows console may print it as other
+# characters). A continuation line such as "from <path>" has none. tests/integration/run.py keeps an identical copy.
 def _row_id(line: str) -> Optional[str]:
-    match = re.match(r"\s*(?:[•*-]\s+)?([^\s@]+@\S+)", line)
-    return match[1] if match else None
+    words = line.split()
+    if words and "@" in words[0]:
+        return words[0]
+    if len(words) > 1 and "@" in words[1] and words[0].rstrip(":") != "from":
+        return words[1]
+    return None
 
 
 # Hand-built, reason: the three CLIs expose different listing formats described by tools.json.

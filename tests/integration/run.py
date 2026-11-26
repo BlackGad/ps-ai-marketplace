@@ -130,6 +130,17 @@ def probe_codex_mcp(command: list[str], env: dict[str, str], cwd: Path, seconds:
     return servers
 
 
+# The id is the first word of a listing row, or the second after a bullet in any spelling (the Windows console may print it as other
+# characters). A continuation line such as "from <path>" has none. This is an identical copy of _row_id in the installer.
+def _row_id(line: str) -> str | None:
+    words = line.split()
+    if words and "@" in words[0]:
+        return words[0]
+    if len(words) > 1 and "@" in words[1] and words[0].rstrip(":") != "from":
+        return words[1]
+    return None
+
+
 def listed(entry: dict[str, Any], output: str, include_disabled: bool = False, kind: str = "plugin") -> bool:
     """Read CLI listings using the formats advertised by tools.json."""
     # Hand-built, reason: the three public CLIs expose different listing formats described by tools.json.
@@ -145,9 +156,7 @@ def listed(entry: dict[str, Any], output: str, include_disabled: bool = False, k
             if item.get(listing.get("nameField", listing.get("idField"))) == wanted:
                 return include_disabled or kind == "marketplace" or item.get(listing["enabledField"]) is True
         return False
-    # The id is the first word of a row (after Copilot's bullet); a "from <path>" line has none.
-    rows = [re.match(r"\s*(?:[•*-]\s+)?([^\s@]+@\S+)", line) for line in output.splitlines()]
-    matches = [line for line, row in zip(output.splitlines(), rows, strict=True) if row and row[1] == "legion@ps-legion-marketplace" and "not installed" not in line]
+    matches = [line for line in output.splitlines() if _row_id(line) == "legion@ps-legion-marketplace" and "not installed" not in line]
     return bool(matches) if include_disabled else any(not re.search(listing["rejectPattern"], line) for line in matches)
 
 
@@ -375,8 +384,11 @@ class Runner:
         return self.run([self.command(entry["command"]), *args], env=env, cwd=self.work)
 
     def listing(self, tool: str, folder: Path, kind: str = "plugin", include_disabled: bool = False) -> bool:
+        return listed(self.catalog[tool], self.listing_output(tool, folder, kind), include_disabled, kind)
+
+    def listing_output(self, tool: str, folder: Path, kind: str = "plugin") -> str:
         args = self.catalog[tool]["plugin"]["marketplaceList" if kind == "marketplace" else "list"]
-        return listed(self.catalog[tool], self.cli(tool, args, folder), include_disabled, kind)
+        return self.cli(tool, args, folder)
 
     def version(self, tool: str, folder: Path) -> str | None:
         # Hand-built, reason: read installed public manifests without the removed installer helper.
@@ -542,7 +554,9 @@ class Runner:
         require(bool(self.active()), "; ".join(self.not_tested.values()))
         expected = json.loads((self.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
         for tool in self.active():
-            require(self.listing(tool, self.folder(tool)), f"{tool} does not list enabled legion")
+            if not self.listing(tool, self.folder(tool)):
+                shown = "\n".join(self.listing_output(tool, self.folder(tool)).splitlines()[:20])
+                raise AssertionError(f"{tool} does not list enabled legion; the listing was:\n{shown}")
             control = self.work / f"control-{tool}"
             control.mkdir(exist_ok=True)
             require(not self.listing(tool, control, include_disabled=True), f"{tool} lists legion in empty control folder")
