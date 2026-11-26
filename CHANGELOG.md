@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.18.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.17.0...v0.18.0) (2026-11-26)
+
+
+### Features
+
+* **hook:** run session startup in the installed environment ([#94](https://github.com/BlackGad/ps-legion-marketplace/issues/94)) ([31fa4da](https://github.com/BlackGad/ps-legion-marketplace/commit/31fa4da8cec27f8dc7fad3f4f2afa05dc7e383d3))
+* **mcp:** expose status and limits over stdio ([#89](https://github.com/BlackGad/ps-legion-marketplace/issues/89)) ([26f9ce8](https://github.com/BlackGad/ps-legion-marketplace/commit/26f9ce8c4879cf88dae87145de9ffc565a6b7a01))
+* **python:** typed status and limits services with JSON output ([#86](https://github.com/BlackGad/ps-legion-marketplace/issues/86)) ([111b886](https://github.com/BlackGad/ps-legion-marketplace/commit/111b88645b677dd3e4b4de16e2e8641ad89587dd))
+
+
+### Fixes
+
+* **cli:** list every account for a bare legion limits ([#106](https://github.com/BlackGad/ps-legion-marketplace/issues/106)) ([3e80cbb](https://github.com/BlackGad/ps-legion-marketplace/commit/3e80cbb66e26b637301a5cf7c2199823c3c84912))
+* **lease:** never record the Codex app-server as the owner ([#97](https://github.com/BlackGad/ps-legion-marketplace/issues/97)) ([476f10a](https://github.com/BlackGad/ps-legion-marketplace/commit/476f10a9bc0059dbe3a9b04965e4c3190c8bac32))
+* **legion:** own pending results through resolution ([#91](https://github.com/BlackGad/ps-legion-marketplace/issues/91)) ([cd2cb9d](https://github.com/BlackGad/ps-legion-marketplace/commit/cd2cb9dcf501434e61f520cc1025bb27a96b351a))
+* **mcp:** cancel tool calls at the boundary with psutil ([#98](https://github.com/BlackGad/ps-legion-marketplace/issues/98)) ([0f195ce](https://github.com/BlackGad/ps-legion-marketplace/commit/0f195ce2ae21419020ef613b10d56a30718be7e8))
+* **mcp:** register the MCP server where Codex reads it ([#102](https://github.com/BlackGad/ps-legion-marketplace/issues/102)) ([2459764](https://github.com/BlackGad/ps-legion-marketplace/commit/24597645768c3fd34323a1128ceca787c3e3cba4))
+* **overseer:** keep watch on pending results per tool ([#96](https://github.com/BlackGad/ps-legion-marketplace/issues/96)) ([2070ab8](https://github.com/BlackGad/ps-legion-marketplace/commit/2070ab8294ea526cd5a75f558c2d077e7db46d50))
+* **overseer:** select independent agents by task ([#92](https://github.com/BlackGad/ps-legion-marketplace/issues/92)) ([c4e2a2a](https://github.com/BlackGad/ps-legion-marketplace/commit/c4e2a2a9e6cf44f4a8bebbeb001868b5af68f14b))
+* **overseer:** trim routing and Telegram voice rules ([#100](https://github.com/BlackGad/ps-legion-marketplace/issues/100)) ([d377896](https://github.com/BlackGad/ps-legion-marketplace/commit/d37789641db31d756c5dd09eb4bd86da5e5b7406))
+* **telegram:** honor owner voice and format ([#93](https://github.com/BlackGad/ps-legion-marketplace/issues/93)) ([0e08c19](https://github.com/BlackGad/ps-legion-marketplace/commit/0e08c197ce237efa606cda27cf5be74ef3867d5c))
+
+
+### Refactoring
+
+* **python:** group runtime modules by package ([#88](https://github.com/BlackGad/ps-legion-marketplace/issues/88)) ([6b029ac](https://github.com/BlackGad/ps-legion-marketplace/commit/6b029acfe6a3d80c9c568a3eaf084009606e3c92))
+* **python:** one home for each generic job ([#105](https://github.com/BlackGad/ps-legion-marketplace/issues/105)) ([8ac472c](https://github.com/BlackGad/ps-legion-marketplace/commit/8ac472c066fc3603173c8efa1411fafe978919f1))
+* **python:** use httpx, filelock and click for generic jobs ([#104](https://github.com/BlackGad/ps-legion-marketplace/issues/104)) ([ae2a4a4](https://github.com/BlackGad/ps-legion-marketplace/commit/ae2a4a4d283b6cf0a3e9805b761ac3873adb9e1a))
+* **python:** use psutil for process parts and clean the launch environment ([#101](https://github.com/BlackGad/ps-legion-marketplace/issues/101)) ([892a705](https://github.com/BlackGad/ps-legion-marketplace/commit/892a7052f2d6211b74f281e2e4d3c695c1559845))
+* **settings:** generate the schema files from the models ([#103](https://github.com/BlackGad/ps-legion-marketplace/issues/103)) ([27ff5df](https://github.com/BlackGad/ps-legion-marketplace/commit/27ff5dfb50fd0d922a8f5774b6942d06cd7c3259))
+
+
+### Tests
+
+* **integration:** prove the first update from 0.17.0 ([#99](https://github.com/BlackGad/ps-legion-marketplace/issues/99)) ([7e54cc6](https://github.com/BlackGad/ps-legion-marketplace/commit/7e54cc6f990b93849bd4fc9d2b62143f897cc67b))
+* **python:** fence the real user PATH in every test ([#95](https://github.com/BlackGad/ps-legion-marketplace/issues/95)) ([a4028ce](https://github.com/BlackGad/ps-legion-marketplace/commit/a4028ce7c5f71004210990477236dc96f702b22d))
+
 ## [0.17.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.16.0...v0.17.0) (2026-11-25)
 
 
