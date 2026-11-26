@@ -26,7 +26,28 @@ def test_listing_parses_json_and_text_with_disabled_entries() -> None:
     assert not runner.listed(text_entry, "legion@ps-legion-marketplace disabled")
 
 
-def test_stage_candidate_commits_distinct_versions_only_in_the_fixture(tmp_path: Path) -> None:
+def test_latest_release_chooses_the_highest_numeric_tag(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    remote = "https://example.invalid/marketplace"
+
+    def run(argv: list[str]) -> str:
+        assert argv == ["git", "ls-remote", "--tags", "--refs", remote, "v*"]
+        return "abc\trefs/tags/v0.9.0\nabc\trefs/tags/v0.17.1\nabc\trefs/tags/v0.17.0\nabc\trefs/tags/v1.0.0-rc.1\nabc\trefs/tags/v2.0.0+build\nabc\trefs/tags/v3.0"
+
+    instance.run = run
+    assert instance.latest_release(remote) == (0, 17, 1)
+
+
+@pytest.mark.parametrize("output", ["", "abc\trefs/tags/v1.0.0-rc.1\nabc\trefs/tags/v2.0"])
+def test_latest_release_fails_clearly_without_a_release_tag(tmp_path: Path, output: str) -> None:
+    instance = make_runner(tmp_path)
+    instance.run = lambda _argv: output
+    with pytest.raises(AssertionError, match="No published release tags"):
+        instance.latest_release("https://example.invalid/marketplace")
+
+
+@pytest.mark.parametrize(("release_version", "expected"), [((0, 16, 0), "0.17.1"), ((0, 17, 1), "0.17.2")])
+def test_stage_candidate_commits_distinct_versions_only_in_the_fixture(tmp_path: Path, release_version: tuple[int, int, int], expected: str) -> None:
     instance = make_runner(tmp_path)
     source = instance.new_repo("source")
     instance.checkout = source
@@ -40,11 +61,11 @@ def test_stage_candidate_commits_distinct_versions_only_in_the_fixture(tmp_path:
 
     candidate = instance.new_repo("candidate")
     release = instance.run(["git", "-C", str(candidate), "rev-parse", "HEAD"])
-    assert instance.stage_candidate(candidate) == "0.17.1"
+    assert instance.stage_candidate(candidate, release_version) == expected
     assert instance.run(["git", "-C", str(candidate), "rev-parse", "HEAD^"]) == release
     for name in manifests:
         relative = f"plugins/legion/{name}"
-        assert json.loads(instance.run(["git", "-C", str(candidate), "show", f"HEAD:{relative}"]))["version"] == "0.17.1"
+        assert json.loads(instance.run(["git", "-C", str(candidate), "show", f"HEAD:{relative}"]))["version"] == expected
         assert json.loads((source / relative).read_text(encoding="utf-8"))["version"] == "0.17.0"
     assert not instance.run(["git", "-C", str(source), "status", "--porcelain"])
 
@@ -144,7 +165,7 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "uninstall",
         "reinstall",
         "restore-launchers",
-        "update-from-0.17.0",
+        "update-from-latest-release",
         "purge",
     ]
 

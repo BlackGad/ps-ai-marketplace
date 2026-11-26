@@ -20,7 +20,6 @@ from typing import Any
 
 TOOLS = ("claude", "codex", "copilot")
 MARKETPLACE = "BlackGad/ps-legion-marketplace"
-UPGRADE_FROM = "0.17.0"
 ENDPOINT = "https://example-resource.cognitiveservices.azure.com"
 WINDOWS = sys.platform == "win32"
 
@@ -487,7 +486,19 @@ class Runner:
             self.state["update_snapshot"] = self.home_snapshot(update=True)
         return output
 
-    def stage_candidate(self, release: Path) -> str:
+    def latest_release(self, remote: str) -> tuple[int, int, int]:
+        output = self.run(["git", "ls-remote", "--tags", "--refs", remote, "v*"])
+        versions = []
+        component = r"(0|[1-9][0-9]*)"
+        for line in output.splitlines():
+            ref = line.partition("\t")[2]
+            match = re.fullmatch(rf"refs/tags/v{component}\.{component}\.{component}", ref)
+            if match:
+                versions.append((int(match[1]), int(match[2]), int(match[3])))
+        require(bool(versions), f"No published release tags matching v<major>.<minor>.<patch> at {remote}")
+        return max(versions)
+
+    def stage_candidate(self, release: Path, release_version: tuple[int, int, int]) -> str:
         # Replace the tree but keep the release as the parent so host updates can fast-forward.
         # Stage the checkout's committed HEAD only, excluding uncommitted edits.
         git = ["git", "-C", str(release)]
@@ -495,9 +506,9 @@ class Runner:
         self.run([*git, "read-tree", "--reset", "-u", "FETCH_HEAD"])
         plugin = release / "plugins/legion"
         manifest = json.loads((plugin / "plugin.json").read_text(encoding="utf-8"))
-        major, minor, patch = re.split(r"[-+]", manifest["version"], maxsplit=1)[0].split(".")
-        version = f"{major}.{minor}.{int(patch) + 1}"
-        require(version != UPGRADE_FROM, "staged candidate must differ from the release")
+        checkout_major, checkout_minor, checkout_patch = map(int, re.split(r"[-+]", manifest["version"], maxsplit=1)[0].split("."))
+        major, minor, patch = max((checkout_major, checkout_minor, checkout_patch), release_version)
+        version = f"{major}.{minor}.{patch + 1}"
         for name in ("plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
             path = plugin / name
             document = json.loads(path.read_text(encoding="utf-8"))
@@ -511,8 +522,10 @@ class Runner:
         root = self.work / ("p3-repeat" if repeat else "p3")
         release = root / "release"
         remote = f"https://github.com/{MARKETPLACE}"
+        release_version = self.latest_release(remote)
+        published = ".".join(map(str, release_version))
         root.mkdir()
-        self.run(["git", "clone", "--quiet", "--depth", "1", "--branch", f"v{UPGRADE_FROM}", "--config", "core.longpaths=true", remote, str(release)])
+        self.run(["git", "clone", "--quiet", "--depth", "1", "--branch", f"v{published}", "--config", "core.longpaths=true", remote, str(release)])
         git = ["git", "-C", str(release)]
         self.run([*git, "branch", "stable"])
         upgrade = Runner(release, root / "home", self.out, False)
@@ -534,10 +547,10 @@ class Runner:
         for tool in TOOLS:
             upgrade.targets[tool] = (MARKETPLACE, "release")
             upgrade.install_legion(tool)
-            require(upgrade.version(tool, upgrade.folder(tool)) == UPGRADE_FROM, f"{tool} did not install {UPGRADE_FROM}")
-        require(upgrade.legion("--version", owner=True) == f"legion {UPGRADE_FROM}", "owner shim did not run the released app")
+            require(upgrade.version(tool, upgrade.folder(tool)) == published, f"{tool} did not install {published}")
+        require(upgrade.legion("--version", owner=True) == f"legion {published}", f"owner shim did not run release {published}")
 
-        version = self.stage_candidate(release)
+        version = self.stage_candidate(release, release_version)
         self.run([*git, "update-ref", "refs/heads/stable", "HEAD"])
         upgrade.legion("update", "--yes", owner=True)
         for tool in TOOLS:
@@ -547,7 +560,7 @@ class Runner:
         require(Path(status["settings"]["path"]).resolve() == (upgrade.home / ".legion/configuration/personalisation.json").resolve(), "status used the wrong home")
 
         # Run the client from a separate environment with the explicit MCP extra. Only the
-        # server runs through the 0.17.0 shim, which selects the candidate's default groups.
+        # server runs through the installed release's shim.
         client = """
 import asyncio
 import json
@@ -936,7 +949,7 @@ asyncio.run(main())
             ("uninstall", self.uninstall),
             ("reinstall", self.reinstall),
             ("restore-launchers", lambda repeat: self.reinstall(repeat, restore=True)),
-            (f"update-from-{UPGRADE_FROM}", self.update_from_release),
+            ("update-from-latest-release", self.update_from_release),
             ("purge", self.purge),
         ]
         return steps
