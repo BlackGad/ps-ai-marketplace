@@ -1,14 +1,13 @@
 # The one reader and writer of the owner's personalisation.json for verbs that change it.
 
-import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
 
 from filelock import FileLock, Timeout
 
 from legion.core import _validate
+from legion.core._atomic_write import AtomicWriteError, atomic_write_bytes
 from legion.core._home import settings_path
 from legion.core._settings_models import PersonalisationSettings
 
@@ -79,33 +78,14 @@ def save_locked(home: Path, settings: PersonalisationSettings) -> None:
         raise SettingsError("; ".join(issues))
     text = settings.model_dump_json(by_alias=True, exclude_none=True, indent=2) + "\n"
     path = settings_path(home).resolve()
-    temp: Optional[Path] = None
-    failure: Optional[OSError] = None
-    cleanup_failure: Optional[OSError] = None
-    replacing = False
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile("wb", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False) as file:
-            temp = Path(file.name)
-            file.write(text.encode("utf-8"))
-        replacing = True
-        temp.replace(path)
-    except OSError as error:
-        failure = error
-    finally:
-        if temp is not None:
-            try:
-                temp.unlink(missing_ok=True)
-            except OSError as error:
-                cleanup_failure = error
-    if failure is not None and replacing and getattr(failure, "winerror", None) in (5, 32):
-        message = "legion settings are in use by another program; close it and run the command again"
-    elif failure is not None:
-        message = " ".join(str(failure).split())
-    else:
-        message = ""
-    if cleanup_failure is not None:
-        detail = " ".join(str(cleanup_failure).split())
-        message = f"{message}; cleanup failed: {detail}" if message else f"cleanup failed: {detail}"
-    if message:
+        atomic_write_bytes(path, text.encode("utf-8"), keep_mode=False)
+    except AtomicWriteError as error:
+        if error.replacing and getattr(error.failure, "winerror", None) in (5, 32):
+            message = "legion settings are in use by another program; close it and run the command again"
+        else:
+            message = " ".join(str(error.failure).split())
+        if error.cleanup_failure is not None:
+            detail = " ".join(str(error.cleanup_failure).split())
+            message = f"{message}; cleanup failed: {detail}" if message else f"cleanup failed: {detail}"
         raise SettingsError(message) from None

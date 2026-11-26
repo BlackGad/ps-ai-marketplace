@@ -1,15 +1,16 @@
 # Shared by the command and session-start hook; cached checks use only the standard library.
 import contextlib
 import json
+import os
 import re
 import threading
 import time
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
+from legion.core._atomic_write import atomic_write_bytes
 from legion.core._home import legion_home, update_cache_path
 
 SOURCE = "BlackGad/ps-legion-marketplace"
@@ -147,19 +148,8 @@ def get_update(plugin_root: Path, home: Optional[Path] = None, *, force: bool = 
 # Publish the whole record at once, so a session that reads the cache never sees a partial one.
 # A cache that cannot be saved must not prevent checks or session starts, nor change their result.
 def _save_cache(path: Path, cached: UpdateCache) -> None:
-    temporary = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        file = temporary.open("x", encoding="utf-8")
-    except OSError:
-        return
-    try:
-        with file:
-            file.write(cached.to_json())
-        temporary.replace(path)
-    except OSError:
-        with contextlib.suppress(OSError):
-            temporary.unlink()
+    with contextlib.suppress(OSError):
+        atomic_write_bytes(path, cached.to_json().replace("\n", os.linesep).encode("utf-8"), keep_mode=False)
 
 
 def check_lines(plugin_root: Path, home: Optional[Path] = None, *, force: bool = False) -> list[str]:

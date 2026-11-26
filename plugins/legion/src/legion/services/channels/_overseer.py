@@ -7,7 +7,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -18,6 +17,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 from legion.services.channels import _bridge, _channel
 from legion.services.repository import _lease, _repository
 from legion.core import _home, _run, _settings_io, _validate
+from legion.core._atomic_write import atomic_write_bytes
 from legion.services.accounts._accounts import get_tool
 from legion.core._settings_models import Agent, PersonalisationSettings
 
@@ -73,17 +73,7 @@ def load_last(repo: Path, home: Path) -> Optional[LastLaunch]:
 def save_last(repo: Path, home: Path, last: LastLaunch) -> None:
     saved = _history(home)
     saved[repo_key(repo)] = last
-    path = _history_file(home)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp: Optional[Path] = None
-    try:
-        with tempfile.NamedTemporaryFile("wb", dir=path.parent, delete=False) as stream:
-            temp = Path(stream.name)
-            stream.write(_HISTORY.dump_json(saved, indent=2) + b"\n")
-        temp.replace(path)
-    finally:
-        if temp is not None:
-            temp.unlink(missing_ok=True)
+    atomic_write_bytes(_history_file(home), _HISTORY.dump_json(saved, indent=2) + b"\n", keep_mode=False)
 
 
 def _select(settings: PersonalisationSettings, account: Optional[str], tool: Optional[str], channels: tuple[str, ...], last: Optional[str]) -> Agent:
