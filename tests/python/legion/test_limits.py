@@ -21,7 +21,14 @@ from legion.core._home import home_path
 from legion.core._process import process_started_at
 from legion.core._run import RunResult
 from legion.core._settings_models import Agent
-from legion.services.limits.limit_probes import LimitsError, LimitRow, _ping, account_rows, claude, codex
+from legion.services.limits.limit_probes import (
+    LimitsError,
+    LimitRow,
+    _ping,
+    account_rows,
+    claude,
+    codex,
+)
 from legion.services.limits import limits
 from legion.services.limits.limit_probes._ping import Ping, format_used_percent
 
@@ -94,6 +101,26 @@ class Bench:
 @pytest.fixture
 def bench(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Bench:
     return Bench(tmp_path, monkeypatch)
+
+
+@pytest.mark.parametrize("selection", [[], [""], [" "], ["nobody"], ["claude-a", "nobody"], ["claude-a", ""]])
+def test_limits_prevalidates_whole_selection_without_probes(bench: Bench, selection: list[str]) -> None:
+    write_settings(bench.home, ACCOUNTS)
+    expected = "name at least one account" if not selection else f"unknown account '{selection[-1]}'"
+    with pytest.raises(LimitsError, match=expected):
+        limits(bench.home, selection)
+    assert [bench.calls(name) for name in ("claude", "codex", "copilot", "az", "git")] == [[], [], [], [], []]
+
+
+def test_limits_omitted_selection_cannot_use_manual_default(bench: Bench) -> None:
+    write_settings(bench.home, ACCOUNTS)
+
+    def omit_selection(call: Callable[..., object]) -> object:
+        return call(bench.home)
+
+    with pytest.raises(TypeError):
+        omit_selection(limits)
+    assert not list(bench.logs.iterdir())
 
 
 @pytest.mark.parametrize("interface", ["service", "text", "json", "manual"])

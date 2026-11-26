@@ -13,7 +13,14 @@ from typing import Optional
 import pytest
 
 from legion.services.repository import _lease
-from legion.services.repository._lease import Lease, LeaseError, lease_path, release, state, take
+from legion.services.repository._lease import (
+    Lease,
+    LeaseError,
+    lease_path,
+    release,
+    state,
+    take,
+)
 from legion.core._process import process_started_at
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

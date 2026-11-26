@@ -13,7 +13,14 @@ import pytest
 from legion.hook import _hook
 from legion.core._lease_record import lease_path
 from legion.services.installation import _update
-from legion.hook._hook import FAILURE, MEMBER, MEMBER_WITHOUT_TASK, HookInput, mode_text, session_folder
+from legion.hook._hook import (
+    FAILURE,
+    MEMBER,
+    MEMBER_WITHOUT_TASK,
+    HookInput,
+    mode_text,
+    session_folder,
+)
 
 HOOK = Path(__file__).resolve().parents[3] / "plugins" / "legion" / "hooks" / "session_start.py"
 ORCHESTRATED = "legion: this repo is orchestrated. Say continue to act as the overseer."

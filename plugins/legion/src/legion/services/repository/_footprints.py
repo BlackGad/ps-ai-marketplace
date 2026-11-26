@@ -11,8 +11,22 @@ from filelock import FileLock, Timeout
 
 from legion.core._atomic_write import atomic_write_bytes
 from legion.core._generated import is_owned
-from legion.core._home import footprint_index, full_path, home_path, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
-from legion.core._settings_models import SchemaVersion, SettingsModel, Text, ToolDescriptor
+from legion.core._home import (
+    footprint_index,
+    full_path,
+    home_path,
+    is_under,
+    owner_path_safe,
+    resolve_directory,
+    same_path,
+    tree_has_reparse,
+)
+from legion.core._settings_models import (
+    SchemaVersion,
+    SettingsModel,
+    Text,
+    ToolDescriptor,
+)
 
 FootprintKind = Literal["file", "folder", "link", "path-entry", "edit", "app", "app-version"]
 

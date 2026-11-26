@@ -10,7 +10,14 @@ from legion.services.installation import _installed_runtime
 from legion.services.repository import _footprints
 from legion.core._generated import is_owned, shell_literal
 
-from app_fakes import MARKER, VERSION, FakeUv, make_link, make_source, old_app
+from app_fakes import (
+    MARKER,
+    VERSION,
+    FakeUv,
+    make_link,
+    make_source,
+    old_app,
+)
 
 if sys.platform == "win32":
     pass

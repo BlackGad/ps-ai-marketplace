@@ -48,3 +48,12 @@ def test_no_docstrings(path: Path) -> None:
     for node in ast.walk(tree):
         if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and ast.get_docstring(node) is not None:
             pytest.fail(f"{path.relative_to(REPO).as_posix()}:{node.body[0].lineno}: docstrings are forbidden; use a comment")
+
+
+def test_long_imports_are_parenthesized() -> None:
+    for folder in (SOURCE, HOOKS, REPO / "tests/python", REPO / "tests/integration"):
+        for path in folder.rglob("*.py"):
+            source = path.read_text(encoding="utf-8-sig")
+            for node in ast.walk(ast.parse(source, filename=str(path))):
+                if isinstance(node, ast.ImportFrom) and len(node.names) > 3:
+                    assert "(" in (ast.get_source_segment(source, node) or ""), f"{path.relative_to(REPO)}:{node.lineno}"

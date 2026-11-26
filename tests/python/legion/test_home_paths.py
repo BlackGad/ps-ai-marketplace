@@ -9,7 +9,13 @@ import pytest
 
 from legion.services.installation import _installed_runtime
 from legion.services.repository import _footprints
-from legion.core._home import full_path, is_under, owner_path_safe, resolve_directory, same_path
+from legion.core._home import (
+    full_path,
+    is_under,
+    owner_path_safe,
+    resolve_directory,
+    same_path,
+)
 
 if sys.platform == "win32":
     import _winapi

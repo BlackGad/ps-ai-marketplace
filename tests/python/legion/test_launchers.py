@@ -4,7 +4,14 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from launcher_fakes import WINDOWS, agent, fake_cli, only_on_path, python_cli, tool
+from launcher_fakes import (
+    WINDOWS,
+    agent,
+    fake_cli,
+    only_on_path,
+    python_cli,
+    tool,
+)
 
 from legion.core import _generated
 from legion.services.accounts import _launchers

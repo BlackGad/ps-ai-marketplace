@@ -19,7 +19,12 @@ from cli_runner import run
 from legion.services.channels import _bridge, _channel, _overseer
 from legion.services.repository import _lease, _repository
 from legion import cli as _cli
-from legion.core import _home, _run, _settings_io, _validate
+from legion.core import (
+    _home,
+    _run,
+    _settings_io,
+    _validate,
+)
 from legion.core._settings_models import Agent, PersonalisationSettings
 from legion.services.limits.limit_probes import LimitRow
 from legion.services import limits as limits_service

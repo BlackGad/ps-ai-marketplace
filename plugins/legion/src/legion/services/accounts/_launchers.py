@@ -8,8 +8,21 @@ import sys
 from pathlib import Path
 from typing import Literal, Optional
 
-from legion.core._generated import cmd_escape, header, is_owned, shell_literal, write_generated
-from legion.core._home import bin_folder, full_path, home_path, owner_path_safe, resolve_directory, same_path
+from legion.core._generated import (
+    cmd_escape,
+    header,
+    is_owned,
+    shell_literal,
+    write_generated,
+)
+from legion.core._home import (
+    bin_folder,
+    full_path,
+    home_path,
+    owner_path_safe,
+    resolve_directory,
+    same_path,
+)
 from legion.core._settings_models import Agent, ToolDescriptor
 from legion.services.installation._installed_runtime import ready_versions, python_environment
 

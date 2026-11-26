@@ -16,7 +16,12 @@ from pydantic import BaseModel, Field, TypeAdapter
 
 from legion.services.channels import _bridge, _channel
 from legion.services.repository import _lease, _repository
-from legion.core import _home, _run, _settings_io, _validate
+from legion.core import (
+    _home,
+    _run,
+    _settings_io,
+    _validate,
+)
 from legion.core._atomic_write import atomic_write_bytes
 from legion.services.accounts._accounts import get_tool
 from legion.core._settings_models import Agent, PersonalisationSettings

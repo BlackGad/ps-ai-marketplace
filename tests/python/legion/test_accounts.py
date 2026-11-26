@@ -8,7 +8,13 @@ from typing import Any
 import pytest
 from cli_runner import run
 from filelock import FileLock
-from launcher_fakes import WINDOWS, agent, fake_cli, only_on_path, tool
+from launcher_fakes import (
+    WINDOWS,
+    agent,
+    fake_cli,
+    only_on_path,
+    tool,
+)
 
 from legion.services.accounts import _accounts, _launchers
 from legion.services.repository import _footprints

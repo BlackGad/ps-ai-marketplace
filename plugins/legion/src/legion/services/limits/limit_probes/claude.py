@@ -5,7 +5,14 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
-from legion.services.limits.limit_probes._ping import LimitRow, Ping, format_reset_time, format_used_percent, ping, ping_failure
+from legion.services.limits.limit_probes._ping import (
+    LimitRow,
+    Ping,
+    format_reset_time,
+    format_used_percent,
+    ping,
+    ping_failure,
+)
 
 ARGUMENTS = ["-p", "--output-format", "stream-json", "--verbose", "ping"]
 

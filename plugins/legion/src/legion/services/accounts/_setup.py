@@ -16,7 +16,12 @@ import click
 from pydantic import ValidationError
 
 from legion.services.accounts import _accounts, _launchers
-from legion.services.installation import _installed_runtime, _refresh, _tool_install, installer as _installer
+from legion.services.installation import (
+    _installed_runtime,
+    _refresh,
+    _tool_install,
+    installer as _installer,
+)
 from legion.services.status import _status
 from legion.services.repository import _footprints
 from legion.core import _generated, _settings_io

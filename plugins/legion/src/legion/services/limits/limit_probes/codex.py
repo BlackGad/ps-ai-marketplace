@@ -7,7 +7,14 @@ from typing import Optional
 
 from pydantic import BaseModel, ValidationError
 
-from legion.services.limits.limit_probes._ping import LimitRow, Ping, format_reset_time, format_used_percent, ping, ping_failure
+from legion.services.limits.limit_probes._ping import (
+    LimitRow,
+    Ping,
+    format_reset_time,
+    format_used_percent,
+    ping,
+    ping_failure,
+)
 
 ARGUMENTS = ["exec", "ping"]
 RETRY = re.compile(r"try again at (.+?)\.?\s*$", re.IGNORECASE)
