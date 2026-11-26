@@ -171,6 +171,51 @@
       ],
       "type": "object"
     },
+    "Install": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "additionalItems": {
+            "type": "string"
+          },
+          "items": [
+            {
+              "minLength": 1,
+              "type": "string"
+            }
+          ],
+          "minItems": 1,
+          "type": "array"
+        },
+        "windows": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Windows"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "macos": {
+          "$ref": "#/$defs/Platform"
+        },
+        "linux": {
+          "$ref": "#/$defs/Platform"
+        },
+        "hint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "check",
+        "windows",
+        "macos",
+        "linux",
+        "hint"
+      ],
+      "type": "object"
+    },
     "JsonListing": {
       "additionalProperties": false,
       "properties": {
@@ -547,50 +592,6 @@
         "zip"
       ],
       "type": "object"
-    },
-    "install": {
-      "additionalProperties": false,
-      "properties": {
-        "check": {
-          "additionalItems": {
-            "type": "string"
-          },
-          "items": [
-            {
-              "minLength": 1,
-              "type": "string"
-            }
-          ],
-          "minItems": 1,
-          "type": "array"
-        },
-        "windows": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Windows"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "macos": {
-          "$ref": "#/$defs/Platform"
-        },
-        "linux": {
-          "$ref": "#/$defs/Platform"
-        },
-        "hint": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "check",
-        "windows",
-        "macos",
-        "linux"
-      ],
-      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -642,14 +643,7 @@
       "$ref": "#/$defs/Hooks"
     },
     "install": {
-      "allOf": [
-        {
-          "$ref": "#/$defs/install"
-        }
-      ],
-      "required": [
-        "hint"
-      ]
+      "$ref": "#/$defs/Install"
     }
   },
   "required": [

@@ -6,12 +6,7 @@ from pathlib import Path
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import core_schema
 
-from ._settings_models import (
-    InstallRecipe,
-    PersonalisationSettings,
-    ProjectSettings,
-    ToolDescriptor,
-)
+from ._settings_models import PersonalisationSettings, ProjectSettings, ToolDescriptor
 
 
 class _Draft7Schema(GenerateJsonSchema):
@@ -30,18 +25,6 @@ class _Draft7Schema(GenerateJsonSchema):
         return generated
 
 
-def _share_install_schema(schema: JsonSchemaValue) -> None:
-    # The tools index reads #/$defs/install for helpers, where the descriptor's hint is optional.
-    definitions = schema["$defs"]
-    install = definitions.pop("Install")
-    recipe_fields = {field.alias or name for name, field in InstallRecipe.model_fields.items()}
-    definitions["install"] = {**install, "required": [name for name in install["required"] if name in recipe_fields]}
-    schema["properties"]["install"] = {
-        "allOf": [{"$ref": "#/$defs/install"}],
-        "required": [name for name in install["required"] if name not in recipe_fields],
-    }
-
-
 def generated_schemas() -> dict[str, str]:
     files: dict[str, str] = {}
     for name, model, title in (
@@ -50,8 +33,6 @@ def generated_schemas() -> dict[str, str]:
         ("tool", ToolDescriptor, "legion tool descriptor"),
     ):
         schema = model.model_json_schema(schema_generator=_Draft7Schema, ref_template="#/$defs/{model}")
-        if model is ToolDescriptor:
-            _share_install_schema(schema)
         if title is not None:
             schema["title"] = title
         published = {"$schema": "http://json-schema.org/draft-07/schema#", **schema}
@@ -59,14 +40,14 @@ def generated_schemas() -> dict[str, str]:
     return files
 
 
-def main() -> None:
-    schema_dir = Path(__file__).resolve().parents[3] / "schemas"
+def main(schema_dir: Path = Path(__file__).resolve().parents[3] / "schemas") -> None:
     for name, content in generated_schemas().items():
         path = schema_dir / name
         if path.exists() and path.read_text(encoding="utf-8") == content:
             print(f"skip: {name} (already done)")
         else:
             path.write_text(content, encoding="utf-8", newline="\n")
+            print(f"updated: {name}")
 
 
 if __name__ == "__main__":
