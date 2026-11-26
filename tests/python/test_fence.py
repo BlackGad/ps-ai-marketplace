@@ -8,7 +8,8 @@ from inspect import unwrap
 from pathlib import Path
 
 import pytest
-from conftest import Fence, fence_git, pwsh_path
+from legion.services.installation import installer
+from conftest import Fence, fence_git, pwsh_path, user_path_snapshot
 
 
 def test_missing_powershell_path_fails_with_setup_hint(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -124,3 +125,10 @@ def test_fixture_git_ignores_inherited_settings(fence: Fence, tmp_path: Path) ->
     finally:
         index.unlink()
         trace.unlink(missing_ok=True)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows saved PATH")
+def test_default_fence_keeps_user_path_writes_out_of_the_registry(fence: Fence) -> None:
+    installer.ensure_path(fence.home, False, [])
+    assert str(fence.home / ".legion/bin") in fence.user_path_file.read_text(encoding="utf-8")
+    assert user_path_snapshot() == fence.user_path
