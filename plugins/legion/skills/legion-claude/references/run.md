@@ -28,3 +28,5 @@ For interactive overseer launches with explicit account/model/argument choices a
 ## Keep the session responsive
 
 Claude Code offers background shell commands: start long steps in the background and read the output when the completion notice arrives. Why and the blocking notice: [Keep the main session responsive](../../legion-overseer/SKILL.md#identity-and-hard-rules).
+
+The overseer never ends a turn on a promised result unless a background command is running that will notify on completion for that result. If the result has no process (hosted CI), start a background command that waits for its terminal state, for example `gh run watch <id> --exit-status`, and read the result when notified.

@@ -26,4 +26,4 @@ For interactive overseer launches with explicit account/model/argument choices a
 
 ## Keep the session responsive
 
-If this tool supports background commands, start long steps in the background and read the result when it finishes. Why and the blocking notice: [Keep the main session responsive](../../legion-overseer/SKILL.md#identity-and-hard-rules).
+When this tool gives no completion notice, follow the [Codex recipe](../../legion-codex/references/run.md#keep-the-session-responsive). Why and the blocking notice: [Keep the main session responsive](../../legion-overseer/SKILL.md#identity-and-hard-rules).
