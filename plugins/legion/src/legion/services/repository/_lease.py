@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from legion.core._process import ProcessInfo, owner_process, process_started_at, same_start_time
+from legion.core._process import owner_process, process_started_at, same_start_time
 
 if sys.platform == "win32":
     import msvcrt
@@ -185,22 +185,7 @@ def _owner(process_id: Optional[int]) -> tuple[int, Optional[datetime]]:
         owner = owner_process()
     except LookupError as error:
         raise LeaseError(str(error)) from error
-    if _is_codex_app_server(owner):
-        # The daemon outlives every session, so recording it would keep the lease held after the session ends.
-        raise LeaseError(f"the nearest agent process is the Codex app-server daemon (pid {owner.pid}), not your session; pass --process-id <the Codex session process id>")
     return owner.pid, owner.started_at
-
-
-def _is_codex_app_server(process: ProcessInfo) -> bool:
-    if process.name.lower().removesuffix(".exe") != "codex":
-        return False
-    # Imported here, reason: the session-start hook imports this module and must not load third-party packages.
-    import psutil
-
-    try:
-        return "app-server" in psutil.Process(process.pid).cmdline()
-    except psutil.Error:
-        return False
 
 
 # One session at a time changes the lease. The guard file stays; its OS lock is the guard, so a paused

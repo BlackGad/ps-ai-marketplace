@@ -175,7 +175,6 @@ suppress-none-returning = true
 "plugins/legion/src/legion/mcp/server.py" = ["ASYNC109"]
 "plugins/legion/src/legion/cli/__init__.py" = ["PLC0415"]
 "plugins/legion/src/legion/services/installation/_update.py" = ["PLC0415"]
-"plugins/legion/src/legion/services/repository/_lease.py" = ["PLC0415"]
 "plugins/legion/src/legion/services/installation/installer/__init__.py" = ["C901", "PLC0415"]
 "plugins/legion/src/**" = ["S603"]
 "tests/python/**" = ["S603"]
