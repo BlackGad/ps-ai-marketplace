@@ -8,7 +8,12 @@ import pytest
 
 from legion.core._process import ProcessInfo, owner_process
 from legion.services.repository import _lease, _lease_take
-from legion.services.repository._lease import LeaseError, lease_path, release, state
+from legion.services.repository._lease import (
+    LeaseError,
+    lease_path,
+    release,
+    state,
+)
 from legion.services.repository._lease_take import take_for_session
 
 BASE = datetime(2026, 11, 20, tzinfo=UTC)

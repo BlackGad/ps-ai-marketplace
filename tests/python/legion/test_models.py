@@ -8,7 +8,12 @@ from pydantic import (
 )
 
 from legion.core._schemas import generated_schemas
-from legion.core._settings_models import ChannelDescriptor, PersonalisationSettings, ProjectSettings, ToolDescriptor
+from legion.core._settings_models import (
+    ChannelDescriptor,
+    PersonalisationSettings,
+    ProjectSettings,
+    ToolDescriptor,
+)
 
 REPO = Path(__file__).resolve().parents[3]
 FIXTURES = REPO / "tests" / "fixtures"

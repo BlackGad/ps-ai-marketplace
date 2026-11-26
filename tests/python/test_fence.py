@@ -11,7 +11,12 @@ from typing import Optional
 import pytest
 from legion.services.installation import installer
 import conftest
-from conftest import Fence, fence_git, pwsh_path, refuse_registry_write
+from conftest import (
+    Fence,
+    fence_git,
+    pwsh_path,
+    refuse_registry_write,
+)
 
 if sys.platform == "win32":
     import winreg

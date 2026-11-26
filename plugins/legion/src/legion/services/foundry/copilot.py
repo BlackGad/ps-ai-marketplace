@@ -7,7 +7,12 @@ from pathlib import Path
 from legion.core._home import home_path
 from legion.core._settings_models import Agent
 from legion.services.foundry._az import AzAccessToken
-from legion.services.foundry._types import Launch, ProviderFile, ProviderModel, ProviderSpec
+from legion.services.foundry._types import (
+    Launch,
+    ProviderFile,
+    ProviderModel,
+    ProviderSpec,
+)
 
 EXPIRED = re.compile(r"copilot-providers-([0-9]+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$")
 

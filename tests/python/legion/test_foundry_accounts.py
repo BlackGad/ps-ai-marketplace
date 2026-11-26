@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 from launcher_fakes import ready_app
-from test_foundry_run import ENDPOINT, ACCESS_CALL, TOKEN_ANSWER, Bench
+from test_foundry_run import (
+    ENDPOINT,
+    ACCESS_CALL,
+    TOKEN_ANSWER,
+    Bench,
+)
 
 from legion.services.accounts import _accounts
 from legion.core import _settings_io

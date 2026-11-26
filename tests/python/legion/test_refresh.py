@@ -5,7 +5,14 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from app_fakes import MARKER, VERSION, FakeUv, make_link, make_source, old_app
+from app_fakes import (
+    MARKER,
+    VERSION,
+    FakeUv,
+    make_link,
+    make_source,
+    old_app,
+)
 from filelock import FileLock
 from launcher_fakes import ready_app
 

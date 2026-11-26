@@ -6,7 +6,13 @@ from pathlib import Path
 
 from legion.core import _settings_io
 from legion.core._home import home_path
-from legion.core._settings_models import NAME_PATTERN, Agent, Channel, ChannelDescriptor, PersonalisationSettings
+from legion.core._settings_models import (
+    NAME_PATTERN,
+    Agent,
+    Channel,
+    ChannelDescriptor,
+    PersonalisationSettings,
+)
 from legion.core._validate import load_descriptors
 
 

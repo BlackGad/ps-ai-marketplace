@@ -204,7 +204,7 @@ def status(home: Optional[Path], as_json: bool) -> None:
     help=(
         "Show each account's usage windows and reset times. Each named account runs a real minimal ping through its launcher, consuming quota and billable on paid accounts. "
         "A ping creates a disposable folder; Codex leaves a session record. Foundry runs az account get-access-token instead. Each account can take up to 120 seconds. "
-        "A manual bare call selects all accounts. JSON and Legion automation require explicit --id values."
+        "A bare text call selects all accounts. JSON and the MCP tool require explicit --id values."
     ),
 )
 @click.option("--id", "accounts", multiple=True, help="Account to ping; repeat for each selected account.")
@@ -220,9 +220,8 @@ def limits(context: click.Context, accounts: tuple[str, ...], timeout: float, as
     from legion.services.limits import AccountLimits, configured_accounts, limits as limits_report
 
     try:
-        # Only the manual text command owns the historical all-accounts default.
-        # Services and automated interfaces always pass their explicit selection.
-        if not accounts and not as_json and not os.environ.get("LEGION_ROLE") and not os.environ.get("LEGION_TASK"):
+        # A bare text call lists every account; --json and the MCP tool name their accounts.
+        if not accounts and not as_json:
             accounts = tuple(agent.id for agent in configured_accounts(context.obj))
             if not accounts:
                 click.echo("No accounts yet; run legion add.")

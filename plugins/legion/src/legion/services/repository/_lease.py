@@ -10,7 +10,12 @@ from typing import Literal, Optional
 
 from filelock import FileLock, Timeout
 
-from legion.core._lease_record import Lease, lease_path, round_trip, same_host
+from legion.core._lease_record import (
+    Lease,
+    lease_path,
+    round_trip,
+    same_host,
+)
 from legion.core._process import owner_process, process_started_at, same_start_time
 
 State = Literal["free", "held", "stale", "foreign"]

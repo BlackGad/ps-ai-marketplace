@@ -15,7 +15,12 @@ from filelock import FileLock, Timeout
 from launcher_fakes import WINDOWS, fake_cli, only_on_path
 
 from legion.services.accounts import _accounts, _launchers, _setup
-from legion.services.installation import _installed_runtime, installer as _installer, _refresh, _tool_install
+from legion.services.installation import (
+    _installed_runtime,
+    installer as _installer,
+    _refresh,
+    _tool_install,
+)
 from legion.services.status import _status
 from legion.services.repository import _footprints
 from legion.services.installation import _user_path

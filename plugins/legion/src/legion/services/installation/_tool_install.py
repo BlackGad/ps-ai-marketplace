@@ -18,11 +18,22 @@ import httpx
 from pydantic import BaseModel
 
 from legion.services.installation import _user_path
-from legion.core._http import HttpsError, download, failure_text, get_bytes
+from legion.core._http import (
+    HttpsError,
+    download,
+    failure_text,
+    get_bytes,
+)
 from legion.core._home import full_path, is_under, owner_path_safe
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import display_command, run_command
-from legion.core._settings_models import BinaryDownload, InstallRecipe, ScriptDownload, ToolDescriptor, Windows
+from legion.core._settings_models import (
+    BinaryDownload,
+    InstallRecipe,
+    ScriptDownload,
+    ToolDescriptor,
+    Windows,
+)
 from legion.core._validate import load_descriptors
 
 HELPERS_PATH = PLUGIN_ROOT / "helpers.json"

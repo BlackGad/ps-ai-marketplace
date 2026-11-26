@@ -14,7 +14,12 @@ from cli_runner import run
 from legion.services.accounts import _accounts, _launchers
 from legion.core import _settings_io
 from legion.core._home import settings_path
-from legion.core._settings_models import Agent, Deployment, Provider, ToolDescriptor
+from legion.core._settings_models import (
+    Agent,
+    Deployment,
+    Provider,
+    ToolDescriptor,
+)
 from legion.core._settings_io import SettingsError
 from legion.core._validate import load_descriptors
 from legion.services.foundry import _discovery, claude, codex
@@ -24,7 +29,12 @@ from legion.services.foundry import _az, copilot
 from legion.services.foundry._types import Launch, ProviderFile
 from launcher_fakes import ready_app
 from test_limits import write_executable
-from legion.services.foundry._discovery import DiscoveredDeployment, FoundryDiscovery, listing, standard
+from legion.services.foundry._discovery import (
+    DiscoveredDeployment,
+    FoundryDiscovery,
+    listing,
+    standard,
+)
 
 
 def codex_agent(folder: Path) -> Agent:

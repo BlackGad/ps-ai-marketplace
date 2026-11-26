@@ -8,7 +8,12 @@ from pydantic import (
 from pydantic_core import ErrorDetails
 
 from legion.core._plugin import PLUGIN_ROOT
-from legion.core._settings_models import ChannelDescriptor, PersonalisationSettings, ProjectSettings, ToolDescriptor
+from legion.core._settings_models import (
+    ChannelDescriptor,
+    PersonalisationSettings,
+    ProjectSettings,
+    ToolDescriptor,
+)
 from legion.core._text import decode_text
 
 FRAME = "$: {}; run legion setup to update your settings"

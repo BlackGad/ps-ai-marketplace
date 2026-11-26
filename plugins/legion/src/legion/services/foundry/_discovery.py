@@ -3,8 +3,18 @@ import re
 from typing import Literal, Optional
 from urllib.parse import urlsplit
 
-from legion.core._settings_models import Deployment, Provider, SettingsModel, ToolDescriptor
-from legion.services.foundry._az import AzCognitiveAccount, AzDeployment, call, check_token
+from legion.core._settings_models import (
+    Deployment,
+    Provider,
+    SettingsModel,
+    ToolDescriptor,
+)
+from legion.services.foundry._az import (
+    AzCognitiveAccount,
+    AzDeployment,
+    call,
+    check_token,
+)
 
 
 class DiscoveredDeployment(SettingsModel):

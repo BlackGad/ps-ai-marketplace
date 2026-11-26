@@ -16,14 +16,19 @@ from pydantic import BaseModel, Field, TypeAdapter
 
 from legion.services.channels import _bridge, _channel
 from legion.services.repository import _lease, _repository
-from legion.core import _home, _run, _settings_io, _validate
+from legion.core import (
+    _home,
+    _run,
+    _settings_io,
+    _validate,
+)
 from legion.core._atomic_write import atomic_write_bytes
 from legion.services.accounts._accounts import get_tool
 from legion.core._settings_models import Agent, PersonalisationSettings
 
 WINDOWS = sys.platform == "win32"
 SETUP_QUESTION = "This repository is not set up. Set it up (private)? [Y/n]"
-PARENT_VARIABLES = ("NO_COLOR", "TERM", "CLAUDECODE", "CLAUDE_CODE_*")
+PARENT_VARIABLES = ("NO_COLOR", "TERM", "CLAUDECODE", "CLAUDE_CODE_*", "LEGION_ROLE", "LEGION_TASK")
 
 
 class OverseerError(Exception):
@@ -174,8 +179,7 @@ def _launch(settings: PersonalisationSettings, agent: Agent, channels: tuple[str
 def _environment(launch: Launch) -> dict[str, str]:
     patterns = (*PARENT_VARIABLES, *launch.remove)
     environment = {name: value for name, value in _run.launch_environment().items() if not any(fnmatch.fnmatchcase(name.upper(), pattern.upper()) for pattern in patterns)}
-    # Mark only the child session; the owner's shell keeps its manual CLI defaults.
-    return environment | launch.environment | {"LEGION_ROLE": "overseer"}
+    return environment | launch.environment
 
 
 def start_bridge(launch: Launch, repo: Path) -> Optional[subprocess.Popen[bytes]]:

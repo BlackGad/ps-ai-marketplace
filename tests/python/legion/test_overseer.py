@@ -19,7 +19,12 @@ from cli_runner import run
 from legion.services.channels import _bridge, _channel, _overseer
 from legion.services.repository import _lease, _repository
 from legion import cli as _cli
-from legion.core import _home, _run, _settings_io, _validate
+from legion.core import (
+    _home,
+    _run,
+    _settings_io,
+    _validate,
+)
 from legion.core._settings_models import Agent, PersonalisationSettings
 from legion.services.limits.limit_probes import LimitRow
 from legion.services import limits as limits_service
@@ -435,6 +440,8 @@ def test_in_place_inherits_console_and_cleans_environment(repo: Path, monkeypatc
         "TERM": "dumb",
         "CLAUDECODE": "1",
         "CLAUDE_CODE_FIXTURE": "x",
+        "LEGION_ROLE": "member",
+        "LEGION_TASK": "task.md",
         "TELEGRAM_BOT_TOKEN": "fake-token",
         "VIRTUAL_ENV": sys.prefix,
         "UV_PROJECT_ENVIRONMENT": sys.prefix,
@@ -465,7 +472,7 @@ def test_in_place_inherits_console_and_cleans_environment(repo: Path, monkeypatc
 
 @pytest.mark.parametrize("tool", ["claude", "codex", "copilot"])
 @pytest.mark.parametrize("mode", ["in-place", "current-terminal", "new-tab"])
-def test_launched_overseer_requires_limits_ids_and_preserves_owner_shell(home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch, tool: str, mode: str) -> None:
+def test_launched_overseer_adds_no_role_and_preserves_owner_shell(home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch, tool: str, mode: str) -> None:
     # Start from the owner's ordinary shell; no test-injected automation marker.
     assert "LEGION_ROLE" not in os.environ
     assert "LEGION_TASK" not in os.environ
@@ -504,9 +511,7 @@ def test_launched_overseer_requires_limits_ids_and_preserves_owner_shell(home: P
         with monkeypatch.context() as session:
             # Run the CLI under precisely the environment supplied to the agent.
             session.setattr(os, "environ", kwargs["env"].copy())
-            assert run(["--home", str(home), "limits"]) == 1
-            assert probes == []
-            assert os.environ["LEGION_ROLE"] == "overseer"
+            assert "LEGION_ROLE" not in os.environ
             assert run(["--home", str(home), "limits", "--id", agent.id]) == 0
             assert probes == [agent.id]
             probes.clear()

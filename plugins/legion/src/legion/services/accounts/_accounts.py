@@ -10,7 +10,12 @@ from legion.services.repository import _footprints
 from legion.core import _generated, _settings_io
 from legion.services.accounts import _launchers
 from legion.core._home import full_path, home_path, same_path
-from legion.core._settings_models import NAME_PATTERN, Agent, PersonalisationSettings, ToolDescriptor
+from legion.core._settings_models import (
+    NAME_PATTERN,
+    Agent,
+    PersonalisationSettings,
+    ToolDescriptor,
+)
 from legion.core._validate import load_descriptors, settings_issues
 from legion.services.foundry import RECIPES, _discovery, recipe
 
