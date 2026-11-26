@@ -1173,8 +1173,7 @@ def test_update_reports_a_failed_new_app_refresh_once_with_a_row(tmp_path: Path,
     assert any(line.startswith("legion") and line.endswith("commands not refreshed: legion 1.2.3 executable is missing") for line in lines)
 
 
-def test_update_hands_over_the_published_version_when_a_later_account_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[str] = []
+def _update_with_second_account_failing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, new_refresh: Callable[[Path, str], list[str]]) -> None:
     steps = {"count": 0}
 
     def step(*_args: object) -> None:
@@ -1189,10 +1188,41 @@ def test_update_hands_over_the_published_version_when_a_later_account_fails(tmp_
     monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: root)
     monkeypatch.setattr(_installer, "_step", step)
     monkeypatch.setattr(_installer, "_refresh_target", lambda *_args: [])
-    monkeypatch.setattr(_installed_runtime, "refresh_with_new_app", lambda _home, version: calls.append(version) or [])
+    monkeypatch.setattr(_installed_runtime, "refresh_with_new_app", new_refresh)
     with pytest.raises(_installer.InstallerError, match="second account update failed"):
         _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
+
+
+def test_update_hands_over_the_published_version_when_a_later_account_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    _update_with_second_account_failing(tmp_path, monkeypatch, lambda _home, version: calls.append(version) or [])
     assert calls == ["2.0.0"]
+
+
+def test_update_shows_both_failures_and_keeps_the_exit_status_when_the_handover_fails_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def new_refresh(_home: Path, _version: str) -> list[str]:
+        raise _installed_runtime.AppError("legion 2.0.0 executable is missing")
+
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
+    root = tmp_path / "plugin"
+    root.mkdir()
+    (root / "plugin.json").write_text('{"name":"legion","version":"2.0.0"}', encoding="utf-8")
+    steps = {"count": 0}
+
+    def step(*_args: object) -> None:
+        steps["count"] += 1
+        if steps["count"] > 2:
+            raise _installer.InstallerError("second account update failed")
+
+    monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: root)
+    monkeypatch.setattr(_installer, "_step", step)
+    monkeypatch.setattr(_installer, "_refresh_target", lambda *_args: [])
+    monkeypatch.setattr(_installed_runtime, "refresh_with_new_app", new_refresh)
+    monkeypatch.setattr(_installer, "_catalog", lambda *_args: catalog())
+    result = CliRunner().invoke(_cli.main, ["--home", str(tmp_path), "update", "--yes"])
+    assert result.exit_code == 1
+    assert "commands not refreshed: legion 2.0.0 executable is missing; run legion setup" in result.output
+    assert "second account update failed" in result.output
 
 
 def test_update_reports_refresh_failure_and_continues_to_next_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

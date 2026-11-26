@@ -960,9 +960,15 @@ def install(
                     lines.append(f"legion {before_version} -> {after_version}" if before_version != after_version else f"skip: legion {after_version} (already up to date)")
                     rows.append((entry["id"], str(folder), f"{before_version} -> {after_version}" if before_version != after_version else f"already up to date ({after_version})"))
                     confirmed.append(after_version)
-        finally:
+        except Exception:
             # Versions already published keep their old templates unless the new app writes them, even when a later account fails.
-            _hand_over(home, confirmed, lines, rows)
+            # The returned lines are lost with the error, so a failed handoff is printed before it propagates.
+            handover: list[str] = []
+            _hand_over(home, confirmed, handover, rows)
+            for line in handover:
+                click.echo(line, err=True)
+            raise
+        _hand_over(home, confirmed, lines, rows)
         if targets and not dry_run:
             lines.extend(_results_table(rows))
             lines.append("done: restart your sessions; run legion in the repository")
