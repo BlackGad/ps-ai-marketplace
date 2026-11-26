@@ -489,6 +489,7 @@ class Runner:
 
     def stage_candidate(self, release: Path) -> str:
         # Replace the tree but keep the release as the parent so host updates can fast-forward.
+        # Stage the checkout's committed HEAD only, excluding uncommitted edits.
         git = ["git", "-C", str(release)]
         self.run([*git, "fetch", "--quiet", "--update-shallow", str(self.checkout), "HEAD"])
         self.run([*git, "read-tree", "--reset", "-u", "FETCH_HEAD"])
@@ -539,6 +540,8 @@ class Runner:
         version = self.stage_candidate(release)
         self.run([*git, "update-ref", "refs/heads/stable", "HEAD"])
         upgrade.legion("update", "--yes", owner=True)
+        for tool in TOOLS:
+            require(upgrade.version(tool, upgrade.folder(tool)) == version, f"{tool} did not update to {version}")
         require(upgrade.legion("--version", owner=True) == f"legion {version}", "owner shim did not run the candidate app")
         status = json.loads(upgrade.legion("status", "--json", owner=True))
         require(Path(status["settings"]["path"]).resolve() == (upgrade.home / ".legion/configuration/personalisation.json").resolve(), "status used the wrong home")
