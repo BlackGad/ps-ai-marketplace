@@ -6,14 +6,32 @@ import sys
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
 if sys.platform == "win32":
     import _winapi
+    import winreg
 
 REPO = Path(__file__).resolve().parents[2]
 CLEARED_ENVIRONMENT = ("LEGION_ROLE", "LEGION_TASK", "PYTHONSTARTUP", "PYTHONUSERBASE", "CODEX_THREAD_ID")
+
+
+# The real user PATH is read only here: value and value type, or None when missing.
+def user_path_snapshot() -> Optional[tuple[str, int]]:
+    if sys.platform != "win32":
+        return None
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+            value, kind = winreg.QueryValueEx(key, "Path")
+            return str(value), kind
+    except FileNotFoundError:
+        return None
+
+
+def refuse_registry_write(*_args: object) -> None:
+    raise AssertionError(r"Test wrote the registry (HKCU\Environment\Path); use LEGION_TEST_USER_PATH_FILE")
 
 
 # Mirrors the fence in tests/run.ps1: every test runs with a temp home reached through a link, and the
@@ -36,6 +54,8 @@ class Fence:
         self.temp = self.home / "temp"
         self.temp.mkdir()
         self.sentinel = self.snapshot()
+        self.user_path = user_path_snapshot()
+        self.user_path_file = self.home / "user-path.txt"
 
     def snapshot(self) -> str:
         entries = sorted(path for path in self.outside.rglob("*") if path.is_file())
@@ -43,6 +63,7 @@ class Fence:
 
     def check(self) -> None:
         assert self.snapshot() == self.sentinel, "Test changed the fake real folder"
+        assert user_path_snapshot() == self.user_path, "Test changed the real user PATH value or registry value kind"
         record = self.home / "socket-attempts"
         assert not record.exists() or not record.read_bytes(), "Child attempted a socket connection"
 
@@ -106,6 +127,12 @@ def fence(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPa
         monkeypatch.setenv(name, str(fence.home / name))
     for name in CLEARED_ENVIRONMENT:
         monkeypatch.delenv(name, raising=False)
+    # Saved PATH writes land in a fence file; the process PATH is restored after the test.
+    monkeypatch.setenv("LEGION_TEST_USER_PATH_FILE", str(fence.user_path_file))
+    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
+    if sys.platform == "win32":
+        monkeypatch.setattr(winreg, "SetValueEx", refuse_registry_write)
+        monkeypatch.setattr(winreg, "DeleteValue", refuse_registry_write)
     fence_git(monkeypatch)
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(fence.home / "gitconfig"))
     # sitecustomize is loaded by child Python interpreters, including hooks started through uv.
