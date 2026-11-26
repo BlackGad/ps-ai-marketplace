@@ -14,16 +14,19 @@ import sys
 import threading
 import time
 import xml.etree.ElementTree as ET
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import psutil
 
 
 TOOLS = ("claude", "codex", "copilot")
 MARKETPLACE = "BlackGad/ps-legion-marketplace"
 ENDPOINT = "https://example-resource.cognitiveservices.azure.com"
 WINDOWS = sys.platform == "win32"
+CODEX_PROBE_SECONDS = 120
 
 
 @dataclass
@@ -43,6 +46,80 @@ class Case:
 def codex_legion_server(servers: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Return the connected legion server that lists the status tool, from a Codex mcpServerStatus/list reply."""
     return next((server for server in servers if server.get("name") == "legion" and server.get("runtimeStatus") == "connected" and "status" in server.get("tools", {})), None)
+
+
+def stop_process_tree(process: "subprocess.Popen[str]") -> None:
+    """Close stdin, give the process a moment to leave, then end the whole tree so an npm shim cannot leave the native app-server running."""
+    try:
+        parent = psutil.Process(process.pid)
+        family = [parent, *parent.children(recursive=True)]
+    except psutil.NoSuchProcess:
+        family = []
+    if process.stdin:
+        process.stdin.close()
+    with suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=5)
+    alive = [member for member in family if member.is_running()]
+    for member in alive:
+        with suppress(psutil.NoSuchProcess):
+            member.terminate()
+    _, alive = psutil.wait_procs(alive, timeout=5)
+    for member in alive:
+        with suppress(psutil.NoSuchProcess):
+            member.kill()
+    psutil.wait_procs(alive, timeout=5)
+    process.wait(timeout=5)
+
+
+def probe_codex_mcp(command: list[str], env: dict[str, str], cwd: Path, seconds: float) -> list[dict[str, Any]]:
+    """Ask a Codex app-server for legion's MCP status within one deadline; retry while legion is absent or starting."""
+    deadline = time.monotonic() + seconds
+    process = subprocess.Popen(command, cwd=cwd, env=env, encoding="utf-8", stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)  # noqa: S603
+    replies: queue.Queue[dict[str, Any] | Exception] = queue.Queue()
+
+    def read_replies() -> None:
+        try:
+            for line in process.stdout or []:
+                replies.put(json.loads(line))
+            replies.put(EOFError("codex app-server closed its output"))
+        except Exception as error:
+            replies.put(error)
+
+    threading.Thread(target=read_replies, daemon=True).start()
+
+    def send(message: dict[str, Any]) -> None:
+        assert process.stdin is not None
+        process.stdin.write(json.dumps(message) + "\n")
+        process.stdin.flush()
+
+    def call(number: int, method: str, params: dict[str, Any]) -> Any:
+        send({"id": number, "method": method, "params": params})
+        while True:
+            try:
+                reply = replies.get(timeout=max(deadline - time.monotonic(), 0))
+            except queue.Empty:
+                raise AssertionError(f"codex app-server timed out in {method}") from None
+            require(not isinstance(reply, Exception), f"codex app-server failed in {method}: {type(reply).__name__}: {reply}")
+            if isinstance(reply, dict) and reply.get("id") == number:
+                require("error" not in reply, f"codex app-server {method} failed: {reply.get('error')}")
+                return reply["result"]
+
+    servers: list[dict[str, Any]] = []
+    try:
+        call(1, "initialize", {"clientInfo": {"name": "legion-integration", "version": "1"}})
+        send({"method": "initialized"})
+        thread = call(2, "thread/start", {"cwd": str(cwd)})["thread"]["id"]
+        number = 3
+        while time.monotonic() < deadline:
+            servers = call(number, "mcpServerStatus/list", {"threadId": thread, "serverName": "legion"})["data"]
+            number += 1
+            settled = any(server.get("name") == "legion" and server.get("runtimeStatus") not in (None, "notStarted", "starting") for server in servers)
+            if settled:
+                break
+            time.sleep(1)
+    finally:
+        stop_process_tree(process)
+    return servers
 
 
 def listed(entry: dict[str, Any], output: str, include_disabled: bool = False, kind: str = "plugin") -> bool:
@@ -457,40 +534,9 @@ class Runner:
         return "\n".join(lines)
 
     def check_codex_mcp(self) -> None:
-        """Ask the Codex app-server (no login, no model turn) for MCP servers; the installed plugin must bring a connected legion."""
+        """The installed plugin must bring a connected legion MCP server that Codex lists, asked without login or model turn."""
         self.command("legion")
-        process = subprocess.Popen([self.command("codex"), "app-server"], cwd=self.work, env=self.env, text=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)  # noqa: S603
-        replies: queue.Queue[dict[str, Any]] = queue.Queue()
-
-        def read_replies() -> None:
-            for line in process.stdout or []:
-                replies.put(json.loads(line))
-
-        threading.Thread(target=read_replies, daemon=True).start()
-
-        def call(number: int, method: str, params: dict[str, Any]) -> Any:
-            assert process.stdin is not None
-            process.stdin.write(json.dumps({"id": number, "method": method, "params": params}) + "\n")
-            process.stdin.flush()
-            while True:
-                reply = replies.get(timeout=60)
-                if reply.get("id") == number:
-                    require("error" not in reply, f"codex app-server {method} failed: {reply.get('error')}")
-                    return reply["result"]
-
-        try:
-            call(1, "initialize", {"clientInfo": {"name": "legion-integration", "version": "1"}})
-            assert process.stdin is not None
-            process.stdin.write(json.dumps({"method": "initialized"}) + "\n")
-            thread = call(2, "thread/start", {"cwd": str(self.work)})["thread"]["id"]
-            servers: list[dict[str, Any]] = []
-            for number in range(3, 33):
-                servers = call(number, "mcpServerStatus/list", {"threadId": thread})["data"]
-                if codex_legion_server(servers) or not any(server.get("name") == "legion" and server.get("runtimeStatus") in (None, "notStarted", "starting") for server in servers):
-                    break
-                time.sleep(2)
-        finally:
-            process.kill()
+        servers = probe_codex_mcp([self.command("codex"), "app-server"], self.env, self.work, CODEX_PROBE_SECONDS)
         self.log.append(json.dumps(servers))
         require(codex_legion_server(servers) is not None, "Codex does not list a connected legion MCP server with the status tool")
 

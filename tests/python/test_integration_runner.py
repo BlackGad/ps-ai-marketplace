@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -552,3 +553,59 @@ def test_codex_inventory_requires_connected_legion_with_status() -> None:
     assert runner.codex_legion_server([]) is None
     assert runner.codex_legion_server([{**listed, "tools": {"limits": {}}}]) is None
     assert runner.codex_legion_server([{**listed, "runtimeStatus": "failed"}]) is None
+
+
+FAKE_APP_SERVER = """
+import json, sys
+lists = 0
+for line in sys.stdin:
+    message = json.loads(line)
+    if "id" not in message:
+        continue
+    method = message["method"]
+    if method == "thread/start":
+        result = {"thread": {"id": "t1"}}
+    elif method == "mcpServerStatus/list":
+        assert message["params"] == {"threadId": "t1", "serverName": "legion"}
+        lists += 1
+        listed = [{"name": "legion", "runtimeStatus": "connected", "tools": {"status": {}}}]
+        result = {"data": listed if lists >= LISTS_BEFORE_LEGION else []}
+    else:
+        result = {}
+    print(json.dumps({"id": message["id"], "result": result}), flush=True)
+"""
+
+
+def probe(tmp_path: Path, script: str, seconds: float) -> list[dict[str, Any]]:
+    return runner.probe_codex_mcp([sys.executable, "-c", script], os.environ.copy(), tmp_path, seconds)
+
+
+def test_codex_probe_asks_for_legion_and_returns_its_status(tmp_path: Path) -> None:
+    servers = probe(tmp_path, "LISTS_BEFORE_LEGION = 1" + FAKE_APP_SERVER, 30)
+    assert runner.codex_legion_server(servers) == servers[0]
+
+
+def test_codex_probe_fails_when_app_server_exits(tmp_path: Path) -> None:
+    with pytest.raises(AssertionError, match="closed its output"):
+        probe(tmp_path, "", 30)
+
+
+def test_codex_probe_fails_on_unreadable_output(tmp_path: Path) -> None:
+    with pytest.raises(AssertionError, match="JSONDecodeError"):
+        probe(tmp_path, "print('not json', flush=True); import time; time.sleep(60)", 30)
+
+
+def test_codex_probe_stops_at_one_deadline_and_ends_the_process(tmp_path: Path) -> None:
+    script = """
+import sys
+for line in sys.stdin:
+    print('{"method": "noise"}', flush=True)
+"""
+    start = time.monotonic()
+    with pytest.raises(AssertionError, match="timed out"):
+        probe(tmp_path, script, 2)
+    assert time.monotonic() - start < 20
+
+
+def test_codex_probe_retries_until_legion_appears(tmp_path: Path) -> None:
+    assert runner.codex_legion_server(probe(tmp_path, "LISTS_BEFORE_LEGION = 3" + FAKE_APP_SERVER, 30)) is not None
