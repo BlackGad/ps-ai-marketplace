@@ -8,16 +8,17 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.request
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Any, Optional, Union
+from typing import Optional, Union
 
+import httpx
 from pydantic import BaseModel
 
 from legion.services.installation import _user_path
+from legion.core._http import HttpsError, download, failure_text, get_bytes
 from legion.core._home import full_path, is_under, owner_path_safe
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import run_command
@@ -31,16 +32,6 @@ INSTALLER_SUCCESS_CODES = (0, 3010)
 PACKAGE_MANAGER_PAGES = {"winget": "https://learn.microsoft.com/windows/package-manager/winget/", "brew": "https://brew.sh/"}
 
 
-# The default handler follows a redirect to plain http; a vendor script runs without another check.
-class HttpsRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Optional[urllib.request.Request]:
-        if not newurl.startswith("https://"):
-            raise ToolInstallError(f"refusing a redirect that is not https: {newurl}")
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-# An opener instead of urlopen: every vendor URL is https, and ruff flags urlopen (S310).
-_opener = urllib.request.build_opener(urllib.request.HTTPSHandler, HttpsRedirectHandler)
 DOWNLOAD_TIMEOUT_SECONDS = 120
 
 
@@ -184,12 +175,6 @@ def _file_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _open(url: str) -> IO[bytes]:
-    if not url.startswith("https://"):
-        raise ToolInstallError(f"refusing a download that is not https: {url}")
-    return _opener.open(url, timeout=DOWNLOAD_TIMEOUT_SECONDS)
-
-
 class ToolInstaller:
     def __init__(self, home: Path, platform: str, yes: bool, say: Callable[[str], None]) -> None:
         self.home = home
@@ -205,12 +190,16 @@ class ToolInstaller:
         return subprocess.run([shutil.which(command[0]) or command[0], *command[1:]], check=False).returncode
 
     def fetch_text(self, url: str) -> str:
-        with _open(url) as response:
-            return response.read().decode("utf-8-sig")
+        try:
+            return get_bytes(url, DOWNLOAD_TIMEOUT_SECONDS).decode("utf-8-sig")
+        except (HttpsError, httpx.HTTPError) as error:
+            raise ToolInstallError(f"could not read {url}: {failure_text(error)}") from error
 
     def download_file(self, url: str, path: Path) -> None:
-        with _open(url) as response, path.open("wb") as file:
-            shutil.copyfileobj(response, file)
+        try:
+            download(url, path, DOWNLOAD_TIMEOUT_SECONDS)
+        except (HttpsError, httpx.HTTPError) as error:
+            raise ToolInstallError(f"could not download {url}: {failure_text(error)}") from error
 
     # The official download for a method, with its SHA-256 unless the vendor's own script verifies its payload.
     def resolve_download(self, tool: str, method: str) -> Download:

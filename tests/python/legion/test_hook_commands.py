@@ -140,7 +140,7 @@ try:
 except SystemExit:
     pass
 # pathlib itself imports urllib.parse; the slow part is urllib.request and its HTTP stack.
-loaded = sorted(name for name in sys.modules if name.split(".")[0] in ("pydantic", "click") or name in ("urllib.request", "http.client", "ssl"))
+loaded = sorted(name for name in sys.modules if name.split(".")[0] in ("pydantic", "click", "httpx", "truststore") or name in ("urllib.request", "http.client", "ssl"))
 sys.stderr.write(",".join(loaded))
 """
     env = {key: value for key, value in os.environ.items() if key == "LEGION_TEST_USER_PATH_FILE" or not key.startswith("LEGION_")}

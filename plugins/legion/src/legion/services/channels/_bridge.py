@@ -7,8 +7,6 @@ from pathlib import Path
 from typing import Optional
 
 import psutil
-from pydantic import TypeAdapter
-
 from legion.services.channels import _inbox
 from legion.services.channels._telegram import (
     Access,
@@ -19,11 +17,11 @@ from legion.services.channels._telegram import (
     User,
     bot_folder,
     call_bot,
+    parse_updates,
     read_token,
 )
 
 MAX_BACKOFF = 60
-_UPDATES = TypeAdapter(list[Update])
 
 
 def process_alive(pid: int) -> bool:
@@ -122,7 +120,7 @@ def run(
             if offset is not None:
                 fields["offset"] = str(offset)
             try:
-                updates = _UPDATES.validate_python(post(token, "getUpdates", fields, []))
+                updates = parse_updates(post(token, "getUpdates", fields, []))
             except TelegramError as error:
                 if error.code == 409:
                     print(f"telegram: another program is polling this bot ({error})", file=sys.stderr)

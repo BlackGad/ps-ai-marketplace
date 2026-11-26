@@ -1,17 +1,18 @@
-import http.client
-import io
 import json
-import urllib.error
-from email.message import Message
+import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Optional
 
+import httpx
 import pytest
 from pydantic import JsonValue
 
 from cli_runner import run
+from legion.core._http import https_client
 from legion.services.channels import _telegram
 from legion.services.channels._telegram import Access, TelegramError
+import contextlib
 
 BOT_KEY = "123456:secret-token"
 
@@ -116,36 +117,45 @@ def test_bad_channel_id_is_refused(capsys: pytest.CaptureFixture[str]) -> None:
     assert "channel id" in capsys.readouterr().err
 
 
-def test_real_post_hides_token_in_errors(monkeypatch: pytest.MonkeyPatch) -> None:
-    def refuse(request: Any, **_options: Any) -> Any:
-        body = io.BytesIO(json.dumps({"ok": False, "error_code": 409, "description": "Conflict"}).encode())
-        raise urllib.error.HTTPError(request.full_url, 409, "Conflict", Message(), body)
+def use_transport(monkeypatch: pytest.MonkeyPatch, handler: Callable[[httpx.Request], httpx.Response]) -> None:
+    monkeypatch.setattr(_telegram, "https_client", lambda timeout: https_client(timeout, httpx.MockTransport(handler)))
 
-    monkeypatch.setattr(_telegram._opener, "open", refuse)
+
+def test_real_post_hides_token_in_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    use_transport(monkeypatch, lambda _request: httpx.Response(409, json={"ok": False, "error_code": 409, "description": "Conflict"}))
     with pytest.raises(TelegramError) as caught:
         _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
     assert (caught.value.code, str(caught.value)) == (409, "Conflict")
 
-    def offline(*_arguments: Any, **_options: Any) -> Any:
-        raise urllib.error.URLError("no route")
+    def offline(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route", request=request)
 
-    monkeypatch.setattr(_telegram._opener, "open", offline)
+    use_transport(monkeypatch, offline)
     with pytest.raises(TelegramError) as caught:
         _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
     assert caught.value.code == 0
     assert BOT_KEY not in str(caught.value)
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+
+
+def test_a_failure_without_a_description_names_the_http_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    use_transport(monkeypatch, lambda _request: httpx.Response(502, text="<html>bad gateway</html>"))
+    with pytest.raises(TelegramError) as caught:
+        _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
+    assert (caught.value.code, str(caught.value)) == (502, "HTTP 502")
 
 
 def test_real_post_sends_multipart(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     seen: dict[str, Any] = {}
 
-    def accept(request: Any, **_options: Any) -> Any:
-        seen["url"] = request.full_url
-        seen["type"] = request.get_header("Content-type")
-        seen["body"] = request.data
-        return io.BytesIO(b'{"ok": true, "result": {"message_id": 5, "chat": {"id": 42, "type": "private"}}}')
+    def accept(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["type"] = request.headers["content-type"]
+        seen["body"] = request.read()
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 5, "chat": {"id": 42, "type": "private"}}})
 
-    monkeypatch.setattr(_telegram._opener, "open", accept)
+    use_transport(monkeypatch, accept)
     attachment = tmp_path / "a b.txt"
     attachment.write_bytes(b"payload")
     result = _telegram.call_bot(BOT_KEY, "sendDocument", {"chat_id": "42"}, [("document", attachment)])
@@ -155,6 +165,19 @@ def test_real_post_sends_multipart(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     assert b'name="chat_id"\r\n\r\n42' in seen["body"]
     assert b'name="document"; filename="a b.txt"' in seen["body"]
     assert b"payload" in seen["body"]
+
+
+def test_plain_post_is_form_encoded(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, Any] = {}
+
+    def accept(request: httpx.Request) -> httpx.Response:
+        seen["type"] = request.headers["content-type"]
+        seen["body"] = request.read()
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    use_transport(monkeypatch, accept)
+    assert _telegram.call_bot(BOT_KEY, "getMe", {"chat_id": "42"}, []) is True
+    assert seen == {"type": "application/x-www-form-urlencoded", "body": b"chat_id=42"}
 
 
 @pytest.mark.usefixtures("bot_folder")
@@ -167,15 +190,80 @@ def test_cli_send_and_react(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_http_layer_errors_never_show_the_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    def invalid(request: Any, **_options: Any) -> Any:
-        raise http.client.InvalidURL(f"URL can't contain control characters. {request.full_url!r}")
+    def invalid(request: httpx.Request) -> httpx.Response:
+        raise httpx.InvalidURL(f"URL can't contain control characters. {request.url!r}")
 
-    monkeypatch.setattr(_telegram._opener, "open", invalid)
+    use_transport(monkeypatch, invalid)
     with pytest.raises(TelegramError) as caught:
         _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
     assert BOT_KEY not in str(caught.value)
     assert caught.value.__cause__ is None
-    assert caught.value.__suppress_context__
+    assert caught.value.__context__ is None
+
+
+def test_a_description_that_echoes_the_token_reports_the_status_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    echo = f"Not Found: /bot{BOT_KEY}/getUpdates"
+    use_transport(monkeypatch, lambda _request: httpx.Response(404, json={"ok": False, "error_code": 404, "description": echo}))
+    with pytest.raises(TelegramError) as caught:
+        _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
+    assert (caught.value.code, str(caught.value)) == (404, "HTTP 404")
+    use_transport(monkeypatch, lambda _request: httpx.Response(200, json={"ok": False, "error_code": 400, "description": echo}))
+    with pytest.raises(TelegramError) as caught:
+        _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
+    assert (caught.value.code, str(caught.value)) == (400, "request failed")
+
+
+class Collector(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__(logging.DEBUG)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+def respond(request: httpx.Request, status: int, body: dict[str, Any], headers: Optional[dict[str, str]] = None) -> httpx.Response:
+    # What httpcore would log at DEBUG for this exchange, since the mock transport skips httpcore.
+    logging.getLogger("httpcore.http11").debug("receive_response_headers.complete %s", request.url)
+    return httpx.Response(status, json=body, headers=headers)
+
+
+@pytest.mark.parametrize("case", ["success", "http error", "network error", "location echo"])
+def test_http_loggers_are_silent_during_a_telegram_call_and_restored_after(monkeypatch: pytest.MonkeyPatch, case: str) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if case == "network error":
+            logging.getLogger("httpcore.connection").debug("connect_tcp.failed %s", request.url)
+            raise httpx.ConnectError("no route", request=request)
+        if case == "http error":
+            return respond(request, 409, {"ok": False, "error_code": 409, "description": "Conflict"})
+        headers = {"Location": str(request.url)} if case == "location echo" else None
+        return respond(request, 200, {"ok": True, "result": True}, headers)
+
+    use_transport(monkeypatch, handler)
+    collector = Collector()
+    root = logging.getLogger()
+    monkeypatch.setattr(root, "level", logging.DEBUG)
+    root.addHandler(collector)
+    httpx_logger = logging.getLogger("httpx")
+    monkeypatch.setattr(httpx_logger, "level", logging.DEBUG)
+    child = logging.getLogger("httpcore.http11")
+    before = [(logger.level, logger.propagate) for logger in (httpx_logger, logging.getLogger("httpcore"), child)]
+    try:
+        with contextlib.suppress(TelegramError):
+            _telegram.call_bot(BOT_KEY, "getUpdates", {}, [])
+        assert [record for record in collector.records if record.name.startswith(("httpx", "httpcore"))] == []
+        assert before == [(logger.level, logger.propagate) for logger in (httpx_logger, logging.getLogger("httpcore"), child)]
+        logging.getLogger("httpx").info("after the call")
+        assert [record.getMessage() for record in collector.records] == ["after the call"]
+    finally:
+        root.removeHandler(collector)
+
+
+def test_a_malformed_result_in_a_successful_reply_hides_the_token() -> None:
+    with pytest.raises(TelegramError) as caught:
+        _telegram._sent({"message_id": BOT_KEY, "chat": BOT_KEY}, "sendMessage")
+    assert BOT_KEY not in str(caught.value)
+    assert (caught.value.__cause__, caught.value.__context__) == (None, None)
 
 
 @pytest.mark.parametrize("token", ["no-colon", "123456:has space", "abc:def", "123456:"])

@@ -2,20 +2,16 @@
 
 import os
 import socket
-import sys
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Optional
 
+from filelock import FileLock, Timeout
+
 from legion.core._lease_record import Lease, lease_path, round_trip, same_host
 from legion.core._process import owner_process, process_started_at, same_start_time
-
-if sys.platform == "win32":
-    import msvcrt
-else:
-    import fcntl
 
 State = Literal["free", "held", "stale", "foreign"]
 # A lock that is not a lease yet was most likely just created by a session that is still writing it.
@@ -132,30 +128,19 @@ def _owner(process_id: Optional[int]) -> tuple[int, Optional[datetime]]:
     return owner.pid, owner.started_at
 
 
-# One session at a time changes the lease. The guard file stays; its OS lock is the guard, so a paused
-# holder keeps it and the OS frees it when the holder exits. Returns the descriptor to pass to _close_guard,
-# or None while another session holds it.
-def _open_guard(path: Path) -> Optional[int]:
+# One session at a time changes the lease. The OS lock is the guard, so a paused holder keeps it and the OS
+# frees it when the holder exits. Returns the lock to pass to _close_guard, or None while another session holds it.
+def _open_guard(path: Path) -> Optional[FileLock]:
+    lock = FileLock(_guard_path(path), timeout=0)
     try:
-        guard = os.open(_guard_path(path), os.O_RDWR | os.O_CREAT)
-    except OSError:
+        lock.acquire()
+    except (Timeout, OSError):
         return None
-    try:
-        if sys.platform == "win32":
-            msvcrt.locking(guard, msvcrt.LK_NBLCK, 1)
-        else:
-            fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        os.close(guard)
-        return None
-    return guard
+    return lock
 
 
-def _close_guard(guard: int) -> None:
-    if sys.platform == "win32":
-        os.lseek(guard, 0, os.SEEK_SET)
-        msvcrt.locking(guard, msvcrt.LK_UNLCK, 1)
-    os.close(guard)
+def _close_guard(guard: FileLock) -> None:
+    guard.release()
 
 
 def _guard_path(path: Path) -> Path:

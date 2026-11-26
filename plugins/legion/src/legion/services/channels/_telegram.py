@@ -1,16 +1,15 @@
+import logging
 import re
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
-import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import (
     Literal,
     Optional,
 )
 
+import httpx
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -21,13 +20,11 @@ from pydantic import (
 )
 
 from legion.core._home import channel_folder, legion_home
+from legion.core._http import https_client
 from legion.core._settings_models import NAME_PATTERN
 
 MESSAGE_LIMIT = 4096
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-
-# An opener instead of urlopen: the URL is fixed https, and ruff flags urlopen (S310).
-_opener = urllib.request.build_opener(urllib.request.HTTPSHandler)
 
 # post(token, method, fields, files) returns the Bot API "result" or raises TelegramError.
 Post = Callable[[str, str, dict[str, str], list[tuple[str, Path]]], JsonValue]
@@ -76,6 +73,7 @@ class EmojiReaction(BaseModel):
 
 
 _REACTIONS = TypeAdapter(list[EmojiReaction])
+_UPDATES = TypeAdapter(list[Update])
 
 
 class Reply(BaseModel):
@@ -111,46 +109,82 @@ def read_token(channel: str, home: Optional[Path] = None) -> str:
     raise TelegramError(f"no bot token for channel '{channel}'; pair the bot on Claude first")
 
 
-def _multipart(fields: dict[str, str], files: list[tuple[str, Path]]) -> tuple[bytes, str]:
-    boundary = uuid.uuid4().hex
-    body = b""
-    for name, value in fields.items():
-        body += f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
-    for name, path in files:
-        body += f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{path.name}"\r\n'.encode()
-        body += b"Content-Type: application/octet-stream\r\n\r\n" + path.read_bytes() + b"\r\n"
-    return body + f"--{boundary}--\r\n".encode(), f"multipart/form-data; boundary={boundary}"
-
-
-def call_bot(token: str, method: str, fields: dict[str, str], files: list[tuple[str, Path]]) -> JsonValue:
-    if files:
-        body, content_type = _multipart(fields, files)
-    else:
-        body, content_type = urllib.parse.urlencode(fields).encode(), "application/x-www-form-urlencoded"
-    request = urllib.request.Request(f"https://api.telegram.org/bot{token}/{method}", data=body, headers={"Content-Type": content_type})
+# httpx and httpcore log request URLs and response headers, and a Telegram URL holds the bot token. During a
+# Telegram call their loggers (and every child logger) are silent and cut off from the handlers above them.
+@contextmanager
+def _http_logging_silenced() -> Iterator[None]:
+    names = [name for name in logging.Logger.manager.loggerDict if name in ("httpx", "httpcore") or name.startswith(("httpx.", "httpcore."))]
+    saved = [(logger, logger.level, logger.propagate) for logger in map(logging.getLogger, names)]
     try:
-        with _opener.open(request, timeout=60) as response:
-            reply = Reply.model_validate_json(response.read())
-    except urllib.error.HTTPError as error:
-        # The error text holds the URL, which holds the token: use only Telegram's own description.
-        try:
-            description = Reply.model_validate_json(error.read()).description
-        except Exception:
-            description = None
-        raise TelegramError(description or f"HTTP {error.code}", error.code) from None
+        for logger, _level, _propagate in saved:
+            logger.setLevel(logging.CRITICAL + 1)
+            logger.propagate = False
+        yield
+    finally:
+        for logger, level, propagate in saved:
+            logger.setLevel(level)
+            logger.propagate = propagate
+
+
+# The response, or None for any failure of the HTTP layer: its errors can quote the URL, which holds the token.
+def _post(url: str, fields: dict[str, str], files: list[tuple[str, Path]]) -> Optional[httpx.Response]:
+    try:
+        with ExitStack() as stack, _http_logging_silenced():
+            uploads = {name: (path.name, stack.enter_context(path.open("rb"))) for name, path in files}
+            with https_client(60) as client:
+                return client.post(url, data=fields, files=uploads or None)
     except Exception:
-        # Any HTTP-layer error can quote the URL, so none is chained or shown.
-        raise TelegramError("network error", 0) from None
+        return None
+
+
+def _reply(response: httpx.Response) -> Optional[Reply]:
+    try:
+        return Reply.model_validate_json(response.content)
+    except ValidationError:
+        return None
+
+
+# Telegram's own explanation, unless it echoes the token.
+def _explanation(reply: Optional[Reply], token: str) -> Optional[str]:
+    if reply is None or not reply.description or token in reply.description:
+        return None
+    return reply.description
+
+
+# Every error is raised outside an except block, so no HTTP-layer error is chained or shown.
+def call_bot(token: str, method: str, fields: dict[str, str], files: list[tuple[str, Path]]) -> JsonValue:
+    response = _post(f"https://api.telegram.org/bot{token}/{method}", fields, files)
+    if response is None:
+        raise TelegramError("network error", 0)
+    reply = _reply(response)
+    if not response.is_success:
+        raise TelegramError(_explanation(reply, token) or f"HTTP {response.status_code}", response.status_code)
+    if reply is None:
+        raise TelegramError("network error", 0)
     if not reply.ok:
-        raise TelegramError(reply.description or "request failed", reply.error_code)
+        raise TelegramError(_explanation(reply, token) or "request failed", reply.error_code)
     return reply.result
 
 
+# A malformed result can hold the token, and pydantic's error quotes it: the fixed-message error is raised after the handler.
 def _sent(result: JsonValue, method: str) -> Message:
     try:
-        return Message.model_validate(result)
+        message: Optional[Message] = Message.model_validate(result)
     except ValidationError:
-        raise TelegramError(f"Telegram sent an unexpected reply to {method}") from None
+        message = None
+    if message is None:
+        raise TelegramError(f"Telegram sent an unexpected reply to {method}")
+    return message
+
+
+def parse_updates(result: JsonValue) -> list[Update]:
+    try:
+        updates: Optional[list[Update]] = _UPDATES.validate_python(result)
+    except ValidationError:
+        updates = None
+    if updates is None:
+        raise TelegramError("Telegram sent an unexpected reply to getUpdates")
+    return updates
 
 
 def _split(text: str) -> list[str]:
