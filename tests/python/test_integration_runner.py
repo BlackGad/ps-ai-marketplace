@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -595,16 +596,38 @@ def test_codex_probe_fails_on_unreadable_output(tmp_path: Path) -> None:
         probe(tmp_path, "print('not json', flush=True); import time; time.sleep(60)", 30)
 
 
-def test_codex_probe_stops_at_one_deadline_and_ends_the_process(tmp_path: Path) -> None:
-    script = """
-import sys
+def pid_exists(pid: int) -> bool:
+    if os.name == "nt":
+        listing = subprocess.run([shutil.which("tasklist") or "tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True, check=False).stdout
+        return str(pid) in listing
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def test_codex_probe_stops_at_one_deadline_and_ends_the_process_tree(tmp_path: Path) -> None:
+    # The fake ignores closed stdin and keeps a child alive, like an npm shim around a native server.
+    pid_file = tmp_path / "child.pid"
+    script = f"""
+import subprocess, sys, time
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+open({str(pid_file)!r}, "w").write(str(child.pid))
 for line in sys.stdin:
-    print('{"method": "noise"}', flush=True)
+    print('{{"method": "noise"}}', flush=True)
+time.sleep(120)
 """
     start = time.monotonic()
     with pytest.raises(AssertionError, match="timed out"):
         probe(tmp_path, script, 2)
-    assert time.monotonic() - start < 20
+    assert time.monotonic() - start < 40
+    child_pid = int(pid_file.read_text(encoding="utf-8"))
+    for _ in range(50):
+        if not pid_exists(child_pid):
+            break
+        time.sleep(0.1)
+    assert not pid_exists(child_pid)
 
 
 def test_codex_probe_retries_until_legion_appears(tmp_path: Path) -> None:

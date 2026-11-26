@@ -8,6 +8,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import queue
 import subprocess
 import sys
@@ -18,8 +19,6 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-import psutil
 
 
 TOOLS = ("claude", "codex", "copilot")
@@ -49,32 +48,40 @@ def codex_legion_server(servers: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 
 def stop_process_tree(process: "subprocess.Popen[str]") -> None:
-    """Close stdin, give the process a moment to leave, then end the whole tree so an npm shim cannot leave the native app-server running."""
-    try:
-        parent = psutil.Process(process.pid)
-        family = [parent, *parent.children(recursive=True)]
-    except psutil.NoSuchProcess:
-        family = []
+    """Close stdin, give the process a moment to leave, then end its whole process group so an npm shim cannot leave the native app-server running."""
     if process.stdin:
         process.stdin.close()
     with suppress(subprocess.TimeoutExpired):
         process.wait(timeout=5)
-    alive = [member for member in family if member.is_running()]
-    for member in alive:
-        with suppress(psutil.NoSuchProcess):
-            member.terminate()
-    _, alive = psutil.wait_procs(alive, timeout=5)
-    for member in alive:
-        with suppress(psutil.NoSuchProcess):
-            member.kill()
-    psutil.wait_procs(alive, timeout=5)
+    if sys.platform == "win32":
+        subprocess.run([shutil.which("taskkill") or "taskkill", "/T", "/F", "/PID", str(process.pid)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)  # noqa: S603
+    else:
+        for signal_number in (signal.SIGTERM, signal.SIGKILL):
+            with suppress(ProcessLookupError, OSError):
+                os.killpg(process.pid, signal_number)
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and group_exists(process.pid):
+                time.sleep(0.1)
     process.wait(timeout=5)
+
+
+def group_exists(group: int) -> bool:
+    if sys.platform == "win32":
+        return False
+    try:
+        os.killpg(group, 0)
+    except (ProcessLookupError, OSError):
+        return False
+    return True
 
 
 def probe_codex_mcp(command: list[str], env: dict[str, str], cwd: Path, seconds: float) -> list[dict[str, Any]]:
     """Ask a Codex app-server for legion's MCP status within one deadline; retry while legion is absent or starting."""
     deadline = time.monotonic() + seconds
-    process = subprocess.Popen(command, cwd=cwd, env=env, encoding="utf-8", stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)  # noqa: S603
+    flags = subprocess.CREATE_NEW_PROCESS_GROUP if WINDOWS else 0
+    process = subprocess.Popen(  # noqa: S603
+        command, cwd=cwd, env=env, encoding="utf-8", stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=flags, start_new_session=not WINDOWS
+    )
     replies: queue.Queue[dict[str, Any] | Exception] = queue.Queue()
 
     def read_replies() -> None:
