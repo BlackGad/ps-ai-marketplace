@@ -18,7 +18,7 @@
     "list": ["plugin", "list"],
     "listing": {"format": "lines", "rejectPattern": "not installed|disabled"}
   },
-  "hooks": {"status": "loaded with plugin", "hint": ""},
+  "hooks": {"hint": ""},
   "install": {
     "check": ["copilot", "--version"], "hint": "npm install -g @github/copilot",
     "windows": {

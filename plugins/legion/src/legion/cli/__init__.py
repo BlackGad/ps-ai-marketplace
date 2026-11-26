@@ -54,7 +54,6 @@ def _report_overseer(
     tool: Optional[str] = None,
     channels: tuple[str, ...] = (),
     no_channel: bool = False,
-    dry_run: bool = False,
     arguments: tuple[str, ...] = (),
     pick: bool = False,
 ) -> None:
@@ -66,7 +65,7 @@ def _report_overseer(
     from legion.core._settings_io import SettingsError
 
     try:
-        context.exit(_overseer.run(repo, _home.legion_home(context.obj), account=account, tool=tool, channels=channels, no_channel=no_channel, dry_run=dry_run, arguments=arguments, pick=pick))
+        context.exit(_overseer.run(repo, _home.legion_home(context.obj), account=account, tool=tool, channels=channels, no_channel=no_channel, arguments=arguments, pick=pick))
     except (AccountError, ChannelError, LauncherError, RepositoryError, SettingsError, _overseer.OverseerError, OSError, ValueError) as error:
         click.echo(" ".join(str(error).split()), err=True)
         context.exit(1)
@@ -78,14 +77,11 @@ def _launch_command(verb: str) -> click.Command:
     @click.option("--tool")
     @click.option("--channel", "channels", multiple=True)
     @click.option("--no-channel", is_flag=True)
-    @click.option("--dry-run", is_flag=True)
     @click.option("--repo", type=click.Path(path_type=Path))
     @click.option("--argument", "arguments", multiple=True, help="A literal tool argument; repeat for each word (use --argument=--flag for flags).")
     @click.pass_context
-    def launch(
-        context: click.Context, account: Optional[str], tool: Optional[str], channels: tuple[str, ...], no_channel: bool, dry_run: bool, repo: Optional[Path], arguments: tuple[str, ...]
-    ) -> None:
-        _report_overseer(context, repo=repo or Path.cwd(), account=account, tool=tool, channels=channels, no_channel=no_channel, dry_run=dry_run, arguments=arguments, pick=verb == "pick")
+    def launch(context: click.Context, account: Optional[str], tool: Optional[str], channels: tuple[str, ...], no_channel: bool, repo: Optional[Path], arguments: tuple[str, ...]) -> None:
+        _report_overseer(context, repo=repo or Path.cwd(), account=account, tool=tool, channels=channels, no_channel=no_channel, arguments=arguments, pick=verb == "pick")
 
     return launch
 

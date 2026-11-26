@@ -157,13 +157,11 @@
       "download": {
         "msi": {
           "kind": "script",
-          "url": "https://astral.sh/uv/install.ps1",
-          "verification": "vendor"
+          "url": "https://astral.sh/uv/install.ps1"
         },
         "zip": {
           "kind": "script",
-          "url": "https://astral.sh/uv/install.ps1",
-          "verification": "vendor"
+          "url": "https://astral.sh/uv/install.ps1"
         }
       }
     },
@@ -189,13 +187,11 @@
       "download": {
         "msi": {
           "kind": "script",
-          "url": "https://bun.sh/install.ps1",
-          "verification": "vendor"
+          "url": "https://bun.sh/install.ps1"
         },
         "zip": {
           "kind": "script",
-          "url": "https://bun.sh/install.ps1",
-          "verification": "vendor"
+          "url": "https://bun.sh/install.ps1"
         }
       }
     },

@@ -38,6 +38,7 @@ from legion.core._settings_models import (
     Agent,
     CatalogTool,
     JsonListing,
+    PluginManifest,
     ToolsCatalog,
 )
 
@@ -280,14 +281,18 @@ def _plugin_root(entry: CatalogTool, folder: Path) -> Path | None:
     roots = []
     for path in set(paths):
         try:
-            manifest = json.loads((path / "plugin.json").read_text(encoding="utf-8-sig"))
-            if manifest.get("name") == "legion" and (not version or manifest.get("version") == version):
+            manifest = _manifest(path)
+            if manifest.name == "legion" and (not version or manifest.version == version):
                 roots.append(path)
         except (OSError, ValueError):
             continue
     if len(roots) != 1:
         raise InstallerError(f"{entry.id} installed legion folder could not be identified uniquely.")
     return roots[0]
+
+
+def _manifest(root: Path) -> PluginManifest:
+    return PluginManifest.model_validate_json((root / "plugin.json").read_text(encoding="utf-8-sig"))
 
 
 def _command_line(entry: CatalogTool, arguments: list[str], folder: Path) -> str:
@@ -399,7 +404,7 @@ def install(
                 targets.append((target, folder))
         for entry, folder in targets:
             root = _plugin_root(entry, folder)
-            version = json.loads((root / "plugin.json").read_text(encoding="utf-8"))["version"] if root else "not installed"
+            version = _manifest(root).version if root else "not installed"
             lines.append(f"Update legion for {entry.id} in {folder} ({version})")
         if targets and not dry_run and not (yes or _confirm("Update legion? [y/N]", lines)):
             return [*lines, "Nothing changed. Run again with --yes to apply."]
@@ -408,7 +413,7 @@ def install(
         try:
             for entry, folder in targets:
                 before = _plugin_root(entry, folder)
-                before_version = json.loads((before / "plugin.json").read_text(encoding="utf-8"))["version"] if before else "not installed"
+                before_version = _manifest(before).version if before else "not installed"
                 if before:
                     for arguments in (entry.plugin.marketplace_update, entry.plugin.update):
                         if arguments:
@@ -425,7 +430,7 @@ def install(
                         lines.append(f"commands not refreshed for {entry.id} in {folder}: {error}; run legion setup")
                         rows.append((entry.id, str(folder), f"commands not refreshed: {error}"))
                         continue
-                    after_version = json.loads((after / "plugin.json").read_text(encoding="utf-8"))["version"]
+                    after_version = _manifest(after).version
                     lines.append(f"legion {before_version} -> {after_version}" if before_version != after_version else f"skip: legion {after_version} (already up to date)")
                     rows.append((entry.id, str(folder), f"{before_version} -> {after_version}" if before_version != after_version else f"already up to date ({after_version})"))
                     confirmed.append(after_version)
@@ -471,7 +476,7 @@ def install(
                 if root:
                     try:
                         lines.extend(_refresh.refresh(home, source=root))
-                        installed_version = json.loads((root / "plugin.json").read_text(encoding="utf-8"))["version"]
+                        installed_version = _manifest(root).version
                         rows.append((tool_id, str(folder), f"installed legion {installed_version}"))
                     except Exception as error:
                         lines.append(f"commands not refreshed for {tool_id} in {folder}: {error}; run legion setup")

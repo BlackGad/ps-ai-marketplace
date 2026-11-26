@@ -18,14 +18,14 @@
     "list": ["plugin", "list"],
     "listing": {"format": "lines", "rejectPattern": "not installed|disabled"}
   },
-  "hooks": {"status": "trust once with /hooks", "hint": "Codex: approve the legion hooks once with /hooks in a Codex session."},
+  "hooks": {"hint": "Codex: approve the legion hooks once with /hooks in a Codex session."},
   "install": {
     "check": ["codex", "--version"], "hint": "npm install -g @openai/codex",
     "windows": {
       "wingetId": "OpenAI.Codex", "portableCommand": "codex.exe",
       "download": {
-        "msi": {"kind": "script", "url": "https://chatgpt.com/codex/install.ps1", "verification": "vendor"},
-        "zip": {"kind": "script", "url": "https://chatgpt.com/codex/install.ps1", "verification": "vendor"}
+        "msi": {"kind": "script", "url": "https://chatgpt.com/codex/install.ps1"},
+        "zip": {"kind": "script", "url": "https://chatgpt.com/codex/install.ps1"}
       }
     },
     "macos": {"needs": ["node"], "commands": [["npm", "install", "-g", "@openai/codex"]], "docs": ""},

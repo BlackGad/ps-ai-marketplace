@@ -158,15 +158,11 @@
     "Hooks": {
       "additionalProperties": false,
       "properties": {
-        "status": {
-          "type": "string"
-        },
         "hint": {
           "type": "string"
         }
       },
       "required": [
-        "status",
         "hint"
       ],
       "type": "object"
@@ -461,16 +457,11 @@
         "url": {
           "minLength": 1,
           "type": "string"
-        },
-        "verification": {
-          "const": "vendor",
-          "type": "string"
         }
       },
       "required": [
         "kind",
-        "url",
-        "verification"
+        "url"
       ],
       "type": "object"
     },

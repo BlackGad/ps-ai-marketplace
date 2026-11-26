@@ -1,5 +1,4 @@
 import hashlib
-import json
 import os
 import shutil
 import sys
@@ -31,6 +30,7 @@ from legion.core._home import (
 )
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import run_command
+from legion.core._settings_models import PluginManifest
 from legion.services.installation._update import compare_versions
 
 UV_MISSING = "uv is missing. Ask the owner before installing it, then run the legion installer again."
@@ -122,7 +122,7 @@ def app_lock(home: Path, timeout: float = 60) -> Iterator[bool]:
 # without the marker is unfinished: never run, repaired by the next sync of its version or removed with the
 # older ones. Returns the lines to print and the ready version the commands should run, or None.
 def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> AppSync:
-    version = json.loads((source / "plugin.json").read_text(encoding="utf-8-sig"))["version"]
+    version = PluginManifest.model_validate_json((source / "plugin.json").read_text(encoding="utf-8-sig")).version
     try:
         compare_versions(version, version)
     except ValueError as error:

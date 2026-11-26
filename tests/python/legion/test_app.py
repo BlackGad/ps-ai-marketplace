@@ -59,6 +59,15 @@ def test_fresh_sync_copies_syncs_in_the_versions_environment_marks_and_records(t
     assert [item.path for item in _installed_runtime.ready_versions(home)] == [target]
 
 
+def test_sync_rejects_a_manifest_missing_its_name(tmp_path: Path, uv: FakeUv) -> None:
+    home, source = tmp_path / "home", make_source(tmp_path)
+    (source / "plugin.json").write_text('{"version":"1.2.3"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="name"):
+        _installed_runtime.sync_app(home, source)
+    assert not home.exists()
+    assert not uv.calls
+
+
 @pytest.mark.usefixtures("uv")
 def test_the_copy_is_recorded_before_it_is_renamed_into_place(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home, source = tmp_path / "home", make_source(tmp_path)
