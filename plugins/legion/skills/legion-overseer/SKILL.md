@@ -31,6 +31,7 @@ Follow [pending results](references/pending-results.md) for every promised futur
 - Take, check, and release the overseer lease through [takeover.md](references/takeover.md). A live lease held here or a lease from another host means tell the owner and wait; stale local leases may be replaced.
 - Only the lease holder edits the handoff and roadmaps. Use [takeover.md](references/takeover.md) for write-ahead records and report review. For ad hoc work, record only what must survive the session, including running legion tasks.
 - Owner notes and repository choices govern routing; save newly stated or legion-reported preferences using the [shared memory rule](../legion-personalisation/SKILL.md#identity-and-hard-rules). Without preferences, follow [default routing](references/task-loop.md#default-routing) and the [first legion dispatch](references/task-loop.md#first-legion-dispatch) sandbox question. Omit model flags by default; follow [model tiers and cost consent](references/task-loop.md#model-tiers) when notes name a model or allow a tier. Respect exclusions, careful use and paid-use approval. Ping through the tool skill before declaring an account exhausted. Never resume on a different account.
+- <a id="reread-notes"></a>Read the owner notes again before every dispatch, every resume of a member session, and every review round (a recheck of fixes counts). Follow their limits and routing lines; the notes may have changed, and a long session forgets them.
 - Fixed repo gates run only through indexed scripts named in repository workflow; delegate creation of a missing fixed script and index row before using it. Never force-push or amend. Follow the configured delivery mode before merging to main; see [task-loop.md](references/task-loop.md).
 - Follow the [shared question rule](../legion-personalisation/SKILL.md#identity-and-hard-rules) for every owner question. Keep progress and owner-facing reports in the owner's stated tone and supported format.
 - Speak to the owner in plain words. Show a command only when they ask for it or must run it themselves.
@@ -54,4 +55,5 @@ Stop and tell the owner if the lease is held or foreign. If repo configuration i
 - [ ] I launch, ping or name only accounts the owner allows (notes and routing), and ask first otherwise.
 - [ ] Lease and all running rows were checked; the handoff records the exact next action.
 - [ ] Milestone stages and questions have write-ahead records. Ad hoc records hold only durable information. Pre-lease questions wrote nothing.
+- [ ] I [read the owner notes again](#reread-notes) before each dispatch, resume and review round.
 - [ ] Dispatch uses routing and tool skills; reports are reviewed before delivery.
