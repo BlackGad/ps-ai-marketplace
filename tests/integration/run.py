@@ -12,6 +12,7 @@ import signal
 import queue
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -78,9 +79,9 @@ def group_exists(group: int) -> bool:
 def probe_codex_mcp(command: list[str], env: dict[str, str], cwd: Path, seconds: float) -> list[dict[str, Any]]:
     """Ask a Codex app-server for legion's MCP status within one deadline; retry while legion is absent or starting."""
     deadline = time.monotonic() + seconds
-    flags = subprocess.CREATE_NEW_PROCESS_GROUP if WINDOWS else 0
+    flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
     process = subprocess.Popen(  # noqa: S603
-        command, cwd=cwd, env=env, encoding="utf-8", stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=flags, start_new_session=not WINDOWS
+        command, cwd=cwd, env=env, encoding="utf-8", stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=flags, start_new_session=sys.platform != "win32"
     )
     replies: queue.Queue[dict[str, Any] | Exception] = queue.Queue()
 
@@ -543,7 +544,15 @@ class Runner:
     def check_codex_mcp(self) -> None:
         """The installed plugin must bring a connected legion MCP server that Codex lists, asked without login or model turn."""
         self.command("legion")
-        servers = probe_codex_mcp([self.command("codex"), "app-server"], self.env, self.work, CODEX_PROBE_SECONDS)
+        # The app-server starts a background clone of Codex's curated marketplace, and Codex has no setting to stop it,
+        # so the probe works on a throwaway copy and nothing it writes reaches the snapshotted home.
+        probe_home = Path(tempfile.mkdtemp(prefix="codex-probe-home-", dir=self.work))
+        shutil.copytree(self.folder("codex"), probe_home, dirs_exist_ok=True)
+        env = {**self.env, self.catalog["codex"]["configEnv"]: str(probe_home)}
+        try:
+            servers = probe_codex_mcp([self.command("codex"), "app-server"], env, self.work, CODEX_PROBE_SECONDS)
+        finally:
+            shutil.rmtree(probe_home, ignore_errors=True)
         self.log.append(json.dumps(servers))
         require(codex_legion_server(servers) is not None, "Codex does not list a connected legion MCP server with the status tool")
 
