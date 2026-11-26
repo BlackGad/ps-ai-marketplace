@@ -12,7 +12,12 @@ import pytest
 from app_fakes import FakeUv, make_source
 from cli_runner import run
 from filelock import FileLock, Timeout
-from launcher_fakes import WINDOWS, fake_cli, only_on_path
+from launcher_fakes import (
+    WINDOWS,
+    fake_cli,
+    login,
+    only_on_path,
+)
 
 from legion.services.accounts import _accounts, _setup
 from legion.services.installation import (
@@ -183,9 +188,9 @@ def test_accounts_plan_apply_and_repeat(bench: Bench) -> None:
     assert bench.plugin_installs[1][1] == adopt
     assert (adopt / "owner.txt").read_text(encoding="utf-8") == "keep login data"
     assert "account  tool  folder  legion  next step" in apply
-    assert any(line.startswith("claude1  claude  ") and line.endswith("  log in: run legion --account claude1") for line in apply)
+    assert any(line.startswith("claude1  claude  ") and line.endswith(f"  log in: {login('CLAUDE_CONFIG_DIR', bench.home / '.legion' / 'agents' / 'claude1', 'claude')}") for line in apply)
     assert any(line.startswith("codex1  codex  ") and line.endswith(f"  {VERSION}  ready") for line in apply)
-    assert "Run 'legion --account claude1' in a repository and log in once." not in text(apply)
+    assert "Log in once:" not in text(apply)
     assert "Existing account folder kept at" not in text(apply)
     app = bench.home / ".legion" / "app" / VERSION
     assert (app / ".legion-app-ready").is_file()
@@ -488,7 +493,7 @@ def test_copilot_setup_reports_login_when_plugin_installed_despite_installer_err
 
     bench.monkeypatch.setattr(_setup, "install_plugin", installed_with_error)
     output = bench.apply(["copilot"])
-    assert any(line.startswith("copilot1  copilot  ") and line.endswith(f"  {VERSION}  log in: run legion --account copilot1") for line in output)
+    assert any(line.startswith("copilot1  copilot  ") and line.endswith(f"  {VERSION}  log in: {login('COPILOT_HOME', bench.home / '.legion' / 'agents' / 'copilot1', 'copilot')}") for line in output)
 
 
 def test_a_plugin_installer_that_raises_is_a_failure_row_for_each_target(bench: Bench) -> None:

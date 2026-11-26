@@ -1,4 +1,5 @@
 import json
+import shlex
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,7 +11,9 @@ from filelock import FileLock
 from launcher_fakes import (
     WINDOWS,
     fake_cli,
+    login,
     only_on_path,
+    tool,
 )
 
 from legion.services.accounts import _accounts, _launchers
@@ -88,7 +91,7 @@ def says(capsys: pytest.CaptureFixture[str]) -> tuple[str, str]:
 
 def test_account_add_writes_no_launcher(world: World, capsys: pytest.CaptureFixture[str]) -> None:
     assert add(world) == 0
-    assert says(capsys) == ("Run 'legion --account codex-a' in a repository and log in once.\n", "")
+    assert says(capsys) == (f"Log in once: {login('CODEX_HOME', world.folder('codex-a'), 'codex')}\n", "")
     assert world.agents() == [{"id": "codex-a", "tool": "codex", "configDir": str(world.folder("codex-a"))}]
     assert world.folder("codex-a").is_dir()
     assert world.bin_files() == []
@@ -590,3 +593,20 @@ def test_a_busy_settings_lock_is_one_line_and_changes_nothing(world: World, caps
         assert add(world, "codex-b") == 1
     assert says(capsys) == ("", "legion settings are busy; another legion command is still running\n")
     assert world.settings_bytes() == before
+
+
+# The login command quotes the folder and the account's own program for the system's shell, a quote in a name included.
+def test_the_login_command_quotes_for_the_shell(tmp_path: Path) -> None:
+    folder = tmp_path / "o'brien a"
+    program = tmp_path / "my claude.exe"
+    line = _accounts.login_command(tool("claude"), folder, str(program), tmp_path)
+    if WINDOWS:
+        quoted = str(folder).replace("'", "''")
+        assert line == f"$env:CLAUDE_CONFIG_DIR='{quoted}'; & '{program}'"
+    else:
+        assert line == f"CLAUDE_CONFIG_DIR={shlex.quote(str(folder))} {shlex.quote(str(program))}"
+
+
+# Without its own program the account starts the tool by its plain name.
+def test_the_login_command_names_the_tool_without_a_program(tmp_path: Path) -> None:
+    assert _accounts.login_command(tool("codex"), tmp_path / "a", None, tmp_path) == login("CODEX_HOME", tmp_path / "a", "codex")

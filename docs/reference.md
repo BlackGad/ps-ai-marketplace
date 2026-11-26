@@ -176,7 +176,7 @@ Plan (nothing changed yet):
 Run again with --yes to apply.
 ```
 
-After approving the plan (an interactive terminal asks `Apply? [Y/n]`), run it again with `--yes`. Setup installs a missing CLI first, then adds the account and installs legion before login. If CLI installation fails or needs a new terminal, that account is not recorded; retry the add after resolving the reported next step. Setup writes:
+After approving the plan (an interactive terminal asks `Apply? [Y/n]`), run it again with `--yes`. Setup installs a missing CLI first, then adds the account and installs legion before login. For a new account folder, the `log in:` column shows the command that starts the tool itself with the account's folder variable set (for example `$env:CLAUDE_CONFIG_DIR='<folder>'; claude` in PowerShell, `CLAUDE_CONFIG_DIR='<folder>' claude` on macOS and Linux); run it once outside legion and log in. `legion` and `legion pick` start only the overseer. If CLI installation fails or needs a new terminal, that account is not recorded; retry the add after resolving the reported next step. Setup writes:
 
 - `~/.legion/configuration/personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/legion/schemas/personalisation.schema.json`. It never holds tokens.
 - `~/.legion/configuration/notes.md`: free-form preferences and lessons.
@@ -258,7 +258,7 @@ A session you start yourself is never a legion member.
 
 The hook is a small Python script in the plugin copy. `uv` starts it with Python 3.12 or later, offline and without downloads. When uv or Python is missing, the hook prints one line asking you to run the legion installer, and the session starts normally. Update notices use the local cache.
 
-Legion passes the configured home when it starts an account, through the overseer or `legion run --account <id>`. The hook uses the login home by default. When starting a host directly for an alternate `legion --home` installation, set `LEGION_HOME` to the same absolute path. Refresh removes the per-account launchers older versions wrote once legion can start those accounts itself; a file legion did not write stays.
+Legion passes the configured home when it starts an account for the overseer or a member run. The hook uses the login home by default. When starting a host directly for an alternate `legion --home` installation, set `LEGION_HOME` to the same absolute path. Refresh removes the per-account launchers older versions wrote once legion can start those accounts itself; a file legion did not write stays.
 
 The hook reports whether a repository lease file is present. `legion lease status`, `legion lease take`, and `legion status` check whether the process in the lease is still live.
 

@@ -51,6 +51,13 @@ def python_cli(folder: Path, variable: str = "CODEX_HOME") -> Path:
     return path
 
 
+# What the owner runs once to log in: the tool itself started on the account's folder, in the shell of the system.
+def login(variable: str, folder: Path, program: str) -> str:
+    if WINDOWS:
+        return f"$env:{variable}='{folder}'; {program}"
+    return f"{variable}='{folder}' {program}"
+
+
 # Only these folders are searched for commands, and Windows runs .cmd files from them.
 def only_on_path(monkeypatch: pytest.MonkeyPatch, *folders: Path) -> None:
     monkeypatch.setenv("PATH", os.pathsep.join(str(folder) for folder in folders))

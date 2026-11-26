@@ -3,13 +3,16 @@
 import os
 import re
 import shutil
+import sys
 from pathlib import Path
 from typing import Optional
 
 from legion.services.repository import _footprints
 from legion.core import _settings_io
 from legion.services.accounts import _launchers
+from legion.core._generated import shell_literal
 from legion.core._home import full_path, home_path, same_path
+from legion.core._run import display_command
 from legion.core._settings_models import (
     NAME_PATTERN,
     Agent,
@@ -88,6 +91,16 @@ def _stored_command(command: Optional[Path], tool: ToolDescriptor, home: Path) -
     return str(command)
 
 
+# The command the owner runs once to log in: the account's tool started on its own folder, without legion.
+# Windows shows PowerShell, whose single-quoted text doubles a quote; other systems show a POSIX shell.
+def login_command(tool: ToolDescriptor, folder: Path, command: Optional[str], home: Path) -> str:
+    program = str(full_path(home_path(command, home))) if command is not None else tool.command
+    if sys.platform == "win32":
+        start = "& '" + program.replace("'", "''") + "'" if command is not None else program
+        return f"$env:{tool.config_env}='" + str(folder).replace("'", "''") + f"'; {start}"
+    return f"{tool.config_env}={shell_literal(str(folder))} {display_command([program])}"
+
+
 def _ensure_config_folder(folder: Path) -> list[str]:
     if folder.is_dir():
         return []
@@ -129,7 +142,7 @@ def add_subscription(home: Path, account: str, tool_id: str, command: Optional[s
         folder.mkdir(parents=True, exist_ok=True)
     if config_dir is not None:
         return [f"Existing account folder kept at {config_dir}; open it with 'legion --account {account}'."]
-    return [f"Run 'legion --account {account}' in a repository and log in once."]
+    return [f"Log in once: {login_command(tool, folder, _stored_command(real, tool, home), home)}"]
 
 
 def add_foundry(home: Path, account: str, tool_id: str, endpoint: str, names: list[str], default: Optional[str], aliases: Optional[list[str]], use_standard: bool, list_only: bool) -> list[str]:

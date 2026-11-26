@@ -181,7 +181,7 @@ def _missing_allow_rules(tool: ToolDescriptor, folder: Path) -> list[str]:
 def _row(agent: Agent, tool: ToolDescriptor, home: Path, requested: bool = False, new: bool = False, adopted: bool = False) -> Row:
     folder = _resolve(agent.config_dir, home)
     # Login is owner-only; infer the guidance from our managed folder without reading credentials.
-    next_step = f"log in: run legion --account {agent.id}" if not adopted and agent.provider is None and same_path(folder, _managed_folder(agent.id, home)) else "ready"
+    next_step = f"log in: {_accounts.login_command(tool, folder, agent.command, home)}" if not adopted and agent.provider is None and same_path(folder, _managed_folder(agent.id, home)) else "ready"
     if not new and agent.provider is None and _target_needed(agent, home):
         next_step = f"target needed: {agent.id}; ask the owner for the registered executable"
     return Row(
@@ -378,7 +378,7 @@ def add_accounts(plan: Plan, say: Callable[[str], None]) -> None:
         else:
             say(f"skip: account {row.id} (already done)")
         if row.new and not row.adopted:
-            row.next_step = f"log in: run legion --account {row.id}"
+            row.next_step = f"log in: {_accounts.login_command(row.tool, row.folder, row.command, plan.home)}"
 
 
 def add_allow_rules(plan: Plan, say: Callable[[str], None]) -> None:

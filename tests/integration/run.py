@@ -737,7 +737,10 @@ asyncio.run(main())
         agents = self.settings()["agents"]
         for tool in self.active():
             require(f"{tool}1" in [agent["id"] for agent in agents], f"{tool}1 missing")
-            contains(output, f"log in: run legion --account {tool}1")
+            folder = self.resolve_folder(next(agent["configDir"] for agent in agents if agent["id"] == f"{tool}1"))
+            variable = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME", "copilot": "COPILOT_HOME"}[tool]
+            start = f"$env:{variable}='{folder}'; {tool}" if sys.platform == "win32" else f"{variable}='{folder}' {tool}"
+            contains(output, f"log in: {start}")
         self.check_accounts(agents)
         require(any((self.home / ".legion/bin").iterdir()), "no owner commands")
         help_text = self.legion("--help", owner=True)
