@@ -59,3 +59,12 @@ def test_long_imports_are_parenthesized() -> None:
                     raise AssertionError(f"{path.relative_to(REPO)}:{node.lineno} import of more than three names; split it into one import per line")
                 if isinstance(node, ast.ImportFrom) and len(node.names) > 3:
                     assert "(" in (ast.get_source_segment(source, node) or ""), f"{path.relative_to(REPO)}:{node.lineno}"
+
+
+def test_no_handwritten_temp_replace() -> None:
+    for path in SOURCE.rglob("*.py"):
+        if path.name == "_atomic_write.py":
+            continue
+        text = path.read_text(encoding="utf-8-sig")
+        for word in ("os.replace", "NamedTemporaryFile"):
+            assert word not in text, f"{path.relative_to(REPO).as_posix()} writes through its own temporary file"

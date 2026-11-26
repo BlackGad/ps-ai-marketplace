@@ -8,7 +8,7 @@ import traceback
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 import pytest
@@ -1414,7 +1414,7 @@ def test_uninstall_preview_refuses_linked_settings_folder(tmp_path: Path) -> Non
 def test_plain_install_entry_accepts_bootstrap_lifecycle_options(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[dict[str, object]] = []
 
-    def fake_install(_home: Path, *_args: object, **options: object) -> list[str]:
+    def fake_install(_home: Path, *_args: object, **options: Any) -> list[str]:
         calls.append(options)
         return ["ready"]
 
@@ -1620,3 +1620,39 @@ def test_a_catalog_that_cannot_be_read_is_a_plain_installer_error(monkeypatch: p
     monkeypatch.setattr(_http, "https_client", lambda timeout: https_client(timeout, httpx.MockTransport(handler)))
     with pytest.raises(_installer.InstallerError, match="could not read the tools catalog"):
         _installer._catalog("example/marketplace", "main", None)
+
+
+def test_plugin_listing_matches_whole_plugin_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    entry = next(tool for tool in catalog()["tools"] if tool["id"] == "codex")
+    for line in ("extra-legion@ps-legion-marketplace 1.2.3", "legion@ps-legion-marketplace-extra 1.2.3"):
+        monkeypatch.setattr(_installer, "_listing", lambda *_args, line=line: line)
+        assert _installer._plugin_state(entry, tmp_path)[0] is False
+
+
+def test_purge_settings_write_is_atomic_and_rechecked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    (home / ".legion").mkdir(parents=True)
+    folder = home / ".copilot"
+    folder.mkdir()
+    monkeypatch.setenv("COPILOT_HOME", str(folder))
+    first = folder / "settings.json"
+    second = folder / "config.json"
+    plan = _installer.purge_plan(home, catalog())
+    owned = '{"enabledPlugins":{"legion@ps-legion-marketplace":false,"owner":true}}'
+    first.write_text(owned, encoding="utf-8")
+    second.write_text(owned, encoding="utf-8")
+    plan.edits = [_installer.Edit(first, owned.encode(), b"{}", ["a"]), _installer.Edit(second, owned.encode(), b"{}", ["b"])]
+    written: list[Path] = []
+    real = _installer.atomic_write_bytes
+
+    def write(path: Path, data: bytes, **options: Any) -> None:
+        written.append(path)
+        real(path, data, **options)
+        second.write_text(owned + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(_installer, "atomic_write_bytes", write)
+    with pytest.raises(_installer.InstallerError, match="Settings changed after preview"):
+        _installer.apply_purge(plan)
+    assert written == [first]
+    assert second.read_text(encoding="utf-8") == owned + "\n"
+    assert [item.name for item in folder.iterdir() if item.name.endswith(".tmp")] == []

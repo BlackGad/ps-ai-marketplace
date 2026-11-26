@@ -9,6 +9,8 @@ import shutil
 import subprocess
 import sys
 import sysconfig
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -673,3 +675,21 @@ def test_python_module_bridge_needs_no_uv(home: Path, repo: Path) -> None:
     assert result.returncode == 1
     assert "no bot token for channel 'main'" in result.stderr
     assert not (home / ".legion/channels").exists()
+
+
+def test_overseer_save_last_concurrent_keeps_both_repos(home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    read = _overseer._history
+
+    def slow_read(home: Path) -> dict[str, _overseer.LastLaunch]:
+        saved = read(home)
+        time.sleep(0.2)
+        return saved
+
+    monkeypatch.setattr(_overseer, "_history", slow_read)
+    repos = [tmp_path / "repo-a", tmp_path / "repo-b"]
+    threads = [threading.Thread(target=_overseer.save_last, args=(repo, home, _overseer.LastLaunch(account="claude-a"))) for repo in repos]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert all(_overseer.load_last(repo, home) is not None for repo in repos)

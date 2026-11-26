@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from legion.services.repository import _footprints
+from legion.core._atomic_write import atomic_write_bytes
 from legion.core._home import owner_path_safe, path_contains
 from legion.core._text import TextFormat, decode_text
 
@@ -139,10 +140,11 @@ def shell_profile_lines(home: Path, dry_run: bool = False) -> list[str]:
     separator = "\n" if profile.text and not profile.text.endswith("\n") else ""
     _footprints.add(home, "path-entry", profile.path, "legion", key=separator, value=profile.line)
     addition = f"{separator}{PROFILE_MARKER}\n{profile.line}\n"
+    # A whole-file replace keeps every original byte, in the codec the file already uses.
     if profile.path.exists():
-        # Appending keeps every original byte, in the codec the file already uses.
-        with profile.path.open("ab") as file:
-            file.write(addition.encode(_read_profile(profile.path)[1].encoding))
+        before = profile.path.read_bytes()
+        encoding = _read_profile(profile.path)[1].encoding
+        atomic_write_bytes(profile.path, before + addition.encode(encoding))
     else:
-        profile.path.write_text(addition, encoding="utf-8", newline="")
+        atomic_write_bytes(profile.path, addition.encode("utf-8"))
     return lines

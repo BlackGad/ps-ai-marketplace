@@ -445,3 +445,10 @@ def test_public_command_preserves_failed_overseer_launch_exit(tmp_path: Path, pw
     result = subprocess.run([str(shim), "--no-channel"], cwd=repo, env=environment, capture_output=True, text=True, check=False)
     assert result.returncode == 5, result.stdout + result.stderr
     assert not any(line.startswith("launched ") for line in result.stdout.splitlines())
+
+
+@pytest.mark.parametrize("windows", [False, True])
+def test_uninstall_line_never_downloads_python(tmp_path: Path, windows: bool) -> None:
+    text = _installed_runtime.shim_text(tmp_path / "home/.legion/app/1.2.3", tmp_path / "home", windows)
+    line = next(line for line in text.splitlines() if "_self_uninstall.py" in line)
+    assert '--python ">=3.12" --no-python-downloads' in line

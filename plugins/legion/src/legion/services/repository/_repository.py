@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from legion.core import _validate
+from legion.core._atomic_write import atomic_write_bytes
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import run_command
 
@@ -44,8 +45,7 @@ def _reference(name: str) -> str:
 
 
 def _write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\n")
+    atomic_write_bytes(path, text.encode("utf-8"))
 
 
 def _no_links(root: Path, path: Path) -> None:

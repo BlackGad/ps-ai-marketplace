@@ -39,6 +39,7 @@ from legion.core._home import (
 )
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import display_command, run_command
+from legion.core._atomic_write import atomic_write_bytes
 from legion.core._text import decode_text, encode_text
 
 
@@ -389,7 +390,7 @@ def remove_owned_edits(home: Path, owners: list[str], lines: list[str]) -> None:
         if edit is None:
             lines.append(f"skip: {path} (linked or could not match safely)")
             continue
-        path.write_bytes(edit.after)
+        atomic_write_bytes(path, edit.after)
         _footprints.remove_exact(home, "edit", path, entry.key, entry.value)
         lines.extend(f"Remove entry: {path}: {name}" for name in edit.names)
 
@@ -620,7 +621,9 @@ def apply_purge(plan: PurgePlan) -> None:
             if not owner_path_safe(edit.path, stop) or edit.path.read_bytes() != edit.before:
                 raise InstallerError("Settings changed after preview; run again.")
         for edit in plan.edits:
-            edit.path.write_bytes(edit.after)
+            if edit.path.read_bytes() != edit.before:
+                raise InstallerError("Settings changed after preview; run again.")
+            atomic_write_bytes(edit.path, edit.after)
         if plan.user_path_after is not None and plan.user_path_after != plan.user_path_before:
             _user_path.set_user_path(plan.user_path_after)
         if plan.process_path_after is not None and plan.process_path_after != plan.process_path_before:
@@ -724,7 +727,7 @@ def _plugin_state(entry: dict[str, Any], folder: Path) -> tuple[bool, bool, list
                 paths.append(Path(item["installPath"]))
             version = item.get("version") or version
         return bool(matches), any(item[listing["enabledField"]] for item in matches), paths, version
-    lines = [line for line in output.splitlines() if re.search(r"legion@ps-legion-marketplace(?![\w-])", line) and "not installed" not in line]
+    lines = [line for line in output.splitlines() if re.search(r"(?<![\w-])legion@ps-legion-marketplace(?![\w-])", line) and "not installed" not in line]
     for line in lines:
         match = re.search(r"\b(v?\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b", line)
         if match:
@@ -752,7 +755,7 @@ def _plugin_root(entry: dict[str, Any], folder: Path) -> Path | None:
             except (OSError, ValueError, TypeError, KeyError):
                 pass
         for line in _listing(entry, folder, "plugin").splitlines():
-            if re.search(r"legion@ps-legion-marketplace(?![\w-])", line):
+            if re.search(r"(?<![\w-])legion@ps-legion-marketplace(?![\w-])", line):
                 is_legion = "not installed" not in line
             elif re.search(r"\S+@\S+\s+\(v?\d", line) or (line.strip() and not line[:1].isspace()):
                 is_legion = False
