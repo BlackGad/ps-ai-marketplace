@@ -15,6 +15,11 @@ from legion.core._process import (
 BASE = datetime(2026, 11, 23, 8, 0, tzinfo=UTC)
 
 
+@pytest.fixture(autouse=True)
+def no_shim_shell_pid(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LEGION_SHELL_WINPID", raising=False)
+
+
 def table(*rows: tuple[int, int, str, int]) -> _process.Lookup:
     # Build a fake process table from (pid, parent pid, name, start offset in seconds).
     processes = {pid: ProcessInfo(pid, parent, name, BASE + timedelta(seconds=offset)) for pid, parent, name, offset in rows}
@@ -135,6 +140,35 @@ def test_same_tick_parent_stays_in_the_chain() -> None:
         9: ProcessInfo(9, 1, "uv", BASE + timedelta(microseconds=1)),
     }
     assert [item.pid for item in ancestors(10, processes.get)] == [9]
+
+
+CUT_CHAIN = (
+    (17, 16, "python.exe", 60),
+    (16, 15, "python.exe", 50),
+    (15, 14, "legion.exe", 40),
+    (14, 13, "uv.exe", 30),
+    (13, 12, "sh.exe", 20),
+)
+SESSION_ABOVE_SHELL = ((22, 21, "bash.exe", 15), (21, 20, "bash.exe", 12), (20, 1, "claude.exe", 10))
+
+
+def test_shim_shell_pid_continues_a_cut_chain(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEGION_SHELL_WINPID", "22")
+    assert owner_process(17, table(*CUT_CHAIN, *SESSION_ABOVE_SHELL)).pid == 20
+
+
+@pytest.mark.parametrize("value", ["", "abc", "-5", "99"])
+def test_invalid_or_dead_shim_shell_pid_is_refused(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("LEGION_SHELL_WINPID", value)
+    with pytest.raises(LookupError, match="pass --process-id"):
+        owner_process(17, table(*CUT_CHAIN, *SESSION_ABOVE_SHELL))
+
+
+def test_shim_shell_pid_reused_by_a_younger_process_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEGION_SHELL_WINPID", "22")
+    younger = ((22, 21, "bash.exe", 25), (21, 20, "bash.exe", 12), (20, 1, "claude.exe", 10))
+    with pytest.raises(LookupError, match="pass --process-id"):
+        owner_process(17, table(*CUT_CHAIN, *younger))
 
 
 def test_reused_pid_behind_a_shell_is_refused() -> None:

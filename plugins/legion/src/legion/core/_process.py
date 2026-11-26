@@ -11,6 +11,8 @@ import psutil
 
 # Shells and launchers between an agent CLI and this process; matched without case and without ".exe".
 SKIPPED_NAMES = frozenset({"pwsh", "powershell", "cmd", "sh", "bash", "zsh", "uv", "legion"})
+# Set by the Git Bash shim: the Windows pid of its parent shell, which the process chain loses.
+SHELL_WINPID_VARIABLE = "LEGION_SHELL_WINPID"
 PYTHON_NAME = re.compile(r"python[0-9.]*")
 # Linux and macOS derive a start time from the clock, so two reads can differ by a few milliseconds.
 SAME_START_TOLERANCE = timedelta(milliseconds=500)
@@ -55,12 +57,30 @@ def ancestors(pid: int, lookup: Optional[Lookup] = None) -> list[ProcessInfo]:
 
 
 # The nearest ancestor that is not a shell or launcher; a chain of only shells is refused, since a shell may be short-lived.
+# Git Bash on Windows cuts the chain at the shim's sh.exe, so the shim hands over the Windows pid of its parent shell.
 def owner_process(pid: Optional[int] = None, lookup: Optional[Lookup] = None) -> ProcessInfo:
-    chain = ancestors(os.getpid() if pid is None else pid, lookup)
-    for process in chain:
-        if not is_skipped(process.name):
-            return process
-    raise LookupError("cannot find the agent session process; pass --process-id explicitly")
+    lookup = lookup or process_lookup()
+    start = os.getpid() if pid is None else pid
+    chain = ancestors(start, lookup)
+    owner = _first_session(chain)
+    if owner is None:
+        oldest = chain[-1] if chain else lookup(start)
+        shell = _shell_process(lookup)
+        # A shell younger than the cut chain has a reused pid.
+        if oldest and shell and (shell.started_at <= oldest.started_at or same_start_time(shell.started_at, oldest.started_at)):
+            owner = _first_session([shell, *ancestors(shell.pid, lookup)])
+    if owner is None:
+        raise LookupError("cannot find the agent session process; pass --process-id explicitly")
+    return owner
+
+
+def _first_session(processes: list[ProcessInfo]) -> Optional[ProcessInfo]:
+    return next((process for process in processes if not is_skipped(process.name)), None)
+
+
+def _shell_process(lookup: Lookup) -> Optional[ProcessInfo]:
+    value = os.environ.get(SHELL_WINPID_VARIABLE, "")
+    return lookup(int(value)) if value.isdecimal() else None
 
 
 def is_skipped(name: str) -> bool:
