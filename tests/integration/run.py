@@ -8,8 +8,10 @@ import os
 import re
 import shlex
 import shutil
+import queue
 import subprocess
 import sys
+import threading
 import time
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
@@ -36,6 +38,11 @@ class Case:
     @property
     def title(self) -> str:
         return self.name + (" (repeat)" if self.repeat else "")
+
+
+def codex_legion_server(servers: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return the connected legion server that lists the status tool, from a Codex mcpServerStatus/list reply."""
+    return next((server for server in servers if server.get("name") == "legion" and server.get("runtimeStatus") == "connected" and "status" in server.get("tools", {})), None)
 
 
 def listed(entry: dict[str, Any], output: str, include_disabled: bool = False, kind: str = "plugin") -> bool:
@@ -444,8 +451,48 @@ class Runner:
             control.mkdir(exist_ok=True)
             require(not self.listing(tool, control, include_disabled=True), f"{tool} lists legion in empty control folder")
             require(self.version(tool, self.folder(tool)) == expected, f"{tool} plugin version is wrong")
+        if "codex" in self.active():
+            self.check_codex_mcp()
         self.state["snapshot"] = self.home_snapshot()
         return "\n".join(lines)
+
+    def check_codex_mcp(self) -> None:
+        """Ask the Codex app-server (no login, no model turn) for MCP servers; the installed plugin must bring a connected legion."""
+        self.command("legion")
+        process = subprocess.Popen([self.command("codex"), "app-server"], cwd=self.work, env=self.env, text=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)  # noqa: S603
+        replies: queue.Queue[dict[str, Any]] = queue.Queue()
+
+        def read_replies() -> None:
+            for line in process.stdout or []:
+                replies.put(json.loads(line))
+
+        threading.Thread(target=read_replies, daemon=True).start()
+
+        def call(number: int, method: str, params: dict[str, Any]) -> Any:
+            assert process.stdin is not None
+            process.stdin.write(json.dumps({"id": number, "method": method, "params": params}) + "\n")
+            process.stdin.flush()
+            while True:
+                reply = replies.get(timeout=60)
+                if reply.get("id") == number:
+                    require("error" not in reply, f"codex app-server {method} failed: {reply.get('error')}")
+                    return reply["result"]
+
+        try:
+            call(1, "initialize", {"clientInfo": {"name": "legion-integration", "version": "1"}})
+            assert process.stdin is not None
+            process.stdin.write(json.dumps({"method": "initialized"}) + "\n")
+            thread = call(2, "thread/start", {"cwd": str(self.work)})["thread"]["id"]
+            servers: list[dict[str, Any]] = []
+            for number in range(3, 33):
+                servers = call(number, "mcpServerStatus/list", {"threadId": thread})["data"]
+                if codex_legion_server(servers) or not any(server.get("name") == "legion" and server.get("runtimeStatus") in (None, "notStarted", "starting") for server in servers):
+                    break
+                time.sleep(2)
+        finally:
+            process.kill()
+        self.log.append(json.dumps(servers))
+        require(codex_legion_server(servers) is not None, "Codex does not list a connected legion MCP server with the status tool")
 
     def install_repeat(self) -> str:
         lines = "\n".join(self.install_legion(tool) for tool in self.active())

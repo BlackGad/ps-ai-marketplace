@@ -544,3 +544,11 @@ def test_update_snapshot_still_detects_other_claude_config_changes(tmp_path: Pat
     (instance.home / ".claude/plugins/installed_plugins.json").write_text("{}", encoding="utf-8")
     with pytest.raises(AssertionError, match=r"added: .claude/plugins/installed_plugins.json"):
         runner.unchanged(first, instance.home_snapshot(update=True))
+
+
+def test_codex_inventory_requires_connected_legion_with_status() -> None:
+    listed = {"name": "legion", "runtimeStatus": "connected", "tools": {"status": {}, "limits": {}}}
+    assert runner.codex_legion_server([{"name": "other", "runtimeStatus": "connected", "tools": {"status": {}}}, listed]) == listed
+    assert runner.codex_legion_server([]) is None
+    assert runner.codex_legion_server([{**listed, "tools": {"limits": {}}}]) is None
+    assert runner.codex_legion_server([{**listed, "runtimeStatus": "failed"}]) is None
