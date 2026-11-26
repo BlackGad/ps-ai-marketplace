@@ -2,7 +2,7 @@
 
 The overseer launcher starts a session with a Telegram channel with `TELEGRAM_STATE_DIR` set to `~/.legion/channels/telegram/<channel id>` (the `state` entry in `channel.json`) and any inherited `TELEGRAM_BOT_TOKEN` removed. The variable is part of the launched command line, so a new Windows Terminal tab gets it too.
 
-`--dry-run` prints `env TELEGRAM_STATE_DIR=<folder>`. Two Telegram channels in one launch are refused. The plugin reads the token only at start: after /telegram:configure, run /reload-plugins or restart. If the bot still does not answer, open /mcp, choose plugin:telegram:telegram and Reconnect (seen live: the server did not start in a fresh session until reconnected).
+Two Telegram channels in one launch are refused. The plugin reads the token only at start: after /telegram:configure, run /reload-plugins or restart. If the bot still does not answer, open /mcp, choose plugin:telegram:telegram and Reconnect (seen live: the server did not start in a fresh session until reconnected).
 
 `legion channel check --kind telegram --account <id>...` also prints `<channel>  bot folder: ready` or `bot folder: missing token (run /telegram:configure in that session)`. It only looks for the token file and never reads it.
 

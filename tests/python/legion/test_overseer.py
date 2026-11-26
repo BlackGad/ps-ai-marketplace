@@ -364,6 +364,22 @@ def test_child_exit_is_preserved(home: Path, repo: Path, launched: list, monkeyp
         assert f"the launch failed with exit code {code}" in captured.err
 
 
+def test_failed_launch_starts_fresh_next_time(home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    codes = iter([5, 0])
+    arguments: list[list[str]] = []
+
+    def start(_repo: Path, launch: _overseer.Launch, **_options: object) -> int:
+        arguments.append(launch.arguments)
+        return next(codes)
+
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(_overseer, "start_launch", start)
+    assert run(["--home", str(home), "--account", "codex-a", "--no-channel"]) == 5
+    assert saved_launch(repo, home).session == ""
+    assert run(["--home", str(home)]) == 0
+    assert arguments == [["continue as the overseer"], ["continue as the overseer"]]
+
+
 @pytest.mark.parametrize("tool", ["claude", "codex"])
 def test_bot_readiness_never_reads_token(home: Path, repo: Path, launched: list, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tool: str) -> None:
     assert _overseer.run(repo, home, account=f"{tool}-a") == 0

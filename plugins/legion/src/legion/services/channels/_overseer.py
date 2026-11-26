@@ -291,10 +291,12 @@ def run(
     launch = _launch(settings, selected, channels, arguments, session, resume, repo, home)
     for folder in launch.environment.values():
         Path(folder).mkdir(parents=True, exist_ok=True)
-    save_last(repo, home, LastLaunch(account=selected.id, channels=list(channels), arguments=list(arguments), session=session, previous_sessions=sessions))
+    saved = LastLaunch(account=selected.id, channels=list(channels), arguments=list(arguments), session=session, previous_sessions=sessions)
+    save_last(repo, home, saved)
     click.echo(f"{'resuming' if resume else 'starting'} overseer: {selected.id}, channel {', '.join(channels) or 'none'}")
     code = start_launch(repo, launch, in_place=owner_launch)
     if code:
+        save_last(repo, home, saved.model_copy(update={"session": ""}))
         click.echo(f"the launch failed with exit code {code}", err=True)
     else:
         click.echo(f"launched {selected.id} ({selected.tool}) in {repo}" + "".join(f" channel {channel}" for channel in channels))
