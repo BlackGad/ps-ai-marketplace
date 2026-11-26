@@ -1,10 +1,10 @@
+import io
 import json
 import os
 import sys
 import threading
 import time
 import traceback
-from typing import Self
 from pathlib import Path
 
 import pytest
@@ -319,7 +319,7 @@ def test_local_source_is_absolute_when_cli_runs_elsewhere(tmp_path: Path, monkey
 def test_install_prompt_discloses_path_edit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setattr(_installer.shutil, "which", lambda _name: "claude")
     questions: list[str] = []
-    monkeypatch.setattr("builtins.input", lambda: questions.append(capsys.readouterr().out) or "n")
+    monkeypatch.setattr(_installer.click, "confirm", lambda question, **_options: questions.append(capsys.readouterr().out + question) or False)
     _installer.install(tmp_path, ["claude"], catalog=catalog())
     assert len(questions) == 1
     assert "PATH" in questions[0]
@@ -603,7 +603,7 @@ def test_repeat_purge_with_retained_app_skips_without_prompt_or_change(tmp_path:
     first = _installer.install(home, ["codex"], uninstall=True, purge=True, yes=True, catalog=catalog())
     assert any("keeping app and python" in line for line in first)
     index = (home / ".legion/footprints.json").read_bytes()
-    monkeypatch.setattr("builtins.input", lambda: pytest.fail("repeat purge prompted"))
+    monkeypatch.setattr(_installer.click, "confirm", lambda *_args, **_options: pytest.fail("repeat purge prompted"))
     second = _installer.install(home, ["codex"], uninstall=True, purge=True, catalog=catalog())
     assert "skip: purge (already done)" in second
     assert not any(line.startswith("Remove ") for line in second)
@@ -624,7 +624,7 @@ def test_uninstall_purge_asks_twice_and_dry_run_neither_prompts_nor_runs_cli(tmp
     command = home / ".legion/bin/legion"
     _footprints.add(home, "file", command, _footprints.target_owner("codex", folder))
     questions: list[str] = []
-    monkeypatch.setattr("builtins.input", lambda: questions.append("asked") or "y")
+    monkeypatch.setattr(_installer.click, "confirm", lambda *_args, **_options: questions.append("asked") or True)
     monkeypatch.setattr(_installer, "_step", lambda *_args: pytest.fail("CLI command ran"))
     _installer.install(home, ["codex"], config_dir=folder, uninstall=True, purge=True, dry_run=True, catalog=catalog())
     assert questions == []
@@ -633,13 +633,19 @@ def test_uninstall_purge_asks_twice_and_dry_run_neither_prompts_nor_runs_cli(tmp
 
 
 def test_confirmation_question_is_visible_before_input(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    def answer(question: str = "") -> str:
-        assert question == ""
-        assert capsys.readouterr().out.endswith("Apply? [y/N]\n")
-        return "y"
+    def answer(question: str, **_options: object) -> bool:
+        assert question == "Apply? [y/N]"
+        assert capsys.readouterr().out == "plan line\n"
+        return True
 
-    monkeypatch.setattr("builtins.input", answer)
+    monkeypatch.setattr(_installer.click, "confirm", answer)
     assert _installer._confirm("Apply? [y/N]", ["plan line"])
+
+
+def test_confirmation_reads_yes_no_and_end_of_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    for text, expected in (("y\n", True), ("n\n", False), ("\n", False), ("", False)):
+        monkeypatch.setattr("sys.stdin", io.StringIO(text))
+        assert _installer._confirm("Apply? [y/N]", []) is expected
 
 
 def test_cli_uninstall_runs_without_pwsh(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -1147,21 +1153,11 @@ def test_install_reports_refresh_failure_and_continues_to_next_target(tmp_path: 
 def test_other_marketplace_source_loads_its_catalog_for_selected_ref(monkeypatch: pytest.MonkeyPatch) -> None:
     urls: list[str] = []
 
-    class FakeResponse:
-        def __enter__(self) -> Self:
-            return self
-
-        def __exit__(self, *_args: object) -> None:
-            return None
-
-        def read(self) -> bytes:
-            return json.dumps(catalog()).encode("utf-8")
-
-    def fake_open(url: str, **_kwargs: object) -> FakeResponse:
+    def fake_get(url: str, _timeout: float) -> bytes:
         urls.append(url)
-        return FakeResponse()
+        return json.dumps(catalog()).encode("utf-8")
 
-    monkeypatch.setattr(_installer, "urlopen", fake_open, raising=False)
+    monkeypatch.setattr(_installer, "get_bytes", fake_get)
     assert _installer._catalog("example/marketplace", "main", None)["schemaVersion"] == 1
     assert urls == ["https://raw.githubusercontent.com/example/marketplace/main/plugins/legion/tools.json"]
 
@@ -1252,11 +1248,11 @@ def test_profile_edit_keeps_utf16_and_crlf(tmp_path: Path) -> None:
 def test_confirmation_prints_target_preview_before_asking(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     lines = ["Target: codex in selected folder", "codex plugin remove legion@ps-legion-marketplace"]
 
-    def answer() -> str:
+    def answer(_question: str, **_options: object) -> bool:
         assert "Target: codex in selected folder" in capsys.readouterr().out
-        return "n"
+        return False
 
-    monkeypatch.setattr("builtins.input", answer)
+    monkeypatch.setattr(_installer.click, "confirm", answer)
     assert not _installer._confirm("Uninstall? [y/N]", lines)
     assert lines == []
 
@@ -1385,25 +1381,15 @@ def test_ref_main_with_the_default_source_reads_the_remote_catalog_not_the_local
     remote = catalog()
     remote["tools"][0]["installHint"] = "remote main catalog"
 
-    class FakeResponse:
-        def __enter__(self) -> Self:
-            return self
-
-        def __exit__(self, *_args: object) -> None:
-            return None
-
-        def read(self) -> bytes:
-            return json.dumps(remote).encode("utf-8")
-
-    def fake_open(url: str, **_kwargs: object) -> FakeResponse:
+    def fake_get(url: str, _timeout: float) -> bytes:
         urls.append(url)
-        return FakeResponse()
+        return json.dumps(remote).encode("utf-8")
 
-    monkeypatch.setattr(_installer, "urlopen", fake_open)
+    monkeypatch.setattr(_installer, "get_bytes", fake_get)
     assert _installer._catalog("BlackGad/ps-legion-marketplace", "main", None)["tools"][0]["installHint"] == "remote main catalog"
     assert urls == ["https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/plugins/legion/tools.json"]
     urls.clear()
-    monkeypatch.setattr(_installer, "urlopen", lambda *_a, **_k: pytest.fail("the release track reads the shipped catalog"))
+    monkeypatch.setattr(_installer, "get_bytes", lambda *_a, **_k: pytest.fail("the release track reads the shipped catalog"))
     assert _installer._catalog("BlackGad/ps-legion-marketplace", "release", None)["schemaVersion"] == 1
 
 
@@ -1422,10 +1408,7 @@ def test_install_without_consent_changes_nothing_and_says_how_to_apply(tmp_path:
     _fake_targets(tmp_path, monkeypatch)
     ran = _steps_run(monkeypatch)
 
-    def closed_stdin() -> str:
-        raise EOFError
-
-    monkeypatch.setattr("builtins.input", closed_stdin)
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
     lines = _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", catalog=catalog())
     assert lines[-1] == "Nothing changed. Run again with --yes to apply."
     assert ran == []
@@ -1436,7 +1419,7 @@ def test_install_without_consent_changes_nothing_and_says_how_to_apply(tmp_path:
 def test_the_owner_can_say_yes_at_the_install_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_targets(tmp_path, monkeypatch)
     ran = _steps_run(monkeypatch)
-    monkeypatch.setattr("builtins.input", lambda: "yes")
+    monkeypatch.setattr(_installer.click, "confirm", lambda *_args, **_options: True)
     lines = _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", catalog=catalog())
     assert ran == ["claude"]
     assert "Nothing changed. Run again with --yes to apply." not in lines
@@ -1444,7 +1427,7 @@ def test_the_owner_can_say_yes_at_the_install_prompt(tmp_path: Path, monkeypatch
 
 def test_a_dry_run_never_prompts_and_changes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_targets(tmp_path, monkeypatch)
-    monkeypatch.setattr("builtins.input", lambda: pytest.fail("a dry run asked"))
+    monkeypatch.setattr(_installer.click, "confirm", lambda *_args, **_options: pytest.fail("a dry run asked"))
     lines = _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", dry_run=True, catalog=catalog())
     assert not (tmp_path / "config").exists()
     assert not (tmp_path / ".legion").exists()
@@ -1468,7 +1451,7 @@ def test_install_prints_the_tool_hook_hint(tmp_path: Path, monkeypatch: pytest.M
 def test_update_asks_once_across_folders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     _fake_targets(tmp_path, monkeypatch)
     questions: list[str] = []
-    monkeypatch.setattr("builtins.input", lambda: questions.append(capsys.readouterr().out) or "y")
+    monkeypatch.setattr(_installer.click, "confirm", lambda question, **_options: questions.append(capsys.readouterr().out + question) or True)
     _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", update=True, catalog=catalog())
     assert len(questions) == 1
-    assert questions[0].endswith("Update legion? [y/N]\n")
+    assert questions[0].endswith("Update legion? [y/N]")

@@ -1,16 +1,14 @@
 import re
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
-import uuid
 from collections.abc import Callable
+from contextlib import ExitStack
 from pathlib import Path
 from typing import (
     Literal,
     Optional,
 )
 
+import httpx
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -21,13 +19,11 @@ from pydantic import (
 )
 
 from legion.core._home import channel_folder, legion_home
+from legion.core._http import https_client
 from legion.core._settings_models import NAME_PATTERN
 
 MESSAGE_LIMIT = 4096
 PHOTO_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-
-# An opener instead of urlopen: the URL is fixed https, and ruff flags urlopen (S310).
-_opener = urllib.request.build_opener(urllib.request.HTTPSHandler)
 
 # post(token, method, fields, files) returns the Bot API "result" or raises TelegramError.
 Post = Callable[[str, str, dict[str, str], list[tuple[str, Path]]], JsonValue]
@@ -111,36 +107,27 @@ def read_token(channel: str, home: Optional[Path] = None) -> str:
     raise TelegramError(f"no bot token for channel '{channel}'; pair the bot on Claude first")
 
 
-def _multipart(fields: dict[str, str], files: list[tuple[str, Path]]) -> tuple[bytes, str]:
-    boundary = uuid.uuid4().hex
-    body = b""
-    for name, value in fields.items():
-        body += f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
-    for name, path in files:
-        body += f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{path.name}"\r\n'.encode()
-        body += b"Content-Type: application/octet-stream\r\n\r\n" + path.read_bytes() + b"\r\n"
-    return body + f"--{boundary}--\r\n".encode(), f"multipart/form-data; boundary={boundary}"
+# Telegram explains a failed call in the body; a body that is not that explanation is ignored.
+def _failure_description(response: httpx.Response) -> Optional[str]:
+    try:
+        return Reply.model_validate_json(response.content).description
+    except ValidationError:
+        return None
 
 
 def call_bot(token: str, method: str, fields: dict[str, str], files: list[tuple[str, Path]]) -> JsonValue:
-    if files:
-        body, content_type = _multipart(fields, files)
-    else:
-        body, content_type = urllib.parse.urlencode(fields).encode(), "application/x-www-form-urlencoded"
-    request = urllib.request.Request(f"https://api.telegram.org/bot{token}/{method}", data=body, headers={"Content-Type": content_type})
+    url = f"https://api.telegram.org/bot{token}/{method}"
     try:
-        with _opener.open(request, timeout=60) as response:
-            reply = Reply.model_validate_json(response.read())
-    except urllib.error.HTTPError as error:
-        # The error text holds the URL, which holds the token: use only Telegram's own description.
-        try:
-            description = Reply.model_validate_json(error.read()).description
-        except Exception:
-            description = None
-        raise TelegramError(description or f"HTTP {error.code}", error.code) from None
+        with ExitStack() as stack:
+            uploads = {name: (path.name, stack.enter_context(path.open("rb"))) for name, path in files}
+            with https_client(60) as client:
+                response = client.post(url, data=fields, files=uploads or None)
+        reply = Reply.model_validate_json(response.content) if response.is_success else Reply()
     except Exception:
-        # Any HTTP-layer error can quote the URL, so none is chained or shown.
+        # Any HTTP-layer error can quote the URL, which holds the token, so none is chained or shown.
         raise TelegramError("network error", 0) from None
+    if not response.is_success:
+        raise TelegramError(_failure_description(response) or f"HTTP {response.status_code}", response.status_code)
     if not reply.ok:
         raise TelegramError(reply.description or "request failed", reply.error_code)
     return reply.result

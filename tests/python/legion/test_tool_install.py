@@ -1,13 +1,10 @@
 # CLI tool installs against fakes: no real winget, npm, installer or download, and no real PATH or registry.
 import hashlib
-import io
 import json
 import os
 import sys
-import urllib.request
 import zipfile
 from collections.abc import Callable
-from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
@@ -796,16 +793,6 @@ def test_execute_gives_the_child_the_terminal_streams(tmp_path: Path, capfd: pyt
     assert code == 3
     assert answer.read_text(encoding="utf-8") == "yes"
     assert "proceed?" in capfd.readouterr().out
-
-
-def test_a_redirect_must_stay_on_https() -> None:
-    handler = _tool_install.HttpsRedirectHandler()
-    request = urllib.request.Request("https://vendor.test/install.ps1")
-    followed = handler.redirect_request(request, io.BytesIO(), 302, "Found", Message(), "https://cdn.test/install.ps1")
-    assert followed is not None
-    assert followed.full_url == "https://cdn.test/install.ps1"
-    with pytest.raises(ToolInstallError, match="not https"):
-        handler.redirect_request(request, io.BytesIO(), 302, "Found", Message(), "http://cdn.test/install.ps1")
 
 
 def test_an_interrupted_extraction_publishes_nothing_and_a_retry_succeeds(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:

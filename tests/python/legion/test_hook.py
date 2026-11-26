@@ -234,7 +234,7 @@ import sys
 from pathlib import Path
 from legion.hook._hook import mode_text
 mode_text(Path(sys.argv[1]), {})
-banned = {"legion.core._process", "legion.services.repository._lease", "psutil", "pydantic", "click", "filelock", "mcp", "urllib.request", "http.client", "ssl"}
+banned = {"legion.core._process", "legion.services.repository._lease", "psutil", "pydantic", "click", "filelock", "mcp", "urllib.request", "http.client", "ssl", "httpx", "truststore"}
 assert not banned.intersection(sys.modules), banned.intersection(sys.modules)
 """
     result = subprocess.run([sys.executable, "-c", script, str(repo)], capture_output=True, text=True, check=False)

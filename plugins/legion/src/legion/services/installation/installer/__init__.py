@@ -10,8 +10,8 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.request import urlopen
 
+import click
 import tomlkit
 from tomlkit.items import InlineTable
 
@@ -19,6 +19,7 @@ from legion.services.repository import _footprints
 from legion.services.installation import _user_path
 from legion.services.installation import _refresh
 from legion.core._generated import is_owned
+from legion.core._http import get_bytes
 from legion.core._home import bin_folder, footprint_index, full_path, home_path, is_reparse, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import run_command
@@ -81,8 +82,7 @@ def _catalog(source: str | Path, ref: str, catalog: dict[str, Any] | None) -> di
         elif re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", str(source)):
             branch = "main" if ref == "main" else "stable"
             url = f"https://raw.githubusercontent.com/{source}/{branch}/plugins/legion/tools.json"
-            with urlopen(url, timeout=30) as response:
-                catalog = json.loads(response.read())
+            catalog = json.loads(get_bytes(url, 30))
         else:
             raise InstallerError(f"unsupported marketplace source '{source}'")
     assert catalog is not None
@@ -1033,9 +1033,8 @@ def _confirm(question: str, lines: list[str]) -> bool:
         print(line)
     lines.clear()
     try:
-        print(question, flush=True)
-        return input().strip().lower() in ("y", "yes")
-    except EOFError:
+        return click.confirm(question, default=False, prompt_suffix=" ", show_default=False)
+    except click.Abort:
         return False
 
 
