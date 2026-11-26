@@ -1,8 +1,7 @@
 import importlib
 import re
-import subprocess
-import sys
 import tomllib
+from fnmatch import fnmatch
 from pathlib import Path
 
 import pytest
@@ -17,10 +16,19 @@ from legion.services.installation import _installed_runtime
 ROOT = Path(__file__).resolve().parents[2]
 PLUGIN = ROOT / "plugins/legion"
 MAINTAINER_NAMES = {"tests", "tools", "ruff.toml", "pyrightconfig.json", "pytest.ini", ".coveragerc", "conftest.py"}
+MAINTAINER_PATTERNS = ("*.Tests.ps1", "test_*.py", "*_test.py")
 
 
 def maintainer_files(paths: list[Path]) -> list[Path]:
-    return [path for path in paths if MAINTAINER_NAMES & set(path.parts) or path.name.endswith(".Tests.ps1")]
+    return [path for path in paths if MAINTAINER_NAMES & set(path.parts) or any(fnmatch(path.name, pattern) for pattern in MAINTAINER_PATTERNS)]
+
+
+def console_command() -> Group:
+    project = tomllib.loads((PLUGIN / "pyproject.toml").read_text(encoding="utf-8"))
+    module_name, function_name = project["project"]["scripts"]["legion"].split(":")
+    command = getattr(importlib.import_module(module_name), function_name)
+    assert isinstance(command, Group)
+    return command
 
 
 def test_plugin_tree_has_no_maintainer_files(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -49,33 +57,22 @@ def test_app_copy_has_only_client_files(tmp_path: Path, monkeypatch: pytest.Monk
 
 
 def test_cli_lists_every_command_from_cli_package() -> None:
-    main = importlib.import_module("legion.cli").main
-    assert isinstance(main, Group)
-    listed = CliRunner().invoke(main, ["help"]).output
+    main = console_command()
+    result = CliRunner().invoke(main, ["help"])
+    assert result.exit_code == 0, result.output
     names = {name for name, command in main.commands.items() if not command.hidden}
     assert {"install", "uninstall", "status", "setup", "help"} <= names
-    assert {line.split()[0] for line in listed.split("Commands:")[1].splitlines() if line.strip()} == names
+    assert {line.split()[0] for line in result.output.split("Commands:")[1].splitlines() if line.strip()} == names
 
 
-def test_console_entry_point_resolves_and_lists_commands() -> None:
-    project = tomllib.loads((PLUGIN / "pyproject.toml").read_text(encoding="utf-8"))
-    module_name, function_name = project["project"]["scripts"]["legion"].split(":")
-    command = getattr(importlib.import_module(module_name), function_name)
-    assert isinstance(command, Group)
-    result = subprocess.run([sys.executable, "-m", module_name, "--help"], capture_output=True, text=True, check=False)
-    assert result.returncode == 0, result.stderr
-    assert "status" in result.stdout
-
-
+# Manifests.Tests.ps1 asserts each full command line and its event; here only the exact script path must exist.
 def test_fixed_entry_points_exist() -> None:
-    commands = []
+    scripts = []
     for name in ("hooks.json", "copilot-hooks.json"):
         text = (PLUGIN / "hooks" / name).read_text(encoding="utf-8")
-        commands += re.findall(r"PLUGIN_ROOT\}?[/\\]+(hooks[/\\]+\w+\.py)", text)
-    assert len(commands) == 4
-    for relative in commands:
+        scripts += re.findall(r'PLUGIN_ROOT\}?[/\\]+(hooks[/\\]+session_start\.py)\\?"', text)
+    assert len(scripts) == 4
+    for relative in scripts:
         assert (PLUGIN / relative.replace("\\", "/")).is_file(), relative
     assert (PLUGIN / "src/legion/_self_uninstall.py").is_file()
-    project = tomllib.loads((PLUGIN / "pyproject.toml").read_text(encoding="utf-8"))
-    module_name, function_name = project["project"]["scripts"]["legion"].split(":")
-    assert hasattr(importlib.import_module(module_name), function_name)
+    console_command()

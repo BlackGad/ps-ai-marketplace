@@ -1,11 +1,14 @@
 import ast
 import io
+import os
 import tokenize
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from legion.hook import _hook
 
 REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / "plugins/legion/src"
@@ -29,11 +32,12 @@ def test_mcp_sdk_imports_stay_in_mcp_package() -> None:
                 assert path.is_relative_to(SOURCE / "legion/mcp"), path
 
 
-def test_hook_import_closure_is_standard_library_only() -> None:
-    script = "import sys\nbefore = set(sys.modules)\nimport legion.hook\nprint(sorted({name.split('.')[0] for name in set(sys.modules) - before} - set(sys.stdlib_module_names)))"
-    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
+# -I -S: no site-packages and no user site, so the shipped entry script and its imports see only the standard library and the plugin source.
+def test_session_start_script_runs_with_standard_library_only(tmp_path: Path) -> None:
+    environment = {"LEGION_ROLE": "member", "LEGION_TASK": "task.md", "HOME": str(tmp_path), "USERPROFILE": str(tmp_path), "SYSTEMROOT": os.environ.get("SYSTEMROOT", "")}
+    result = subprocess.run([sys.executable, "-I", "-S", str(HOOKS / "session_start.py"), "--format", "text"], capture_output=True, text=True, check=False, cwd=tmp_path, env=environment, input="")
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "['legion']", result.stdout
+    assert result.stdout.strip() == _hook.MEMBER
 
 
 def test_hook_and_cli_import_no_mcp() -> None:
