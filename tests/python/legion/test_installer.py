@@ -19,7 +19,7 @@ from legion import cli as _cli
 from legion.services.repository import _footprints
 from legion.services.installation import _user_path
 from legion.core._generated import header
-from legion.core import _http
+from legion.core import _http, _run
 from legion.core._http import https_client
 from legion.core._run import RunResult
 from app_fakes import FakeUv, make_source
@@ -1447,6 +1447,27 @@ def test_a_dry_run_never_prompts_and_changes_nothing(tmp_path: Path, monkeypatch
     assert not (tmp_path / "config").exists()
     assert not (tmp_path / ".legion").exists()
     assert lines[0] == "Install legion for claude"
+
+
+@pytest.mark.parametrize(("platform", "quote"), [("win32", '"'), ("linux", "'")])
+def test_install_preview_quotes_paths_with_spaces(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str, quote: str) -> None:
+    monkeypatch.setattr(_run, "sys", SimpleNamespace(platform=platform))
+    entry = catalog()["tools"][0]
+    folder = tmp_path / "account folder"
+    source = tmp_path / "local checkout"
+    source.mkdir()
+    command = f"claude plugin marketplace add {quote}{source.resolve().as_posix()}{quote}"
+    monkeypatch.setattr(_installer, "_marketplace", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (False, False, [], ""))
+    lines: list[str] = []
+    _installer._install_steps(entry, folder, source, "main", True, lines)
+    assert lines[0] == f"CLAUDE_CONFIG_DIR={quote}{folder}{quote} {command}"
+
+    monkeypatch.setattr(_installer, "_marketplace", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (True, True, [], ""))
+    lines.clear()
+    _installer._install_steps(entry, folder, source, "main", True, lines)
+    assert lines[0] == f"skip: {command} (already done)"
 
 
 def test_install_names_the_installed_version_track_and_next_step(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

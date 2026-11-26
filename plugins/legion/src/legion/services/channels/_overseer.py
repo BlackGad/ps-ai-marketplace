@@ -213,7 +213,7 @@ def start_launch(repo: Path, launch: Launch, *, dry_run: bool = False, in_place:
         for word in [str(repo), launch.command, *launch.arguments]:
             click.echo(word)
         if launch.bridge:
-            click.echo("bridge: " + " ".join(launch.bridge))
+            click.echo("bridge: " + _run.display_command(launch.bridge))
         if terminal:
             click.echo("wt")
         return 0

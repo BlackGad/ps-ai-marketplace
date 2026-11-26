@@ -828,8 +828,9 @@ def test_hints_list_a_missing_prerequisite_before_the_tool(bench: Bench) -> None
 
 
 def test_hints_follow_the_platform_recipe(bench: Bench) -> None:
+    quote = '"' if sys.platform == "win32" else "'"
     for platform in ("linux", "macos"):
-        assert _tool_install.install_hints("claude", platform) == [" ".join(recipe("claude").linux.commands[0] if platform == "linux" else recipe("claude").macos.commands[0])]
+        assert _tool_install.install_hints("claude", platform) == [f"bash -c {quote}curl -fsSL https://claude.ai/install.sh | bash{quote}"]
     assert _tool_install.install_hints("copilot", "windows") == [f"winget install --id GitHub.Copilot -e{WINGET_FLAGS}"]
     bench.available.add("node")
     assert _tool_install.install_hints("copilot", "windows") == ["npm install -g @github/copilot"]

@@ -35,7 +35,7 @@ from legion.core._home import (
     tree_has_reparse,
 )
 from legion.core._plugin import PLUGIN_ROOT
-from legion.core._run import run_command
+from legion.core._run import display_command, run_command
 from legion.core._text import decode_text, encode_text
 
 
@@ -821,7 +821,7 @@ def _refresh_target(entry: dict[str, Any], folder: Path, home: Path, root: Path)
 
 
 def _command_line(entry: dict[str, Any], arguments: list[str], folder: Path) -> str:
-    return f"{entry['configEnv']}={folder} {entry['command']} {' '.join(arguments)}"
+    return f"{entry['configEnv']}={display_command([str(folder)])} {display_command([entry['command'], *arguments])}"
 
 
 def _step(entry: dict[str, Any], arguments: list[str], folder: Path, dry_run: bool, lines: list[str]) -> None:
@@ -844,7 +844,7 @@ def _install_steps(entry: dict[str, Any], folder: Path, source: str | Path, ref:
     installed = _marketplace(entry, folder)
     listed, enabled, _, _ = _plugin_state(entry, folder)
     if installed and enabled and _marketplace(entry, folder, require_root=True):
-        lines.extend([f"skip: {entry['command']} {' '.join(marketplace_add)} (already done)", f"skip: {entry['command']} {' '.join(plugin['install'])} (already done)"])
+        lines.extend(f"skip: {display_command([entry['command'], *arguments])} (already done)" for arguments in (marketplace_add, plugin["install"]))
         return
     if not installed:
         _step(entry, marketplace_add, folder, dry_run, lines)
