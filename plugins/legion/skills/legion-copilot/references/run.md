@@ -3,13 +3,13 @@
 Follow [owner notes](../../legion-personalisation/references/fields.md) before account, model or channel choices.
 Legion and review runs omit model flags so the CLI uses that account's own default. When notes name a model or allow a tier, follow [model tiers](../../legion-overseer/references/task-loop.md#model-tiers) and add `--model <named-model>` for that run. For Foundry, pass the deployment name using [Foundry routing](../../legion-overseer/references/task-loop.md#foundry-runs). Do not discover models or offer a model list for subscription agents.
 
-`<command>` is `legion run --account <id> --`: legion starts that account's own program with its config folder and passes every word after `--` to it. When `legion` is not on PATH, use `<home>/.legion/bin/legion` (`legion.cmd` on Windows). Read the task prompt from the overseer's file. For legion, the prompt, report, and logs must be inside the assigned repository or worktree, under `.legion/temp/` for scratch files. Start there and inherit the owner's environment, including user PATH and installed tools. Never invent a path directly under the system temp folder. When only showing commands and no report path was supplied, retain the `<report>` placeholder and ask the overseer to provide it. Use the worker profile below. In the task repo, legion prompt mode is:
+`<command>` is `<home>/.legion/bin/legion run --account <id> --` (`legion.cmd` on Windows), where `<home>` is the overseer's legion home (its `LEGION_HOME`, or your user folder when unset): legion starts that account's own program with its config folder and passes every word after `--` to it. Always use that home's own `legion`, never one found on PATH; another home can hold an account with the same id. Read the task prompt from the overseer's file. For legion, the prompt, report, and logs must be inside the assigned repository or worktree, under `.legion/temp/` for scratch files. Start there and inherit the owner's environment, including user PATH and installed tools. Never invent a path directly under the system temp folder. When only showing commands and no report path was supplied, retain the `<report>` placeholder and ask the overseer to provide it. Use the worker profile below. In the task repo, legion prompt mode is:
 
 ```sh
 <command> -p "Read and follow the task in <prompt path>; the report goes to stdout." -s --allow-all-tools --deny-tool='shell(git push)' > "<report>"
 ```
 
-PowerShell 7: set `$legion` (the `legion` command), `$account`, `$promptPath`, `$repoPath` and `$report` from the assigned task. Keep the same process environment and capture stdout as the report where needed.
+PowerShell 7: set `$legion` (that home's `legion.cmd`), `$account`, `$promptPath`, `$repoPath` and `$report` from the assigned task. Keep the same process environment and capture stdout as the report where needed.
 
 ```powershell
 $promptText = "Read and follow the task in $promptPath; the report goes to stdout."

@@ -1,10 +1,12 @@
 # Start an account's program with its own config folder. The owner's overseer, members, limits,
 # inbox nudges and Foundry accounts all launch through here; nothing is written to <home>/.legion/bin.
 
+import os
 import signal
 import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -56,7 +58,19 @@ def account_command(agent: Agent, home: Path, *, token_check: Callable[[], AzAcc
     return AccountCommand(program, prefix, launch.set | legion_home, launch.clear, launch.provider_file, launch.notice)
 
 
+# True when this process is in the terminal's foreground group: a Ctrl+C typed there reached the account's program too.
+def _foreground() -> bool:
+    if sys.platform == "win32":
+        return False
+    try:
+        with open("/dev/tty", "rb") as terminal:
+            return os.tcgetpgrp(terminal.fileno()) == os.getpgrp()
+    except OSError:
+        return False
+
+
 # Runs the account in this terminal and returns its exit code; Ctrl+C goes to the account's program, not to legion.
+# On POSIX a SIGINT or SIGTERM sent to legion's own process is passed on, as when the old launcher exec'd the tool.
 def run_account(account: str, arguments: list[str], home: Path, *, cwd: Optional[Path] = None, environment: Optional[Mapping[str, str]] = None) -> int:
     agent = next((item for item in _settings_io.load(home).agents if item.id == account), None)
     if agent is None:
@@ -72,7 +86,15 @@ def run_account(account: str, arguments: list[str], home: Path, *, cwd: Optional
         if sys.platform == "win32" and Path(line[0]).suffix.lower() in (".cmd", ".bat"):
             line = _cmd_line(line)
         child = subprocess.Popen(line, cwd=cwd, env=command.environment(environment))
-        previous = signal.signal(signal.SIGINT, signal.SIG_IGN) if sys.platform != "win32" else None
+
+        def forward(number: int, _frame: object) -> None:
+            if number == signal.SIGINT and _foreground():
+                return
+            with suppress(ProcessLookupError):
+                child.send_signal(number)
+
+        names = [signal.SIGINT, signal.SIGTERM] if sys.platform != "win32" else []
+        previous = {number: signal.signal(number, forward) for number in names}
         try:
             while True:
                 try:
@@ -83,8 +105,8 @@ def run_account(account: str, arguments: list[str], home: Path, *, cwd: Optional
                     if sys.platform != "win32":
                         raise
         finally:
-            if previous is not None:
-                signal.signal(signal.SIGINT, previous)
+            for number, handler in previous.items():
+                signal.signal(number, handler)
     finally:
         if path is not None:
             path.unlink(missing_ok=True)

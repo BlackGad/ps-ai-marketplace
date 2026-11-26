@@ -252,6 +252,17 @@ def write_owner_commands(app: Path, home: Path) -> list[Path]:
     return changed
 
 
+# True when every owner command of this home is legion's, holds no link and runs `app` exactly as written for it.
+def owner_commands_run(app: Path, home: Path) -> bool:
+    for windows in [False, True] if sys.platform == "win32" else [False]:
+        path = bin_folder(home) / ("legion.cmd" if windows else "legion")
+        if not owner_path_safe(path, home) or not is_owned(path, "owner command"):
+            return False
+        if path.read_bytes() != shim_text(app, home, windows).encode("utf-8"):
+            return False
+    return True
+
+
 # Rename both trees before deleting either. On Windows, an open file blocks the whole folder rename,
 # so a running version remains complete. Hand-built, reason: shutil.rmtree can partially delete a locked tree.
 def _remove_version(path: Path, home: Path) -> bool:

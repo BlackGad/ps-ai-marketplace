@@ -13,7 +13,10 @@ from unittest.mock import ANY, MagicMock
 import pytest
 
 from cli_runner import run
+from legion.services.accounts import _launch
 from legion.services.channels import _inbox
+from legion.services.foundry import _az
+from legion.services.foundry._az import AzAccessToken
 from legion.core._home import settings_path
 from legion.services.channels._inbox import InboxMessage, repo_key
 from legion.core._run import RunResult, _cmd_line
@@ -193,7 +196,8 @@ def test_send_nudges_lease_account_once(inbox_home: Path, repo: Path, fake_wrapp
         "New legion inbox message from repo-a; read it as the legion-overseer inbox reference describes (inbox.md).",
     ]
     assert Path(f"{fake_wrapper}.home").read_text(encoding="utf-8") == str(tmp_path / CODEX_HOME)
-    assert calls == [15]
+    assert len(calls) == 1
+    assert 0 < (calls[0] or 0) <= 15
     output = capsys.readouterr()
     assert output.err == ""
     assert (inbox_path(inbox_home, repo) / "new" / output.out.strip()).is_file()
@@ -305,7 +309,7 @@ def test_timed_out_nudge_warns_and_keeps_the_message(inbox_home: Path, repo: Pat
     timed_out = MagicMock(return_value=RunResult(exit_code=-1, output="", error="", timed_out=True))
     monkeypatch.setattr(_inbox, "run_command", timed_out)
     assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
-    timed_out.assert_called_once_with(str(fake_command(inbox_home.parent)), ["queue", "--thread", "fixture-thread", "--message", message("repo-a")], timeout=15, env=ANY)
+    timed_out.assert_called_once_with(str(fake_command(inbox_home.parent)), ["queue", "--thread", "fixture-thread", "--message", message("repo-a")], timeout=ANY, env=ANY)
     output = capsys.readouterr()
     assert output.err == "warning: inbox message saved; Codex nudge failed.\n"
     saved = inbox_path(inbox_home, repo) / "new" / output.out.strip()
@@ -433,3 +437,26 @@ def test_emoji_and_cyrillic_survive_a_narrow_default_encoding(inbox_home: Path, 
     pipe.flush()
     lines = raw.getvalue().decode("utf-8").splitlines()
     assert [lines[0], lines[2], lines[3]] == ["from: repo-a", "text:", f"    {text}"]
+
+
+# An expired Azure login makes a Foundry nudge fail with the usual warning; the sender's terminal never waits for az login.
+def test_a_foundry_nudge_never_starts_an_az_login(inbox_home: Path, repo: Path, fake_wrapper: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    foundry = {"kind": "foundry", "endpoint": "https://example.test", "default": "m", "deployments": [{"name": "m"}]}
+    codex = {"id": "codex-a", "tool": "codex", "configDir": str(tmp_path / CODEX_HOME), "provider": foundry}
+    settings_path(tmp_path).write_text(json.dumps({"schemaVersion": 1, "agents": [codex], "channels": []}), encoding="utf-8")
+    monkeypatch.setattr(_launch, "target", lambda *_args: fake_command(tmp_path))
+    timeouts: list[Optional[float]] = []
+
+    def expired(timeout: Optional[float] = None) -> AzAccessToken:
+        timeouts.append(timeout)
+        raise ValueError("expired login")
+
+    monkeypatch.setattr(_az, "token", expired)
+    monkeypatch.setattr(_az.subprocess, "run", lambda *_args, **_options: pytest.fail("az login started"))
+    take_lease(repo, "codex", monkeypatch, "fixture-thread", capsys)
+    assert run(["inbox", "send", "--to", str(repo), "--from", "repo-a", "--text", "hello"]) == 0
+    output = capsys.readouterr()
+    assert output.err == "warning: inbox message saved; Codex nudge failed.\n"
+    assert (inbox_path(inbox_home, repo) / "new" / output.out.strip()).is_file()
+    assert timeouts == [15]
+    assert not fake_wrapper.exists()

@@ -32,6 +32,10 @@ def make_source(root: Path, version: str = VERSION) -> Path:
     (source / "plugin.json").write_text(json.dumps({"name": "legion", "version": version}), encoding="utf-8")
     (source / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     (source / "src" / "module.py").write_text("x = 1\n", encoding="utf-8")
+    # An app with this module has `legion run`, so refresh may remove the old account launchers.
+    launch = source / "src" / "legion" / "services" / "accounts" / "_launch.py"
+    launch.parent.mkdir(parents=True, exist_ok=True)
+    launch.write_text("", encoding="utf-8")
     return source
 
 

@@ -1,4 +1,5 @@
 # One account launch for every caller: the program, its config folder and arguments, against fake CLIs only.
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,7 @@ from legion.core._settings_models import Agent, PersonalisationSettings
 from legion.services.accounts._launch import account_command, run_account
 from legion.services.accounts._launchers import LauncherError
 from legion.services.foundry._az import AzAccessToken
+from legion.services.installation._installed_runtime import shim_home_argument
 
 RUNNER = "import sys; from legion import cli as _cli; _cli.main(sys.argv[1:], prog_name='legion')"
 ENDPOINT = "https://res-a.cognitiveservices.azure.com"
@@ -149,6 +151,33 @@ def test_batch_program_keeps_percent_and_bang_paths(tmp_path: Path, capfd: pytes
     save_agents(home, agent("codex-a", folder, command=str(command)))
     assert run_account("codex-a", ["first", "two words"], home) == 3
     assert readout(capfd.readouterr().out) == [f"var={folder}", "arg=first", "arg=two words"]
+
+
+# Every character cmd.exe treats as syntax reaches a .cmd or .bat program literally, in the arguments as well.
+@pytest.mark.skipif(not WINDOWS, reason="batch programs run on Windows only")
+@pytest.mark.parametrize("suffix", [".cmd", ".bat"])
+def test_batch_program_receives_cmd_syntax_arguments_literally(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, suffix: str) -> None:
+    record, out = tmp_path / "record.py", tmp_path / "argv.json"
+    record.write_text("import json, os, sys\nopen(os.environ['ARGV_OUT'], 'w', encoding='utf-8').write(json.dumps(sys.argv[1:]))\n", encoding="utf-8")
+    program = tmp_path / f"fake{suffix}"
+    program.write_text(f'@"{sys.executable}" "{record}" %*\r\n', encoding="utf-8", newline="")
+    save_agents(tmp_path, agent("codex-a", tmp_path / "config", command=str(program)))
+    monkeypatch.setenv("ARGV_OUT", str(out))
+    words = ["100%", "%PATH%", "bang!", "!PATH!", "caret^", "a^^b", 'say "hi"', '"quoted"', "back\\", 'end\\"', "a&b|c<d>e", "two words", ""]
+    assert run_account("codex-a", words, tmp_path) == 0
+    assert json.loads(out.read_text(encoding="utf-8")) == words
+
+
+# Two homes can hold the same account id. A home's own owner command passes that home on, and the run picks its account.
+@pytest.mark.usefixtures("stock")
+def test_two_homes_with_the_same_account_id_each_start_their_own(tmp_path: Path) -> None:
+    homes = [tmp_path / "home a", tmp_path / "home b"]
+    for home in homes:
+        save_agents(home, agent("codex-a", home / "config"))
+        assert "--home" in shim_home_argument(home, WINDOWS)
+        arguments = [sys.executable, "-c", RUNNER, "--home", str(home), "run", "--account", "codex-a", "--"]
+        result = subprocess.run(arguments, capture_output=True, text=True, check=False)
+        assert readout(result.stdout)[0] == f"var={home / 'config'}"
 
 
 @pytest.mark.usefixtures("stock")

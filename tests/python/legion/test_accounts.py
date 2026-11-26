@@ -236,7 +236,7 @@ def test_a_command_that_is_the_accounts_old_launcher_is_refused(world: World, mo
     monkeypatch.setattr(_accounts.os, "access", lambda path, mode: False if Path(path) == own and mode == _accounts.os.X_OK else real_access(path, mode))
     command = str(own) if by == "path" else own.name
     assert add(world, "recursion", "claude", "--command", command) == 1
-    assert says(capsys) == ("", "wrapper target would recurse\n")
+    assert says(capsys) == ("", "the command is this account's own old launcher\n")
     assert not settings_path(world.home).exists()
 
 

@@ -63,6 +63,9 @@ def ready_app(home: Path, version: str = "1.0.0") -> Path:
     app = home / ".legion" / "app" / version
     app.mkdir(parents=True)
     (app / ".legion-app-ready").touch()
+    launch = app / "src" / "legion" / "services" / "accounts" / "_launch.py"
+    launch.parent.mkdir(parents=True)
+    launch.touch()
     _footprints.add(home, "app-version", app, "legion")
     program = python_environment(app, home) / ("Scripts/legion.exe" if WINDOWS else "bin/legion")
     program.parent.mkdir(parents=True, exist_ok=True)

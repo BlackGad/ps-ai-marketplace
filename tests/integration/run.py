@@ -737,7 +737,7 @@ asyncio.run(main())
         agents = self.settings()["agents"]
         for tool in self.active():
             require(f"{tool}1" in [agent["id"] for agent in agents], f"{tool}1 missing")
-            contains(output, f"log in: run {tool}1")
+            contains(output, f"log in: run legion --account {tool}1")
         self.check_accounts(agents)
         require(any((self.home / ".legion/bin").iterdir()), "no owner commands")
         help_text = self.legion("--help", owner=True)

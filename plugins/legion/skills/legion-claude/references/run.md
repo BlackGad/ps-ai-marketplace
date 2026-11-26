@@ -3,13 +3,13 @@
 Follow [owner notes](../../legion-personalisation/references/fields.md) before account, model or channel choices.
 Legion and review runs omit model flags so the CLI uses that account's own default. When notes name a model or allow a tier, follow [model tiers](../../legion-overseer/references/task-loop.md#model-tiers) and add `--model <named-model>` for that run. For Foundry, pass the deployment name using [Foundry routing](../../legion-overseer/references/task-loop.md#foundry-runs). Do not discover models or offer a model list for subscription agents.
 
-`<command>` is `legion run --account <id> --`: legion starts that account's own program with its config folder and passes every word after `--` to it. When `legion` is not on PATH, use `<home>/.legion/bin/legion` (`legion.cmd` on Windows). The overseer supplies `<repo>`, `<prompt file>`, and `<report>`, all within the assigned repository or worktree. Start there and inherit the owner's environment, including user PATH and installed tools. Use a fresh process for each task; set `LEGION_ROLE=member` and `LEGION_TASK=<prompt file>` for that process only. Use the worker profile below. From `<repo>`:
+`<command>` is `<home>/.legion/bin/legion run --account <id> --` (`legion.cmd` on Windows), where `<home>` is the overseer's legion home (its `LEGION_HOME`, or your user folder when unset): legion starts that account's own program with its config folder and passes every word after `--` to it. Always use that home's own `legion`, never one found on PATH; another home can hold an account with the same id. The overseer supplies `<repo>`, `<prompt file>`, and `<report>`, all within the assigned repository or worktree. Start there and inherit the owner's environment, including user PATH and installed tools. Use a fresh process for each task; set `LEGION_ROLE=member` and `LEGION_TASK=<prompt file>` for that process only. Use the worker profile below. From `<repo>`:
 
 ```sh
 LEGION_ROLE=member LEGION_TASK="<prompt file>" <command> -p --permission-mode bypassPermissions --strict-mcp-config < "<prompt file>" > "<report>"
 ```
 
-PowerShell 7: set `$legion` (the `legion` command), `$account`, `$promptText`, `$repoPath` and `$report` from the assigned task. Keep the same process environment and capture stdout as the report where needed.
+PowerShell 7: set `$legion` (that home's `legion.cmd`), `$account`, `$promptText`, `$repoPath` and `$report` from the assigned task. Keep the same process environment and capture stdout as the report where needed.
 
 ```powershell
 $promptText | & $legion run --account $account -- -p --permission-mode bypassPermissions --strict-mcp-config

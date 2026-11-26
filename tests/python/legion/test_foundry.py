@@ -4,7 +4,7 @@ import signal
 import stat
 import sys
 from types import ModuleType, SimpleNamespace
-from typing import Any
+from typing import Any, Optional
 from contextlib import AbstractContextManager
 from pathlib import Path
 
@@ -282,7 +282,7 @@ def test_runner_does_not_pass_ignored_sigint_to_child(tmp_path: Path, monkeypatc
 def test_token_login_retries_once_and_reports_last_error(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = 0
 
-    def token() -> AzAccessToken:
+    def token(_timeout: Optional[float] = None) -> AzAccessToken:
         nonlocal calls
         calls += 1
         raise ValueError(f"token error {calls}")

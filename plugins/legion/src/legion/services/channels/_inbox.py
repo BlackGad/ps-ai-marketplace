@@ -23,6 +23,7 @@ from pydantic import (
 from legion.services.accounts._accounts import AccountError
 from legion.services.accounts._launch import account_command
 from legion.services.accounts._launchers import LauncherError
+from legion.services.foundry._az import check_token
 from legion.services.repository import _lease
 from legion.core import _settings_io
 from legion.core._home import inbox_root, legion_home
@@ -116,13 +117,18 @@ def _queue_pointer(account: str, session: str, sender: str, home: Path) -> bool:
     # A .cmd program reads its arguments in a second cmd.exe pass on Windows, so text that pass could change is not sent.
     if os.name == "nt" and any(CMD_CHANGES.search(argument) for argument in arguments):
         return False
+    # Preparing the account and queueing share one deadline; a Foundry account never starts an interactive az login here.
+    deadline = time.monotonic() + NUDGE_TIMEOUT_SECONDS
     try:
         agent = next((item for item in _settings_io.load(home).agents if item.id == account), None)
         if agent is None:
             return False
-        command = account_command(agent, home)
+        command = account_command(agent, home, token_check=lambda: check_token(login=False, timeout=NUDGE_TIMEOUT_SECONDS))
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
         words = command.words(arguments)
-        result = run_command(words[0], words[1:], timeout=NUDGE_TIMEOUT_SECONDS, env=command.environment())
+        result = run_command(words[0], words[1:], timeout=remaining, env=command.environment())
     except (AccountError, LauncherError, _settings_io.SettingsError, OSError, ValueError):
         return False
     return result.exit_code == 0

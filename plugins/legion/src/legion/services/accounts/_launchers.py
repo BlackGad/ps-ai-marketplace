@@ -73,19 +73,35 @@ def target(agent: Agent, tool: ToolDescriptor, home: Path) -> Path:
     return stock
 
 
+# Files in the bin folder that are not account launchers: the owner commands and the uv that install.sh may publish.
+OTHER_NAMES = ("legion", "uv")
+
+
 # A file in the bin folder whose header names the account it is called after is an old launcher of legion's.
 # It goes, with any footprint of it, once legion can start that account itself: the account is gone or its program is found.
-# A file of another kind under a configured account's launcher name is not legion's and stays.
+# It stays while an account's own command is that file, and every other file stays; each kept candidate is reported.
 def remove_old_launchers(agents: list[Agent], home: Path) -> list[str]:
     folder = bin_folder(home)
     if not folder.is_dir() or not owner_path_safe(folder, home):
         return []
     tools = {tool.id: tool for tool in load_descriptors(ToolDescriptor, "tool.json")}
     configured = {agent.id: agent for agent in agents}
+    # The real files the accounts' own commands run, links followed.
+    programs = {agent.id: Path(os.path.realpath(full_path(home_path(agent.command, home)))) for agent in agents if agent.command is not None}
     lines: list[str] = []
     for path in sorted(folder.iterdir()):
         name = path.name.removesuffix(".cmd")
-        if not re.fullmatch(NAME_PATTERN, name) or not owner_path_safe(path, home) or not is_owned(path, _owner_name(name)):
+        if not re.fullmatch(NAME_PATTERN, name) or name in OTHER_NAMES:
+            continue
+        if not owner_path_safe(path, home):
+            lines.append(f"skip: {path} (linked)")
+            continue
+        if not is_owned(path, _owner_name(name)):
+            lines.append(f"skip: {path} (not legion's)")
+            continue
+        user = next((account for account, program in programs.items() if same_path(program, Path(os.path.realpath(path)))), None)
+        if user is not None:
+            lines.append(f"skip: {path} (account {user} runs it)")
             continue
         if name in configured:
             try:
@@ -93,9 +109,8 @@ def remove_old_launchers(agents: list[Agent], home: Path) -> list[str]:
             except LauncherError as error:
                 lines.append(f"skip: {path} ({error})")
                 continue
-        path.unlink()
+        # The footprint goes first: if that fails, the file is still there for the next refresh to find.
         _footprints.remove_entry(home, "file", path)
+        path.unlink()
         lines.append(f"removed {path}")
-    for agent in agents:
-        lines.extend(f"skip: {path} (not legion's)" for path in launcher_paths(agent.id, home) if os.path.lexists(path) and not is_owned(path, _owner_name(agent.id)))
     return lines

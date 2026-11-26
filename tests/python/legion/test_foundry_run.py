@@ -1,4 +1,5 @@
 # The Foundry runner against a fake az and a fake tool; nothing here reaches Azure or starts a real tool.
+import contextlib
 import json
 import os
 import signal
@@ -217,6 +218,26 @@ def test_ctrl_c_ends_the_run_with_130_and_deletes_the_provider_file(bench: Bench
     os.killpg(runner.pid, signal.SIGINT)
     assert runner.wait(timeout=30) == 130
     assert bench.temp_files() == []
+
+
+# A supervisor that signals only legion's process, not its group, still stops the tool; the provider file goes too.
+@pytest.mark.parametrize("number", [signal.SIGINT, signal.SIGTERM] if sys.platform != "win32" else [])
+def test_a_signal_sent_to_the_legion_process_reaches_the_tool(bench: Bench, monkeypatch: pytest.MonkeyPatch, number: int) -> None:
+    monkeypatch.setenv("LEGION_FAKE_SLEEP", "30")
+    arguments = [sys.executable, "-c", RUNNER, "--home", str(bench.home), "run", "--account", "copilot-dev", "--"]
+    runner = subprocess.Popen(arguments, stdout=subprocess.DEVNULL, start_new_session=True)
+    deadline = time.monotonic() + 30
+    while not (bench.logs / "grandchild.pid").is_file() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert (bench.logs / "grandchild.pid").is_file()
+    try:
+        os.kill(runner.pid, number)
+        assert runner.wait(timeout=30) == 128 + number
+        assert bench.temp_files() == []
+    finally:
+        # Only the tool is signalled, so its sleeping grandchild is ended here by its own pid.
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(int((bench.logs / "grandchild.pid").read_text(encoding="utf-8")), signal.SIGTERM)
 
 
 def test_a_tool_killed_by_a_signal_is_reported_as_a_shell_would(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

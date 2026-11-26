@@ -101,9 +101,13 @@ def test_refresh_skips_unowned_launcher(tmp_path: Path) -> None:
     # A legion header for another account is not this file's own.
     other = bin_folder(tmp_path) / "codex-b"
     other.write_text("#!/bin/sh\n" + _generated.header("account codex-a", False) + "\n", encoding="utf-8")
+    # A file under an id that is no longer configured is reported too.
+    former = bin_folder(tmp_path) / "former-a"
+    former.write_text("#!/bin/sh\nowner file\n", encoding="utf-8")
     lines = run(tmp_path)
     assert f"skip: {foreign} (not legion's)" in lines
     assert f"skip: {other} (not legion's)" in lines
+    assert f"skip: {former} (not legion's)" in lines
     assert foreign.read_text(encoding="utf-8") == "#!/bin/sh\nowner file\n"
     assert other.is_file()
 
@@ -241,3 +245,71 @@ def test_a_linked_legion_folder_is_refused_before_settings_lock(tmp_path: Path) 
     with pytest.raises((_installed_runtime.AppError, _settings_io.SettingsError), match="link"):
         run(tmp_path / "home")
     assert list(elsewhere.iterdir()) == []
+
+
+def kept(lines: list[str], launchers: list[Path]) -> bool:
+    return all(path.is_file() for path in launchers) and not any(line.startswith("removed ") and "bin" in line for line in lines)
+
+
+# A failed upgrade leaves the older app in place; one without `legion run` cannot replace the launchers.
+def test_refresh_keeps_old_launchers_when_the_upgrade_fails_and_the_old_app_has_no_run(tmp_path: Path, uv: FakeUv) -> None:
+    old_app(tmp_path, "0.0.1")
+    account_settings(tmp_path, ["codex-a"])
+    launchers = old_launchers(tmp_path, "codex-a")
+    uv.exit_code = 3
+    lines = run(tmp_path)
+    assert kept(lines, launchers)
+    assert "skip: command legion (the legion app is not ready)" not in lines
+    assert "skip: old account launchers (the legion command cannot start accounts yet)" in lines
+
+
+# An owner command that is not legion's blocks that entry point, so the launchers it would replace stay.
+def test_refresh_keeps_old_launchers_behind_a_foreign_owner_command(tmp_path: Path) -> None:
+    ready_app(tmp_path)
+    account_settings(tmp_path, ["codex-a"])
+    launchers = old_launchers(tmp_path, "codex-a")
+    foreign = bin_folder(tmp_path) / "legion"
+    foreign.write_text("#!/bin/sh\nowner file\n", encoding="utf-8")
+    lines = run(tmp_path)
+    assert kept(lines, launchers)
+    assert foreign.read_text(encoding="utf-8") == "#!/bin/sh\nowner file\n"
+    assert "skip: old account launchers (the legion command cannot start accounts yet)" in lines
+
+
+# An account whose own command is another account's old launcher, directly or through a linked folder, keeps it.
+@pytest.mark.parametrize("through_link", [False, True])
+def test_refresh_keeps_an_old_launcher_that_an_account_runs(tmp_path: Path, through_link: bool) -> None:
+    ready_app(tmp_path)
+    account_settings(tmp_path, ["codex-a", "codex-b"])
+    launchers = old_launchers(tmp_path, "codex-a")
+    folder = bin_folder(tmp_path)
+    if through_link:
+        make_link(tmp_path / "linked bin", folder)
+        folder = tmp_path / "linked bin"
+    settings = _settings_io.load(tmp_path)
+    settings.agents[1].command = str(folder / launchers[-1].name)
+    _settings_io.save(tmp_path, settings)
+    lines = run(tmp_path)
+    assert f"skip: {launchers[-1]} (account codex-b runs it)" in lines
+    assert launchers[-1].is_file()
+
+
+# The footprint goes before the file, so a failed footprint write leaves the launcher for the next refresh.
+def test_a_failed_footprint_removal_keeps_the_launcher(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ready_app(tmp_path)
+    account_settings(tmp_path, ["codex-a"])
+    launchers = old_launchers(tmp_path, "codex-a")
+    real = _launchers._footprints.remove_entry
+    busy = [True]
+
+    def remove_entry(*arguments: Any) -> None:
+        if busy:
+            raise _footprints.FootprintError("footprint lock busy")
+        real(*arguments)
+
+    monkeypatch.setattr(_launchers._footprints, "remove_entry", remove_entry)
+    with pytest.raises(_footprints.FootprintError):
+        run(tmp_path)
+    assert launchers[0].is_file()
+    busy.clear()
+    assert f"removed {launchers[0]}" in run(tmp_path)

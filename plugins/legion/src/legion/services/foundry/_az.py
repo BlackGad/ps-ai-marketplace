@@ -51,23 +51,25 @@ def az() -> Path:
     return Path(found)
 
 
-def call(arguments: list[str]) -> str:
-    result = run_command(str(az()), arguments)
+def call(arguments: list[str], timeout: Optional[float] = None) -> str:
+    result = run_command(str(az()), arguments, timeout=timeout)
+    if result.timed_out:
+        raise ValueError("az timed out")
     if result.exit_code:
         raise ValueError((result.error or result.output).strip())
     return result.output
 
 
-def token() -> AzAccessToken:
-    data = json.loads(call(["account", "get-access-token", "--resource", RESOURCE, "-o", "json"]))
+def token(timeout: Optional[float] = None) -> AzAccessToken:
+    data = json.loads(call(["account", "get-access-token", "--resource", RESOURCE, "-o", "json"], timeout))
     if not data.get("accessToken"):
         raise ValueError("az returned no access token")
     return AzAccessToken.model_validate(data)
 
 
-def check_token(login: bool = True) -> AzAccessToken:
+def check_token(login: bool = True, timeout: Optional[float] = None) -> AzAccessToken:
     try:
-        return token()
+        return token(timeout)
     except (ValueError, OSError):
         if not login:
             raise
