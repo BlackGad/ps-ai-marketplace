@@ -23,9 +23,9 @@ def is_owned(path: Path, name: str) -> bool:
     return first == "#!/bin/sh" and second == header(name, False)
 
 
-def write_generated(path: Path, text: str, executable: bool) -> bool:
+def write_generated(path: Path, text: str | bytes, executable: bool) -> bool:
     path = path.resolve()
-    data = text.encode("utf-8")
+    data = text.encode("utf-8") if isinstance(text, str) else text
     same = path.is_file() and path.read_bytes() == data
     if not same:
         atomic_write_bytes(path, data, add_mode=stat.S_IXUSR if executable and sys.platform != "win32" else 0)

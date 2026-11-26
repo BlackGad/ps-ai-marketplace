@@ -1,4 +1,8 @@
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -16,6 +20,30 @@ def test_failed_replace_preserves_the_target_and_removes_the_temp_file(tmp_path:
 
     monkeypatch.setattr(Path, "replace", deny_replace)
     with pytest.raises(OSError, match="replace denied"):
+        atomic_write_bytes(target, b"new")
+    assert target.read_bytes() == b"old"
+    assert list(tmp_path.iterdir()) == [target]
+
+
+def test_partial_write_preserves_the_target_and_removes_the_temp_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = tmp_path / "data"
+    target.write_bytes(b"old")
+    open_temp = tempfile.NamedTemporaryFile
+
+    @contextmanager
+    def interrupted_open(*args: Any, **kwargs: Any) -> Iterator[object]:
+        with open_temp(*args, **kwargs) as stream:
+            write = stream.write
+
+            def interrupted_write(data: bytes) -> None:
+                write(data[:1])
+                raise OSError("disk full")
+
+            monkeypatch.setattr(stream, "write", interrupted_write)
+            yield stream
+
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", interrupted_open)
+    with pytest.raises(OSError, match="disk full"):
         atomic_write_bytes(target, b"new")
     assert target.read_bytes() == b"old"
     assert list(tmp_path.iterdir()) == [target]

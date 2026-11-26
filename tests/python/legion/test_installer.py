@@ -1225,7 +1225,7 @@ def test_purge_leaves_inline_legion_toml_for_manual_edit(tmp_path: Path, monkeyp
     assert path.read_text(encoding="utf-8") == text
 
 
-@pytest.mark.parametrize("encoding", ["utf-8-sig", "utf-16"])
+@pytest.mark.parametrize("encoding", ["utf-8-sig", "utf-16", "utf-32"])
 def test_purge_preserves_settings_bom_and_encoding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, encoding: str) -> None:
     home = tmp_path / "home"
     (home / ".legion").mkdir(parents=True)

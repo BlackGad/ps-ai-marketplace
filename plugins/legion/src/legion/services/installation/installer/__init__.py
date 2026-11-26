@@ -24,6 +24,7 @@ from legion.core._http import HttpsError, failure_text, get_bytes
 from legion.core._home import bin_folder, footprint_index, full_path, home_path, is_reparse, is_under, owner_path_safe, resolve_directory, same_path, tree_has_reparse
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import run_command
+from legion.core._text import decode_text, encode_text
 
 
 DEFAULT_SOURCE = "BlackGad/ps-legion-marketplace"
@@ -195,23 +196,10 @@ def _strip_jsonc_comments(text: str) -> str:
     return "".join(result)
 
 
-# Hand-built, reason: preserve the original BOM and encoding while removing only Legion-owned settings text.
-def _decode_text(data: bytes) -> tuple[str, str, bytes]:
-    if data.startswith(b"\xff\xfe"):
-        encoding, bom = "utf-16-le", data[:2]
-    elif data.startswith(b"\xfe\xff"):
-        encoding, bom = "utf-16-be", data[:2]
-    elif data.startswith(b"\xef\xbb\xbf"):
-        encoding, bom = "utf-8", data[:3]
-    else:
-        encoding, bom = "utf-8", b""
-    return data[len(bom) :].decode(encoding), encoding, bom
-
-
 def _json_edit(path: Path, kind: str) -> Edit | None:
     before = path.read_bytes()
     try:
-        text, encoding, bom = _decode_text(before)
+        text, format = decode_text(before)
         clean = _strip_jsonc_comments(text)
         document = json.loads(clean)
         if not isinstance(document, dict):
@@ -269,7 +257,7 @@ def _json_edit(path: Path, kind: str) -> Edit | None:
             names.append("installedPlugins: legion@ps-legion-marketplace")
         if not names:
             return None
-        after = bom + changed.encode(encoding)
+        after = encode_text(changed, format)
         return Edit(path, before, after, names)
     except (UnicodeError, ValueError, TypeError):
         return None
@@ -341,7 +329,7 @@ def _allow_item_spans(clean: str, value: str) -> list[tuple[int, int]]:
 def _allow_edit(path: Path, value: str, data: bytes | None = None) -> Edit | None:
     before = data if data is not None else path.read_bytes()
     try:
-        text, encoding, bom = _decode_text(before)
+        text, format = decode_text(before)
         clean = _strip_jsonc_comments(text)
         document = json.loads(clean)
         allowed = document.get("permissions", {}).get("allow", [])
@@ -365,7 +353,7 @@ def _allow_edit(path: Path, value: str, data: bytes | None = None) -> Edit | Non
         expected["permissions"]["allow"].remove(value)
         if json.loads(_strip_jsonc_comments(changed)) != expected:
             return None
-        after = bom + changed.encode(encoding)
+        after = encode_text(changed, format)
         return Edit(path, before, after, [f"permissions.allow: {value}"])
     except (UnicodeError, ValueError, TypeError, AttributeError):
         return None
@@ -394,7 +382,7 @@ def remove_owned_edits(home: Path, owners: list[str], lines: list[str]) -> None:
 def _toml_edit(path: Path) -> Edit | None:
     before = path.read_bytes()
     try:
-        text, encoding, bom = _decode_text(before)
+        text, format = decode_text(before)
         document = tomlkit.parse(text)
         names: list[str] = []
         for section in ("plugins", "marketplaces", "hooks"):
@@ -411,9 +399,7 @@ def _toml_edit(path: Path) -> Edit | None:
                     names.append(f"hooks.state.{key}")
         if not names:
             return None
-        newline = "\r\n" if b"\r\n" in before else "\n"
-        after_text = tomlkit.dumps(document).replace("\r\n", "\n").replace("\n", newline)
-        after = bom + after_text.encode(encoding)
+        after = encode_text(tomlkit.dumps(document), format, normalize_newlines=True)
         return Edit(path, before, after, names)
     except (UnicodeError, ValueError, TypeError, KeyError):
         return None
@@ -446,7 +432,7 @@ def ensure_path(home: Path, dry_run: bool, lines: list[str]) -> None:
         return
     profile = _profile_path(home)
     line = 'export PATH="$HOME/.legion/bin:$PATH"'
-    text, encoding, bom = _decode_text(profile.read_bytes()) if profile.is_file() else ("", "utf-8", b"")
+    text, format = decode_text(profile.read_bytes() if profile.is_file() else b"")
     if line in text.splitlines():
         lines.append("skip: shell profile PATH (already done)")
         return
@@ -457,7 +443,7 @@ def ensure_path(home: Path, dry_run: bool, lines: list[str]) -> None:
         return
     separator = "\n" if text and not text.endswith("\n") else ""
     _footprints.add(home, "path-entry", profile, "legion", key=separator, value=line)
-    profile.write_bytes(bom + (text + separator + "# Added by legion\n" + line + "\n").encode(encoding))
+    profile.write_bytes(encode_text(text + separator + "# Added by legion\n" + line + "\n", format))
 
 
 # Hand-built, reason: only recorded PATH entries may be removed while retaining the order and separators of other entries.
@@ -472,14 +458,14 @@ def _path_removal(value: str, separator: str, owned: list[str]) -> tuple[str, li
 # Hand-built, reason: the recorded marker and line must be removed without changing the rest of the owner's profile.
 def _profile_edit(path: Path, key: str, value: str) -> Edit | None:
     before = path.read_bytes()
-    text, encoding, bom = _decode_text(before)
+    text, format = decode_text(before)
     match = re.search(r"(?m)^# Added by legion\r?\n" + re.escape(value) + r"(?:\r?\n|$)", text)
     if not match:
         return None
     start = match.start()
     if key and match.end() == len(text) and text[:start].endswith(key):
         start -= len(key)
-    after = bom + (text[:start] + text[match.end() :]).encode(encoding)
+    after = encode_text(text[:start] + text[match.end() :], format)
     return Edit(path, before, after, [value])
 
 

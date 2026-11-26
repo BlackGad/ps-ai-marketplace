@@ -2,7 +2,6 @@
 # On macOS and Linux the PATH line goes into the shell profile.
 # LEGION_TEST_USER_PATH_FILE stands in for the registry value in tests.
 
-import codecs
 import contextlib
 import ctypes
 import ntpath
@@ -16,6 +15,7 @@ from typing import Optional
 
 from legion.services.repository import _footprints
 from legion.core._home import owner_path_safe
+from legion.core._text import TextFormat, decode_text
 
 if sys.platform == "win32":
     import winreg
@@ -120,17 +120,9 @@ def shell_profile(home: Path) -> ShellProfile:
     return ShellProfile(path, text, PROFILE_LINE, PROFILE_LINE in re.split(r"\r?\n", text), marked)
 
 
-# The text and the codec it was read with. Only a byte-order mark names a codec other than UTF-8.
-def _read_profile(path: Path) -> tuple[str, str]:
-    data = path.read_bytes()
-    codec = "utf-8"
-    # UTF-32LE starts with the UTF-16LE mark, so the longer marks come first.
-    for mark, name in ((codecs.BOM_UTF8, "utf-8"), (codecs.BOM_UTF32_LE, "utf-32-le"), (codecs.BOM_UTF32_BE, "utf-32-be"), (codecs.BOM_UTF16_LE, "utf-16-le"), (codecs.BOM_UTF16_BE, "utf-16-be")):
-        if data.startswith(mark):
-            data, codec = data[len(mark) :], name
-            break
+def _read_profile(path: Path) -> tuple[str, TextFormat]:
     try:
-        return data.decode(codec), codec
+        return decode_text(path.read_bytes())
     except UnicodeError:
         raise PathError("File encoding is not lossless; resolve it manually before editing") from None
 
@@ -156,7 +148,7 @@ def shell_profile_lines(home: Path, dry_run: bool = False) -> list[str]:
     if profile.path.exists():
         # Appending keeps every original byte, in the codec the file already uses.
         with profile.path.open("ab") as file:
-            file.write(addition.encode(_read_profile(profile.path)[1]))
+            file.write(addition.encode(_read_profile(profile.path)[1].encoding))
     else:
         profile.path.write_text(addition, encoding="utf-8", newline="")
     return lines
