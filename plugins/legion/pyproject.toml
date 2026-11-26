@@ -20,10 +20,11 @@ mcp = ["mcp>=1.30,<2"]
 
 [dependency-groups]
 dev = ["ruff>=0.14.9", "pyright>=1.1.408", "pytest>=9.0.2", "pytest-cov>=7.0.0"]
+installed = ["legion[mcp]"]
 
 [build-system]
 requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
 
 [tool.uv]
-default-groups = []
+default-groups = ["installed"]

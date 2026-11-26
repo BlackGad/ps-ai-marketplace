@@ -18,6 +18,7 @@ def test_self_uninstall_runs_a_copy_outside_the_app(tmp_path: Path, monkeypatch:
     def run(command: list[str], *, env: dict[str, str], check: bool) -> subprocess.CompletedProcess[str]:
         assert check is False
         assert command[0] == "uv"
+        assert "--no-default-groups" in command
         project = Path(command[command.index("--project") + 1])
         seen.append((project, Path(env["UV_PROJECT_ENVIRONMENT"]), command))
         assert project != app
