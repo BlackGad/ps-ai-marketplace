@@ -8,6 +8,7 @@ import sys
 import tempfile
 from contextlib import nullcontext
 from dataclasses import dataclass, field
+from functools import cmp_to_key
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,9 @@ from tomlkit.items import InlineTable
 
 from legion.services.repository import _footprints
 from legion.services.installation import _user_path
+from legion.services.installation import _installed_runtime
 from legion.services.installation import _refresh
+from legion.services.installation._update import compare_versions
 from legion.core._generated import is_owned
 from legion.core._http import HttpsError, failure_text, get_bytes
 from legion.core._home import (
@@ -862,6 +865,18 @@ def _results_table(rows: list[tuple[str, str, str]]) -> list[str]:
     return ["Results:", *(f"{tool.ljust(widths[0])}  {folder.ljust(widths[1])}  {result}".rstrip() for tool, folder, result in table)]
 
 
+# This process is the old version: the newest version this update confirmed writes the files again with its own templates, once.
+def _hand_over(home: Path, confirmed: list[str], lines: list[str], rows: list[tuple[str, str, str]]) -> None:
+    if not confirmed:
+        return
+    version = max(confirmed, key=cmp_to_key(compare_versions))
+    try:
+        lines.extend(_installed_runtime.refresh_with_new_app(home, version))
+    except Exception as error:
+        lines.append(f"commands not refreshed: {error}; run legion setup")
+        rows.append(("legion", str(home), f"commands not refreshed: {error}"))
+
+
 def install(
     home: Path,
     tools: list[str] | None = None,
@@ -920,28 +935,40 @@ def install(
         if targets and not dry_run and not (yes or _confirm("Update legion? [y/N]", lines)):
             return [*lines, "Nothing changed. Run again with --yes to apply."]
         rows: list[tuple[str, str, str]] = []
-        for entry, folder in targets:
-            before = _plugin_root(entry, folder)
-            before_version = json.loads((before / "plugin.json").read_text(encoding="utf-8"))["version"] if before else "not installed"
-            if before:
-                for arguments in (entry["plugin"]["marketplaceUpdate"], entry["plugin"]["update"]):
-                    if arguments:
-                        _step(entry, arguments, folder, dry_run, lines)
-            else:
-                _install_steps(entry, folder, source, ref, dry_run, lines)
-            if not dry_run:
-                after = _plugin_root(entry, folder)
-                if after is None:
-                    raise InstallerError(f"{entry['id']} legion is absent from the post-update listing; generated artifacts were not refreshed.")
-                try:
-                    lines.extend(_refresh_target(entry, folder, home, after))
-                except Exception as error:
-                    lines.append(f"commands not refreshed for {entry['id']} in {folder}: {error}; run legion setup")
-                    rows.append((entry["id"], str(folder), f"commands not refreshed: {error}"))
-                    continue
-                after_version = json.loads((after / "plugin.json").read_text(encoding="utf-8"))["version"]
-                lines.append(f"legion {before_version} -> {after_version}" if before_version != after_version else f"skip: legion {after_version} (already up to date)")
-                rows.append((entry["id"], str(folder), f"{before_version} -> {after_version}" if before_version != after_version else f"already up to date ({after_version})"))
+        confirmed: list[str] = []
+        try:
+            for entry, folder in targets:
+                before = _plugin_root(entry, folder)
+                before_version = json.loads((before / "plugin.json").read_text(encoding="utf-8"))["version"] if before else "not installed"
+                if before:
+                    for arguments in (entry["plugin"]["marketplaceUpdate"], entry["plugin"]["update"]):
+                        if arguments:
+                            _step(entry, arguments, folder, dry_run, lines)
+                else:
+                    _install_steps(entry, folder, source, ref, dry_run, lines)
+                if not dry_run:
+                    after = _plugin_root(entry, folder)
+                    if after is None:
+                        raise InstallerError(f"{entry['id']} legion is absent from the post-update listing; generated artifacts were not refreshed.")
+                    try:
+                        lines.extend(_refresh_target(entry, folder, home, after))
+                    except Exception as error:
+                        lines.append(f"commands not refreshed for {entry['id']} in {folder}: {error}; run legion setup")
+                        rows.append((entry["id"], str(folder), f"commands not refreshed: {error}"))
+                        continue
+                    after_version = json.loads((after / "plugin.json").read_text(encoding="utf-8"))["version"]
+                    lines.append(f"legion {before_version} -> {after_version}" if before_version != after_version else f"skip: legion {after_version} (already up to date)")
+                    rows.append((entry["id"], str(folder), f"{before_version} -> {after_version}" if before_version != after_version else f"already up to date ({after_version})"))
+                    confirmed.append(after_version)
+        except BaseException:
+            # Versions already published keep their old templates unless the new app writes them, even when a later account fails.
+            # The returned lines are lost with the error, so a failed handoff is printed before it propagates.
+            handover: list[str] = []
+            _hand_over(home, confirmed, handover, rows)
+            for line in handover:
+                click.echo(line, err=True)
+            raise
+        _hand_over(home, confirmed, lines, rows)
         if targets and not dry_run:
             lines.extend(_results_table(rows))
             lines.append("done: restart your sessions; run legion in the repository")
