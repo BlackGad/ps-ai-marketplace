@@ -12,16 +12,24 @@ from legion.services.installation import _handover
 WINDOWS = sys.platform == "win32"
 
 
-def test_the_command_names_every_folder(tmp_path: Path) -> None:
-    first, second = tmp_path / "one folder", tmp_path / "two"
-    command = _handover.delete_command([first, second])
+def test_the_command_text_holds_no_path(tmp_path: Path) -> None:
+    folder, other = tmp_path / "one %PATH% folder", tmp_path / "two"
+    other.write_text("a file", encoding="utf-8")
+    folder.mkdir()
+    command, variables = _handover.delete_command([folder, other])
     if WINDOWS:
         assert isinstance(command, str)
-        assert command.startswith("cmd /d /s /c ")
-        assert f'rmdir /s /q "{first}"' in command
-        assert f'rmdir /s /q "{second}"' in command
+        assert variables == {"LEGION_DELETE_1": str(folder), "LEGION_DELETE_2": str(other)}
+        assert str(tmp_path) not in command
+        assert command.startswith(f'"{Path(os.environ["SYSTEMROOT"]) / "System32" / "cmd.exe"}" /d /v:off /s /c ')
+        assert 'rmdir /s /q "%LEGION_DELETE_1%"' in command
+        assert 'del /f /q "%LEGION_DELETE_2%"' in command
     else:
-        assert command == ["sh", "-c", 'sleep 1; rm -rf -- "$@"', "sh", str(first), str(second)]
+        assert isinstance(command, list)
+        assert command[:2] == ["/bin/sh", "-c"]
+        assert "kill -0" in command[2]
+        assert command[3:] == ["sh", str(os.getpid()), str(folder), str(other)]
+        assert variables == {}
 
 
 def test_start_runs_the_command_detached_without_console_input_or_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -29,8 +37,11 @@ def test_start_runs_the_command_detached_without_console_input_or_output(tmp_pat
     monkeypatch.setattr(_handover.subprocess, "Popen", lambda command, **options: started.append((command, options)))
     _handover.start([tmp_path])
     ((command, options),) = started
-    assert command == _handover.delete_command([tmp_path])
+    assert command == _handover.delete_command([tmp_path])[0]
     assert options["stdin"] == options["stdout"] == options["stderr"] == subprocess.DEVNULL
+    environment = options["env"]
+    assert isinstance(environment, dict)
+    assert (environment["LEGION_DELETE_1"] == str(tmp_path)) if WINDOWS else environment["PATH"]
     assert ("creationflags" in options) if WINDOWS else options["start_new_session"] is True
 
 
@@ -61,3 +72,18 @@ def test_the_shell_deletes_the_folders_after_the_starting_process_exits_and_spar
         time.sleep(0.5)
     assert not os.path.lexists(legion)
     assert (outside / "keep.txt").read_text(encoding="utf-8") == "owner"
+
+
+@pytest.mark.skipif(WINDOWS, reason="POSIX shell")
+def test_the_posix_shell_waits_for_the_starting_process_to_exit(tmp_path: Path) -> None:
+    folder = tmp_path / "legion"
+    folder.mkdir()
+    code = "import sys; from pathlib import Path; from legion.services.installation import _handover; _handover.start([Path(sys.argv[1])]); sys.stdin.read()"
+    parent = subprocess.Popen([sys.executable, "-c", code, str(folder)], stdin=subprocess.PIPE)
+    time.sleep(2)
+    assert folder.exists()
+    parent.communicate(timeout=60)
+    deadline = time.monotonic() + 30
+    while folder.exists() and time.monotonic() < deadline:
+        time.sleep(0.2)
+    assert not folder.exists()

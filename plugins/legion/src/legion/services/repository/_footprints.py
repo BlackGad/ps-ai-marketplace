@@ -1,10 +1,11 @@
+import json
 import re
 import shutil
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 from filelock import FileLock, Timeout
 
@@ -101,7 +102,10 @@ def read(home: Path) -> FootprintIndex:
     index = footprint_index(home)
     if not index.exists():
         return FootprintIndex.model_validate({"schemaVersion": 1, "entries": []})
-    return FootprintIndex.model_validate_json(index.read_text(encoding="utf-8-sig"))
+    data = json.loads(index.read_text(encoding="utf-8-sig"))
+    # An index of the previous release can hold kinds that are retired now; keep the supported records.
+    data["entries"] = [entry for entry in data.get("entries", []) if entry.get("kind") in get_args(FootprintKind)]
+    return FootprintIndex.model_validate(data)
 
 
 def _write(home: Path, data: FootprintIndex) -> None:

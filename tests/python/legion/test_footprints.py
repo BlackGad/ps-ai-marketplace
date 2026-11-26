@@ -21,6 +21,20 @@ def test_add_records_home_relative_path_and_merges_owners(tmp_path: Path) -> Non
     assert data == {"schemaVersion": 1, "entries": [{"kind": "file", "path": "~/.legion/bin/tool", "key": "", "value": "", "owners": ["first", "second"]}]}
 
 
+def test_an_index_of_the_previous_release_loses_only_the_retired_kinds(tmp_path: Path) -> None:
+    entries = [
+        {"kind": "app", "path": "~/.legion/app", "key": "", "value": "", "owners": ["claude:/x"]},
+        {"kind": "edit", "path": "/x/settings.json", "key": "permissions.allow", "value": "rule", "owners": ["claude:/x"]},
+        {"kind": "link", "path": "~/.legion/link", "key": "", "value": "/y", "owners": ["account:a"]},
+        {"kind": "app-version", "path": "~/.legion/app/1.0.0", "key": "", "value": "", "owners": ["legion"]},
+        {"kind": "path-entry", "path": "user PATH", "key": "", "value": "C:/bin", "owners": ["legion"]},
+    ]
+    index = _footprints.footprint_index(tmp_path)
+    index.parent.mkdir(parents=True)
+    index.write_text(json.dumps({"schemaVersion": 1, "entries": entries}), encoding="utf-8")
+    assert [entry.kind for entry in _footprints.read(tmp_path).entries] == ["app-version", "path-entry"]
+
+
 def test_remove_owner_deletes_owned_folder_but_keeps_other_records(tmp_path: Path) -> None:
     folder = tmp_path / ".legion" / "old"
     folder.mkdir(parents=True)

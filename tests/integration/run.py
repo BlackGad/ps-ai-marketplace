@@ -993,8 +993,8 @@ asyncio.run(main())
         return targets
 
     def check_uninstalled(self, tool: str, folder: Path) -> None:
-        require(self.version(tool, folder) is None, f"legion remains in {folder}")
         require(not self.listing(tool, folder, include_disabled=True), f"{tool} still lists legion in {folder}")
+        require(not self.listing(tool, folder, "marketplace"), f"{tool} marketplace remains in {folder}")
 
     def account_ids(self) -> list[str]:
         return [agent["id"] for agent in self.settings()["agents"] if agent["tool"] in self.active()]

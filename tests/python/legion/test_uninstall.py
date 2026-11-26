@@ -175,7 +175,7 @@ def test_uninstall_and_purge_go_on_when_settings_are_invalid(home: Path, recorde
 
 
 def test_the_path_entry_goes_before_the_handover(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
-    def remove(_home: Path, dry_run: bool = False) -> list[str]:
+    def remove(_home: Path, _purge: bool = False, dry_run: bool = False) -> list[str]:
         if not dry_run:
             recorder.events.append("path")
         return ["Remove path entry"]
@@ -206,3 +206,37 @@ def test_uninstall_takes_legions_entry_out_of_the_user_path(home: Path, monkeypa
     _installer.ensure_path(home, False, [])
     run(home, yes=True)
     assert saved.read_text(encoding="utf-8") == "other"
+
+
+def test_a_plain_uninstall_leaves_a_linked_legion_folder_alone(tmp_path: Path, recorder: Recorder) -> None:
+    outside = tmp_path / "outside"
+    (outside / "bin").mkdir(parents=True)
+    home = tmp_path / "home"
+    home.mkdir()
+    make_link(home / ".legion", outside)
+    lines = run(home, yes=True)
+    assert "skip: ~/.legion is a link; left alone" in lines
+    assert all(not folders for folders in recorder.handed)
+
+
+def test_a_second_purge_still_asks_about_a_kept_knowledge_hub(home: Path, recorder: Recorder, answers: list[bool], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (False, False, [], ""))
+    monkeypatch.setattr(_installer, "_marketplace", lambda *_args: False)
+    for child in (home / ".legion").iterdir():
+        child.rmdir()
+    (home / ".legion" / "knowledge").mkdir()
+    answers.extend([True, True])
+    run(home, purge=True)
+    assert len(recorder.questions) == 2
+    assert recorder.handed == [[home / ".legion"]]
+
+
+@pytest.mark.usefixtures("recorder")
+def test_a_pending_path_cleanup_alone_is_work(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (False, False, [], ""))
+    monkeypatch.setattr(_installer, "_marketplace", lambda *_args: False)
+    for name in ("app", "bin", "python"):
+        (home / ".legion" / name).rmdir()
+    monkeypatch.setattr(_user_path, "remove", lambda *_args, **_options: ["Remove path entry"])
+    lines = run(home, yes=True)
+    assert "skip: uninstall (already done)" not in lines

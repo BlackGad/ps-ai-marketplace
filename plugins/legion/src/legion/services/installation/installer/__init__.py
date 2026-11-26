@@ -527,11 +527,15 @@ def _uninstall(home: Path, catalog: ToolsCatalog, selected: list[str], config_di
         raise InstallerError("--purge removes all of legion; run it without --tool and --config-dir.")
     folders = _legion_folders(home, purge, with_knowledge=False) if everything else []
     lines.extend(f"Remove folder: {folder}" for folder in folders)
+    path_lines = _user_path.remove(home, purge, dry_run=True) if everything else []
+    hub = everything and purge and (home / ".legion/knowledge").exists()
     if everything:
-        lines.extend(_user_path.remove(home, dry_run=True))
-        if purge and (home / ".legion/knowledge").exists():
+        lines.extend(path_lines or ["skip: path (already done)"])
+        if hub:
             lines.append("Asked separately: the knowledge hub in ~/.legion/knowledge")
-    if not steps and not folders:
+        if not purge and is_reparse(home / ".legion"):
+            lines.append("skip: ~/.legion is a link; left alone")
+    if not (steps or folders or path_lines or hub):
         lines.append("skip: uninstall (already done)")
         return
     if dry_run:
@@ -542,8 +546,8 @@ def _uninstall(home: Path, catalog: ToolsCatalog, selected: list[str], config_di
     for entry, folder, arguments in steps:
         _step(entry, arguments, folder, False, lines)
     if everything:
-        lines.extend(_user_path.remove(home))
-        with_knowledge = purge and (home / ".legion/knowledge").exists() and _confirm("Also delete the knowledge hub in ~/.legion/knowledge? [y/N]", lines)
+        lines.extend(_user_path.remove(home, purge))
+        with_knowledge = hub and _confirm("Also delete the knowledge hub in ~/.legion/knowledge? [y/N]", lines)
         _handover.start(_legion_folders(home, purge, with_knowledge))
         lines.append("done: legion folders are removed when this command ends")
 
@@ -552,6 +556,8 @@ def _uninstall(home: Path, catalog: ToolsCatalog, selected: list[str], config_di
 def _legion_folders(home: Path, purge: bool, with_knowledge: bool) -> list[Path]:
     legion = home / ".legion"
     if not purge:
+        if is_reparse(legion):
+            return []
         return [folder for folder in (legion / "app", legion / "bin", legion / "python") if os.path.lexists(folder)]
     knowledge = legion / "knowledge"
     if is_reparse(legion) or with_knowledge or not knowledge.exists():

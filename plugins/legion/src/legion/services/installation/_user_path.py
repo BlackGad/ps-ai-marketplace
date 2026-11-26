@@ -15,7 +15,12 @@ from typing import Optional
 
 from legion.services.repository import _footprints
 from legion.core._atomic_write import AtomicWriteError, atomic_write_bytes
-from legion.core._home import home_path, owner_path_safe, path_contains
+from legion.core._home import (
+    bin_folder,
+    home_path,
+    owner_path_safe,
+    path_contains,
+)
 from legion.core._text import TextFormat, decode_text, encode_text
 
 if sys.platform == "win32":
@@ -163,30 +168,38 @@ def _normal(entry: str) -> str:
     return os.path.normcase(os.path.expandvars(entry).rstrip("/\\"))
 
 
-# Takes out only what legion added and recorded: its user PATH entry, or its marker and line in a shell profile.
-def remove(home: Path, dry_run: bool = False) -> list[str]:
+# Takes out one recorded occurrence of what legion added, then retires its record: its user PATH entry, or its marker and
+# line in a shell profile. Plain uninstall takes only legion's own bin entry; purge also takes portable tools' entries.
+def remove(home: Path, purge: bool = False, dry_run: bool = False) -> list[str]:
     records = [entry for entry in _footprints.read(home).entries if entry.kind == "path-entry"]
     lines: list[str] = []
     if sys.platform == "win32":
-        owned = {_normal(entry.value) for entry in records if entry.path == "user PATH"}
+        own = _normal(str(bin_folder(home)))
+        owned = [entry for entry in records if entry.path == "user PATH" and (purge or _normal(entry.value) == own)]
         parts = user_path().split(";")
-        removed = [part for part in parts if _normal(part) in owned]
-        lines = [f"Remove user PATH entry: {part}" for part in removed]
-        if removed and not dry_run:
-            set_user_path(";".join(part for part in parts if part not in removed))
-    else:
-        for entry in records:
-            path = home_path(entry.path, home)
-            if entry.path == "user PATH" or not path.is_file() or not owner_path_safe(path, home):
-                continue
-            text, format = _decode_profile(path.read_bytes())
-            match = re.search(rf"(?m)^{re.escape(PROFILE_MARKER)}\r?\n{re.escape(entry.value)}(?:\r?\n|$)", text)
-            if not match:
-                continue
-            start = match.start()
-            if entry.key and match.end() == len(text) and text[:start].endswith(entry.key):
-                start -= len(entry.key)
-            lines.append(f"Remove {PROFILE_MARKER} and {entry.value} from {path}")
-            if not dry_run:
-                atomic_write_bytes(path, encode_text(text[:start] + text[match.end() :], format))
-    return lines or ["skip: path (already done)"]
+        for entry in owned:
+            found = next((number for number, part in enumerate(parts) if _normal(part) == _normal(entry.value)), None)
+            if found is not None:
+                lines.append(f"Remove user PATH entry: {parts.pop(found)}")
+        if not dry_run:
+            if lines:
+                set_user_path(";".join(parts))
+            for entry in owned:
+                _footprints.remove_exact(home, "path-entry", entry.path, entry.key, entry.value)
+        return lines
+    for entry in records:
+        path = home_path(entry.path, home)
+        if entry.path == "user PATH" or not path.is_file() or not owner_path_safe(path, home):
+            continue
+        text, format = _decode_profile(path.read_bytes())
+        match = re.search(rf"(?m)^{re.escape(PROFILE_MARKER)}\r?\n{re.escape(entry.value)}(?:\r?\n|$)", text)
+        if not match:
+            continue
+        start = match.start()
+        if entry.key and match.end() == len(text) and text[:start].endswith(entry.key):
+            start -= len(entry.key)
+        lines.append(f"Remove {PROFILE_MARKER} and {entry.value} from {path}")
+        if not dry_run:
+            atomic_write_bytes(path, encode_text(text[:start] + text[match.end() :], format))
+            _footprints.remove_exact(home, "path-entry", entry.path, entry.key, entry.value)
+    return lines

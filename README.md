@@ -76,7 +76,7 @@ Say “Update legion” or “Uninstall legion,” or run `legion update` or `le
 Uninstall removes legion's plugin and marketplace through each tool's own commands, then deletes the `legion` command and app.
 
 > [!IMPORTANT]
-> Uninstall then install is an upgrade: it keeps your settings, notes and account folders. **Purge removes every legion trace**, including settings, notes and legion-made logins. It lists everything and asks first, and asks again before deleting a knowledge hub.
+> Uninstall then install is an upgrade: it keeps your settings, notes and account folders. **Purge removes the whole legion home** (`~/.legion`: settings, notes and legion-made logins), the PATH changes legion recorded, and legion's plugin and marketplace through each tool's own uninstall. It does not edit the tools' own files, so anything else they keep, such as a permission rule setup added, stays. It lists everything and asks first, and asks again before deleting a knowledge hub.
 
 Run `legion uninstall --purge`, or use this PowerShell one-liner:
 

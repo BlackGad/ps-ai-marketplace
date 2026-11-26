@@ -149,7 +149,7 @@ def test_uninstall_restores_a_crlf_profile_to_its_original_bytes(home: Path, mon
     assert profile.read_bytes() != original
     _user_path.remove(home)
     assert profile.read_bytes() == original
-    assert _user_path.remove(home) == ["skip: path (already done)"]
+    assert _user_path.remove(home) == []
 
 
 def test_a_profile_changed_after_it_was_read_is_kept_and_not_recorded(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -175,7 +175,7 @@ def test_a_profile_line_the_owner_wrote_is_not_removed(home: Path, monkeypatch: 
     profile = home / ".bashrc"
     profile.write_text(f"{LINE}\n", encoding="utf-8")
     _user_path.shell_profile_lines(home)
-    assert _user_path.remove(home) == ["skip: path (already done)"]
+    assert _user_path.remove(home) == []
     assert profile.read_text(encoding="utf-8") == f"{LINE}\n"
 
 
@@ -189,4 +189,31 @@ def test_only_the_recorded_user_path_entry_is_removed(home: Path, monkeypatch: p
     assert saved.read_text(encoding="utf-8") == f"other;{home / '.legion' / 'bin'}"
     _user_path.remove(home)
     assert saved.read_text(encoding="utf-8") == "other"
-    assert _user_path.remove(home) == ["skip: path (already done)"]
+    assert _user_path.remove(home) == []
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows saved PATH")
+def test_plain_uninstall_keeps_a_portable_tools_path_entry_and_purge_removes_it(home: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    saved = tmp_path / "user-path.txt"
+    portable = home / ".legion" / "tools" / "claude"
+    saved.write_text(f"other;{portable}", encoding="utf-8")
+    monkeypatch.setenv("LEGION_TEST_USER_PATH_FILE", str(saved))
+    _footprints.add(home, "path-entry", "user PATH", "legion", value=str(portable))
+    assert _user_path.add(home, home / ".legion" / "bin")
+    _user_path.remove(home)
+    assert saved.read_text(encoding="utf-8") == f"other;{portable}"
+    _user_path.remove(home, purge=True)
+    assert saved.read_text(encoding="utf-8") == "other"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows saved PATH")
+def test_one_recorded_occurrence_goes_and_its_record_is_retired(home: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    saved = tmp_path / "user-path.txt"
+    saved.write_text("other;", encoding="utf-8")
+    monkeypatch.setenv("LEGION_TEST_USER_PATH_FILE", str(saved))
+    bin_folder = home / ".legion" / "bin"
+    _user_path.add(home, bin_folder)
+    saved.write_text(f"{bin_folder};{saved.read_text(encoding='utf-8')};{bin_folder}", encoding="utf-8")
+    _user_path.remove(home)
+    assert saved.read_text(encoding="utf-8") == f"other;{bin_folder};{bin_folder}"
+    assert _footprints.read(home).entries == []
