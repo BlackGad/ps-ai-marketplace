@@ -1173,13 +1173,15 @@ def test_update_reports_a_failed_new_app_refresh_once_with_a_row(tmp_path: Path,
     assert any(line.startswith("legion") and line.endswith("commands not refreshed: legion 1.2.3 executable is missing") for line in lines)
 
 
-def _update_with_second_account_failing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, new_refresh: Callable[[Path, str], list[str]]) -> None:
+def _update_with_second_account_failing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, new_refresh: Callable[[Path, str], list[str]], failure: BaseException = _installer.InstallerError("second account update failed")
+) -> None:
     steps = {"count": 0}
 
     def step(*_args: object) -> None:
         steps["count"] += 1
         if steps["count"] > 2:
-            raise _installer.InstallerError("second account update failed")
+            raise failure
 
     root = tmp_path / "plugin"
     root.mkdir()
@@ -1189,13 +1191,19 @@ def _update_with_second_account_failing(tmp_path: Path, monkeypatch: pytest.Monk
     monkeypatch.setattr(_installer, "_step", step)
     monkeypatch.setattr(_installer, "_refresh_target", lambda *_args: [])
     monkeypatch.setattr(_installed_runtime, "refresh_with_new_app", new_refresh)
-    with pytest.raises(_installer.InstallerError, match="second account update failed"):
+    with pytest.raises(type(failure)):
         _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
 
 
 def test_update_hands_over_the_published_version_when_a_later_account_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
     _update_with_second_account_failing(tmp_path, monkeypatch, lambda _home, version: calls.append(version) or [])
+    assert calls == ["2.0.0"]
+
+
+def test_update_hands_over_the_published_version_when_a_later_account_is_interrupted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    _update_with_second_account_failing(tmp_path, monkeypatch, lambda _home, version: calls.append(version) or [], KeyboardInterrupt())
     assert calls == ["2.0.0"]
 
 

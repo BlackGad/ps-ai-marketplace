@@ -960,7 +960,7 @@ def install(
                     lines.append(f"legion {before_version} -> {after_version}" if before_version != after_version else f"skip: legion {after_version} (already up to date)")
                     rows.append((entry["id"], str(folder), f"{before_version} -> {after_version}" if before_version != after_version else f"already up to date ({after_version})"))
                     confirmed.append(after_version)
-        except Exception:
+        except BaseException:
             # Versions already published keep their old templates unless the new app writes them, even when a later account fails.
             # The returned lines are lost with the error, so a failed handoff is printed before it propagates.
             handover: list[str] = []
