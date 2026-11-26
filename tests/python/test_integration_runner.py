@@ -28,6 +28,13 @@ def test_listing_parses_json_and_text_with_disabled_entries() -> None:
     assert not runner.listed(text_entry, "legion@ps-legion-marketplace disabled")
 
 
+def test_listing_compares_the_whole_plugin_id_on_text_rows() -> None:
+    entry = {"plugin": {"listing": {"format": "lines", "rejectPattern": "disabled"}}}
+    assert not runner.listed(entry, "extra-legion@ps-legion-marketplace 1.0.0")
+    assert not runner.listed(entry, "  • other@marketplace (v1.0.0)\n      from /x/legion@ps-legion-marketplace")
+    assert runner.listed(entry, "  • legion@ps-legion-marketplace (v1.0.0) (enabled)\n      from /x/checkout")
+
+
 def test_latest_release_chooses_the_highest_numeric_tag(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
     remote = "https://example.invalid/marketplace"
@@ -632,3 +639,13 @@ time.sleep(120)
 
 def test_codex_probe_retries_until_legion_appears(tmp_path: Path) -> None:
     assert runner.codex_legion_server(probe(tmp_path, "LISTS_BEFORE_LEGION = 3" + FAKE_APP_SERVER, 30)) is not None
+
+
+@pytest.mark.parametrize("bullet", ["•", "ΓÇó", "?", "*", ""])
+def test_listing_ignores_whatever_bullet_the_cli_prints(bullet: str) -> None:
+    entry = {"plugin": {"listing": {"format": "lines", "rejectPattern": "disabled"}}}
+    prefix = f"  {bullet} " if bullet else "  "
+    assert runner.listed(entry, f"{prefix}legion@ps-legion-marketplace (v1.0.0) (enabled)\n      from /x/checkout")
+    assert not runner.listed(entry, f"{prefix}other@marketplace (v1.0.0)\n      from /x/legion@ps-legion-marketplace")
+    assert not runner.listed(entry, f"{prefix}extra-legion@ps-legion-marketplace (v1.0.0)")
+    assert not runner.listed(entry, f"{prefix}legion@ps-legion-marketplace-extra (v1.0.0)")

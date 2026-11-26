@@ -57,3 +57,12 @@ def test_self_uninstall_uses_the_explicit_temporary_uv_for_inner_cleanup(tmp_pat
     assert temporary_uv.exists()
     assert not Path(commands[0][commands[0].index("--project") + 1]).exists()
     assert _self_uninstall.os.environ["UV_PROJECT_ENVIRONMENT"] == "callers environment"
+
+
+def test_self_uninstall_never_downloads_python(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = tmp_path / "home/.legion/app/1.2.3"
+    app.mkdir(parents=True)
+    commands: list[list[str]] = []
+    monkeypatch.setattr(_self_uninstall.subprocess, "run", lambda command, **_options: commands.append(command) or subprocess.CompletedProcess(command, 0))
+    _self_uninstall.run(app, ["uninstall"])
+    assert "--no-python-downloads" in commands[0]

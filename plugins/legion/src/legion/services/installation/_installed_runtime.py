@@ -39,6 +39,8 @@ from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import run_command
 from legion.services.installation._update import compare_versions
 
+# Uninstall runs before legion can ask, so it must never download a Python.
+UNINSTALL_PYTHON = '--python ">=3.12" --no-python-downloads'
 UV_MISSING = "uv is missing. Ask the owner before installing it, then run the legion installer again."
 MARKER = ".legion-app-ready"
 
@@ -235,7 +237,7 @@ def shim_text(app: Path, home: Path, windows: bool) -> str:
             (
                 '@for %%T in ("%TEMP%\\legion-uninstall-%RANDOM%-%RANDOM%") do @(md "%%~T" 2>nul || (if exist "%%~T" (goto uninstall) else (goto temp_error)) & '
                 'for %%U in (uv.exe) do @copy /b "%%~$PATH:U" "%%~T\\uv.exe" >nul & '
-                f'"%%~T\\uv.exe" run --no-project --python ">=3.12" "%~dp0..\\app\\{app.name}\\src\\legion\\_self_uninstall.py" "%~dp0..\\app\\{app.name}" --uv-copy "%%~T\\uv.exe" %* & '
+                f'"%%~T\\uv.exe" run --no-project {UNINSTALL_PYTHON} "%~dp0..\\app\\{app.name}\\src\\legion\\_self_uninstall.py" "%~dp0..\\app\\{app.name}" --uv-copy "%%~T\\uv.exe" %* & '
                 '(goto) 2>nul & "%COMSPEC%" /d /c "set /a LEGION_EXIT=0x%%=ExitCode%% >nul & del /q """%%~T\\uv.exe""" & rd """%%~T""" & call exit %%^LEGION_EXIT%%")'
             ),
             ":temp_error",
@@ -252,7 +254,7 @@ def shim_text(app: Path, home: Path, windows: bool) -> str:
         [
             f'if [ "$1" = mcp ]; then exec {shell_literal(str(app_executable(app, home)))}{home_argument} "$@"; fi',
             f"command -v uv >/dev/null 2>&1 || {{ echo '{UV_MISSING}' >&2; exit 127; }}",
-            f'if [ "$1" = uninstall ]; then exec uv run --no-project --python ">=3.12" {shell_literal(str(app / "src/legion/_self_uninstall.py"))} {shell_literal(str(app))} "$@"; fi',
+            f'if [ "$1" = uninstall ]; then exec uv run --no-project {UNINSTALL_PYTHON} {shell_literal(str(app / "src/legion/_self_uninstall.py"))} {shell_literal(str(app))} "$@"; fi',
             f"export UV_PROJECT_ENVIRONMENT={shell_literal(str(environment))}",
             # Clear any inherited hint; only MSYS (Git Bash on Windows) has winpid, elsewhere the second line does nothing.
             "unset LEGION_SHELL_WINPID LEGION_SHIM_WINPID",

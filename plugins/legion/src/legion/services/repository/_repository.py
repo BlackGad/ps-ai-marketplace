@@ -3,8 +3,10 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from legion.core import _validate
+from legion.core._atomic_write import atomic_write_bytes
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import run_command
+from legion.core._text import decode_text, encode_text
 
 GENERATED_FILES = (
     "configuration/project.json",
@@ -43,9 +45,13 @@ def _reference(name: str) -> str:
     return text
 
 
+# An existing owner file keeps its BOM, encoding and newlines and is replaced whole; a new file is created with the umask's permissions.
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\n")
+    if path.exists():
+        atomic_write_bytes(path, encode_text(text, decode_text(path.read_bytes())[1], normalize_newlines=True))
+    else:
+        path.write_bytes(text.encode("utf-8"))
 
 
 def _no_links(root: Path, path: Path) -> None:

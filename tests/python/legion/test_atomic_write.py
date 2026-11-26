@@ -65,3 +65,32 @@ def test_partial_write_preserves_the_target_and_removes_the_temp_file(tmp_path: 
         atomic_write_bytes(target, b"new")
     assert target.read_bytes() == b"old"
     assert list(tmp_path.iterdir()) == [target]
+
+
+def test_failed_fsync_keeps_the_original_and_removes_the_temp_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = tmp_path / "data"
+    target.write_bytes(b"old")
+
+    def refuse(_descriptor: int) -> None:
+        raise OSError("fsync failed")
+
+    monkeypatch.setattr(os, "fsync", refuse)
+    with pytest.raises(OSError, match="fsync failed"):
+        atomic_write_bytes(target, b"new")
+    assert target.read_bytes() == b"old"
+    assert list(tmp_path.iterdir()) == [target]
+
+
+def test_the_final_check_runs_after_staging_and_keeps_the_current_file(tmp_path: Path) -> None:
+    target = tmp_path / "data"
+    target.write_bytes(b"old")
+
+    def changed_meanwhile() -> bool:
+        assert len(list(tmp_path.iterdir())) == 2
+        target.write_bytes(b"editor")
+        return target.read_bytes() == b"old"
+
+    with pytest.raises(OSError, match="changed while"):
+        atomic_write_bytes(target, b"new", verify=changed_meanwhile)
+    assert target.read_bytes() == b"editor"
+    assert list(tmp_path.iterdir()) == [target]

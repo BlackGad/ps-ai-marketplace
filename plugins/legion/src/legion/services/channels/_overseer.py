@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 import click
+from filelock import FileLock
 from pydantic import BaseModel, Field, TypeAdapter
 
 from legion.services.channels import _bridge, _channel
@@ -80,9 +81,12 @@ def load_last(repo: Path, home: Path) -> Optional[LastLaunch]:
 
 
 def save_last(repo: Path, home: Path, last: LastLaunch) -> None:
-    saved = _history(home)
-    saved[repo_key(repo)] = last
-    atomic_write_bytes(_history_file(home), _HISTORY.dump_json(saved, indent=2) + b"\n", keep_mode=False)
+    path = _history_file(home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(str(path) + ".lock", timeout=30):
+        saved = _history(home)
+        saved[repo_key(repo)] = last
+        atomic_write_bytes(path, _HISTORY.dump_json(saved, indent=2) + b"\n", keep_mode=False)
 
 
 def _select(settings: PersonalisationSettings, account: Optional[str], tool: Optional[str], channels: tuple[str, ...], last: Optional[str]) -> Agent:
