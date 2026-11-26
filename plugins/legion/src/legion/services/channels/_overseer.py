@@ -174,8 +174,7 @@ def _launch(settings: PersonalisationSettings, agent: Agent, channels: tuple[str
 def _environment(launch: Launch) -> dict[str, str]:
     patterns = (*PARENT_VARIABLES, *launch.remove)
     environment = {name: value for name, value in _run.launch_environment().items() if not any(fnmatch.fnmatchcase(name.upper(), pattern.upper()) for pattern in patterns)}
-    # Mark only the child session; the owner's shell keeps its manual CLI defaults.
-    return environment | launch.environment | {"LEGION_ROLE": "overseer"}
+    return environment | launch.environment
 
 
 def start_bridge(launch: Launch, repo: Path) -> Optional[subprocess.Popen[bytes]]:

@@ -220,9 +220,8 @@ def limits(context: click.Context, accounts: tuple[str, ...], timeout: float, as
     from legion.services.limits import AccountLimits, configured_accounts, limits as limits_report
 
     try:
-        # Only the manual text command owns the historical all-accounts default.
-        # Services and automated interfaces always pass their explicit selection.
-        if not accounts and not as_json and not os.environ.get("LEGION_ROLE") and not os.environ.get("LEGION_TASK"):
+        # A bare text call lists every account; --json and the MCP tool name their accounts.
+        if not accounts and not as_json:
             accounts = tuple(agent.id for agent in configured_accounts(context.obj))
             if not accounts:
                 click.echo("No accounts yet; run legion add.")

@@ -170,12 +170,14 @@ def test_automated_cli_rejects_missing_or_invalid_selection_before_probes(bench:
     assert not list(bench.logs.iterdir())
 
 
-@pytest.mark.parametrize(("environment", "value"), [("LEGION_ROLE", "member"), ("LEGION_ROLE", "overseer"), ("LEGION_TASK", "task.md")])
-def test_member_bare_cli_cannot_use_manual_default(bench: Bench, monkeypatch: pytest.MonkeyPatch, environment: str, value: str) -> None:
+@pytest.mark.parametrize(("environment", "value"), [("LEGION_ROLE", "member"), ("LEGION_TASK", "task.md")])
+def test_bare_text_cli_lists_every_account_in_any_role(bench: Bench, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], environment: str, value: str) -> None:
     write_settings(bench.home, ACCOUNTS)
     monkeypatch.setenv(environment, value)
-    assert run(["--home", str(bench.home), "limits"]) == 1
-    assert not list(bench.logs.iterdir())
+    assert run(["--home", str(bench.home), "limits"]) == 0
+    output = capsys.readouterr().out
+    assert "claude-a" in output
+    assert "copilot-a" in output
 
 
 def test_cli_limits_json_repeatable_id(bench: Bench, capsys: pytest.CaptureFixture[str]) -> None:
