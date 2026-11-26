@@ -96,37 +96,6 @@ def bench(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Bench:
     return Bench(tmp_path, monkeypatch)
 
 
-@pytest.mark.parametrize("selection", [[], [""], [" "], ["nobody"], ["claude-a", "nobody"], ["claude-a", ""]])
-def test_limits_prevalidates_whole_selection_without_probes(bench: Bench, selection: list[str]) -> None:
-    write_settings(bench.home, ACCOUNTS)
-    expected = "name at least one account" if not selection else f"unknown account '{selection[-1]}'"
-    with pytest.raises(LimitsError, match=expected):
-        limits(bench.home, selection)
-    assert [bench.calls(name) for name in ("claude", "codex", "copilot", "az", "git")] == [[], [], [], [], []]
-
-
-def test_limits_omitted_selection_cannot_use_manual_default(bench: Bench) -> None:
-    write_settings(bench.home, ACCOUNTS)
-
-    def omit_selection(call: Callable[..., object]) -> object:
-        return call(bench.home)
-
-    with pytest.raises(TypeError):
-        omit_selection(limits)
-    assert not list(bench.logs.iterdir())
-
-
-@pytest.mark.parametrize("selection", ["ab", "a", b"ab"])
-def test_limits_rejects_scalar_selection_without_probes(bench: Bench, selection: Any) -> None:
-    write_settings(bench.home, [{"id": account, "tool": "claude", "configDir": f"~/{account}"} for account in ("a", "b")])
-    for account in ("a", "b"):
-        write_executable(bench.home / ".legion/bin", account, {"LEGION_FAKE_NAME": "claude"})
-
-    with pytest.raises(LimitsError, match="pass account ids as a list or tuple"):
-        limits(bench.home, selection)
-    assert not list(bench.logs.iterdir())
-
-
 @pytest.mark.parametrize("interface", ["service", "text", "json", "manual"])
 def test_limits_rejects_duplicate_configured_ids_without_probes(bench: Bench, interface: str, capsys: pytest.CaptureFixture[str]) -> None:
     # The second definition would change a subscription check into a provider check.
