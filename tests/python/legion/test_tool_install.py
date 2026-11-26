@@ -482,6 +482,7 @@ def test_preview_never_repairs_the_path_and_yes_repairs_it_once(bench: Bench) ->
     assert (bench.tools / "az" / "bin" / "az.cmd").stat().st_mtime_ns == stamp
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="The saved registry PATH expands %VAR% only on Windows")
 def test_expanded_equivalent_path_entry_is_not_duplicated(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
     folder = bench.tools / "az" / "bin"
     monkeypatch.setenv("LEGION_TEST_ROOT", str(bench.home / ".legion"))
