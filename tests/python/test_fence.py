@@ -6,10 +6,15 @@ import sys
 import tempfile
 from inspect import unwrap
 from pathlib import Path
+from typing import Optional
 
 import pytest
 from legion.services.installation import installer
-from conftest import Fence, fence_git, pwsh_path, user_path_snapshot
+import conftest
+from conftest import Fence, fence_git, pwsh_path
+
+if sys.platform == "win32":
+    import winreg
 
 
 def test_missing_powershell_path_fails_with_setup_hint(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -128,7 +133,34 @@ def test_fixture_git_ignores_inherited_settings(fence: Fence, tmp_path: Path) ->
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows saved PATH")
-def test_default_fence_keeps_user_path_writes_out_of_the_registry(fence: Fence) -> None:
+def test_default_fence_sends_user_path_writes_to_the_fence_file_not_the_registry(fence: Fence, monkeypatch: pytest.MonkeyPatch) -> None:
+    writes: list[tuple[object, ...]] = []
+    monkeypatch.setattr(winreg, "SetValueEx", lambda *args: writes.append(args))
     installer.ensure_path(fence.home, False, [])
     assert str(fence.home / ".legion/bin") in fence.user_path_file.read_text(encoding="utf-8")
-    assert user_path_snapshot() == fence.user_path
+    assert writes == []
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows registry")
+def test_fence_refuses_direct_registry_writes() -> None:
+    with pytest.raises(AssertionError, match="wrote the registry"):
+        winreg.SetValueEx(winreg.HKEY_CURRENT_USER, "Path", 0, winreg.REG_SZ, "x")
+    with pytest.raises(AssertionError, match="wrote the registry"):
+        winreg.DeleteValue(winreg.HKEY_CURRENT_USER, "Path")
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [(("a", 1), ("b", 1)), (("a", 1), ("a", 2)), (None, ("a", 1)), (("a", 1), None)],
+    ids=["value", "kind", "missing-to-present", "present-to-missing"],
+)
+def test_fence_check_fails_when_the_user_path_snapshot_changes(fence: Fence, before: Optional[tuple[str, int]], after: Optional[tuple[str, int]]) -> None:
+    original = fence.user_path
+    fence.user_path = before
+    try:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(conftest, "user_path_snapshot", lambda: after)
+            with pytest.raises(AssertionError, match="real user PATH"):
+                fence.check()
+    finally:
+        fence.user_path = original

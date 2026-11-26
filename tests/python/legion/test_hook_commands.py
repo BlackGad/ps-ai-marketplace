@@ -65,7 +65,7 @@ def plugin(tmp_path: Path) -> Path:
 
 
 def run(shell: Path, flag: str, command: str, plugin_root: str, case: str, *, root_name: str, folder: Path, member: bool) -> subprocess.CompletedProcess[str]:
-    env = {key: value for key, value in os.environ.items() if not key.startswith(("LEGION_", "UV_PYTHON"))}
+    env = {key: value for key, value in os.environ.items() if key == "LEGION_TEST_USER_PATH_FILE" or not key.startswith(("LEGION_", "UV_PYTHON"))}
     env[root_name] = plugin_root
     if member:
         env.update(LEGION_ROLE="member", LEGION_TASK="task.md")
@@ -143,7 +143,7 @@ except SystemExit:
 loaded = sorted(name for name in sys.modules if name.split(".")[0] in ("pydantic", "click") or name in ("urllib.request", "http.client", "ssl"))
 sys.stderr.write(",".join(loaded))
 """
-    env = {key: value for key, value in os.environ.items() if not key.startswith("LEGION_")}
+    env = {key: value for key, value in os.environ.items() if key == "LEGION_TEST_USER_PATH_FILE" or not key.startswith("LEGION_")}
     env.update(HOME=str(home), USERPROFILE=str(home))
     stdin = json.dumps({"cwd": str(repo)})
     result = subprocess.run([sys.executable, "-c", script, str(plugin / "hooks" / "session_start.py")], input=stdin, capture_output=True, text=True, env=env, check=False)
