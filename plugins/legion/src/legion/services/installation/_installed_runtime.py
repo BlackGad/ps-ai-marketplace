@@ -122,6 +122,8 @@ def app_lock(home: Path, timeout: float = 60) -> Iterator[bool]:
 # without the marker is unfinished: never run, repaired by the next sync of its version or removed with the
 # older ones. Returns the lines to print and the ready version the commands should run, or None.
 def sync_app(home: Path, source: Path = PLUGIN_ROOT) -> AppSync:
+    if not (source / "pyproject.toml").is_file():
+        raise AppError("Legacy app sync requires a complete plugin tree")
     version = PluginManifest.model_validate_json((source / "plugin.json").read_text(encoding="utf-8-sig")).version
     try:
         compare_versions(version, version)

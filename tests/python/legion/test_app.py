@@ -65,6 +65,15 @@ def test_sync_rejects_a_manifest_missing_its_name(tmp_path: Path, uv: FakeUv) ->
     assert not uv.calls
 
 
+def test_sync_does_not_publish_wheel_resources_as_an_app(tmp_path: Path, uv: FakeUv) -> None:
+    home, source = tmp_path / "home", make_source(tmp_path)
+    (source / "pyproject.toml").unlink()
+    with pytest.raises(_installed_runtime.AppError, match="complete plugin tree"):
+        _installed_runtime.sync_app(home, source)
+    assert not home.exists()
+    assert not uv.calls
+
+
 @pytest.mark.usefixtures("uv")
 def test_the_copy_is_recorded_before_it_is_renamed_into_place(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home, source = tmp_path / "home", make_source(tmp_path)
