@@ -1,5 +1,9 @@
 import importlib
+import os
 import re
+import runpy
+import subprocess
+import sys
 import tomllib
 from fnmatch import fnmatch
 from pathlib import Path
@@ -53,7 +57,35 @@ def test_app_copy_has_only_client_files(tmp_path: Path, monkeypatch: pytest.Monk
     copied = [path.relative_to(ready) for path in ready.rglob("*") if path.is_file() and "__pycache__" not in path.parts]
     assert Path("plugin.json") in copied
     assert Path("src/legion/cli/__init__.py") in copied
+    assert Path("src/legion/_self_uninstall.py") in copied
     assert maintainer_files(copied) == []
+
+
+@pytest.mark.parametrize("use_uv_copy", [False, True])
+def test_owner_commands_from_018_forward_uninstall(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, use_uv_copy: bool) -> None:
+    home = tmp_path / "Owner Home"
+    app = home / ".legion/app/0.18.1"
+    app.mkdir(parents=True)
+    bin_dir = home / ".legion/bin"
+    bin_dir.mkdir()
+    uv_copy = str(tmp_path / "copied uv" / "uv.exe")
+    script = PLUGIN / "src/legion/_self_uninstall.py"
+    arguments = ["uninstall", "--purge", "--yes"]
+    uv_option = ["--uv-copy", uv_copy] if use_uv_copy else []
+    monkeypatch.setattr(sys, "argv", [str(script), str(bin_dir / "../app/0.18.1"), *uv_option, *arguments])
+    monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", str(tmp_path / "outer-env"))
+
+    def fake_uv(command: list[str], *, env: dict[str, str], check: bool) -> subprocess.CompletedProcess[str]:
+        uv = uv_copy if use_uv_copy else "uv"
+        assert command == [uv, "run", "--project", str(app), "--frozen", "--quiet", "legion", "--home", str(home), *arguments]
+        assert env == {**os.environ, "UV_PROJECT_ENVIRONMENT": str(_installed_runtime.python_environment(app, home))}
+        assert not check
+        return subprocess.CompletedProcess(command, 23)
+
+    monkeypatch.setattr(subprocess, "run", fake_uv)
+    with pytest.raises(SystemExit) as exit_info:
+        runpy.run_path(str(script), run_name="__main__")
+    assert exit_info.value.code == 23
 
 
 def test_cli_lists_every_command_from_cli_package() -> None:
@@ -74,5 +106,4 @@ def test_fixed_entry_points_exist() -> None:
     assert len(scripts) == 4
     for relative in scripts:
         assert (PLUGIN / relative.replace("\\", "/")).is_file(), relative
-    assert (PLUGIN / "src/legion/_self_uninstall.py").is_file()
     console_command()

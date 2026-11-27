@@ -247,6 +247,15 @@ def contains(output: str, expected: str) -> None:
     require(expected in output, f"expected {expected!r} in output:\n{output}")
 
 
+# A detached shell deletes legion's folders once the legion command has exited.
+def wait_gone(*paths: Path) -> None:
+    deadline = time.monotonic() + 90
+    while any(os.path.lexists(path) for path in paths) and time.monotonic() < deadline:
+        time.sleep(0.5)
+    for path in paths:
+        require(not os.path.lexists(path), f"{path} remains after the uninstall handover")
+
+
 @contextmanager
 def restore_user_path():
     """Restore the Windows user PATH if an external CLI installer changes it."""
@@ -300,6 +309,8 @@ class Runner:
         self.work = home.parent / "legion-work"
         self.work.mkdir(parents=True, exist_ok=True)
         self.home.mkdir(parents=True, exist_ok=True)
+        self.owned_uv = self.home / ".legion/bin" / ("uv.exe" if WINDOWS else "uv")
+        self.runner_uv = self.work / self.owned_uv.name
         self.catalog = {entry["id"]: entry for entry in json.loads((checkout / "plugins/legion/tools.json").read_text(encoding="utf-8"))["tools"]}
         self.targets: dict[str, tuple[str, str]] = {}
         self.not_tested: dict[str, str] = {}
@@ -360,9 +371,10 @@ class Runner:
     def legion(self, *args: str, owner: bool = False) -> str:
         if owner:
             return self.run([str(self.launcher("legion")), *args])
+        uv = str(self.runner_uv) if self.runner_uv.is_file() else self.command("uv")
         env = self.env.copy()
         env["UV_PROJECT_ENVIRONMENT"] = str(self.work / "python-env")
-        return self.run([self.command("uv"), "run", "--project", str(self.checkout / "plugins/legion"), "--frozen", "--quiet", "legion", "--home", str(self.home), *args], env=env)
+        return self.run([uv, "run", "--project", str(self.checkout / "plugins/legion"), "--frozen", "--quiet", "legion", "--home", str(self.home), *args], env=env)
 
     def launcher(self, name: str) -> Path:
         return self.home / ".legion/bin" / (name + ".cmd" if sys.platform == "win32" else name)
@@ -510,9 +522,10 @@ class Runner:
         else:
             output = self.run(["sh", str(self.checkout / "install.sh"), "--yes"])
         contains(output, "skip: uv (already done)")
-        uv = self.home / ".legion/bin" / ("uv.exe" if sys.platform == "win32" else "uv")
-        require(uv.is_file(), f"bootstrap did not install uv at {uv}")
-        return output + "\n" + self.run([str(uv), "--version"])
+        require(self.owned_uv.is_file(), f"bootstrap did not install uv at {self.owned_uv}")
+        if not repeat:
+            shutil.copy2(self.owned_uv, self.runner_uv)
+        return output + "\n" + self.run([str(self.owned_uv), "--version"])
 
     def install_legion(self, tool: str) -> str:
         source, ref = self.targets.get(tool, (str(self.checkout), "release"))
@@ -729,7 +742,7 @@ asyncio.run(main())
         contains(json.loads(reply)["additionalContext"], "you are a legion member")
 
         upgrade.legion("uninstall", "--purge", "--yes", owner=True)
-        require(not (upgrade.home / ".legion").exists(), "upgrade left an owner installation after purge")
+        wait_gone(upgrade.home / ".legion")
         require(upgrade.profile_count() == 0, "upgrade left a PATH entry in a shell profile")
         require(not (upgrade.work / "user-path.txt").read_text(encoding="utf-8").strip(), "upgrade left a saved user PATH entry")
         for tool in TOOLS:
@@ -984,10 +997,8 @@ asyncio.run(main())
         return targets
 
     def check_uninstalled(self, tool: str, folder: Path) -> None:
-        require(self.version(tool, folder) is None, f"legion remains in {folder}")
         require(not self.listing(tool, folder, include_disabled=True), f"{tool} still lists legion in {folder}")
-        cache = self.catalog[tool]["plugin"].get("cacheDir")
-        require(not cache or not (folder / cache).exists(), f"{tool} cache remains")
+        require(not self.listing(tool, folder, "marketplace"), f"{tool} marketplace remains in {folder}")
 
     def account_ids(self) -> list[str]:
         return [agent["id"] for agent in self.settings()["agents"] if agent["tool"] in self.active()]
@@ -1009,16 +1020,13 @@ asyncio.run(main())
         targets = self.targets_for_uninstall() if not repeat else []
         output = self.legion("uninstall", "--yes", owner=not repeat)
         if repeat:
-            contains(output, "Nothing to uninstall.")
+            contains(output, "skip: uninstall (already done)")
             return output
         for tool, folder in targets:
             self.check_uninstalled(tool, folder)
         for tool in self.active():
             self.run([self.command(self.catalog[tool]["command"]), "--version"])
-        require(not self.launcher("legion").exists(), "owner command remains")
-        if sys.platform == "win32":
-            require(not self.launcher("legion").with_suffix("").exists(), "owner command remains")
-        require(not (self.home / ".legion/app").exists(), "app remains")
+        wait_gone(*(self.home / ".legion" / name for name in ("app", "bin", "python")))
         self.check_account_launch()
         for name in ("configuration", "agents"):
             require((self.home / ".legion" / name).is_dir(), f"{name} removed")
@@ -1028,6 +1036,10 @@ asyncio.run(main())
     def reinstall(self, repeat: bool, old_launchers: bool = False) -> str:
         if old_launchers and not repeat:
             self.write_old_launchers()
+        elif not repeat:
+            # Reuse the bootstrap's uv download while preserving the per-tool install sources.
+            self.owned_uv.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.runner_uv, self.owned_uv)
         output = "\n".join(self.install_legion(tool) for tool in self.active())
         if repeat:
             contains(output, "skip:")
@@ -1049,20 +1061,13 @@ asyncio.run(main())
         else:
             output = self.run(["sh", str(self.checkout / "install.sh"), "--uninstall", "--purge", "--yes"])
         if repeat:
-            contains(output, "skip: purge (already done)")
-        require(not (self.home / ".legion").exists(), "legion home remains")
+            contains(output, "skip: uninstall (already done)")
+        wait_gone(self.home / ".legion")
         require(self.profile_count() == 0, "profile legion line remains")
         for tool, folder in self.state["purge_targets"]:
             if folder.is_dir():
                 self.check_uninstalled(tool, folder)
                 require(not self.listing(tool, folder, "marketplace"), f"{tool} marketplace remains")
-                plugin = self.catalog[tool]["plugin"]
-                for relative in [plugin.get("cacheDir"), *plugin.get("purge", {}).get("paths", []), *plugin.get("purge", {}).get("emptyDirs", [])]:
-                    if relative:
-                        require(not (folder / relative).exists(), f"purge path remains: {folder / relative}")
-                for setting in plugin.get("purge", {}).get("settings", []):
-                    path = folder / setting["path"]
-                    require(not path.is_file() or "legion" not in path.read_text(encoding="utf-8").lower(), f"legion remains in {path}")
         for tool in TOOLS:
             self.cli(tool, ["--version"])
         if repeat:

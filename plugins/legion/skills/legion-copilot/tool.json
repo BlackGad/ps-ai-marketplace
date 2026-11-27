@@ -6,15 +6,6 @@
   "plugin": {
     "defaultConfigDir": "~/.copilot",
     "installedRoot": "installed-plugins",
-    "cacheDir": "installed-plugins/legion-marketplace",
-    "purge": {
-      "paths": ["marketplace-cache/ps-legion-marketplace", "plugin-data/ps-legion-marketplace/legion"],
-      "emptyDirs": ["plugin-data/ps-legion-marketplace"],
-      "settings": [
-        {"path": "settings.json", "kind": "settings"},
-        {"path": "config.json", "kind": "copilot"}
-      ]
-    },
     "marketplaceAddRef": ["plugin", "marketplace", "add", "{source}#{ref}"],
     "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
     "uninstall": ["plugin", "uninstall", "legion@ps-legion-marketplace"],

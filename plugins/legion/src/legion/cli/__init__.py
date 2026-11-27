@@ -147,7 +147,7 @@ def _report_installer(context: click.Context, change: Callable[[], list[str]]) -
 @click.option("--yes", is_flag=True)
 @click.option("--update", is_flag=True, help="Update installed targets instead of installing.")
 @click.option("--uninstall", is_flag=True, help="Remove installed targets instead of installing.")
-@click.option("--purge", is_flag=True, help="Also remove recorded settings and data; requires --uninstall.")
+@click.option("--purge", is_flag=True, help="Also remove all of legion's data, including settings and logins; requires --uninstall.")
 @click.pass_context
 def install(context: click.Context, tools: tuple[str, ...], source: str, ref: str, config_dir: Optional[Path], dry_run: bool, yes: bool, update: bool, uninstall: bool, purge: bool) -> None:
     from legion.services.installation import installer as _installer

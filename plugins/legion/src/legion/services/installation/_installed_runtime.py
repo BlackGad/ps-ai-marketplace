@@ -13,12 +13,7 @@ from typing import Literal, NamedTuple, Optional
 
 from filelock import FileLock, Timeout
 
-from legion.services.repository._footprints import (
-    Footprint,
-    add,
-    read,
-    remove_entry,
-)
+from legion.services.repository._footprints import add, read, remove_entry
 from legion.core._generated import (
     header,
     is_owned,
@@ -29,7 +24,6 @@ from legion.core._home import (
     bin_folder,
     full_path,
     home_path,
-    is_under,
     owner_path_safe,
     resolve_directory,
     same_path,
@@ -39,8 +33,6 @@ from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import run_command
 from legion.services.installation._update import compare_versions
 
-# Uninstall runs before legion can ask, so it must never download a Python.
-UNINSTALL_PYTHON = '--python ">=3.12" --no-python-downloads'
 UV_MISSING = "uv is missing. Ask the owner before installing it, then run the legion installer again."
 MARKER = ".legion-app-ready"
 
@@ -218,8 +210,7 @@ def shim_home_argument(home: Path, windows: bool) -> str:
 # <home>/.legion/bin and finds the app, its environment and the home from its own folder (%~dp0).
 # One line sets the environment, runs uv and ends the batch with (goto), so a command that an
 # update rewrites while it runs still ends cleanly. The hidden %=ExitCode% is uv's real code even
-# when the caller has an ERRORLEVEL variable. The shell command on Windows delegates uninstall
-# to the batch cleanup path. Its FOR variable keeps the copied uv out of the caller's environment.
+# when the caller has an ERRORLEVEL variable.
 def shim_text(app: Path, home: Path, windows: bool) -> str:
     environment = python_environment(app, home)
     home_argument = shim_home_argument(home, windows)
@@ -228,33 +219,20 @@ def shim_text(app: Path, home: Path, windows: bool) -> str:
             header("owner command", True),
             f'@if /i "%~1"=="mcp" ("%~dp0..\\python\\{environment.name}\\Scripts\\legion.exe"{home_argument} %* & exit /b)',
             f"@where /q uv || (>&2 echo {UV_MISSING}& exit /b 127)",
-            '@if /i "%~1"=="uninstall" goto uninstall',
             (
                 f'@set "UV_PROJECT_ENVIRONMENT=%~dp0..\\python\\{environment.name}" & uv run --project "%~dp0..\\app\\{app.name}" --frozen --quiet legion{home_argument} %* & (goto) 2>nul & '
                 'set "UV_PROJECT_ENVIRONMENT=%UV_PROJECT_ENVIRONMENT%" & "%COMSPEC%" /d /c "set /a LEGION_EXIT=0x%%=ExitCode%% >nul & call exit %%^LEGION_EXIT%%"'
             ),
-            ":uninstall",
-            (
-                '@for %%T in ("%TEMP%\\legion-uninstall-%RANDOM%-%RANDOM%") do @(md "%%~T" 2>nul || (if exist "%%~T" (goto uninstall) else (goto temp_error)) & '
-                'for %%U in (uv.exe) do @copy /b "%%~$PATH:U" "%%~T\\uv.exe" >nul & '
-                f'"%%~T\\uv.exe" run --no-project {UNINSTALL_PYTHON} "%~dp0..\\app\\{app.name}\\src\\legion\\_self_uninstall.py" "%~dp0..\\app\\{app.name}" --uv-copy "%%~T\\uv.exe" %* & '
-                '(goto) 2>nul & "%COMSPEC%" /d /c "set /a LEGION_EXIT=0x%%=ExitCode%% >nul & del /q """%%~T\\uv.exe""" & rd """%%~T""" & call exit %%^LEGION_EXIT%%")'
-            ),
-            ":temp_error",
-            "@>&2 echo Cannot create temporary uv folder & exit /b 1",
         ]
         return "\r\n".join(lines) + "\r\n"
     lines = [
         "#!/bin/sh",
         header("owner command", False),
     ]
-    if sys.platform == "win32":
-        lines.append('if [ "$1" = uninstall ]; then exec "$(dirname "$0")/legion.cmd" "$@"; fi')
     lines.extend(
         [
             f'if [ "$1" = mcp ]; then exec {shell_literal(str(app_executable(app, home)))}{home_argument} "$@"; fi',
             f"command -v uv >/dev/null 2>&1 || {{ echo '{UV_MISSING}' >&2; exit 127; }}",
-            f'if [ "$1" = uninstall ]; then exec uv run --no-project {UNINSTALL_PYTHON} {shell_literal(str(app / "src/legion/_self_uninstall.py"))} {shell_literal(str(app))} "$@"; fi',
             f"export UV_PROJECT_ENVIRONMENT={shell_literal(str(environment))}",
             # Clear any inherited hint; only MSYS (Git Bash on Windows) has winpid, elsewhere the second line does nothing.
             "unset LEGION_SHELL_WINPID LEGION_SHIM_WINPID",
@@ -347,44 +325,3 @@ def prune_old_versions(keep: Path, home: Path) -> list[str]:
             remove_entry(home, "app-version", path)
             lines.append(f"removed legion app {path.name}")
     return lines
-
-
-# Hand-built, reason: an app version and its uv environment must be removed as one safe unit after the last target owner leaves.
-def _remove_orphan_app(home: Path, kept: list[Footprint], lines: list[str]) -> bool:
-    orphan_app = [entry for entry in kept if entry.kind == "app" and not entry.owners]
-    if not orphan_app:
-        return False
-    changed = False
-    versions = [entry for entry in kept if entry.kind == "app-version"]
-    for entry in versions:
-        path = full_path(home_path(entry.path, home))
-        if is_under(PLUGIN_ROOT, path, allow_equal=True):
-            lines.append(f"Kept app version in use: {path} (close legion, then run uninstall again)")
-            continue
-        if not version_safe(path, home):
-            lines.append(f"skip: {path} (linked or not legion's)")
-            continue
-        if not _remove_version(path, home):
-            lines.append(f"Kept app version in use: {path} (close legion, then run uninstall again)")
-            continue
-        kept.remove(entry)
-        lines.append(f"Remove app version: {path}")
-        changed = True
-    if not any(entry.kind == "app-version" for entry in kept):
-        app_folder = home / ".legion" / "app"
-        sync_lock = app_folder / ".sync.lock"
-        if app_folder.is_dir() and sync_lock.is_file() and not sync_lock.is_symlink() and list(app_folder.iterdir()) == [sync_lock]:
-            try:
-                with FileLock(str(sync_lock), timeout=0):
-                    pass
-            except Timeout:
-                lines.append(f"Kept app lock in use: {sync_lock}")
-            else:
-                sync_lock.unlink(missing_ok=True)
-        if app_folder.is_dir() and not any(app_folder.iterdir()):
-            app_folder.rmdir()
-        if not app_folder.exists():
-            for entry in orphan_app:
-                kept.remove(entry)
-                changed = True
-    return changed

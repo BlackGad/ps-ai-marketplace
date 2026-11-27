@@ -1,40 +1,30 @@
+# Owner commands written by 0.18.x call this script. Remove it at 1.0.
+
+import hashlib
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 
-# Hand-built, reason: an installed app cannot remove its running Python environment on Windows.
-def run(app: Path, arguments: list[str], uv_copy: Path | None = None) -> int:
-    app = app.resolve()
+def main() -> int:
+    app = Path(os.path.normpath(Path(sys.argv[1]).absolute()))
     home = app.parents[2]
-    with tempfile.TemporaryDirectory(prefix="legion-uninstall-") as scratch:
-        root = Path(scratch)
-        project = root / "app"
-        shutil.copytree(app, project, symlinks=True)
-        environment = root / "env"
-        command = [
-            str(uv_copy) if uv_copy else "uv",
-            "run",
-            "--project",
-            str(project),
-            "--frozen",
-            "--no-python-downloads",
-            "--no-default-groups",
-            "--quiet",
-            "legion",
-            "--home",
-            str(home),
-            *arguments,
-        ]
-        result = subprocess.run(command, env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(environment)}, check=False)
-        return result.returncode
+    arguments = sys.argv[2:]
+    uv = "uv"
+    if arguments[:1] == ["--uv-copy"]:
+        _, uv, *arguments = arguments
+
+    # Match python_environment without importing the app's dependencies.
+    key = str(app.resolve()).rstrip("/\\")
+    if sys.platform == "win32":
+        key = key.lower()
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+    environment = home / ".legion" / "python" / f"env-{digest}"
+
+    command = [uv, "run", "--project", str(app), "--frozen", "--quiet", "legion", "--home", str(home), *arguments]
+    return subprocess.run(command, env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(environment)}, check=False).returncode
 
 
 if __name__ == "__main__":
-    app = Path(sys.argv[1])
-    if len(sys.argv) > 3 and sys.argv[2] == "--uv-copy":
-        sys.exit(run(app, sys.argv[4:], Path(sys.argv[3])))
-    sys.exit(run(app, sys.argv[2:]))
+    sys.exit(main())

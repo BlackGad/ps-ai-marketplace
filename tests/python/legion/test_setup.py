@@ -194,8 +194,6 @@ def test_accounts_plan_apply_and_repeat(bench: Bench) -> None:
     assert "Existing account folder kept at" not in text(apply)
     app = bench.home / ".legion" / "app" / VERSION
     assert (app / ".legion-app-ready").is_file()
-    owners = [entry.owners for entry in _footprints.read(bench.home).entries if entry.kind == "app"]
-    assert len(owners[0]) == 2
     before = bench.tree()
     installs = len(bench.plugin_installs)
     repeat = bench.apply()
@@ -329,14 +327,6 @@ def test_an_allow_rule_the_owner_already_had_is_a_skip_and_is_not_recorded(bench
     bench.apply([f"claude:{folder}"])
     assert [entry for entry in _footprints.read(bench.home).entries if entry.kind == "edit"] == []
     assert f"skip: permission rule in {folder} (already done)" in bench.apply()
-
-
-def test_an_added_allow_rule_is_recorded_for_the_target(bench: Bench) -> None:
-    bench.apply(["codex", "claude"])
-    entries = [entry for entry in _footprints.read(bench.home).entries if entry.kind == "edit"]
-    assert [(entry.key, entry.value) for entry in entries] == [("permissions.allow", RULE)]
-    folder = next(Path(agent["configDir"]) for agent in bench.settings()["agents"] if agent["tool"] == "claude")
-    assert entries[0].owners == [_footprints.target_owner(descriptor("claude"), folder, bench.home)]
 
 
 def test_an_unreadable_settings_file_of_the_account_stops_the_plan(bench: Bench) -> None:

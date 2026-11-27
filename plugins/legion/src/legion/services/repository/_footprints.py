@@ -1,11 +1,11 @@
-import importlib
+import json
 import re
 import shutil
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 from filelock import FileLock, Timeout
 
@@ -28,7 +28,7 @@ from legion.core._settings_models import (
     ToolDescriptor,
 )
 
-FootprintKind = Literal["file", "folder", "link", "path-entry", "edit", "app", "app-version"]
+FootprintKind = Literal["file", "folder", "path-entry", "app-version"]
 
 
 class Footprint(SettingsModel):
@@ -85,7 +85,7 @@ def lock(home: Path) -> Iterator[None]:
         try:
             file_lock.acquire()
         except FileNotFoundError:
-            # Purge can remove an empty .legion after releasing this lock while a writer waits.
+            # The legion folder can be deleted while a writer waits.
             if not owner_path_safe(index, home):
                 raise FootprintError("Footprint index contains a link; resolve it before writing") from None
             index.parent.mkdir(parents=True, exist_ok=True)
@@ -102,7 +102,10 @@ def read(home: Path) -> FootprintIndex:
     index = footprint_index(home)
     if not index.exists():
         return FootprintIndex.model_validate({"schemaVersion": 1, "entries": []})
-    return FootprintIndex.model_validate_json(index.read_text(encoding="utf-8-sig"))
+    data = json.loads(index.read_text(encoding="utf-8-sig"))
+    # An index of the previous release can hold kinds that are retired now; keep the supported records.
+    data["entries"] = [entry for entry in data.get("entries", []) if entry.get("kind") in get_args(FootprintKind)]
+    return FootprintIndex.model_validate(data)
 
 
 def _write(home: Path, data: FootprintIndex) -> None:
@@ -155,18 +158,8 @@ def is_safe(entry: Footprint, home: Path) -> bool:
     if re.search(r"(^|[/\\])\.\.([/\\]|$)|[?*]", entry.path):
         return False
     path = full_path(home_path(entry.path, home))
-    walked = path.parent if entry.kind == "link" else path
-    if not is_under(path, home / ".legion") or not owner_path_safe(walked, home):
+    if not is_under(path, home / ".legion") or not owner_path_safe(path, home):
         return False
-    if entry.kind == "link":
-        try:
-            target = str(path.readlink())
-            # PowerShell's LinkTarget omits the Windows extended-path prefix.
-            return target == entry.value or (sys.platform == "win32" and target.removeprefix("\\\\?\\") == entry.value)
-        except FileNotFoundError:
-            return True
-        except OSError:
-            return False
     if not path.exists():
         return True
     if entry.kind == "file":
@@ -207,9 +200,6 @@ def remove_owner(home: Path, owners: list[str]) -> list[str]:
                     shutil.rmtree(full_path(path))
                 else:
                     path.unlink()
-        # Installed runtime imports footprint helpers, so load its cleanup only after the index is ready.
-        installed_runtime = importlib.import_module("legion.services.installation._installed_runtime")
-        changed = installed_runtime._remove_orphan_app(home, kept, lines) or changed
         if changed:
             _write(home, data.model_copy(update={"entries": kept}))
     return lines
