@@ -32,12 +32,19 @@ function Get-InstallLegionPath {
     return Join-Path (Join-Path (Get-InstallHome) '.legion') $Path
 }
 
-# uv is found on PATH, in the legion bin folder (which `legion install` puts on the user PATH), or in the folder its own installer uses.
+# uv's own default folder, where its installer puts it and `uv tool` puts commands.
+function Get-InstallUvFolder {
+    foreach ($folder in @($env:UV_INSTALL_DIR, $env:XDG_BIN_HOME)) {
+        if ($folder) { return $folder }
+    }
+    return (Join-Path (Join-Path (Get-InstallHome) '.local') 'bin')
+}
+
+# uv is found on PATH, or in the folder its own installer uses.
 function Get-InstallUv {
     $found = Get-Command uv -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($found) { return $found.Source }
-    $folders = @((Get-InstallLegionPath 'bin'), $env:UV_INSTALL_DIR, $env:XDG_BIN_HOME, (Join-Path (Join-Path (Get-InstallHome) '.local') 'bin'))
-    foreach ($folder in $folders) {
+    foreach ($folder in @($env:UV_INSTALL_DIR, $env:XDG_BIN_HOME, (Join-Path (Join-Path (Get-InstallHome) '.local') 'bin'))) {
         if (-not $folder) { continue }
         foreach ($name in @('uv.exe', 'uv')) {
             $path = Join-Path $folder $name
@@ -124,7 +131,7 @@ function Install-InstallUvRelease {
         if ($TemporaryUv) {
             Copy-Item -LiteralPath $staged -Destination $TemporaryUv -ErrorAction Stop
         } else {
-            $folder = Get-InstallLegionPath 'bin'
+            $folder = Get-InstallUvFolder
             New-Item -ItemType Directory -Path $folder -Force -ErrorAction Stop | Out-Null
             # Copy beside the target, then rename: an interrupted run never leaves a partial uv.exe.
             Copy-Item -LiteralPath $staged -Destination (Join-Path $folder 'uv.exe.new') -Force -ErrorAction Stop
@@ -151,7 +158,7 @@ function Ensure-InstallUv {
     if ($TemporaryUv) {
         Write-Host 'Use temporary uv: download the latest official uv release, verified with its SHA-256 digest, outside the home for cleanup.'
     } else {
-        Write-Host 'Install uv: download the latest official uv release, verified with its SHA-256 digest, to ~/.legion/bin/, which the legion install then puts on your PATH.'
+        Write-Host 'Install uv: download the latest official uv release, verified with its SHA-256 digest, to the default uv folder (~/.local/bin); legion install then puts it on your PATH with uv.'
     }
     if ($DryRun) { return $null }
     if (-not (Confirm-InstallChange -Yes:$Yes -Question 'Install uv now? [y/N]')) {
@@ -238,12 +245,6 @@ function Invoke-InstallBootstrap {
         $project = Get-InstallProject -CheckoutRoot $CheckoutRoot -Branch $branch -Temporary $temporary
         # The project environment lives beside the downloaded copy and goes with it.
         $env:UV_PROJECT_ENVIRONMENT = Join-Path $temporary 'env'
-        if ($cleanup -and $uv -ne $temporaryUv) {
-            # Cleanup may remove an installed uv; Windows cannot delete a running program.
-            Copy-Item -LiteralPath $uv -Destination $temporaryUv -ErrorAction Stop
-            $uv = $temporaryUv
-        }
-        if ($cleanup) { $env:PATH = $temporary + [IO.Path]::PathSeparator + $env:PATH }
         $arguments = @('run', '--project', $project, '--frozen', '--quiet', 'legion') + @(Get-InstallArguments -Parameters $Parameters)
         & $uv @arguments | Out-Host
         $script:bootstrapExitCode = $LASTEXITCODE

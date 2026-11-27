@@ -13,7 +13,7 @@ from click.core import Group
 from click.testing import CliRunner
 
 from conftest import fence_git
-from legion.core._run import RunResult, run_command
+from legion.core._run import run_command
 from legion.services.installation import _installed_runtime
 
 
@@ -42,23 +42,6 @@ def test_plugin_tree_has_no_maintainer_files(monkeypatch: pytest.MonkeyPatch) ->
     tracked = [Path(name).relative_to("plugins/legion") for name in listing.output.splitlines()]
     assert tracked
     assert maintainer_files(tracked) == []
-
-
-def test_app_copy_has_only_client_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_uv(*_arguments: object, **_options: object) -> RunResult:
-        return RunResult(exit_code=0, output="", error="", timed_out=False)
-
-    monkeypatch.setattr(_installed_runtime, "find_uv", lambda: "uv")
-    monkeypatch.setattr(_installed_runtime, "run_command", fake_uv)
-    home = tmp_path / "home"
-    _lines, ready, state = _installed_runtime.sync_app(home)
-    assert state == "published"
-    assert ready is not None
-    copied = [path.relative_to(ready) for path in ready.rglob("*") if path.is_file() and "__pycache__" not in path.parts]
-    assert Path("plugin.json") in copied
-    assert Path("src/legion/cli/__init__.py") in copied
-    assert Path("src/legion/_self_uninstall.py") in copied
-    assert maintainer_files(copied) == []
 
 
 @pytest.mark.parametrize("use_uv_copy", [False, True])

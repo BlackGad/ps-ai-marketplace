@@ -221,20 +221,20 @@ Invoke-InstallTestCase 'BootstrapObtainsUvFirst' {
         $text = $result.Lines -join "`n"
         Assert-Equal 0 $result.ExitCode "uv-missing-yes: $text"
         Assert-True ($result.Lines -contains 'prompts=0') '-Yes never asks'
-        Assert-True ($result.Lines -contains 'uvInstalled=True') 'The verified uv release is published to the legion bin folder, which install puts on PATH'
+        Assert-True ($result.Lines -contains 'uvInstalled=True') 'The verified uv release is published to the default uv folder'
         $asset = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'uv-aarch64-pc-windows-msvc.zip' } else { 'uv-x86_64-pc-windows-msvc.zip' }
         $url = "https://github.com/astral-sh/uv/releases/latest/download/$asset"
         Assert-True ($result.Lines -contains "downloads=$url.sha256,$url") "Only the uv release and its checksum are downloaded for a checkout: $text"
         Assert-True ($result.Lines -contains 'uv:install') 'Then legion install runs through the new uv'
         Assert-True ($result.Lines -contains 'tempLeft=0') 'The temporary folder is gone afterwards'
 
-        Remove-Item -LiteralPath (Join-Path $scratch '.legion/bin') -Recurse -Force
+        Remove-Item -LiteralPath (Join-Path $scratch '.local/bin') -Recurse -Force
         foreach ($mode in @('uv-bad-digest', 'uv-no-digest', 'uv-broken')) {
             $result = Invoke-BootstrapFixture -Runtime $runtime -Mode $mode -Scratch $scratch -UvOnPath $false
             $text = $result.Lines -join "`n"
             Assert-True ($result.ExitCode -ne 0) "$mode fails: $text"
             Assert-True ($text.Contains('digest') -or $text.Contains('does not run')) "$mode says why: $text"
-            Assert-True (-not (Test-Path -LiteralPath (Join-Path $scratch '.legion/bin/uv.exe'))) "$mode publishes nothing"
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path $scratch '.local/bin/uv.exe'))) "$mode publishes nothing"
             Assert-Equal 0 @(Get-ChildItem -LiteralPath (Join-Path $scratch 'tmp') -Force).Count "$mode deletes the download"
             Assert-True (-not ($result.Lines -contains 'uv:run')) "$mode never reaches legion"
         }
@@ -260,17 +260,6 @@ Invoke-InstallTestCase 'BootstrapCleanupWithMissingUvKeepsHomeClean' {
                 Assert-True ($result.Lines -contains 'tempLeft=0') "Cleanup removes temporary uv on $mode invocation ${invocation}: $text"
             }
         }
-    } finally { Remove-InstallTestFolder $scratch }
-}
-
-Invoke-InstallTestCase 'BootstrapCleanupUsesTemporaryUvOnChildPath' {
-    $scratch = New-BootstrapScratch
-    try {
-        $result = Invoke-BootstrapFixture -Runtime (Get-InstallTestPwsh) -Mode 'purge-home-uv' -Scratch $scratch -UvOnPath $false
-        $text = $result.Lines -join "`n"
-        Assert-Equal 0 $result.ExitCode $text
-        Assert-True (@($result.Lines | Where-Object { $_ -like 'uvUsed=*' -and $_.Contains((Join-Path $scratch 'tmp')) }).Count -eq 1) "Purge runs temporary uv: $text"
-        Assert-True (@($result.Lines | Where-Object { $_ -like 'pathHead=*' -and $_.Contains((Join-Path $scratch 'tmp')) }).Count -eq 1) "Purge children resolve temporary uv: $text"
     } finally { Remove-InstallTestFolder $scratch }
 }
 
@@ -440,7 +429,7 @@ Invoke-InstallTestCase 'ShellBootstrap' {
             Assert-True ((Get-Content -LiteralPath $env:FAKE_CURL_LOG) -contains $uvUrl) 'The uv release is downloaded'
             Assert-True ((Get-Content -LiteralPath $env:FAKE_CURL_LOG) -contains "$uvUrl.sha256") 'The uv checksum is downloaded'
             Assert-True (-not ((Get-Content -LiteralPath $env:FAKE_CURL_LOG) -match 'api.github.com')) 'The GitHub API is not needed'
-            Assert-True (Test-Path -LiteralPath (Join-Path $fakeHome '.legion/bin/uv')) 'The verified uv is published to the legion bin folder'
+            Assert-True (Test-Path -LiteralPath (Join-Path $fakeHome '.local/bin/uv')) 'The verified uv is published to the default uv folder'
             Assert-True ((Get-Content -LiteralPath $log) -contains 'install') 'Then legion install runs'
 
             $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --uninstall --purge --yes 2>&1) -join "`n"
@@ -460,12 +449,12 @@ Invoke-InstallTestCase 'ShellBootstrap' {
             }
 
             # A digest mismatch deletes the download, extracts nothing and never runs uv.
-            Remove-Item -LiteralPath (Join-Path $fakeHome '.legion/bin') -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Join-Path $fakeHome '.local/bin') -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item $log
             $env:FAKE_UV_DIGEST = '0' * 64
             $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --yes 2>&1) -join "`n"
             Assert-True ($LASTEXITCODE -ne 0 -and $text.Contains('uv SHA-256 digest mismatch; download deleted.')) "A digest mismatch fails: $text"
-            Assert-True (-not (Test-Path -LiteralPath (Join-Path $fakeHome '.legion/bin/uv'))) 'A digest mismatch publishes nothing'
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path $fakeHome '.local/bin/uv'))) 'A digest mismatch publishes nothing'
             Assert-True (-not (Test-Path $log)) 'uv never runs after a digest mismatch'
             Assert-True (@(Get-ChildItem -LiteralPath $systemTemp -Force).Count -eq 0) 'A digest mismatch leaves no download'
 

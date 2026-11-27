@@ -16,9 +16,9 @@ from pydantic import ValidationError
 
 from legion.services.accounts import _accounts, _launchers
 from legion.services.installation import (
-    _installed_runtime,
     _refresh,
     _tool_install,
+    _uv_tool,
     installer as _installer,
 )
 from legion.services.status import _status
@@ -26,7 +26,6 @@ from legion.services.repository import _footprints
 from legion.core import _generated, _settings_io
 from legion.services.installation import _user_path
 from legion.core._home import (
-    bin_folder,
     full_path,
     home_path,
     path_contains,
@@ -84,9 +83,7 @@ class Plan:
     accounts: list[Row]
     uv_missing: bool
     missing_tools: list[ToolDescriptor]
-    bin: Path
-    commands: list[tuple[Path, str]]
-    needs_path: bool
+    command_missing: bool
 
     @property
     def notes(self) -> Path:
@@ -250,16 +247,16 @@ def build_plan(home: Path, tool_id: Optional[str], config_dir: Optional[str], ac
     tools = {tool.id: tool for tool in _tool_install.load_tools()}
     accounts = _accounts_plan(tool_id, config_dir, account_id, settings, tools, home)
     # Without uv no Python work can run: an account that needs some waits, and the owner is told as its next step.
-    uv_missing = _installed_runtime.find_uv() is None
+    uv = _uv_tool.find_uv()
+    uv_missing = uv is None
     if uv_missing:
         for row in accounts:
             if row.usable and row.requested:
                 row.usable, row.next_step = False, "uv is missing"
     needs_stock = {row.tool.id for row in accounts if row.usable and row.command is None}
     missing = [tool for tool in tools.values() if tool.id in needs_stock and not command_available(tool.command)]
-    commands = bin_folder(home)
-    needs_path = not path_contains(_user_path.user_path(), commands) if WINDOWS else not _user_path.shell_profile(home).has_path
-    return Plan(home, file, accounts, uv_missing, missing, commands, _status.command_states(commands), needs_path)
+    command_missing = uv is not None and _uv_tool.installed_version(uv) != _uv_tool.plugin_version(PLUGIN_ROOT)
+    return Plan(home, file, accounts, uv_missing, missing, command_missing)
 
 
 # --- the plan the owner reads ---
@@ -287,18 +284,11 @@ def plan_lines(plan: Plan) -> list[str]:
     permissions = {str(row.folder): row for row in plan.accounts if row.usable and row.missing_allow_rules}
     for folder in sorted(permissions, key=str.lower):
         lines.append(f"  permission allow {', '.join(permissions[folder].missing_allow_rules)} in {folder}/settings.json")
-    missing = [path.name.removesuffix(".cmd") for path, state in plan.commands if state == "missing"]
-    if missing:
-        lines.append(f"  commands write {', '.join(dict.fromkeys(missing))} in {plan.bin}")
-    permission = [path.name.removesuffix(".cmd") for path, state in plan.commands if state == "permission"]
-    if permission:
-        lines.append(f"  commands restore execute permission for {', '.join(dict.fromkeys(permission))}")
-    if plan.needs_path:
-        lines.append(f"  path     {f'add {plan.bin} to your user PATH' if WINDOWS else _user_path.shell_profile_lines(plan.home, dry_run=True)[0]}")
-    blocked = [f"blocked: command {name} (another file is there)" for name in dict.fromkeys(path.name.removesuffix(".cmd") for path, state in plan.commands if state == "blocked")]
+    if plan.command_missing:
+        lines.append("  command  install the legion command with uv and put it on your PATH")
     if not lines:
-        return [*blocked, NOTHING_TO_DO]
-    return [*blocked, "Plan (nothing changed yet):", *lines, RUN_AGAIN]
+        return [NOTHING_TO_DO]
+    return ["Plan (nothing changed yet):", *lines, RUN_AGAIN]
 
 
 # The preview looks for commands where the apply will, so the hint it shows is the command that runs.
@@ -386,17 +376,6 @@ def add_allow_rules(plan: Plan, say: Callable[[str], None]) -> None:
         _generated.write_generated(file, json.dumps(data, indent=2, ensure_ascii=False) + "\n", executable=False)
 
 
-def set_path(plan: Plan, say: Callable[[str], None]) -> None:
-    if not WINDOWS:
-        for line in _user_path.shell_profile_lines(plan.home):
-            say(line)
-        return
-    if not _user_path.add(plan.home, plan.bin):
-        say("skip: path (already done)")
-    if not path_contains(os.environ.get("PATH", ""), plan.bin):
-        os.environ["PATH"] += f";{plan.bin}"
-
-
 # The plugin goes into an account's folder by the installer module, without questions (yes); its output goes to a log.
 # Returns 0 when it finished, 1 when it failed.
 def install_plugin(tool_id: str, folder: Path, home: Path, source: Optional[str]) -> int:
@@ -437,8 +416,6 @@ def write_commands(plan: Plan, say: Callable[[str], None]) -> None:
         return
     for line in _refresh.refresh(plan.home):
         say(line)
-    if any(state == "owned" for _path, state in plan.commands):
-        say("skip: command legion (already done)")
 
 
 def write_table(plan: Plan, say: Callable[[str], None]) -> None:
@@ -446,9 +423,6 @@ def write_table(plan: Plan, say: Callable[[str], None]) -> None:
         say("account  tool  folder  legion  next step")
         for row in plan.accounts:
             say(f"{row.id}  {row.tool.id}  {row.folder}  {row.version or 'missing'}  {row.next_step}")
-    blocked = [path.name.removesuffix(".cmd") for path, state in plan.commands if state == "blocked"]
-    if blocked:
-        say(f"Blocked commands: {', '.join(dict.fromkeys(blocked))}")
 
 
 def _save_knowledge_locked(home: Path, choice: bool, explicit: bool, say: Callable[[str], None]) -> None:
@@ -507,7 +481,6 @@ def apply(
         install_tools(plan)
         add_accounts(plan, say)
         add_allow_rules(plan, say)
-        set_path(plan, say)
         install_plugins(plan, source, say)
         write_commands(plan, say)
     write_table(plan, say)

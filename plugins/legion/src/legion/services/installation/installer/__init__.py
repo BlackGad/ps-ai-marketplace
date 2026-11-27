@@ -4,7 +4,6 @@ import json
 import os
 import re
 import shutil
-import sys
 import tempfile
 import tomllib
 from contextlib import nullcontext
@@ -18,19 +17,17 @@ from pydantic import ValidationError
 
 from legion.services.accounts._launchers import command_prefix, registered_command
 from legion.services.installation import _user_path
-from legion.services.installation import _installed_runtime
 from legion.services.installation import _handover
 from legion.services.installation import _knowledge_hub
 from legion.services.installation import _refresh
+from legion.services.installation import _uv_tool
 from legion.services.installation._update import compare_versions
 from legion.core import _settings_io
 from legion.core._http import HttpsError, failure_text, get_bytes
 from legion.core._home import (
-    bin_folder,
     full_path,
     is_reparse,
     is_under,
-    path_contains,
     resolve_directory,
     same_path,
     settings_path,
@@ -145,20 +142,6 @@ def _folders(home: Path, entry: CatalogTool, selected: Path | None, agents: list
         if not any(same_path(resolve_directory(default), resolve_directory(previous)) for previous in folders):
             folders.insert(0, default)
     return folders
-
-
-def ensure_path(home: Path, dry_run: bool, lines: list[str]) -> None:
-    bin_path = bin_folder(home)
-    if sys.platform == "win32":
-        if not dry_run and not path_contains(os.environ.get("PATH", ""), bin_path):
-            os.environ["PATH"] = str(bin_path) + os.pathsep + os.environ.get("PATH", "")
-        added = not path_contains(_user_path.user_path(), bin_path) if dry_run else _user_path.add(home, bin_path)
-        lines.append(f"add {bin_path} to your user PATH" if added else "skip: path (already done)")
-        return
-    try:
-        lines.extend(_user_path.shell_profile_lines(home, dry_run=dry_run))
-    except _user_path.PathError as error:
-        raise InstallerError(str(error)) from None
 
 
 def _execute(entry: CatalogTool, arguments: list[str], folder: Path, listing: bool = False) -> str:
@@ -476,13 +459,17 @@ def _results_table(rows: list[tuple[str, str, str]]) -> list[str]:
     return ["Results:", *(f"{tool.ljust(widths[0])}  {folder.ljust(widths[1])}  {result}".rstrip() for tool, folder, result in table)]
 
 
-# This process is the old version: the newest version this update confirmed writes the files again with its own templates, once.
-def _hand_over(home: Path, confirmed: list[str], lines: list[str], rows: list[tuple[str, str, str]]) -> None:
-    if not confirmed:
+# The uv step runs after this process exits, so it can replace the legion that is running it. One install serves every target:
+# the newest plugin version this update reached wins.
+def _install_tool(home: Path, roots: list[tuple[str, Path]], lines: list[str], rows: list[tuple[str, str, str]], dry_run: bool) -> None:
+    if not roots:
         return
-    version = max(confirmed, key=cmp_to_key(compare_versions))
+    root = max(roots, key=cmp_to_key(lambda left, right: compare_versions(left[0], right[0])))[1]
     try:
-        lines.extend(_installed_runtime.refresh_with_new_app(home, version))
+        if dry_run:
+            lines.extend(_uv_tool.install(root, dry_run=True))
+        else:
+            lines.extend(_refresh.refresh(home, source=root, detached=True))
     except Exception as error:
         lines.append(f"commands not refreshed: {error}; run legion setup")
         rows.append(("legion", str(home), f"commands not refreshed: {error}"))
@@ -525,11 +512,9 @@ def install(
         lines.append("No coding CLI is installed. Run legion setup to install one.")
         for entry in catalog.tools:
             lines.extend([f"skip: {entry.id} (not installed)", entry.install_hint])
-        if not dry_run and not (yes or _confirm("Install the legion command and add ~/.legion/bin to your PATH? [y/N]", lines)):
+        if not dry_run and not (yes or _confirm("Install the legion command with uv and add it to your PATH? [y/N]", lines)):
             return [*lines, "Nothing changed. Run again with --yes to apply."]
-        ensure_path(home, dry_run, lines)
-        if not dry_run:
-            lines.extend(_refresh.refresh(home, source=PLUGIN_ROOT))
+        lines.extend(_uv_tool.install(PLUGIN_ROOT, dry_run=True) if dry_run else _refresh.refresh(home, source=PLUGIN_ROOT))
         if manage_knowledge:
             reconcile_knowledge(home, catalog, dry_run, lines)
         return lines
@@ -557,7 +542,7 @@ def install(
         if (targets or manage_knowledge) and not dry_run and not (yes or _confirm("Update legion? [y/N]", lines)):
             return [*lines, "Nothing changed. Run again with --yes to apply."]
         rows: list[tuple[str, str, str]] = []
-        confirmed: list[str] = []
+        roots: list[tuple[str, Path]] = []
         try:
             for entry, folder in targets:
                 before = _plugin_root(entry, folder)
@@ -568,29 +553,26 @@ def install(
                             _step(entry, arguments, folder, dry_run, lines)
                 else:
                     _install_steps(entry, folder, source, ref, dry_run, lines)
-                if not dry_run:
+                if dry_run:
+                    if before:
+                        roots.append((before_version, before))
+                else:
                     after = _plugin_root(entry, folder)
                     if after is None:
                         raise InstallerError(f"{entry.id} legion is absent from the post-update listing; generated artifacts were not refreshed.")
-                    try:
-                        lines.extend(_refresh.refresh(home, source=after))
-                    except Exception as error:
-                        lines.append(f"commands not refreshed for {entry.id} in {folder}: {error}; run legion setup")
-                        rows.append((entry.id, str(folder), f"commands not refreshed: {error}"))
-                        continue
                     after_version = _manifest(after).version
                     lines.append(f"legion {before_version} -> {after_version}" if before_version != after_version else f"skip: legion {after_version} (already up to date)")
                     rows.append((entry.id, str(folder), f"{before_version} -> {after_version}" if before_version != after_version else f"already up to date ({after_version})"))
-                    confirmed.append(after_version)
+                    roots.append((after_version, after))
         except BaseException:
-            # Versions already published keep their old templates unless the new app writes them, even when a later account fails.
-            # The returned lines are lost with the error, so a failed handoff is printed before it propagates.
-            handover: list[str] = []
-            _hand_over(home, confirmed, handover, rows)
-            for line in handover:
+            # Plugins already updated need their legion command even when a later account fails.
+            # The returned lines are lost with the error, so the install is reported before it propagates.
+            failed: list[str] = []
+            _install_tool(home, roots, failed, rows, dry_run)
+            for line in failed:
                 click.echo(line, err=True)
             raise
-        _hand_over(home, confirmed, lines, rows)
+        _install_tool(home, roots, lines, rows, dry_run)
         if manage_knowledge:
             reconcile_knowledge(home, catalog, dry_run, lines)
         if targets and not dry_run:
@@ -598,10 +580,8 @@ def install(
             lines.append("done: restart your sessions; run legion in the repository")
         return lines
     lines.append(f"Install legion for {', '.join(selected)}")
-    path_description = "user PATH" if sys.platform == "win32" else "shell profile PATH"
-    if not dry_run and not (yes or _confirm(f"Install legion for {', '.join(selected)} now, and add ~/.legion/bin to your {path_description}? [y/N]", lines)):
+    if not dry_run and not (yes or _confirm(f"Install legion for {', '.join(selected)} now, and put the legion command on your PATH with uv? [y/N]", lines)):
         return [*lines, "Nothing changed. Run again with --yes to apply."]
-    ensure_path(home, dry_run, lines)
     installed_version = ""
     rows = []
     for tool_id in selected:
@@ -636,7 +616,9 @@ def install(
                     rows.append((tool_id, str(folder), "commands not refreshed"))
         if entry.hooks.hint:
             lines.append(entry.hooks.hint)
-    if not dry_run:
+    if dry_run:
+        lines.extend(_uv_tool.install(PLUGIN_ROOT, dry_run=True))
+    else:
         lines.extend(_results_table(rows))
     if installed_version and not dry_run:
         lines.append(f"installed: legion {installed_version} ({ref})")
@@ -692,14 +674,16 @@ def _uninstall(
     folders = _legion_folders(home, purge, with_knowledge=False) if everything else []
     lines.extend(f"Remove folder: {folder}" for folder in folders)
     path_lines = _user_path.remove(home, purge, dry_run=True) if everything else []
+    tool_lines = _uv_tool.uninstall(dry_run=True) if everything else []
     hub = everything and purge and os.path.lexists(home / ".legion/knowledge")
     if everything:
         lines.extend(path_lines or ["skip: path (already done)"])
+        lines.extend(tool_lines)
         if hub:
             lines.append("Asked separately: the knowledge hub in ~/.legion/knowledge")
         if not purge and is_reparse(home / ".legion"):
             lines.append("skip: ~/.legion is a link; left alone")
-    if not (steps or folders or path_lines or hub):
+    if not (steps or folders or path_lines or tool_lines or hub):
         lines.append("skip: uninstall (already done)")
         return
     if dry_run:
@@ -723,6 +707,7 @@ def _uninstall(
         if with_knowledge:
             _knowledge_hub.purge(home, lines)
         _handover.start(_legion_folders(home, purge, with_knowledge))
+        lines.extend(_uv_tool.uninstall())
         lines.append("done: legion folders are removed when this command ends")
 
 

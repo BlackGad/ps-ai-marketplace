@@ -5,9 +5,10 @@ from typing import Any
 
 import pytest
 
+from legion.core._home import bin_folder
 from legion.core._settings_models import CatalogTool, ToolsCatalog
 from legion.services.installation import _handover, _user_path, installer as _installer
-from app_fakes import make_link
+from app_fakes import FakeUv, make_link
 
 CATALOG = ToolsCatalog.model_validate_json((Path(__file__).resolve().parents[3] / "plugins/legion/tools.json").read_bytes())
 TOOL_FOLDERS = (".claude", ".codex", ".copilot")
@@ -19,11 +20,14 @@ class Recorder:
         self.handed: list[list[Path]] = []
         self.questions: list[str] = []
         self.events: list[str] = []
+        self.uv: FakeUv
 
 
 @pytest.fixture
-def recorder(monkeypatch: pytest.MonkeyPatch) -> Recorder:
+def recorder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
     recorder = Recorder()
+    # The legion tool is not installed unless a test sets `recorder.uv.installed`; no test reaches the real uv.
+    recorder.uv = FakeUv(monkeypatch, tmp_path / "uv bin")
     for entry in CATALOG.tools:
         monkeypatch.delenv(entry.config_env, raising=False)
     monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
@@ -74,6 +78,13 @@ def run(home: Path, tools: Any = None, **options: Any) -> list[str]:
     return _installer.install(home, tools, uninstall=True, catalog=CATALOG, **options)
 
 
+def add_path(home: Path) -> None:
+    if sys.platform == "win32":
+        _user_path.add(home, bin_folder(home))
+    else:
+        _user_path.shell_profile_lines(home)
+
+
 def tool_files(home: Path) -> dict[Path, bytes]:
     return {path: path.read_bytes() for name in TOOL_FOLDERS for path in (home / name).iterdir()}
 
@@ -99,12 +110,38 @@ def test_uninstall_hands_over_app_bin_and_python_and_keeps_the_owners_data(home:
     assert any(line.startswith("done:") for line in lines)
 
 
+def test_a_full_uninstall_hands_only_the_legion_tool_to_the_helper_and_never_removes_uv(home: Path, recorder: Recorder) -> None:
+    recorder.uv.installed = "1.0.0"
+    lines = run(home, yes=True)
+    assert recorder.uv.detached == [(["uv", "tool", "uninstall", "legion"], None)]
+    assert recorder.uv.calls == [["tool", "list"], ["tool", "list"]]
+    assert "legion command is removed when this command ends" in lines
+
+
+def test_one_tool_alone_leaves_the_legion_tool(home: Path, recorder: Recorder) -> None:
+    recorder.uv.installed = "1.0.0"
+    run(home, ["claude"], yes=True)
+    assert recorder.uv.detached == []
+
+
+def test_the_installed_legion_tool_alone_is_work_for_a_repeat(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (False, False, [], ""))
+    monkeypatch.setattr(_installer, "_marketplace", lambda *_args: False)
+    for name in ("app", "bin", "python"):
+        (home / ".legion" / name).rmdir()
+    recorder.uv.installed = "1.0.0"
+    lines = run(home, yes=True)
+    assert "skip: uninstall (already done)" not in lines
+    assert recorder.uv.detached == [(["uv", "tool", "uninstall", "legion"], None)]
+
+
 @pytest.mark.usefixtures("answers")
 def test_a_dry_run_previews_without_asking_running_or_handing_over(home: Path, recorder: Recorder) -> None:
     lines = run(home, dry_run=True)
     assert recorder.questions == []
     assert recorder.steps == []
     assert recorder.handed == []
+    assert recorder.uv.detached == []
     assert f"Remove folder: {home / '.legion' / 'app'}" in lines
 
 
@@ -221,7 +258,7 @@ def test_uninstall_takes_legions_line_out_of_the_shell_profile(home: Path, monke
     monkeypatch.setenv("SHELL", "/bin/sh")
     profile = home / ".profile"
     profile.write_text("owner line", encoding="utf-8")
-    _installer.ensure_path(home, False, [])
+    add_path(home)
     run(home, yes=True)
     assert profile.read_text(encoding="utf-8") == "owner line"
 
@@ -233,7 +270,7 @@ def test_uninstall_takes_legions_entry_out_of_the_user_path(home: Path, monkeypa
     saved.write_text("other;", encoding="utf-8")
     monkeypatch.setenv("LEGION_TEST_USER_PATH_FILE", str(saved))
     monkeypatch.setenv("PATH", "fixture-only")
-    _installer.ensure_path(home, False, [])
+    add_path(home)
     run(home, yes=True)
     assert saved.read_text(encoding="utf-8") == "other"
 

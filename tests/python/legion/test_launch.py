@@ -1,6 +1,5 @@
 # One account launch for every caller: the program, its config folder and arguments, against fake CLIs only.
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -19,8 +18,6 @@ from settings_fakes import save_settings
 from legion.core._settings_models import Agent, PersonalisationSettings
 from legion.services.accounts._launch import account_command, run_account
 from legion.services.foundry._az import AzAccessToken
-from legion.core._home import bin_folder
-from legion.services.installation._installed_runtime import write_owner_commands
 
 RUNNER = "import sys; from legion import cli as _cli; _cli.main(sys.argv[1:], prog_name='legion')"
 ENDPOINT = "https://res-a.cognitiveservices.azure.com"
@@ -153,35 +150,6 @@ def test_batch_program_receives_cmd_syntax_arguments_literally(tmp_path: Path, m
     words = ["100%", "%PATH%", "bang!", "!PATH!", "caret^", "a^^b", 'say "hi"', '"quoted"', "back\\", 'end\\"', "a&b|c<d>e", "two words", ""]
     assert run_account("codex-a", words, tmp_path) == 0
     assert json.loads(out.read_text(encoding="utf-8")) == words
-
-
-# Two homes can hold the same account id. A member runs the selected home's own owner command; it reaches that
-# home's account even with the other home's command first on PATH. A fake uv runs this checkout's legion in its place.
-@pytest.mark.parametrize("selected", [0, 1])
-def test_two_homes_with_the_same_account_id_each_start_their_own(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stock: Path, selected: int) -> None:
-    homes = [tmp_path / "home a", tmp_path / "home b"]
-    for home in homes:
-        save_agents(home, agent("codex-a", home / "config"))
-        bin_folder(home).mkdir(parents=True)
-        write_owner_commands(home / ".legion" / "app" / "1.0.0", home)
-    fake_uv = tmp_path / "fake uv"
-    fake_uv.mkdir()
-    script = fake_uv / "uv.py"
-    script.write_text("import sys\nfrom legion import cli\nwords = sys.argv[1:]\ncli.main(words[words.index('legion') + 1 :], prog_name='legion')\n", encoding="utf-8")
-    if WINDOWS:
-        (fake_uv / "uv.cmd").write_text(f'@"{sys.executable}" "{script}" %*\r\n', encoding="utf-8", newline="")
-        system = [str(Path(os.environ["SYSTEMROOT"]) / "System32")]
-    else:
-        (fake_uv / "uv").write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
-        (fake_uv / "uv").chmod(0o755)
-        system = ["/usr/bin", "/bin"]
-    other = homes[1 - selected]
-    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_folder(other)), str(fake_uv), str(stock.parent), *system]))
-    command = bin_folder(homes[selected]) / ("legion.cmd" if WINDOWS else "legion")
-    result = subprocess.run([str(command), "run", "--account", "codex-a", "--", "--version"], capture_output=True, text=True, check=False)
-    lines = readout(result.stdout)
-    assert f"var={homes[selected] / 'config'}" in lines
-    assert f"var={other / 'config'}" not in lines
 
 
 # The command line member dispatch uses: legion run --account <id> -- <tool arguments>, exit code kept.

@@ -91,7 +91,7 @@ $script:answer = 'n'
 
 function Show-Result {
     Write-Output ("downloads=" + ($script:downloads -join ','))
-    Write-Output ("uvInstalled=" + (Test-Path -LiteralPath (Join-Path $Scratch '.legion/bin/uv.exe')))
+    Write-Output ("uvInstalled=" + (Test-Path -LiteralPath (Join-Path $Scratch '.local/bin/uv.exe')))
     Write-Output "prompts=$($script:prompts)"
     Write-Output "exit=$($script:bootstrapExitCode)"
     Write-Output "uvUsed=$($script:uvUsed)"
@@ -125,7 +125,7 @@ switch ($Mode) {
             $parameters.Uninstall = [switch]$true
             Set-CleanupUvAlias
         } elseif ($Mode -eq 'uv-missing-yes') {
-            Set-FakeUvAlias -UvPath (Join-Path $Scratch '.legion/bin/uv.exe')
+            Set-FakeUvAlias -UvPath (Join-Path $Scratch '.local/bin/uv.exe')
         }
         if ($Mode -eq 'uv-missing-purge') { $parameters.Purge = [switch]$true }
         Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
@@ -143,17 +143,6 @@ switch ($Mode) {
         Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
     }
     'purge' {
-        $parameters.Purge = [switch]$true
-        Set-CleanupUvAlias
-        Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
-    }
-    'purge-home-uv' {
-        $env:OS = 'Windows_NT'
-        Set-NoUvPath
-        $folder = Join-Path $Scratch '.legion/bin'
-        New-Item -ItemType Directory -Path $folder -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $folder 'uv.exe') -Value 'uv placeholder'
-        $parameters.Uninstall = [switch]$true
         $parameters.Purge = [switch]$true
         Set-CleanupUvAlias
         Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
@@ -182,7 +171,7 @@ switch ($Mode) {
     }
     'find-folder' {
         Set-NoUvPath
-        $folder = Join-Path $Scratch '.legion/bin'
+        $folder = Join-Path $Scratch '.local/bin'
         New-Item -ItemType Directory -Path $folder -Force | Out-Null
         $name = 'uv'
         if ($onWindows) { $name = 'uv.exe' }

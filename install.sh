@@ -22,11 +22,11 @@ confirm() {
     return 1
 }
 
-# uv is found on PATH, in the legion bin folder (which `legion install` puts on the shell PATH), or in the folder its own installer uses.
+# uv is found on PATH, or in the folder its own installer uses.
 find_uv() {
     uv=$(command -v uv || :)
     if [ -z "$uv" ]; then
-        for folder in "$HOME/.legion/bin" "${UV_INSTALL_DIR:-}" "${XDG_BIN_HOME:-}" "$HOME/.local/bin"; do
+        for folder in "${UV_INSTALL_DIR:-}" "${XDG_BIN_HOME:-}" "$HOME/.local/bin"; do
             if [ -n "$folder" ] && [ -x "$folder/uv" ]; then uv=$folder/uv; break; fi
         done
     fi
@@ -62,10 +62,12 @@ install_uv() {
     tar -xzf "$temporary/uv.tar.gz" -C "$temporary/uv" --strip-components=1
     "$temporary/uv/uv" --version >/dev/null 2>&1 || fail 'The downloaded uv does not run; nothing was installed.'
     if [ "$cleanup" = 1 ]; then uv=$temporary/uv/uv; return; fi
-    mkdir -p "$HOME/.legion/bin"
+    # uv's default folder, where its installer puts it and `uv tool` puts commands.
+    target=${UV_INSTALL_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}
+    mkdir -p "$target"
     # Copy beside the target, then rename: an interrupted run never leaves a partial uv.
-    cp "$temporary/uv/uv" "$HOME/.legion/bin/uv.new"
-    mv -f "$HOME/.legion/bin/uv.new" "$HOME/.legion/bin/uv"
+    cp "$temporary/uv/uv" "$target/uv.new"
+    mv -f "$target/uv.new" "$target/uv"
 }
 
 main() {
@@ -101,7 +103,7 @@ main() {
         if [ "$cleanup" = 1 ]; then
             printf '%s\n' 'Use temporary uv: download the latest official uv release, verified with its SHA-256 digest, outside the home for cleanup.'
         else
-            printf '%s\n' 'Install uv: download the latest official uv release, verified with its SHA-256 digest, to ~/.legion/bin/, which the legion install then puts on your PATH.'
+            printf '%s\n' 'Install uv: download the latest official uv release, verified with its SHA-256 digest, to the default uv folder (~/.local/bin); legion install then puts it on your PATH with uv.'
         fi
         [ "$dry_run" = 0 ] || return 0
         confirm 'Install uv now?' || return 0
@@ -116,10 +118,6 @@ main() {
     if [ -z "$uv" ]; then
         install_uv
         [ "$cleanup" = 1 ] || find_uv || fail 'uv was installed but could not be found; open a new terminal and run the bootstrap again.'
-    fi
-    if [ "$cleanup" = 1 ] && [ "$uv" != "$temporary/uv/uv" ]; then
-        cp "$uv" "$temporary/uv-copy"
-        uv=$temporary/uv-copy
     fi
     PATH=$(dirname "$uv"):$PATH
     export PATH
