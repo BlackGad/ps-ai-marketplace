@@ -7,9 +7,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from app_fakes import FakeUv, make_source
+from app_fakes import FakeUv, make_link, make_source
 
-from legion.core import _stop_event
+from legion.core import _settings_io, _stop_event
+from legion.core._home import settings_path
 from legion.core._run import RunResult
 from legion.services.installation import _user_path, _uv_tool
 
@@ -77,7 +78,26 @@ def test_a_dry_run_shows_update_shell_only_when_it_would_run(tmp_path: Path, hom
     assert any("tool install" in line and "--reinstall" in line for line in with_shell)
     assert uv.calls == [["tool", "list"], ["tool", "list"]]
     assert uv.detached == []
-    assert not _stop_event.stop_path(home).exists()
+    assert not home.exists()
+
+
+def test_install_refuses_broken_settings_before_uv_runs(tmp_path: Path, uv: FakeUv) -> None:
+    path = settings_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text("{", encoding="utf-8")
+    with pytest.raises(_settings_io.SettingsError):
+        _uv_tool.install(make_source(tmp_path), tmp_path)
+    assert uv.calls == []
+
+
+def test_a_linked_legion_folder_is_refused_before_settings_lock(tmp_path: Path, uv: FakeUv) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    make_link(tmp_path / "home" / ".legion", elsewhere)
+    with pytest.raises(_settings_io.SettingsError, match="link"):
+        _uv_tool.install(make_source(tmp_path), tmp_path / "home")
+    assert list(elsewhere.iterdir()) == []
+    assert uv.calls == []
 
 
 def test_a_repeat_of_the_installed_version_prints_skip_and_changes_nothing(tmp_path: Path, home: Path, uv: FakeUv) -> None:

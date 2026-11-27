@@ -456,7 +456,7 @@ def test_install_and_uninstall_target_use_fake_cli_and_refresh(tmp_path: Path, m
     (tmp_path / "saved-path.txt").write_text("", encoding="utf-8")
     refreshed: list[Path] = []
     options_seen: list[dict[str, object]] = []
-    monkeypatch.setattr(_installer._refresh, "refresh", lambda _home, source, **options: refreshed.append(source) or options_seen.append(options) or [])
+    monkeypatch.setattr(_uv_tool, "install", lambda source, _home, **options: refreshed.append(source) or options_seen.append(options) or [])
     monkeypatch.setattr(_uv_tool, "running_from_tool", lambda _uv: False)
     first = _installer.install(tmp_path, [tool_id], source=tmp_path, config_dir=folder, yes=True, catalog=catalog())
     assert installed == {"marketplace": True, "plugin": True}
@@ -499,7 +499,7 @@ def test_update_refreshes_new_installed_copy_and_reports_version(tmp_path: Path,
     monkeypatch.setattr(_installer, "run_command", fake_run)
     monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
     refreshed: list[Path] = []
-    monkeypatch.setattr(_installer._refresh, "refresh", lambda _home, source, **_options: refreshed.append(source) or [])
+    monkeypatch.setattr(_uv_tool, "install", lambda source, _home, **_options: refreshed.append(source) or [])
     lines = _installer.install(tmp_path, ["claude"], config_dir=folder, update=True, yes=True, catalog=catalog())
     assert refreshed == [root]
     assert "legion 1.0.0 -> 1.1.0" in lines
@@ -519,13 +519,13 @@ def _update_two_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing
     monkeypatch.setattr(_installer, "_step", lambda *_args: None)
     installs: list[tuple[Path, bool]] = []
 
-    def refresh(_home: Path, source: Path, detached: bool = False) -> list[str]:
+    def install_tool(source: Path, _home: Path, detached: bool = False, **_options: object) -> list[str]:
         installs.append((source, detached))
         if failing:
             raise RuntimeError("broken install")
         return ["legion command is installed when this command ends"]
 
-    monkeypatch.setattr(_installer._refresh, "refresh", refresh)
+    monkeypatch.setattr(_uv_tool, "install", install_tool)
     lines = _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
     return lines, installs
 
@@ -539,19 +539,19 @@ def test_update_hands_one_uv_install_to_the_helper_for_the_highest_plugin_versio
 def test_update_never_runs_uv_tool_update_shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[dict[str, object]] = []
     monkeypatch.setattr(_installer.shutil, "which", lambda name: name if name == "claude" else None)
-    monkeypatch.setattr(_installer._refresh, "refresh", lambda _home, **options: seen.append({name: value for name, value in options.items() if name != "source"}) or [])
+    monkeypatch.setattr(_uv_tool, "install", lambda _source, _home, **options: seen.append(options) or [])
     monkeypatch.setattr(_installer, "_step", lambda *_args: None)
     monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: tmp_path / "plugin")
     monkeypatch.setattr(_installer, "_manifest", lambda _root: SimpleNamespace(version="1.2.3"))
     _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
-    assert seen == [{"detached": True}]
+    assert seen == [{"dry_run": False, "detached": True, "update_shell": False}]
 
 
 def test_update_reconciles_knowledge_before_handing_over(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     events: list[str] = []
     monkeypatch.setattr(_installer, "_personalisation", lambda *_args: SimpleNamespace(agents=[], knowledge_enabled=True))
     monkeypatch.setattr(_installer, "reconcile_knowledge", lambda *_args: events.append("knowledge"))
-    monkeypatch.setattr(_installer._refresh, "refresh", lambda *_args, **_options: events.append("handover") or [])
+    monkeypatch.setattr(_uv_tool, "install", lambda *_args, **_options: events.append("handover") or [])
     monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
     monkeypatch.setattr(_installer, "_step", lambda *_args: None)
     monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: tmp_path / "plugin")
@@ -567,7 +567,7 @@ def test_update_inside_setup_collects_its_source_without_handing_over(tmp_path: 
     monkeypatch.setattr(_installer, "_step", lambda *_args: None)
     monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: root)
     monkeypatch.setattr(_installer, "_manifest", lambda _root: SimpleNamespace(version="1.2.3"))
-    monkeypatch.setattr(_installer._refresh, "refresh", lambda *_args, **_options: pytest.fail("setup has not finished"))
+    monkeypatch.setattr(_uv_tool, "install", lambda *_args, **_options: pytest.fail("setup has not finished"))
     _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog(), tool_roots=roots)
     assert roots == [("1.2.3", root)]
 
@@ -608,7 +608,7 @@ def _update_with_second_account_failing(tmp_path: Path, monkeypatch: pytest.Monk
     monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
     monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: root)
     monkeypatch.setattr(_installer, "_step", step)
-    monkeypatch.setattr(_installer._refresh, "refresh", lambda _home, source, **_options: installs.append(source) or [])
+    monkeypatch.setattr(_uv_tool, "install", lambda source, _home, **_options: installs.append(source) or [])
     with pytest.raises(type(failure)):
         _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
     return installs
@@ -623,7 +623,7 @@ def test_update_installs_the_updated_plugin_when_a_later_account_is_interrupted(
 
 
 def test_update_shows_both_failures_and_keeps_the_exit_status_when_the_uv_install_fails_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def refresh(_home: Path, **_options: object) -> list[str]:
+    def install_tool(_source: Path, _home: Path, **_options: object) -> list[str]:
         raise _uv_tool.UvToolError("uv tool install exited 2")
 
     monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
@@ -639,7 +639,7 @@ def test_update_shows_both_failures_and_keeps_the_exit_status_when_the_uv_instal
 
     monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: root)
     monkeypatch.setattr(_installer, "_step", step)
-    monkeypatch.setattr(_installer._refresh, "refresh", refresh)
+    monkeypatch.setattr(_uv_tool, "install", install_tool)
     monkeypatch.setattr(_installer, "_catalog", lambda *_args: catalog())
     result = CliRunner().invoke(_cli.main, ["--home", str(tmp_path), "update", "--yes"])
     assert result.exit_code == 1
@@ -722,13 +722,13 @@ def _fake_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str 
 
     calls: list[Path] = []
 
-    def refresh(_home: Path, source: Path, **_options: object) -> list[str]:
+    def install_tool(source: Path, _home: Path, **_options: object) -> list[str]:
         calls.append(source)
         if failing and len(calls) == ["claude", "codex"].index(failing) + 1:
             raise RuntimeError("broken refresh")
         return ["refreshed later target"] if failing else []
 
-    monkeypatch.setattr(_installer._refresh, "refresh", refresh)
+    monkeypatch.setattr(_uv_tool, "install", install_tool)
 
 
 def _table_rows(lines: list[str], count: int) -> list[list[str]]:
@@ -755,7 +755,7 @@ def test_install_from_the_uv_tool_hands_over_only_after_installing_all_targets(t
     monkeypatch.setattr(_uv_tool, "find_uv", lambda: "uv")
     monkeypatch.setattr(_uv_tool, "running_from_tool", lambda _uv: True)
     monkeypatch.setattr(_installer, "_install_steps", lambda entry, *_args: events.append(entry.id))
-    monkeypatch.setattr(_installer._refresh, "refresh", lambda *_args, **_options: events.append("handover") or [])
+    monkeypatch.setattr(_uv_tool, "install", lambda *_args, **_options: events.append("handover") or [])
     _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", yes=True, catalog=catalog())
     assert events == ["claude", "codex", "handover"]
 

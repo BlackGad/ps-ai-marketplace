@@ -24,7 +24,6 @@ from legion.services.installation import (
     _uv_tool,
     _knowledge_hub,
     installer as _installer,
-    _refresh,
     _tool_install,
 )
 from legion.services.status import _status
@@ -386,7 +385,7 @@ def test_knowledge_preserves_settings_and_purge_asks(bench: Bench, monkeypatch: 
     assert hub.is_dir()
     monkeypatch.setattr(_installer, "_listing", lambda *_: "")
     handed: list[list[Path]] = []
-    monkeypatch.setattr(_installer._handover, "start", handed.append)
+    monkeypatch.setattr(_uv_tool._handover, "start", lambda _command, _cleanup, *, purge, **_options: handed.append(purge))
     answers = iter((False, True))
 
     def confirm(question: str, **_options: object) -> bool:
@@ -844,7 +843,7 @@ def test_setup_hands_the_newest_plugin_to_uv_after_knowledge_reconciliation(benc
         events.append("plugins")
         return 0
 
-    def refresh(_home: Path, source: Path, *, update_shell: bool) -> list[str]:
+    def install_tool(source: Path, _home: Path, *, update_shell: bool) -> list[str]:
         assert source == newest
         assert update_shell
         events.append("handover")
@@ -852,7 +851,7 @@ def test_setup_hands_the_newest_plugin_to_uv_after_knowledge_reconciliation(benc
 
     bench.monkeypatch.setattr(_setup, "install_plugin", install)
     bench.monkeypatch.setattr(_setup, "_install_knowledge", lambda *_args: events.append("knowledge"))
-    bench.monkeypatch.setattr(_refresh, "refresh", refresh)
+    bench.monkeypatch.setattr(_uv_tool, "install", install_tool)
     bench.apply("codex")
     assert events == ["plugins", "knowledge", "handover"]
 

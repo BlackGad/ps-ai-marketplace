@@ -717,7 +717,12 @@ class Runner:
             time.sleep(0.5)
 
     def update_uv_tool(self, repeat: bool) -> None:
-        root = self.work / ("p3-repeat" if repeat else "p3")
+        if repeat:
+            upgrade, version = self.state["uv_upgrade"]
+            upgrade.log = self.log
+            upgrade.repeat_uv_update_and_purge(version)
+            return
+        root = self.work / "p3"
         release = root / "release"
         remote = f"https://github.com/{MARKETPLACE}"
         root.mkdir()
@@ -801,13 +806,29 @@ asyncio.run(main())
             reply = upgrade.run([sys.executable, "-I", "-S", "-B", str(hook), "--format", "context-json"], env=hook_env)
             contains(json.loads(reply)["additionalContext"], "you are a legion member")
 
-        upgrade.legion("uninstall", "--purge", "--yes", owner=True)
-        wait_gone(upgrade.home / ".legion")
-        upgrade.check_tool_removed()
+        self.state["uv_upgrade"] = (upgrade, version)
+
+    def uv_tool_snapshot(self) -> dict[str, str]:
+        # Bytecode caches may be populated by Python on the repeat. Receipt and launcher timestamps detect a reinstall.
+        state = snapshot(self.tool_dir, [r"(.*/)?__pycache__(/.*)?"])
+        state["receipt timestamp"] = str((self.tool_dir / "legion/uv-receipt.toml").stat().st_mtime_ns)
+        state["launcher timestamp"] = str(self.legion_executable().stat().st_mtime_ns)
+        return state
+
+    def repeat_uv_update_and_purge(self, version: str) -> None:
+        before = self.uv_tool_snapshot()
+        output = self.legion("update", "--yes", owner=True)
+        contains(output, f"skip: legion command {version} (already done)")
+        unchanged(before, self.uv_tool_snapshot())
+        require(not (self.home / ".legion/run/stop").exists(), "the repeat started a detached replacement")
+
+        self.legion("uninstall", "--purge", "--yes", owner=True)
+        wait_gone(self.home / ".legion")
+        self.check_tool_removed()
         for tool in TOOLS:
-            folder = upgrade.folder(tool)
-            upgrade.check_uninstalled(tool, folder)
-            require(not upgrade.listing(tool, folder, "marketplace"), f"{tool} marketplace remains")
+            folder = self.folder(tool)
+            self.check_uninstalled(tool, folder)
+            require(not self.listing(tool, folder, "marketplace"), f"{tool} marketplace remains")
 
     def setup_accounts(self) -> str:
         return "\n".join(self.legion("add", tool, "--id", SETUP_ACCOUNTS[tool], "--source", self.targets[tool][0], "--yes") for tool in self.active())

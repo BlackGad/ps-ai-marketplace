@@ -17,9 +17,7 @@ from pydantic import ValidationError
 
 from legion.services.accounts._launchers import command_prefix, registered_command
 from legion.services.installation import _user_path
-from legion.services.installation import _handover
 from legion.services.installation import _knowledge_hub
-from legion.services.installation import _refresh
 from legion.services.installation import _uv_tool
 from legion.services.installation._update import compare_versions
 from legion.core import _settings_io, _stop_event
@@ -472,11 +470,7 @@ def _install_tool(home: Path, roots: list[tuple[str, Path]], lines: list[str], r
         return
     root = _newest_source(roots)
     try:
-        if dry_run:
-            lines.extend(_uv_tool.install(root, home, dry_run=True))
-        else:
-            options = {"update_shell": True} if update_shell else {}
-            lines.extend(_refresh.refresh(home, source=root, detached=True, **options))
+        lines.extend(_uv_tool.install(root, home, dry_run=dry_run, detached=True, update_shell=update_shell))
     except Exception as error:
         lines.append(f"commands not refreshed: {error}; run legion setup")
         rows.append(("legion", str(home), f"commands not refreshed: {error}"))
@@ -525,10 +519,7 @@ def install(
             return [*lines, "Nothing changed. Run again with --yes to apply."]
         if manage_knowledge:
             reconcile_knowledge(home, catalog, dry_run, lines)
-        if dry_run:
-            lines.extend(_uv_tool.install(PLUGIN_ROOT, home, dry_run=True, update_shell=not update))
-        else:
-            lines.extend(_refresh.refresh(home, source=PLUGIN_ROOT, update_shell=not update))
+        lines.extend(_uv_tool.install(PLUGIN_ROOT, home, dry_run=dry_run, update_shell=not update))
         return lines
     if update:
         targets: list[tuple[CatalogTool, Path]] = []
@@ -631,7 +622,7 @@ def install(
                 if root:
                     try:
                         if not from_tool:
-                            lines.extend(_refresh.refresh(home, source=root, update_shell=True))
+                            lines.extend(_uv_tool.install(root, home, update_shell=True))
                         installed_version = _manifest(root).version
                         if from_tool:
                             deferred_roots.append((installed_version, root))
@@ -738,12 +729,12 @@ def _uninstall(
             with_knowledge = hub and _confirm("Also delete the knowledge hub in ~/.legion/knowledge? [y/N]", lines)
             if with_knowledge:
                 _knowledge_hub.purge(home, lines)
-            tool_result = _uv_tool.uninstall(home, stopped=stopped)
-            handed_over = bool(tool_result)
-            lines.extend(tool_result)
             remaining = _legion_folders(home, purge, with_knowledge)
-            _handover.start(remaining)
-            lines.append("done: legion folders are removed when this command ends" if remaining else "done: legion is uninstalled")
+            result = _uv_tool.uninstall(home, stopped=stopped, purge=remaining)
+            handed_over = bool(result)
+            lines.extend(result)
+            if not remaining:
+                lines.append("done: legion is uninstalled")
     finally:
         if stopped and not handed_over:
             _stop_event.clear_stop(home)

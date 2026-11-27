@@ -18,4 +18,4 @@ After the owner's yes, run `legion update --yes`; the owner has already agreed, 
 
 `legion update` stops MCP servers and `legion run` wrappers registered under its own legion home before replacing the command. Tell the owner before approval. The session that starts the update stays open and must be restarted afterwards. If legion reports that other sessions are still running after 30 seconds, ask the owner to close them and run it again. Continue stopped members from the [handoff](../../legion-overseer/references/takeover.md).
 
-The detached helper runs `uv tool install` after legion exits. When the command hands over to the helper, inspect `<home>/.legion/temp/uv-tool.log` for its result before reporting success.
+When the update schedules replacement, the helper runs `uv tool install` after Legion exits. Check `<home>/.legion/temp/uv-tool.log` for the uv exit code or a handover error before reporting success. A same-version update reports the skip immediately.

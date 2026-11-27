@@ -362,9 +362,6 @@ def test_non_windows_does_not_inspect_processes(monkeypatch: pytest.MonkeyPatch)
     assert _status._session() is None
 
 
-def test_the_status_report_no_longer_looks_at_the_old_bin_folder() -> None:
-    assert not hasattr(_status, "command_states")
-    assert not hasattr(_status, "command_status")
-    assert not hasattr(_status, "on_path")
+def test_status_schema_omits_legacy_launcher_fields() -> None:
     assert "on_path" not in status_service.StatusReport.model_fields
     assert "commands" not in status_service.StatusReport.model_fields

@@ -57,7 +57,7 @@ Open your AI tool and say:
 
 ## Update and uninstall
 
-Say “Update legion” or “Uninstall legion,” or run `legion update` or `legion uninstall`. One update covers all accounts legion knows. Before replacing the command, an update stops legion processes in its own home and keeps the session that started it running. Restart that session after the update. Use the handoff to resume a stopped Codex member with a recorded session id or rerun the member from its task file. Check `~/.legion/temp/uv-tool.log` for the detached uv step's result. If `legion` is not available, run the matching one-liner in PowerShell:
+Say “Update legion” or “Uninstall legion,” or run `legion update` or `legion uninstall`. One update covers all accounts legion knows. Before replacing the command, Legion stops the MCP servers and `legion run` wrappers registered in its home, with the updater and its ancestors exempt. Restart your session after the update. Check `~/.legion/temp/uv-tool.log` for the detached update result and use the handoff to recover stopped members. See [running sessions and recovery](docs/reference.md#running-sessions-and-the-stop-event). If `legion` is unavailable, run the matching one-liner in PowerShell.
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Update
@@ -67,10 +67,10 @@ Say “Update legion” or “Uninstall legion,” or run `legion update` or `le
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Uninstall
 ```
 
-Uninstall removes legion's plugin and marketplace through each tool's own commands, then removes the `legion` command with `uv tool uninstall legion` (uv itself stays). A full uninstall stops legion processes in its own home before removing plugins or purging data.
+Uninstall uses each tool's own commands to remove Legion's plugin and marketplace. A full uninstall stops registered Legion processes first, then schedules removal of the `legion` command after exit. uv stays installed.
 
 > [!IMPORTANT]
-> Uninstall then install is an upgrade: it keeps your settings, notes and account folders. **Purge removes the whole legion home** (`~/.legion`: settings, notes and legion-made logins), the PATH entries legion recorded for the portable tools it installed, and legion's plugin and marketplace through each tool's own uninstall. It does not edit the tools' own files, so anything else they keep, such as a permission rule setup added, stays. It lists everything and asks first, and asks again before deleting a knowledge hub.
+> A plain uninstall keeps your settings, notes, account folders and logins. **Purge removes that data after Legion exits** and removes the recorded PATH entries for portable tools Legion installed. It asks separately before deleting a knowledge hub. The coding tools keep their own data and settings.
 
 Run `legion uninstall --purge`, or use this PowerShell one-liner:
 

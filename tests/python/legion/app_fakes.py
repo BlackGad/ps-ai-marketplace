@@ -1,4 +1,4 @@
-# Fakes for the uv tool and refresh tests: a plugin source folder and a recording uv.
+# Fakes for the uv tool tests: a plugin source folder and a recording uv.
 
 import json
 import sys
@@ -39,7 +39,8 @@ class FakeUv:
     def __init__(self, monkeypatch: pytest.MonkeyPatch, bin_folder: Path) -> None:
         self.calls: list[list[str]] = []
         self.detached: list[tuple[list[str], list[Path]]] = []
-        self.logs: list[Path] = []
+        self.logs: list[Path | None] = []
+        self.purges: list[list[Path]] = []
         self.installed: str | None = None
         self.shell_updated = False
         self.fail: dict[str, int] = {}
@@ -49,10 +50,12 @@ class FakeUv:
         monkeypatch.setattr(_uv_tool, "find_uv", lambda: "uv")
         monkeypatch.setattr(_uv_tool, "run_command", self.run)
         monkeypatch.setattr("legion.services.installation._constraints.run_command", self.run)
-        monkeypatch.setattr(_uv_tool._handover, "start_command", self.hand_over)
+        monkeypatch.setattr(_uv_tool._handover, "start", self.hand_over)
 
-    def hand_over(self, command: list[str], remove: list[Path], *, log: Path) -> None:
-        self.detached.append((command, remove))
+    def hand_over(self, command: list[str], cleanup: list[Path], *, purge: list[Path], log: Path | None) -> None:
+        self.detached.append((command, cleanup))
+        if purge:
+            self.purges.append(purge)
         self.logs.append(log)
 
     def installs(self) -> list[list[str]]:

@@ -16,7 +16,6 @@ from pydantic import ValidationError
 
 from legion.services.accounts import _accounts, _launchers
 from legion.services.installation import (
-    _refresh,
     _tool_install,
     _uv_tool,
     installer as _installer,
@@ -420,7 +419,7 @@ def write_commands(plan: Plan, say: Callable[[str], None]) -> None:
         say("uv is missing. Ask the owner before installing it.")
         return
     source = _installer._newest_source(plan.tool_roots) if plan.tool_roots else PLUGIN_ROOT
-    for line in _refresh.refresh(plan.home, source=source, update_shell=True):
+    for line in _uv_tool.install(source, plan.home, update_shell=True):
         say(line)
 
 

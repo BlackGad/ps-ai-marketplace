@@ -1,5 +1,4 @@
-# Legion runs as a uv tool, installed from the plugin copy a CLI has just installed (offline, the same version as the plugin).
-# uv is a global helper like git: legion installs and removes only its own tool, never uv.
+# uv installs Legion from the plugin copy, using its version and locked dependencies.
 
 import os
 import shutil
@@ -8,12 +7,13 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from legion.core import _stop_event
+from legion.core import _settings_io, _stop_event
 from legion.core._home import (
     owner_path_safe,
     path_contains,
     resolve_directory,
     same_path,
+    settings_path,
 )
 from legion.core._run import display_command, run_command
 from legion.core._settings_models import PluginManifest
@@ -98,11 +98,18 @@ def stop_running(home: Path) -> None:
         raise UvToolError(f"legion is still running after {_stop_event.WAIT_SECONDS:g} seconds (process {ids}); close those sessions and run the command again")
 
 
-def _hand_over(home: Path, command: list[str], remove: list[Path]) -> None:
+def _hand_over(home: Path, command: list[str], cleanup: list[Path], purge: list[Path]) -> None:
     log = home / ".legion/temp/uv-tool.log"
     if not owner_path_safe(log, home):
-        raise UvToolError("The uv tool log path contains a link; resolve it before continuing")
-    _handover.start_command(command, remove, log=log)
+        if command:
+            raise UvToolError("The uv tool log path contains a link; resolve it before continuing")
+        # A cleanup-only purge can remove the link without writing through it.
+        _handover.start(command, cleanup, purge=purge, log=None)
+        return
+    if purge and log.parent not in purge and log.parent.parent not in purge:
+        # Keeping the hub can leave a new log directory outside the original purge list.
+        purge = [*purge, log.parent]
+    _handover.start(command, cleanup, purge=purge, log=log)
 
 
 # The saved PATH is uv's to write, and only with the owner's yes. The current process learns the folder from uv.
@@ -125,6 +132,12 @@ def _path_lines(uv: str, update_shell: bool) -> list[str]:
 # By default it is detached when this process runs from the tool. `update_shell` also runs `uv tool update-shell`,
 # which edits the owner's shell profile or user PATH: callers pass it only inside the owner's yes.
 def install(plugin_root: Path, home: Path, dry_run: bool = False, detached: Optional[bool] = None, update_shell: bool = False) -> list[str]:
+    if not dry_run:
+        if not owner_path_safe(home / ".legion", home):
+            raise _settings_io.SettingsError("The legion folder contains a link; resolve it before installing")
+        with _settings_io.writer(home, require_existing=False):
+            if settings_path(home).is_file():
+                _settings_io.load(home)
     uv = find_uv()
     if uv is None:
         return [UV_MISSING]
@@ -148,7 +161,7 @@ def install(plugin_root: Path, home: Path, dry_run: bool = False, detached: Opti
         command = [uv, "tool", "install", spec, "--constraints", str(folder / "constraints.txt"), "--reinstall"]
         if detached:
             path_lines = _path_lines(uv, update_shell)
-            _hand_over(home, command, [folder, _stop_event.stop_path(home)])
+            _hand_over(home, command, [folder, _stop_event.stop_path(home)], [])
             handed_over = True
             return [f"legion command {version} is installed when this command ends", *path_lines]
         result = run_command(uv, command[1:])
@@ -162,20 +175,25 @@ def install(plugin_root: Path, home: Path, dry_run: bool = False, detached: Opti
     return [f"legion command {version} installed", *_path_lines(uv, update_shell)]
 
 
-# Removes the legion tool after this process exits; uv itself stays. Returns no line when there is nothing to remove.
-# Every running legion process is stopped first; the helper lifts the stop event after the uv step.
-def uninstall(home: Path, dry_run: bool = False, *, stopped: bool = False) -> list[str]:
+# Remove the tool and any approved folders after exit. The helper also lifts the stop event.
+def uninstall(home: Path, dry_run: bool = False, *, stopped: bool = False, purge: list[Path] | None = None) -> list[str]:
     uv = find_uv()
-    if uv is None or installed_version(uv) is None:
+    command = [uv, "tool", "uninstall", TOOL] if uv is not None and installed_version(uv) is not None else []
+    purge = purge or []
+    if not (command or purge):
         return []
-    command = [uv, "tool", "uninstall", TOOL]
     if dry_run:
-        return [STOP_NOTICE, display_command(command)]
-    if not stopped:
+        return [STOP_NOTICE, display_command(command)] if command else []
+    if command and not stopped:
         stop_running(home)
+        stopped = True
     try:
-        _hand_over(home, command, [_stop_event.stop_path(home)])
+        _hand_over(home, command, [_stop_event.stop_path(home)] if stopped else [], purge)
     except BaseException:
-        _stop_event.clear_stop(home)
+        if stopped:
+            _stop_event.clear_stop(home)
         raise
-    return ["legion command is removed when this command ends"]
+    lines = ["legion command is removed when this command ends"] if command else []
+    if purge:
+        lines.append("done: legion folders are removed when this command ends")
+    return lines

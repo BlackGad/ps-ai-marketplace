@@ -21,11 +21,6 @@ def saved_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str) -> Pa
     return saved
 
 
-def test_legion_no_longer_edits_shell_profiles_or_puts_its_own_folder_on_the_path() -> None:
-    for name in ("shell_profile", "shell_profile_lines", "ShellProfile", "PROFILE_LINE", "PROFILE_MARKER", "PathError"):
-        assert not hasattr(_user_path, name)
-
-
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows saved PATH")
 def test_adding_a_portable_tool_folder_records_it_once(home: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     saved = saved_path(tmp_path, monkeypatch, "other;")

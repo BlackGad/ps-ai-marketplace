@@ -1,15 +1,7 @@
 import ast
-import importlib
 from pathlib import Path
-from typing import get_args
-
-import pytest
 
 from legion import cli
-from legion.core import _home
-from legion.services.accounts import _launchers
-from legion.services.installation import _user_path
-from legion.services.repository import _footprints
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,20 +15,6 @@ def test_runtime_modules_live_in_packages() -> None:
     assert (PACKAGE / "services/installation/installer/__init__.py").is_file()
     assert (PACKAGE / "services/installation/_uv_tool.py").is_file()
     assert (PACKAGE / "core/_stop_event.py").is_file()
-
-
-def test_the_legacy_runtime_layout_and_old_launcher_helpers_are_gone() -> None:
-    assert not (PACKAGE / "services/installation/_installed_runtime.py").exists()
-    assert not (PACKAGE / "_self_uninstall.py").exists()
-    for name in ("services.installation._installed_runtime", "_self_uninstall"):
-        with pytest.raises(ModuleNotFoundError):
-            importlib.import_module(f"legion.{name}")
-    assert not hasattr(_home, "bin_folder")
-    for name in ("candidates", "remove_old_launchers", "old_launchers_may_remain", "launcher_paths"):
-        assert not hasattr(_launchers, name)
-    for name in ("shell_profile", "shell_profile_lines"):
-        assert not hasattr(_user_path, name)
-    assert "app-version" not in get_args(_footprints.FootprintKind)
 
 
 def test_the_hidden_refresh_command_is_gone() -> None:

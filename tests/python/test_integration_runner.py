@@ -310,10 +310,9 @@ def test_published_source_repeat_uses_documented_owner_command(tmp_path: Path) -
     assert instance.check_tool.call_args_list == [call(expected), call(expected)]
 
 
-@pytest.mark.parametrize(("repeat", "fixture"), [(False, "p3"), (True, "p3-repeat")])
-def test_update_uv_tool_checks_the_reinstalled_tool_and_plugins(tmp_path: Path, repeat: bool, fixture: str) -> None:
+def test_update_uv_tool_repeats_on_the_upgraded_fixture_then_purges(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
-    root = instance.work / fixture
+    root = instance.work / "p3"
     release = root / "release"
     plugin = release / "plugins/legion"
     current, candidate = "1.2.3", "1.2.4"
@@ -348,7 +347,8 @@ def test_update_uv_tool_checks_the_reinstalled_tool_and_plugins(tmp_path: Path, 
         child.install_legion = Mock()
         child.version = Mock(side_effect=[current] * len(runner.TOOLS) + [candidate] * len(runner.TOOLS))
         child.stage_candidate = Mock(return_value=candidate)
-        child.legion = Mock(side_effect=[f"legion {current} -> {candidate}", json.dumps(status), "removed"])
+        child.legion = Mock(side_effect=[f"legion {current} -> {candidate}", json.dumps(status), f"skip: legion command {candidate} (already done)", "removed"])
+        child.uv_tool_snapshot = Mock(return_value={"state": "candidate"})
         child.check_tool = Mock()
         child.wait_tool_version = Mock()
         child.legion_executable = Mock(return_value=child.uv.with_name("legion.exe" if runner.WINDOWS else "legion"))
@@ -362,7 +362,9 @@ def test_update_uv_tool_checks_the_reinstalled_tool_and_plugins(tmp_path: Path, 
         return child
 
     instance.nested = Mock(side_effect=prepare_child)
-    instance.update_uv_tool(repeat)
+    instance.update_uv_tool(False)
+    children[0].check_tool_removed.assert_not_called()
+    instance.update_uv_tool(True)
 
     [child] = children
     assert instance.run.call_args_list == [call(clone), call(branch)]
@@ -374,7 +376,9 @@ def test_update_uv_tool_checks_the_reinstalled_tool_and_plugins(tmp_path: Path, 
     assert child.check_tool.call_args_list == [call(current), call(candidate)]
     child.wait_tool_version.assert_called_once_with(candidate)
     assert child.installed_click.call_count == 2
-    assert child.legion.call_args_list == [call("update", "--yes", owner=True), call("status", "--json", owner=True), call("uninstall", "--purge", "--yes", owner=True)]
+    update = call("update", "--yes", owner=True)
+    assert child.legion.call_args_list == [update, call("status", "--json", owner=True), update, call("uninstall", "--purge", "--yes", owner=True)]
+    assert child.uv_tool_snapshot.call_count == 2
     assert child.run.call_args_list[0].args[0][-1] == str(child.legion_executable.return_value)
     assert [entry.args[0][-3] for entry in child.run.call_args_list[1:]] == [str(root / tool / "hooks/session_start.py") for tool in runner.TOOLS]
     child.check_codex_mcp.assert_called_once_with()

@@ -18,7 +18,7 @@ Inside the chosen Claude account, after approval:
 /plugin install telegram@claude-plugins-official
 ```
 
-The CLI owns plugin updates. Root legion install/update/refresh never sets up channels. Uninstall retains channel plugins and state.
+The CLI owns plugin updates. Channel setup runs through `legion channel`. A plain Legion uninstall retains channel plugins and state.
 
 ## Codex
 
