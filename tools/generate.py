@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Optional
 
 import click
 from pydantic_core import from_json
@@ -9,7 +10,6 @@ from pydantic_core import from_json
 from legion.core import _schemas
 from legion.core._atomic_write import atomic_write_bytes
 from legion.core._settings_models import (
-    CatalogTool,
     ChannelDescriptor,
     HelpersCatalog,
     ToolDescriptor,
@@ -57,16 +57,6 @@ def _check_helpers(path: Path, tools: dict[str, ToolDescriptor]) -> None:
                 raise ValueError(f"helper '{recipe_id}' cannot have prerequisites")
 
 
-def _source_order(value: object, source: object) -> object:
-    # Hand-built, reason: Pydantic dumps in model field order. The shipped index
-    # preserves descriptor key order inside projected plugin and hook objects.
-    if isinstance(value, dict) and isinstance(source, dict):
-        return {key: _source_order(value[key], child) for key, child in source.items() if key in value}
-    if isinstance(value, list) and isinstance(source, list):
-        return [_source_order(item, child) for item, child in zip(value, source, strict=True)]
-    return value
-
-
 def _descriptor_paths(skills: Path, file_name: str) -> list[Path]:
     return sorted((path for path in skills.glob(f"legion-*/{file_name}") if path.is_file()), key=lambda path: path.parent.name)
 
@@ -75,7 +65,8 @@ def render_tools_index(skills: Path) -> str:
     if not skills.is_dir():
         raise ValueError(f"missing skills directory: {skills}")
     tools: dict[str, ToolDescriptor] = {}
-    inputs: dict[str, tuple[Path, dict[str, object]]] = {}
+    entries: dict[str, dict[str, object]] = {}
+    skill_error: Optional[ValueError] = None
     for path in _descriptor_paths(skills, "tool.json"):
         try:
             source = from_json(read_text(path))
@@ -85,32 +76,27 @@ def render_tools_index(skills: Path) -> str:
         if tool.id in tools:
             raise ValueError(f"duplicate tool id '{tool.id}': {path}")
         tools[tool.id] = tool
-        inputs[tool.id] = path, source
-
-    for tool_id, (path, _) in inputs.items():
-        _check_skill(path, "tool", tool_id)
+        entries[tool.id] = {
+            "id": tool.id,
+            "command": tool.command,
+            "configEnv": tool.config_env,
+            "plugin": source["plugin"],
+            "hooks": source["hooks"],
+            "installHint": tool.install.hint,
+        }
+        # Descriptor errors (including duplicate IDs) take precedence over skill layout errors.
+        if skill_error is None:
+            try:
+                _check_skill(path, "tool", tool.id)
+            except ValueError as error:
+                skill_error = error
+    if skill_error is not None:
+        raise skill_error
     _check_channels(skills, set(tools))
     _check_helpers(skills.parent / "helpers.json", tools)
 
-    entries = [
-        CatalogTool.model_validate(
-            {
-                "id": tool.id,
-                "command": tool.command,
-                "configEnv": tool.config_env,
-                "plugin": tool.plugin,
-                "hooks": tool.hooks,
-                "installHint": tool.install.hint,
-            }
-        )
-        for tool in sorted(tools.values(), key=lambda tool: tool.id)
-    ]
-    catalog = ToolsCatalog.model_validate({"schemaVersion": 1, "tools": entries})
-    data = catalog.model_dump(mode="json", by_alias=True, exclude_unset=True)
-    for entry in data["tools"]:
-        _, source = inputs[entry["id"]]
-        for key in ("plugin", "hooks"):
-            entry[key] = _source_order(entry[key], source[key])
+    data = {"schemaVersion": 1, "tools": [entries[tool_id] for tool_id in sorted(entries)]}
+    ToolsCatalog.model_validate(data)
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
 
 

@@ -6,7 +6,7 @@ from typing import Optional
 
 import psutil
 
-from legion.core._process import ProcessInfo, owner_process, process_lookup
+from legion.core._process import ProcessInfo, owner_process, process_info
 from legion.services.repository._lease import LeaseError, take
 
 APP_SERVER_REFUSAL = "pid {pid} is the Codex app-server daemon, not your session; pass --process-id <the Codex session process id>"
@@ -21,7 +21,7 @@ def take_for_session(repo: Path, tool: str, account: str, process_id: Optional[i
             raise LeaseError(str(error)) from error
     else:
         # A pid that is not running is left to take, which reports it.
-        process = process_lookup()(process_id)
+        process = process_info(process_id)
     if process is not None:
         _refuse_app_server(process)
     return take(repo, tool, account, process_id=process_id if process is None else process.pid)

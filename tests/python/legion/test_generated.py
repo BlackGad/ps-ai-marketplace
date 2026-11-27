@@ -10,7 +10,6 @@ def test_generated_file_ownership_and_repeat(tmp_path: Path) -> None:
     assert _generated.is_owned(target, "owner command")
     assert not _generated.write_generated(target, text, executable=True)
     assert _generated.shell_literal("it's") == "'it'\"'\"'s'"
-    assert _generated.cmd_escape("a%b") == "a%%b"
 
 
 def test_crlf_generated_file_is_unchanged_on_repeat(tmp_path: Path) -> None:

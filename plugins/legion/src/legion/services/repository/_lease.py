@@ -3,6 +3,8 @@
 import os
 import socket
 import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,7 +40,7 @@ class LeaseState:
 def state(repo: Path) -> LeaseState:
     path = lease_path(repo)
     try:
-        lease = Lease.from_json(_read(path))
+        lease = Lease.from_json(_retry_sharing(lambda: path.read_text(encoding="utf-8-sig")))
     except FileNotFoundError:
         return LeaseState("free", None)
     except OSError:
@@ -74,10 +76,7 @@ def take(repo: Path, tool: str, account: str, process_id: Optional[int] = None) 
         started_at=round_trip(datetime.now(UTC)) + "+00:00",
         session=thread if tool == "codex" and thread else None,
     )
-    guard = _open_guard(path)
-    if guard is None:
-        raise LeaseError("lease change in progress in another session; retry")
-    try:
+    with _guard(path):
         current = state(repo)
         found = current.lease
         if current.state == "held" and found is not None and same_host(found.host) and found.pid == pid:
@@ -96,8 +95,6 @@ def take(repo: Path, tool: str, account: str, process_id: Optional[int] = None) 
         except (FileExistsError, PermissionError):
             raise LeaseError("lease unavailable; retry takeover") from None
         return "lease taken"
-    finally:
-        _close_guard(guard)
 
 
 # Release only this owner's lock, checked by pid, host and start time.
@@ -106,10 +103,7 @@ def release(repo: Path, process_id: Optional[int] = None) -> str:
     if not path.exists():
         return "skip: lease release (already done)"
     pid, started = _owner(process_id)
-    guard = _open_guard(path)
-    if guard is None:
-        raise LeaseError("lease change in progress in another session; retry")
-    try:
+    with _guard(path):
         current = state(repo)
         if current.state == "free":
             return "skip: lease release (already done)"
@@ -119,8 +113,6 @@ def release(repo: Path, process_id: Optional[int] = None) -> str:
                 raise LeaseError("lease change in progress in another session; retry")
             return "lease released"
         raise LeaseError("lease belongs to another session; cannot release it")
-    finally:
-        _close_guard(guard)
 
 
 def _owner(process_id: Optional[int]) -> tuple[int, Optional[datetime]]:
@@ -133,47 +125,36 @@ def _owner(process_id: Optional[int]) -> tuple[int, Optional[datetime]]:
     return owner.pid, owner.started_at
 
 
-# One session at a time changes the lease. The OS lock is the guard, so a paused holder keeps it and the OS
-# frees it when the holder exits. Returns the lock to pass to _close_guard, or None while another session holds it.
-def _open_guard(path: Path) -> Optional[FileLock]:
-    lock = FileLock(_guard_path(path), timeout=0)
+# A paused holder keeps the OS lock until it exits.
+@contextmanager
+def _guard(path: Path) -> Iterator[None]:
+    lock = FileLock(path.with_name(path.name + ".takeover"), timeout=0)
     try:
         lock.acquire()
     except (Timeout, OSError):
-        return None
-    return lock
+        raise LeaseError("lease change in progress in another session; retry") from None
+    try:
+        yield
+    finally:
+        lock.release()
 
 
-def _close_guard(guard: FileLock) -> None:
-    guard.release()
-
-
-def _guard_path(path: Path) -> Path:
-    return path.with_name(path.name + ".takeover")
-
-
-def _read(path: Path) -> str:
-    # A PowerShell writer opens the lock without sharing, so a read on Windows can fail for a moment.
-    for attempt in range(5):
+# Windows may deny access while another session has the lease open.
+def _retry_sharing[T](operation: Callable[[], T]) -> T:
+    for _ in range(4):
         try:
-            return path.read_text(encoding="utf-8-sig")
+            return operation()
         except PermissionError:
-            if attempt == 4:
-                raise
             time.sleep(RETRY_PAUSE_SECONDS)
-    raise AssertionError("unreachable")
+    return operation()
 
 
-# Windows cannot remove a lock another session is reading; give up after a few tries so the caller can say retry.
 def _remove(path: Path) -> bool:
-    for attempt in range(5):
-        try:
-            path.unlink(missing_ok=True)
-            return True
-        except PermissionError:
-            if attempt < 4:
-                time.sleep(RETRY_PAUSE_SECONDS)
-    return False
+    try:
+        _retry_sharing(lambda: path.unlink(missing_ok=True))
+    except PermissionError:
+        return False
+    return True
 
 
 def _age_seconds(path: Path) -> float:

@@ -65,11 +65,6 @@ def load_or_empty(home: Path) -> PersonalisationSettings:
 
 
 # Checks first, then a temp file beside the settings replaces them, so a failed write leaves the old file.
-def save(home: Path, settings: PersonalisationSettings) -> None:
-    with writer(home, require_existing=False):
-        save_locked(home, settings)
-
-
 def save_locked(home: Path, settings: PersonalisationSettings) -> None:
     if settings.schema_uri is not None:
         settings = settings.model_copy(update={"schema_uri": SCHEMA_URL})

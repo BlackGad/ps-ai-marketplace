@@ -6,8 +6,6 @@ from pathlib import Path
 import pytest
 
 from legion.services.repository import _footprints
-from legion.core._settings_models import ToolDescriptor
-from legion.core._validate import load_descriptors
 
 if sys.platform == "win32":
     import _winapi
@@ -41,7 +39,7 @@ def test_remove_owner_deletes_owned_folder_but_keeps_other_records(tmp_path: Pat
     (folder / "child").write_text("x", encoding="utf-8")
     _footprints.add(tmp_path, "folder", folder, "account:a")
     _footprints.add(tmp_path, "path-entry", tmp_path / ".legion" / "notes.md", "account:a")
-    assert _footprints.remove_owner(tmp_path, ["account:a"]) == [f"Remove folder: {folder}"]
+    assert _footprints.remove_owner(tmp_path, "account:a") == [f"Remove folder: {folder}"]
     assert not folder.exists()
     assert [(entry.kind, entry.owners) for entry in _footprints.read(tmp_path).entries] == [("path-entry", [])]
 
@@ -53,7 +51,7 @@ def test_remove_owner_preserves_folder_outside_legion_tree(tmp_path: Path, name:
     child = folder / "keep.txt"
     child.write_text("owner data", encoding="utf-8")
     _footprints.add(tmp_path, "folder", folder, "account:a")
-    assert _footprints.remove_owner(tmp_path, ["account:a"]) == [f"skip: {folder} (linked or not legion's)"]
+    assert _footprints.remove_owner(tmp_path, "account:a") == [f"skip: {folder} (linked or not legion's)"]
     assert child.read_text(encoding="utf-8") == "owner data"
 
 
@@ -82,7 +80,7 @@ def test_remove_owner_keeps_unowned_file(tmp_path: Path) -> None:
     target.parent.mkdir(parents=True)
     target.write_text("foreign", encoding="utf-8")
     _footprints.add(tmp_path, "file", target, "account:a")
-    assert _footprints.remove_owner(tmp_path, ["account:a"]) == [f"skip: {target} (linked or not legion's)"]
+    assert _footprints.remove_owner(tmp_path, "account:a") == [f"skip: {target} (linked or not legion's)"]
     assert target.read_text(encoding="utf-8") == "foreign"
 
 
@@ -94,17 +92,20 @@ def test_link_in_owned_folder_is_not_deleted(tmp_path: Path) -> None:
     else:
         (folder / "link").symlink_to(tmp_path, target_is_directory=True)
     _footprints.add(tmp_path, "folder", folder, "account:a")
-    assert _footprints.remove_owner(tmp_path, ["account:a"]) == [f"skip: {folder} (linked or not legion's)"]
+    assert _footprints.remove_owner(tmp_path, "account:a") == [f"skip: {folder} (linked or not legion's)"]
     assert folder.exists()
 
 
-def test_the_target_owner_names_the_tool_and_the_resolved_folder(tmp_path: Path) -> None:
-    claude = next(tool for tool in load_descriptors(ToolDescriptor, "tool.json") if tool.id == "claude")
-    folder = tmp_path / "account folder"
-    folder.mkdir()
-    expected = f"claude:{folder.resolve()}"
-    assert _footprints.target_owner(claude, str(folder) + os.sep, tmp_path) == (expected.lower() if sys.platform == "win32" else expected)
-    assert _footprints.target_owner(claude, "~/account folder", tmp_path) == _footprints.target_owner(claude, str(folder), tmp_path)
-    default = _footprints.target_owner(claude, None, tmp_path)
-    assert default.startswith("claude:")
-    assert default.endswith(".claude".lower() if sys.platform == "win32" else ".claude")
+def test_account_owner_changes_keep_unfamiliar_owners_verbatim(tmp_path: Path) -> None:
+    folder = tmp_path / ".legion" / "shared"
+    folder.mkdir(parents=True)
+    old_owners = [f"claude:{tmp_path / 'Mixed Case'}{os.sep}", "unknown:owner"]
+    index = _footprints.footprint_index(tmp_path)
+    index.write_text(json.dumps({"schemaVersion": 1, "entries": [{"kind": "folder", "path": "~/.legion/shared", "owners": old_owners}]}), encoding="utf-8")
+
+    _footprints.add(tmp_path, "folder", folder, "account:a")
+    _footprints.add(tmp_path, "folder", folder, "account:a")
+    assert _footprints.read(tmp_path).entries[0].owners == [*old_owners, "account:a"]
+    assert _footprints.remove_owner(tmp_path, "account:a") == []
+    assert _footprints.read(tmp_path).entries[0].owners == old_owners
+    assert folder.is_dir()

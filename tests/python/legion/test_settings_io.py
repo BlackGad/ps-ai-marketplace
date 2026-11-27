@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from settings_fakes import save_settings
 
 from legion.services.accounts import _accounts
 from legion.core import _settings_io
@@ -99,7 +100,7 @@ def test_load_or_empty_starts_a_fresh_home_and_reads_an_existing_one(tmp_path: P
 
 
 def test_save_writes_indented_utf8_without_bom_and_a_final_newline(tmp_path: Path) -> None:
-    _settings_io.save(tmp_path, model(agents=[{**ACCOUNT, "configDir": "~/.claude-é"}]))
+    save_settings(tmp_path, model(agents=[{**ACCOUNT, "configDir": "~/.claude-é"}]))
     data = settings_path(tmp_path).read_bytes()
     assert not data.startswith(b"\xef\xbb\xbf")
     assert b"\r" not in data
@@ -113,9 +114,9 @@ def test_save_writes_indented_utf8_without_bom_and_a_final_newline(tmp_path: Pat
 
 
 def test_save_rewrites_a_present_schema_and_leaves_an_absent_one_out(tmp_path: Path) -> None:
-    _settings_io.save(tmp_path, model())
+    save_settings(tmp_path, model())
     assert "$schema" not in json.loads(settings_path(tmp_path).read_text(encoding="utf-8"))
-    _settings_io.save(tmp_path, model(**{"$schema": "../schemas/personalisation.schema.json"}))
+    save_settings(tmp_path, model(**{"$schema": "../schemas/personalisation.schema.json"}))
     saved = json.loads(settings_path(tmp_path).read_text(encoding="utf-8"))
     assert saved["$schema"] == SCHEMA_URL
 
@@ -137,7 +138,7 @@ def test_save_follows_a_settings_symlink(tmp_path: Path, monkeypatch: pytest.Mon
             return target if candidate == path else original_resolve(candidate, *args, **kwargs)
 
         monkeypatch.setattr(Path, "resolve", resolve)
-    _settings_io.save(tmp_path, model())
+    save_settings(tmp_path, model())
     if linked:
         assert path.is_symlink()
     assert json.loads(target.read_text(encoding="utf-8"))["agents"] == [ACCOUNT]
@@ -154,7 +155,7 @@ def test_save_follows_a_settings_symlink(tmp_path: Path, monkeypatch: pytest.Mon
 def test_save_writes_nothing_when_a_check_fails(tmp_path: Path, settings: Any, message: str) -> None:
     before = write_settings(tmp_path, {"schemaVersion": 1, "agents": [ACCOUNT], "channels": []})
     with pytest.raises(SettingsError) as error:
-        _settings_io.save(tmp_path, settings())
+        save_settings(tmp_path, settings())
     assert message in str(error.value)
     assert settings_path(tmp_path).read_bytes() == before
     assert not list(settings_path(tmp_path).parent.glob(".personalisation.json.*.tmp"))
@@ -165,7 +166,7 @@ def test_save_refuses_a_model_that_breaks_the_schema(tmp_path: Path) -> None:
     broken = model()
     broken.agents[0].config_dir = ""
     with pytest.raises(SettingsError, match=r"agents\[0\]\.configDir"):
-        _settings_io.save(tmp_path, broken)
+        save_settings(tmp_path, broken)
     assert settings_path(tmp_path).read_bytes() == before
 
 
@@ -180,7 +181,7 @@ def test_save_reports_a_held_file_in_one_line_and_leaves_no_temp_file(tmp_path: 
 
     monkeypatch.setattr(os, "replace", held)
     with pytest.raises(SettingsError) as error:
-        _settings_io.save(tmp_path, model())
+        save_settings(tmp_path, model())
     assert str(error.value) == "legion settings are in use by another program; close it and run the command again"
     assert settings_path(tmp_path).read_bytes() == before
     assert set(folder_names(tmp_path)) <= {"personalisation.json", "personalisation.json.lock"}
@@ -198,7 +199,7 @@ def test_save_preserves_non_windows_permission_error(tmp_path: Path, monkeypatch
 
     monkeypatch.setattr("tempfile.NamedTemporaryFile", denied)
     with pytest.raises(SettingsError, match="temporary directory denies creation"):
-        _settings_io.save(tmp_path, model())
+        save_settings(tmp_path, model())
 
 
 def test_save_reports_replace_and_cleanup_failures_together(tmp_path: Path) -> None:
@@ -226,7 +227,7 @@ def test_save_reports_replace_and_cleanup_failures_together(tmp_path: Path) -> N
         patch.setattr(Path, "unlink", cleanup_denied)
         patch.setattr(Path, "replace", held)
         with pytest.raises(SettingsError) as failure:
-            _settings_io.save(tmp_path, model())
+            save_settings(tmp_path, model())
     assert str(failure.value) == "legion settings are in use by another program; close it and run the command again; cleanup failed: cleanup denied"
     assert settings_path(tmp_path).read_bytes() == before
     assert temp is not None
@@ -246,7 +247,7 @@ def test_save_handles_windows_replace_errors(tmp_path: Path, monkeypatch: pytest
 
     monkeypatch.setattr(os, "replace", held)
     with pytest.raises(SettingsError, match=r"^legion settings are in use by another program; close it and run the command again$"):
-        _settings_io.save(tmp_path, model())
+        save_settings(tmp_path, model())
     assert settings_path(tmp_path).read_bytes() == before
     assert set(folder_names(tmp_path)) <= {"personalisation.json", "personalisation.json.lock"}
     assert "personalisation.json" in folder_names(tmp_path)
