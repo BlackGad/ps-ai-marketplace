@@ -371,7 +371,10 @@ class Runner:
         return os.pathsep.join((str(self.uv.parent), path))
 
     def nested(self, checkout: Path, home: Path) -> "Runner":
-        runner = Runner(checkout, home, self.out, False, uv=str(self.uv), client_path=self.client_path)
+        # Native clients such as Claude can install beside the parent's uv.
+        client_folders = [str(Path(command).parent) for _, command in self.versions.values()]
+        client_path = os.pathsep.join((*dict.fromkeys(client_folders), self.client_path))
+        runner = Runner(checkout, home, self.out, False, uv=str(self.uv), client_path=client_path)
         runner.log = self.log
         return runner
 
@@ -707,7 +710,9 @@ class Runner:
 
     def wait_tool_version(self, version: str) -> None:
         deadline = time.monotonic() + 90
-        while self.tool_version() != version or not self.legion_executable().is_file() or not (self.tool_dir / "legion/uv-receipt.toml").is_file():
+        stop = self.home / ".legion/run/stop"
+        receipt = self.tool_dir / "legion/uv-receipt.toml"
+        while stop.exists() or self.tool_version() != version or not self.legion_executable().is_file() or not receipt.is_file():
             require(time.monotonic() < deadline, f"the detached uv install did not complete for legion {version}")
             time.sleep(0.5)
 

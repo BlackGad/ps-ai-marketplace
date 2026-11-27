@@ -98,6 +98,7 @@ def test_pwsh_trap_records_an_attempt(tmp_path: Path) -> None:
 def make_runner(tmp_path: Path) -> Any:
     uv = tmp_path / "fixture-uv"
     uv.write_bytes(b"fixture uv")
+    uv.chmod(0o755)
     return runner.Runner(Path(__file__).resolve().parents[2], tmp_path / "home", tmp_path / "results", False, uv=str(uv))
 
 
@@ -125,6 +126,37 @@ def test_nested_runners_isolate_uv_state(tmp_path: Path, monkeypatch: pytest.Mon
     children[0].uv.write_bytes(b"changed copy")
     assert parent.uv.read_bytes() == children[1].uv.read_bytes() == b"fixture uv"
     assert not inherited.exists()
+
+
+def test_nested_runner_finds_clients_installed_in_parent_uv_bin(tmp_path: Path) -> None:
+    parent = make_runner(tmp_path)
+    claude = parent.uv.with_name("claude.exe" if runner.WINDOWS else "claude")
+    claude.touch(mode=0o755)
+    parent.versions["claude"] = ("1.2.3", parent.command("claude"))
+
+    child = parent.nested(parent.checkout, parent.work / "update" / "home")
+
+    assert Path(child.command("claude")) == claude
+    assert Path(child.command("uv")) == child.uv
+
+
+def test_wait_tool_version_waits_for_the_handover_to_clear_stop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    instance = make_runner(tmp_path)
+    executable = instance.uv.with_name("legion.exe" if runner.WINDOWS else "legion")
+    executable.touch()
+    receipt = instance.tool_dir / "legion/uv-receipt.toml"
+    receipt.parent.mkdir(parents=True)
+    receipt.touch()
+    stop = instance.home / ".legion/run/stop"
+    stop.parent.mkdir(parents=True)
+    stop.touch()
+    instance.tool_version = Mock(return_value="1.2.4")
+    instance.legion_executable = Mock(return_value=executable)
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: stop.unlink())
+
+    instance.wait_tool_version("1.2.4")
+
+    assert not stop.exists()
 
 
 def test_report_accepts_empty_and_control_character_messages(tmp_path: Path) -> None:

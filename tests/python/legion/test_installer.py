@@ -538,6 +538,7 @@ def test_update_hands_one_uv_install_to_the_helper_for_the_highest_plugin_versio
 
 def test_update_never_runs_uv_tool_update_shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[dict[str, object]] = []
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: name if name == "claude" else None)
     monkeypatch.setattr(_installer._refresh, "refresh", lambda _home, **options: seen.append({name: value for name, value in options.items() if name != "source"}) or [])
     monkeypatch.setattr(_installer, "_step", lambda *_args: None)
     monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: tmp_path / "plugin")
