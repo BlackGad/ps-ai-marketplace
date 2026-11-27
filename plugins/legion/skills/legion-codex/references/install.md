@@ -4,6 +4,8 @@ When `codex` is missing, run `legion tool install --tool codex` to inspect statu
 
 If installation reports a new terminal is needed for PATH, ask the owner to open one and recheck status. Then repeat the setup step in [accounts.md](accounts.md): setup installs legion before login, and the owner logs in themselves when its table says `log in`. Never read credentials or tokens.
 
+If winget is unavailable or fails, follow the [method choice](../../legion-repository/references/tools.md).
+
 ## Platform methods and integrity
 
 On Windows, Node is not required. The default/`--method winget` uses `OpenAI.Codex`. Explicit `--method msi` and `--method zip` both run the official [install.ps1](https://chatgpt.com/codex/install.ps1), which redirects to `https://releases.openai.com/codex/install.ps1`. The vendor manages `%LOCALAPPDATA%/Programs/OpenAI/Codex/bin` and its PATH entry; no administrator is needed.

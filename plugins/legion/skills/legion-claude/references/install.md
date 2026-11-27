@@ -4,6 +4,8 @@ When `claude` is missing, run `legion tool install --tool claude` to inspect sta
 
 If installation reports a new terminal is needed for PATH, ask the owner to open one and recheck status. Then repeat the setup step in [accounts.md](accounts.md): setup installs legion before login, and the owner logs in themselves when its table says `log in`. Never read credentials or tokens.
 
+If winget is unavailable or fails, follow the [method choice](../../legion-repository/references/tools.md).
+
 ## Platform methods and integrity
 
 On Windows, Node is not required. The default and `--method winget` use `Anthropic.ClaudeCode`; `--method msi` and `--method zip` both run the official [install.ps1](https://claude.ai/install.ps1). The vendor manages installation and `~/.local/bin/claude.exe`; no administrator is required.

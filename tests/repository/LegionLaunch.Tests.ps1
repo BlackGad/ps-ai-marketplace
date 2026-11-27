@@ -22,8 +22,10 @@ try {
         $legion = New-TestCommandStub -Folder $scratch -Name legion -Script $record
         $account = 'codex-a'; $repoPath='repo with spaces'; $report='report with spaces'; $promptText="task`nwith lines"
         $promptPath = 'task prompt with spaces.md'
-        & ([scriptblock]::Create($example.Groups[1].Value)) | Out-Null
+        Push-Location $scratch
+        try { & ([scriptblock]::Create($example.Groups[1].Value)) | Out-Null } finally { Pop-Location }
         Assert-Equal ($expected[$id] | ConvertTo-Json -Compress) (Get-Content -LiteralPath $env:LEGION_TEST_ARGS -Raw).Trim() "$id documented worker preserves complete argv"
+        if ($id -ne 'codex') { Assert-True (Test-Path -LiteralPath (Join-Path $scratch 'report with spaces.stdout.md')) "$id documented worker captures stdout in the report's .stdout.md" }
     }
 }
 finally {

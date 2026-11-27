@@ -4,6 +4,10 @@ When `copilot` is missing, run `legion tool install --tool copilot` to inspect s
 
 If installation reports a new terminal is needed for PATH, ask the owner to open one and recheck status. Then repeat the setup step in [accounts.md](accounts.md): setup installs legion before login, and the owner logs in themselves when its table says `log in`. Never read credentials or tokens.
 
+If setup cannot install legion, run in the selected account's environment, after the owner's yes: `copilot plugin marketplace add BlackGad/ps-legion-marketplace#stable`, then `copilot plugin install legion@ps-legion-marketplace`.
+
+If winget is unavailable or fails, follow the [method choice](../../legion-repository/references/tools.md).
+
 ## Platform methods and integrity
 
 On Windows, when Node is already available, the recipe uses `npm install -g @github/copilot` before any explicit method, including `winget`, `msi` or `zip`. This route delegates package integrity to npm. Without Node, native Windows methods do not require it: winget uses `GitHub.Copilot`, `msi` downloads `copilot-x64.msi`, and `zip` downloads `copilot-win32-x64.zip`.

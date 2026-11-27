@@ -11,7 +11,7 @@ LEGION_ROLE=member LEGION_TASK="<prompt file>" <command> -p --permission-mode by
 PowerShell 7: set `$legion` (that home's `legion.cmd`), `$account`, `$promptText`, `$repoPath` and `$report` from the assigned task. Keep the same process environment and capture stdout in `<report>.stdout.md`.
 
 ```powershell
-$promptText | & $legion run --account $account -- -p --permission-mode bypassPermissions --strict-mcp-config
+$promptText | & $legion run --account $account -- -p --permission-mode bypassPermissions --strict-mcp-config > "${report}.stdout.md"
 ```
 
 `--strict-mcp-config` (with no `--mcp-config`) makes the run load no MCP servers: only the overseer connects channels, and a legion run must never start a channel plugin or any other MCP server, or two programs poll one bot and the run swallows the owner's messages.
