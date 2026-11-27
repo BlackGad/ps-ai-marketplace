@@ -299,7 +299,7 @@ def test_limits_bounds_single_account_default(bench: Bench, monkeypatch: pytest.
             assert not (await session.call_tool("limits", {"accounts": ["claude-a"]})).isError
 
     anyio.run(check)
-    assert observed == [["limits", "--json", "--timeout", "8.0", "--id", "claude-a"]]
+    assert observed == [["limits", "--json", "--timeout", str(mcp_server.PROBE_BUDGET), "--id", "claude-a"]]
 
 
 def test_probe_timeout_cleans_tree_and_allows_next_call(connection: Connection, bench: Bench) -> None:

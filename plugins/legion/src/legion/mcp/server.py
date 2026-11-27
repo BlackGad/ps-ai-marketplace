@@ -26,8 +26,8 @@ from legion.core._run import DRAIN_SECONDS
 from legion.services.limits import AccountLimits
 from legion.services.status import StatusReport
 
-# Fit within Copilot's documented 30 s default.
-CALL_BUDGET = 20.0
+# Leave 5 s for serialization within Copilot's documented 30 s default.
+CALL_BUDGET = 25.0
 # Reserve time for CLI startup and output, plus both process drain waits after a timeout.
 PROBE_RESERVE = 2 * DRAIN_SECONDS + 2.0
 PROBE_BUDGET = CALL_BUDGET - PROBE_RESERVE
@@ -133,7 +133,7 @@ def build(home: Optional[Path] = None) -> FastMCP:
         return StatusReport.model_validate_json(report)
 
     @server.tool(
-        description="Ping each named account; consumes quota and may be billable, creates a ping folder and Codex session; Foundry checks az; capped at 20s per call.",
+        description=f"Ping each named account; consumes quota and may be billable, creates a ping folder and Codex session; Foundry checks az; capped at {CALL_BUDGET:g}s per call.",
         annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=False, openWorldHint=True),
     )
     async def limits(accounts: list[str], timeout: Annotated[float, Field(gt=0, allow_inf_nan=False)] = 120) -> list[AccountLimits]:
