@@ -57,7 +57,9 @@ Open your AI tool and say:
 
 ## Update and uninstall
 
-Say “Update legion” or “Uninstall legion,” or run `legion update` or `legion uninstall`. One update covers all accounts legion knows. Before replacing the command, Legion waits for the MCP servers and `legion run` wrappers registered in its home to exit, with the updater and its ancestors exempt. Restart your session after the update. Check `~/.legion/temp/uv-tool.log` for the detached update or uninstall result. `legion status` flags failures recorded in the log. Use the handoff to recover stopped members. See [running sessions and recovery](docs/reference.md#running-sessions-and-the-stop-event). If `legion` is unavailable, run the matching one-liner in PowerShell.
+Say “Update legion” or “Uninstall legion,” or run `legion update` or `legion uninstall`. On Windows, close your Legion session, run `legion update` from a terminal, then reopen Legion. An update started from a registered Windows session refuses before making changes.
+
+One update covers all accounts legion knows. Before replacing the command, Legion waits for the MCP servers and `legion run` wrappers registered in its home to exit, with the updater and its ancestors exempt. Restart your session after the update. Check `~/.legion/temp/uv-tool.log` for the detached update or uninstall result. `legion status` flags failures recorded in the log. Use the handoff to recover stopped members. See [running sessions and recovery](docs/reference.md#running-sessions-and-the-stop-event). If `legion` is unavailable, run the matching one-liner in PowerShell.
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Update

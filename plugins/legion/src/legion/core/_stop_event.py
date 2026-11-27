@@ -15,7 +15,7 @@ import psutil
 
 from legion.core import _process
 from legion.core._atomic_write import atomic_write_bytes
-from legion.core._home import run_folder
+from legion.core._home import owner_path_safe, run_folder
 
 STOP_FILE = "stop"
 CHECK_SECONDS = 1.0
@@ -75,7 +75,7 @@ def clear_stop(home: Path) -> None:
 
 
 # The registration of a dead process or a reused pid is removed.
-def _registered_processes(home: Path) -> list[psutil.Process]:
+def _registered_processes(home: Path, *, discard_stale: bool = True) -> list[psutil.Process]:
     alive: list[psutil.Process] = []
     for registration in sorted(run_folder(home).glob("*.pid")):
         try:
@@ -89,14 +89,22 @@ def _registered_processes(home: Path) -> list[psutil.Process]:
                     continue
         except (OSError, ValueError, OverflowError, psutil.Error):
             pass
-        # On Windows a process can be deleting its own registration at the same time.
-        with contextlib.suppress(PermissionError):
-            registration.unlink(missing_ok=True)
+        if discard_stale:
+            # On Windows a process can be deleting its own registration at the same time.
+            with contextlib.suppress(PermissionError):
+                registration.unlink(missing_ok=True)
     return alive
 
 
 def running(home: Path) -> list[int]:
     return [process.pid for process in _registered_processes(home)]
+
+
+def has_registered_ancestor(home: Path) -> bool:
+    if not owner_path_safe(run_folder(home), home):
+        return False
+    ancestors = {process.pid for process in _process.ancestors(os.getpid())}
+    return any(process.pid in ancestors for process in _registered_processes(home, discard_stale=False))
 
 
 def _still_running(process: psutil.Process) -> bool:

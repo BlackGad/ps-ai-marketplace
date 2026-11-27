@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import tempfile
 import tomllib
 from contextlib import nullcontext
@@ -496,6 +497,8 @@ def install(
     if purge and not uninstall:
         raise InstallerError("--purge requires --uninstall.")
     home = full_path(home)
+    if update and not dry_run and tool_roots is None and sys.platform == "win32" and _stop_event.has_registered_ancestor(home):
+        raise InstallerError("Close this Legion session, run `legion update` from a terminal, then reopen Legion.")
     catalog = _catalog(source, ref, catalog)
     lines: list[str] = []
     settings = _personalisation(home, lines if uninstall else None)

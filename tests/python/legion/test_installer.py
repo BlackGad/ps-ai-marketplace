@@ -1,5 +1,6 @@
 import io
 import json
+import os
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,7 +13,8 @@ from click.testing import CliRunner
 from legion.services.installation import _uv_tool, installer as _installer
 from legion import cli as _cli
 from legion.services.repository import _footprints
-from legion.core import _http, _run
+from legion.core import _http, _run, _stop_event
+from legion.core._home import run_folder
 from legion.core._http import https_client
 from legion.core._run import RunResult
 from legion.core._settings_models import ToolsCatalog
@@ -472,6 +474,48 @@ def test_install_and_uninstall_target_use_fake_cli_and_refresh(tmp_path: Path, m
     assert entry.plugin.install not in calls
     _installer.install(tmp_path, [tool_id], config_dir=folder, yes=True, uninstall=True, catalog=catalog())
     assert installed == {"marketplace": False, "plugin": False}
+
+
+@pytest.mark.parametrize("platform", ["win32", "linux", "darwin"])
+def test_update_from_a_registered_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str) -> None:
+    monkeypatch.setattr(_installer, "sys", SimpleNamespace(platform=platform))
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: name if name == "claude" else None)
+    monkeypatch.setattr(_uv_tool.tempfile, "tempdir", str(tmp_path))
+    uv = FakeUv(monkeypatch, tmp_path / "bin")
+    monkeypatch.setenv("PATH", str(uv.bin), prepend=os.pathsep)
+    uv.installed = "0.9.0"
+    source = make_source(tmp_path)
+    monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: source)
+    plugin_steps: list[list[str]] = []
+    monkeypatch.setattr(_installer, "_step", lambda _entry, arguments, *_args: plugin_steps.append(arguments))
+    run = run_folder(tmp_path)
+    run.mkdir(parents=True)
+    parent = run / f"{os.getppid()}.pid"
+    parent.write_text(str(os.getppid()), encoding="ascii")
+    stale = run / "stale.pid"
+    stale.write_text("invalid", encoding="ascii")
+
+    result = CliRunner().invoke(_cli.main, ["--home", str(tmp_path), "update", "--yes"])
+
+    if platform == "win32":
+        assert result.exit_code == 1, result.output
+        assert result.stderr.splitlines() == ["Close this Legion session, run `legion update` from a terminal, then reopen Legion."]
+        assert result.stdout == ""
+        assert plugin_steps == []
+        assert set(run.iterdir()) == {parent, stale}
+        assert uv.calls == []
+        assert uv.detached == []
+    else:
+        assert result.exit_code == 0, result.output
+        assert "Restart this session after the legion update." in result.stderr
+        assert plugin_steps
+        assert _stop_event.stop_path(tmp_path).is_file()
+        assert not _stop_event.stop_raised(tmp_path, pid=os.getppid())
+        assert not stale.exists()
+        ((command, _cleanup),) = uv.detached
+        assert command[:3] == ["uv", "tool", "install"]
+        assert "--reinstall" in command
+        assert ["tool", "update-shell"] not in uv.calls
 
 
 def test_update_refreshes_new_installed_copy_and_reports_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
