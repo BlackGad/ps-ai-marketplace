@@ -11,7 +11,7 @@ Route channel operations through `skills/legion-<kind>/SKILL.md`; stop if missin
 | `agents[].id` | Account operations, `legion --account <id>` and member runs select the account by id. |
 | `agents[].tool` | Tool discovery chooses account, Foundry and launch adapters. |
 | `agents[].configDir` | The account launch, Foundry adapters and root installer select the account folder. Use a concrete folder, never `default`. |
-| `agents[].command` | Optional. The account's own CLI program, set only when it is not the tool's stock command; `legion account register` stores it. Subscription accounts only. |
+| `agents[].command` | Optional. The account's own CLI program, set only when it is not the tool's stock command; `legion account add --command` stores it. Subscription accounts only. |
 | `agents[].provider.kind` | Foundry runner selects provider dispatch; only Foundry is implemented. |
 | `provider.endpoint` | Foundry adapters connect to the selected HTTPS host. |
 | `provider.default` | Foundry adapters select the default deployment. |

@@ -805,7 +805,7 @@ asyncio.run(main())
 
     def remove(self, repeat: bool) -> str:
         folder = self.resolve_folder(next(agent["configDir"] for agent in self.settings()["agents"] if agent["id"] == "ci-extra")) if not repeat else None
-        output = self.legion("account", "remove", "--id", "ci-extra", owner=True)
+        output = self.legion("remove", "--id", "ci-extra", owner=True)
         if repeat:
             contains(output, "skip: account remove ci-extra (already done)")
         else:
@@ -910,7 +910,7 @@ asyncio.run(main())
                 contains(output, "skip: account ci-foundry (already done)")
             output += "\n" + self.foundry_launch()
             if repeat:
-                output += "\n" + self.legion("account", "remove", "--id", "ci-foundry", owner=True)
+                output += "\n" + self.legion("remove", "--id", "ci-foundry", owner=True)
         return output
 
     @contextmanager
@@ -969,7 +969,7 @@ asyncio.run(main())
                 contains(again, "skip:")
                 lines.append(again)
             lines.append(self.account_run("ci-no-pwsh", "--version"))
-            lines.append(self.legion("account", "remove", "--id", "ci-no-pwsh", owner=True))
+            lines.append(self.legion("remove", "--id", "ci-no-pwsh", owner=True))
             if "copilot" not in self.not_tested:
                 with self.fake_az():
                     lines.append(
@@ -978,7 +978,7 @@ asyncio.run(main())
                         )
                     )
                     lines.append(self.foundry_launch())
-                    lines.append(self.legion("account", "remove", "--id", "ci-foundry", owner=True))
+                    lines.append(self.legion("remove", "--id", "ci-foundry", owner=True))
             lines.append(self.legion("refresh", owner=True))
             return "\n".join(lines)
 
