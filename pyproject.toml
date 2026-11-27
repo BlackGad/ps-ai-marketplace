@@ -190,6 +190,8 @@ exclude = ["**/__pycache__", "**/node_modules", "**/.*"]
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
 addopts = [
+    "-n",
+    "auto",
     "--basetemp=.agents/temp/python/pytest-tmp",
     "--cov=legion",
     "--cov-config=pyproject.toml",

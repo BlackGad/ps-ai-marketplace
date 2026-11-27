@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.22.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.21.0...v0.22.0) (2026-11-27)
+
+
+### Features
+
+* **hook:** list the knowledge hub at session start ([#131](https://github.com/BlackGad/ps-legion-marketplace/issues/131)) ([ae66380](https://github.com/BlackGad/ps-legion-marketplace/commit/ae663802d0f3a0fe5b0d8351df5d315acfb401ab))
+* **setup:** put the knowledge hub under git ([#134](https://github.com/BlackGad/ps-legion-marketplace/issues/134)) ([4257878](https://github.com/BlackGad/ps-legion-marketplace/commit/4257878a456765a42c7474729458213f9faceff2))
+
+
+### Tests
+
+* port repository checks to pytest; one root pyproject.toml ([#133](https://github.com/BlackGad/ps-legion-marketplace/issues/133)) ([109c13e](https://github.com/BlackGad/ps-legion-marketplace/commit/109c13e36809ffc6ebdf074fc1ed52ca88194477))
+
 ## [0.21.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.20.0...v0.21.0) (2026-11-27)
 
 

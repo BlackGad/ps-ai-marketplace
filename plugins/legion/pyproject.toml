@@ -20,7 +20,7 @@ legion = "legion.cli:main"
 mcp = ["mcp>=1.30,<2"]
 
 [dependency-groups]
-dev = ["ruff>=0.14.9", "pyright>=1.1.408", "pytest>=9.0.2", "pytest-cov>=7.0.0"]
+dev = ["ruff>=0.14.9", "pyright>=1.1.408", "pytest>=9.0.2", "pytest-cov>=7.0.0", "pytest-xdist>=3.8.0"]
 installed = ["legion[mcp]"]
 
 [build-system]
