@@ -74,7 +74,9 @@ if __name__ == "__main__":
     try:
         connection.ready()
         connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["claude-a"]}}, 3)
-        Path(sys.argv[2]).write_text(str(connection.process.pid), encoding="utf-8")
+        pid = Path(sys.argv[2])
+        pid.write_text(str(connection.process.pid), encoding="utf-8")
+        pid.with_suffix(".ready").touch()
         os.read(sys.stdin.fileno(), 1)
     finally:
         connection.close()
