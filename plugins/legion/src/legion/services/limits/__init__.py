@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -48,4 +49,9 @@ def limits(home: Optional[Path], accounts: Sequence[str], timeout: float = DEFAU
         if account not in agents:
             raise LimitsError(f"unknown account '{account}'")
         selected.append(agents[account])
-    return [AccountLimits(account=agent.id, tool=agent.tool, rows=account_rows(agent, home, timeout)) for agent in selected]
+
+    def probe(agent: Agent) -> AccountLimits:
+        return AccountLimits(account=agent.id, tool=agent.tool, rows=account_rows(agent, home, timeout))
+
+    with ThreadPoolExecutor(max_workers=len(selected)) as pool:
+        return list(pool.map(probe, selected))

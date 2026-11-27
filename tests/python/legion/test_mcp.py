@@ -19,6 +19,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from mcp_protocol_fake import Connection
 from test_limits import (
     ACCOUNTS,
+    FIXTURES,
     Bench,
     write_executable,
     write_settings,
@@ -158,7 +159,6 @@ def test_stdio_limits_equals_cli_explicit_accounts(bench: Bench, capsys: pytest.
         ({"accounts": [42]}, "string"),
         ({"accounts": ["claude-a"], "timeout": "1"}, "number"),
         ({"accounts": ["claude-a"], "timeout": True}, "number"),
-        ({"accounts": ["claude-a", "copilot-a"]}, "call limits once per account"),
         ({"accounts": ["claude-a"], "timeout": 0}, "minimum"),
         ({"accounts": ["claude-a"], "timeout": -1}, "minimum"),
         ({"accounts": ["claude-a"], "timeout": None}, "number"),
@@ -179,6 +179,45 @@ def test_default_single_account_is_usable(connection: Connection, bench: Bench) 
     assert not result.get("isError", False)
     assert result["structuredContent"]["result"][0]["account"] == "copilot-a"
     assert len(bench.calls("copilot")) == 1
+
+
+def test_default_multi_account_call_returns_results_in_selection_order(connection: Connection, bench: Bench) -> None:
+    connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["copilot-a", "claude-a"]}}, 3)
+    result = connection.receive(3)["result"]
+    assert not result.get("isError", False), result
+    assert [entry["account"] for entry in result["structuredContent"]["result"]] == ["copilot-a", "claude-a"]
+    assert len(bench.calls("copilot")) == len(bench.calls("claude")) == 1
+
+
+@pytest.mark.parametrize("stop", ["eof", "cancel"])
+def test_interrupting_multi_account_call_cleans_all_probes(connection: Connection, bench: Bench, stop: str) -> None:
+    tools = ("claude", "copilot")
+    for tool in tools:
+        log = bench.logs / tool
+        log.mkdir()
+        write_executable(bench.path, tool, {"LEGION_FAKE_LOG": str(log), f"LEGION_FAKE_{tool.upper()}_SLEEP": "60"})
+
+    connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["claude-a", "copilot-a"]}}, 3)
+    probes = []
+    for tool in tools:
+        log = bench.logs / tool
+        grandchild = int(wait_file(log / "grandchild.pid"))
+        call = json.loads((log / f"{tool}.jsonl").read_text(encoding="utf-8"))
+        probes.append((grandchild, call["pid"], Path(call["folder"])))
+
+    if stop == "eof":
+        connection.eof()
+        assert connection.process.wait(timeout=5) == 0
+    else:
+        connection.send("notifications/cancelled", {"requestId": 3})
+
+    for grandchild, pid, ping_folder in probes:
+        assert_dead(grandchild)
+        assert_dead(pid)
+        deadline = time.monotonic() + 5
+        while ping_folder.exists():
+            assert time.monotonic() < deadline, "ping folder survived interruption"
+            time.sleep(0.01)
 
 
 @pytest.mark.parametrize("stop", ["eof", "cancel"])
@@ -260,7 +299,7 @@ def test_limits_bounds_single_account_default(bench: Bench, monkeypatch: pytest.
             assert not (await session.call_tool("limits", {"accounts": ["claude-a"]})).isError
 
     anyio.run(check)
-    assert observed == [["limits", "--json", "--timeout", "20.0", "--id", "claude-a"]]
+    assert observed == [["limits", "--json", "--timeout", str(mcp_server.PROBE_BUDGET), "--id", "claude-a"]]
 
 
 def test_probe_timeout_cleans_tree_and_allows_next_call(connection: Connection, bench: Bench) -> None:
@@ -274,10 +313,30 @@ def test_probe_timeout_cleans_tree_and_allows_next_call(connection: Connection, 
     assert not connection.receive(4)["result"].get("isError", False)
 
 
+def test_limits_returns_timeout_and_fast_rows_in_one_call(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
+    bench.fake(COPILOT_SLEEP="60", CLAUDE_STDOUT=str(FIXTURES / "claude-stream.jsonl"))
+    monkeypatch.setattr(mcp_server, "CALL_BUDGET", 7.0)
+    monkeypatch.setattr(mcp_server, "PROBE_BUDGET", 3.0)
+
+    async def check() -> None:
+        async with create_connected_server_and_client_session(build(bench.home)) as session:
+            result = await session.call_tool("limits", {"accounts": ["copilot-a", "claude-a"]})
+            assert not result.isError, result.content
+            assert result.structuredContent is not None
+            timed_out, fast = result.structuredContent["result"]
+            assert timed_out["account"] == "copilot-a"
+            assert [row["status"] for row in timed_out["rows"]] == ["ping timed out"]
+            assert fast["account"] == "claude-a"
+            assert [(row["window"], row["used"]) for row in fast["rows"]] == [("five_hour", "69%"), ("seven_day", "55%")]
+
+    anyio.run(check)
+
+
 def test_mcp_deadline_ends_the_child_tree_and_allows_next_call(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
     write_executable(bench.path, "claude", {"LEGION_FAKE_CLAUDE_SLEEP": "60"})
     # The CLI's own probe timeout equals the budget but starts after the child's startup, so the MCP deadline comes first.
     monkeypatch.setattr(mcp_server, "CALL_BUDGET", 6.0)
+    monkeypatch.setattr(mcp_server, "PROBE_BUDGET", 6.0)
 
     async def check() -> None:
         async with create_connected_server_and_client_session(build(bench.home)) as session:

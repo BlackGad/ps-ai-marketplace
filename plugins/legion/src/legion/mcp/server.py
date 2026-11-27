@@ -22,11 +22,15 @@ from pydantic import (
     TypeAdapter,
 )
 
+from legion.core._run import DRAIN_SECONDS
 from legion.services.limits import AccountLimits
 from legion.services.status import StatusReport
 
-# Fit even Copilot's documented 30 s default, reserving time for cleanup and serialization.
-CALL_BUDGET = 20.0
+# Leave 5 s for serialization within Copilot's documented 30 s default.
+CALL_BUDGET = 25.0
+# Reserve time for CLI startup and output, plus both process drain waits after a timeout.
+PROBE_RESERVE = 2 * DRAIN_SECONDS + 2.0
+PROBE_BUDGET = CALL_BUDGET - PROBE_RESERVE
 # How long a terminated process may take to exit before it is killed.
 STOP_SECONDS = 3.0
 
@@ -129,13 +133,11 @@ def build(home: Optional[Path] = None) -> FastMCP:
         return StatusReport.model_validate_json(report)
 
     @server.tool(
-        description="Ping each named account; consumes quota and may be billable, creates a ping folder and Codex session; Foundry checks az; capped at 20s per call.",
+        description=f"Ping each named account; consumes quota and may be billable, creates a ping folder and Codex session; Foundry checks az; capped at {CALL_BUDGET:g}s per call.",
         annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=False, openWorldHint=True),
     )
     async def limits(accounts: list[str], timeout: Annotated[float, Field(gt=0, allow_inf_nan=False)] = 120) -> list[AccountLimits]:
-        effective_timeout = min(timeout, CALL_BUDGET)
-        if len(accounts) * effective_timeout > CALL_BUDGET:
-            raise ValueError("call limits once per account")
+        effective_timeout = min(timeout, PROBE_BUDGET)
         arguments = ["limits", "--json", "--timeout", str(effective_timeout)]
         for account in accounts:
             arguments += ["--id", account]
