@@ -2,7 +2,9 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
+import click
 import pytest
 from cli_runner import run
 
@@ -123,6 +125,20 @@ def test_update_routes_to_python_installer(tmp_path: Path, words: list[str], mon
     assert run(["--home", str(home), "update", *words]) == 0
     assert calls == [(home, True, bool(words))]
     assert capsys.readouterr().out == "updated\n"
+
+
+def test_update_reports_an_output_error_on_stderr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(_installer, "install", lambda *_arguments, **_options: ["updated"])
+    real_echo = click.echo
+
+    def broken_echo(message: Any = None, *args: Any, **options: Any) -> None:
+        if not options.get("err"):
+            raise OSError("stdout is closed")
+        real_echo(message, *args, **options)
+
+    monkeypatch.setattr(click, "echo", broken_echo)
+    assert run(["--home", str(tmp_path / "update home"), "update"]) == 1
+    assert capsys.readouterr().err == "stdout is closed\n"
 
 
 def test_update_help_lists_its_options(capsys: pytest.CaptureFixture[str]) -> None:
