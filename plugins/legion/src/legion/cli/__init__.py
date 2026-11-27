@@ -595,18 +595,6 @@ def refresh(context: click.Context) -> None:
     _report_account(context, lambda: change(_home.legion_home(context.obj)))
 
 
-@account.command("register", help="Register an existing account folder and the program that runs it")
-@_account_id_option
-@_account_tool_option
-@click.option("--command", required=True, help="the program that runs the account")
-@click.option("--config-dir", required=True, help="the account's existing folder")
-@click.pass_context
-def account_register(context: click.Context, account_id: str, tool_id: str, command: str, config_dir: str) -> None:
-    from legion.services.accounts import _accounts
-
-    _report_account(context, lambda: _accounts.add_subscription(_home.legion_home(context.obj), account_id, tool_id, command, config_dir))
-
-
 @account.command("rename", help="Give an account a new id; its folder stays")
 @_account_id_option
 @click.option("--new-id", required=True, help="the new account id")
@@ -617,25 +605,13 @@ def account_rename(context: click.Context, account_id: str, new_id: str) -> None
     _report_account(context, lambda: _accounts.rename(_home.legion_home(context.obj), account_id, new_id))
 
 
-# `legion remove` and `legion account remove` are the same command under two names.
-def _remove_account(context: click.Context, account_id: str) -> None:
-    from legion.services.accounts import _accounts
-
-    _report_account(context, lambda: _accounts.remove(_home.legion_home(context.obj), account_id))
-
-
-@account.command("remove", help="Remove an account (its folder is kept)")
-@_account_id_option
-@click.pass_context
-def account_remove(context: click.Context, account_id: str) -> None:
-    _remove_account(context, account_id)
-
-
 @main.command("remove", help="Remove an account (its folder is kept)")
 @_account_id_option
 @click.pass_context
 def remove(context: click.Context, account_id: str) -> None:
-    _remove_account(context, account_id)
+    from legion.services.accounts import _accounts
+
+    _report_account(context, lambda: _accounts.remove(_home.legion_home(context.obj), account_id))
 
 
 main.add_command(_launch_command("pick"))

@@ -138,7 +138,7 @@ def _managed_folder(account: str, home: Path) -> Path:
     return full_path(home / ".legion" / "agents" / account)
 
 
-# True when the account's own program is gone and the owner must name it again (legion account register);
+# True when the account's own program is gone and the owner must name it again (legion account add --command --config-dir);
 # a missing stock CLI is installed instead.
 def _target_needed(agent: Agent, home: Path) -> bool:
     return agent.command is not None and not _resolve(agent.command, home).is_file()

@@ -2,6 +2,8 @@
 
 Installer options, CLI guides and repository details for maintainers and power users.
 
+The Windows bootstrap takes PowerShell flags such as `-Tools`, `-Yes` and `-Update`; the POSIX bootstrap takes `--tools`, `--yes` and `--update`; both pass them on to the Python `legion install`. That command spells the tool option `--tool` (repeat it or separate ids with commas), not `--tools`. The table under "Installer parameters" maps the bootstrap spellings.
+
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/) on every machine. The bootstrap installs it after asking when it is missing; legion itself runs in Python through uv, and uv downloads the Python it needs.
@@ -10,6 +12,8 @@ Installer options, CLI guides and repository details for maintainers and power u
 - At least one of: Claude Code, Codex CLI, Copilot CLI.
 
 ## Install
+
+The bootstrap script and the legion code are fetched separately. The one-liner below downloads the script from the `main` branch, but the script then downloads the legion code archive from the `stable` branch (the latest release) unless you ask for `main` (`-Ref main`, `--main`). The archive supplies the installer code that runs `legion install`. The version legion reports is read from the `plugin.json` of the plugin installed in each tool, not from the archive: if an older plugin is already installed and enabled, the installer can skip it, so a newer bootstrap run over it may still report the older version until you run an update. A local checkout uses its own files instead.
 
 On Windows, start the bootstrap below in Windows PowerShell 5.1 or PowerShell 7. It only obtains uv, then hands every option to the Python `legion install` command:
 
@@ -44,11 +48,11 @@ Plain install and `-Update` select the same targets:
 - Without `-Tools`, select the CLIs found on PATH from `tools.json`. `-Tools` selects the named descriptors (an array or comma-separated ids) instead; update skips a selected CLI if its executable is missing.
 - For each selected CLI, the default folder is the one named by the CLI's account environment variable when it is set (for example `CLAUDE_CONFIG_DIR`). When it is not set, the CLI's own default runs with that variable cleared. Then add each matching `agents[].configDir` in `~/.legion/configuration/personalisation.json`; a recorded folder equal to the default folder is not run twice. Blank or missing `configDir` values are ignored; a leading `~/` or `~\` expands against the owner home and recorded paths become full paths. Repeated recorded paths run once (case insensitive on Windows, case sensitive elsewhere).
 - `-ConfigDir` replaces that folder list with only the supplied folder for each selected CLI. `-Tools` and `-ConfigDir` can be combined.
-- Plain install skips completed steps. Update refreshes installed copies, including disabled ones; if legion is missing in a folder, update asks `legion is not installed for <tool> in <folder>. Install it now? [y/N]` before a fresh install. `-Yes` skips that question; `-DryRun` only previews. After a yes it uses the same marketplace registration and plugin installation steps as plain install; a no prints a `skip:` line for that folder. Missing recorded folders can be created by installation. `-DryRun` reads listings and previews mutations.
+- Plain install skips completed steps. Update refreshes installed copies, including disabled ones; a folder where legion is missing gets a fresh install, with the same marketplace registration and plugin installation steps as plain install. Update lists every target and asks one question, `Update legion? [y/N]`, for all of them, so one folder cannot be declined alone. `-Yes` skips that question; `-DryRun` only previews. Missing recorded folders can be created by installation. `-DryRun` reads listings and previews mutations.
 
 Uninstall selects the same targets: the selected installed CLIs' defaults and recorded account folders, or only `-ConfigDir` when supplied. It runs each CLI's own plugin uninstall and marketplace remove commands, skips what is already gone, and edits none of the CLI's files itself.
 
-Run `legion update` to update all selected targets, or the command below when `legion` is not available. Run `legion` in the repository afterward to load the new skills.
+Run `legion update` to update every listed target; it has no `--tool` or `--config-dir` options, so use `-Update` with `-Tools` or `-ConfigDir` (below) to update chosen targets. It lists the targets, including folders where legion is not installed yet (those get a fresh install), and asks one question, `Update legion? [y/N]`, that covers all of them; you cannot decline one folder. `--yes` skips that single question. When `legion` is not available, run the command below. Run `legion` in the repository afterward to load the new skills.
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Update
@@ -85,13 +89,21 @@ To adopt a signed-in account folder, run `legion add codex <existing folder>`. T
 
 ### Version checks and catalog revisions
 
-Overseer sessions check for a newer legion version once a day and show a notice when one is available. Say "check legion updates" for a fresh check, or "update legion" to see the update command and approve running it. Checks never install updates. Release tags exist from `v0.6.0` onward. Update checks read the `plugin.json` on the `stable` branch, which moves only when a release is published, so a notice always means a published release. The notice names `legion update`. Run `legion update --check --force` for a fresh check; `--force` refreshes `~/.legion/temp/update.json` and reports check failures.
+Overseer sessions check for a newer legion version once a day and show a notice when one is available. Say "check legion updates" for a fresh check, or "update legion" to see the update command and approve running it. Checks never install updates. Release tags exist from `v0.6.0` onward. Update checks always read the `plugin.json` on the `stable` branch, which moves only when a release is published, so a notice always means a published release. That holds for an install that follows `main` too: the notice compares with the latest release, not with `main`; `legion update` itself follows the marketplace track the install registered. The notice names `legion update`. Run `legion update --check --force` for a fresh check; `--force` refreshes `~/.legion/temp/update.json` and reports check failures.
 
 To follow `main` instead of releases, add `-Ref main` to the install line. To switch between release and main later, uninstall, then install:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Ref main
 ```
+
+### Tools catalog
+
+Three files describe the tools legion knows:
+
+- `plugins/legion/tools.json` lists the supported coding CLIs (claude, codex, copilot): how to find each one, its account folder variable and its plugin and hook commands. It is generated from each tool skill's `tool.json`, never edited by hand.
+- `plugins/legion/helpers.json` lists the helper programs `legion tool install --tool <id>` can install, such as git or node, with their checks and download steps.
+- `tools/generate.py` rewrites `tools.json` and the editor schemas; `tools/generate.py --check` writes nothing and fails when `tools.json` is out of date. Run it after changing a `tool.json`.
 
 ### Prerequisites and CLI guides
 
@@ -210,7 +222,7 @@ repo none
 | `legion pick [--no-channel]` | Choose which account leads the overseer |
 | `legion limits [--id <id>]` | Show each account's usage windows (how much is left in %, reset time, status; JSON has `used` and `left`), or one account's; `unknown` when the tool gives no readout |
 | `legion lease take\|status\|release` | Take, check or release this repository's overseer lease; the overseer skill runs it |
-| `legion update [--yes]` | Update legion along the track it was installed from |
+| `legion update [--yes]` | Update every listed target along the registered marketplace track (release or `main`); one question covers them all, `--yes` skips it |
 | `legion update --check [--force]` | Check for a newer release; `--force` refreshes the cached result |
 | `legion uninstall [--purge] [--yes]` | Remove legion; purge also removes settings, notes and legion-made logins |
 | `legion help` | Show this list |
@@ -219,11 +231,9 @@ The owner command also accepts these account, channel and repository verbs:
 
 | Command | What it does |
 | --- | --- |
-| `legion account add --id <id> --tool <tool> [--provider foundry --endpoint <url> --deployment <name> --default <name>]` | Add or repair a subscription or Foundry account |
-| `legion account register --id <id> --tool <tool> --command <path> --config-dir <dir>` | Register an existing account folder and its CLI program |
+| `legion account add --id <id> --tool <tool> [--provider foundry --endpoint <url> --deployment <name> --default <name>]` | Add or repair a subscription or Foundry account; with `--command <path> --config-dir <dir>` it registers an existing account folder and its CLI program |
 | `legion account rename --id <id> --new-id <new>` | Rename an account id; keep its folder |
 | `legion account models --id <id> [--deployment <name> --default <name>] [--alias <a>=<b>] [--standard] [--list]` | Show or change a Foundry account's deployments |
-| `legion account remove --id <id>` | Remove an account; keep its folder |
 | `legion channel add --id <id> --kind telegram --target <chat> --account <account>` | Bind a Telegram destination to an account |
 | `legion channel check --kind telegram --account <account>` | Show channel prerequisites without launching a tool |
 | `legion channel remove --id <id>` | Remove a channel binding |
@@ -314,7 +324,7 @@ If you push a commit to the release pull request by hand, run the `release` work
 
 ## Development
 
-CLIs cache plugin copies by version. For changes shipped to agents, bump the version together in `plugins/legion/plugin.json`, `plugins/legion/.claude-plugin/plugin.json` and `plugins/legion/.codex-plugin/plugin.json`. Restart Claude Code and Copilot CLI sessions after updating; resume the Codex session to load its refreshed copy.
+CLIs cache plugin copies by version, so a changed plugin reaches agents with the next release. Task branches never change `version` in the three `plugin.json` files or edit `CHANGELOG.md`; the release workflow does both (see [AGENTS.md](../AGENTS.md)). After updating, restart Claude Code and Copilot CLI sessions; resume the Codex session to load its refreshed copy.
 
 Repository rules are in [AGENTS.md](../AGENTS.md). Specs, plans and verification notes stay local in the ignored `docs/specs/`, `docs/plans/`, `docs/superpowers/` and `docs/verification/` folders. Scratch files, logs, reports and worktrees belong in `.agents/temp/`. Keep `docs/reference.md` tracked.
 

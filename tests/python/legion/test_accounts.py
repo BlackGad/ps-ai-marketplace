@@ -76,8 +76,9 @@ def legion(world: World, *words: str) -> int:
     return run(["--home", str(world.home), *words])
 
 
+# `remove` is a top-level verb; the other account verbs live under `account`.
 def account(world: World, *words: str) -> int:
-    return legion(world, "account", *words)
+    return legion(world, *words) if words[0] == "remove" else legion(world, "account", *words)
 
 
 def add(world: World, account_id: str = "codex-a", tool_id: str = "codex", *more: str) -> int:
@@ -116,34 +117,28 @@ def test_new_account_stores_a_command_that_is_not_the_stock_cli(world: World, ca
     capsys.readouterr()
 
 
-def test_register_sets_the_command(world: World, capsys: pytest.CaptureFixture[str]) -> None:
+def test_add_with_a_command_sets_the_command(world: World, capsys: pytest.CaptureFixture[str]) -> None:
     folder = world.base / "existing"
     folder.mkdir()
-    assert account(world, "register", "--id", "codex-a", "--tool", "codex", "--command", str(world.custom), "--config-dir", str(folder)) == 0
+    assert account(world, "add", "--id", "codex-a", "--tool", "codex", "--command", str(world.custom), "--config-dir", str(folder)) == 0
     assert says(capsys)[0] == f"Existing account folder kept at {folder}; open it with 'legion --account codex-a'.\n"
     assert world.agents() == [{"id": "codex-a", "tool": "codex", "configDir": str(folder), "command": str(world.custom)}]
     # On an existing account it is the repair path: the stored command is replaced by the registered one.
     other = fake_cli(world.base / "other", "other-codex")
-    assert account(world, "register", "--id", "codex-a", "--tool", "codex", "--command", str(other), "--config-dir", str(folder)) == 0
+    assert account(world, "add", "--id", "codex-a", "--tool", "codex", "--command", str(other), "--config-dir", str(folder)) == 0
     assert says(capsys)[0].splitlines() == ["wrote: command of account codex-a"]
     assert world.agents()[0]["command"] == str(other)
     assert world.bin_files() == []
 
 
-def test_register_with_the_stock_command_clears_the_stored_command(world: World, capsys: pytest.CaptureFixture[str]) -> None:
+def test_add_with_the_stock_command_clears_the_stored_command(world: World, capsys: pytest.CaptureFixture[str]) -> None:
     folder = world.base / "existing"
     folder.mkdir()
-    assert account(world, "register", "--id", "codex-a", "--tool", "codex", "--command", str(world.custom), "--config-dir", str(folder)) == 0
+    assert account(world, "add", "--id", "codex-a", "--tool", "codex", "--command", str(world.custom), "--config-dir", str(folder)) == 0
     stock = world.tools / ("codex.cmd" if WINDOWS else "codex")
-    assert account(world, "register", "--id", "codex-a", "--tool", "codex", "--command", str(stock), "--config-dir", str(folder)) == 0
+    assert account(world, "add", "--id", "codex-a", "--tool", "codex", "--command", str(stock), "--config-dir", str(folder)) == 0
     assert "command" not in world.agents()[0]
     capsys.readouterr()
-
-
-@pytest.mark.parametrize("words", [["--command", "x"], ["--config-dir", "x"]], ids=["no folder", "no command"])
-def test_register_needs_a_command_and_a_config_dir(world: World, words: list[str]) -> None:
-    assert account(world, "register", "--id", "codex-a", "--tool", "codex", *words) == 2
-    assert not (world.home / ".legion").exists()
 
 
 def test_adopting_an_existing_folder_records_its_full_path(world: World, capsys: pytest.CaptureFixture[str]) -> None:
@@ -187,11 +182,9 @@ def test_the_first_add_starts_the_settings(world: World) -> None:
     assert (data["schemaVersion"], data["channels"], data["agents"][0]["id"]) == (1, [], "codex-a")
 
 
-@pytest.mark.parametrize("verb", ["add", "register"])
 @pytest.mark.parametrize(("account_id", "tool_id", "message"), [("Bad id", "codex", "id 'Bad id' must match ^[a-z][a-z0-9-]*$"), ("codex-a", "unknown-tool", "unknown tool 'unknown-tool'")])
-def test_an_invalid_first_add_creates_no_settings_folder(world: World, capsys: pytest.CaptureFixture[str], verb: str, account_id: str, tool_id: str, message: str) -> None:
-    words = ["--command", str(world.custom), "--config-dir", str(world.base)] if verb == "register" else []
-    assert account(world, verb, "--id", account_id, "--tool", tool_id, *words) == 1
+def test_an_invalid_first_add_creates_no_settings_folder(world: World, capsys: pytest.CaptureFixture[str], account_id: str, tool_id: str, message: str) -> None:
+    assert account(world, "add", "--id", account_id, "--tool", tool_id) == 1
     assert says(capsys) == ("", message + "\n")
     assert not (world.home / ".legion").exists()
 
@@ -300,7 +293,7 @@ def test_repeat_still_refuses_a_missing_adopted_folder(world: World, capsys: pyt
 
 
 @pytest.mark.parametrize("interpreted", [False, True])
-def test_register_requires_executable_native_posix_target(world: World, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], interpreted: bool) -> None:
+def test_add_requires_executable_native_posix_target(world: World, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], interpreted: bool) -> None:
     command = world.base / ("custom.ps1" if interpreted else "custom-script")
     command.write_text("exit 3\n", encoding="utf-8")
     command.chmod(0o644)
@@ -309,7 +302,7 @@ def test_register_requires_executable_native_posix_target(world: World, monkeypa
     if WINDOWS:
         real_access = _accounts.os.access
         monkeypatch.setattr(_accounts.os, "access", lambda path, mode: False if Path(path) == command and mode == _accounts.os.X_OK else real_access(path, mode))
-    words = ("register", "--id", "codex-a", "--tool", "codex", "--command", str(command), "--config-dir", str(world.base))
+    words = ("add", "--id", "codex-a", "--tool", "codex", "--command", str(command), "--config-dir", str(world.base))
     if interpreted:
         assert account(world, *words) == 0
     else:
@@ -408,7 +401,7 @@ def test_an_account_whose_command_file_is_gone_needs_the_owner(world: World, cap
     assert says(capsys) == ("", "target needed: codex-a; ask the owner for the registered executable\n")
     # register names the executable once, and the account remembers it.
     other = fake_cli(world.base / "other", "other-codex")
-    assert account(world, "register", "--id", "codex-a", "--tool", "codex", "--command", str(other), "--config-dir", str(world.folder("codex-a"))) == 0
+    assert account(world, "add", "--id", "codex-a", "--tool", "codex", "--command", str(other), "--config-dir", str(world.folder("codex-a"))) == 0
     assert world.agents()[0]["command"] == str(other)
 
 
@@ -517,7 +510,7 @@ def test_the_owner_remove_is_the_same_code_and_takes_a_named_id(world: World, ca
     assert add(world, "codex-a") == 0
     assert add(world, "codex-b") == 0
     capsys.readouterr()
-    assert legion(world, "remove", "--id", "codex-a") == 0
+    assert account(world, "remove", "--id", "codex-a") == 0
     assert says(capsys) == (f"Config folder kept at {world.folder('codex-a')}.\n", "")
     assert account(world, "remove", "--id", "codex-b") == 0
     assert says(capsys) == (f"Config folder kept at {world.folder('codex-b')}.\n", "")
@@ -528,7 +521,7 @@ def test_a_positional_id_is_a_usage_error(world: World, capsys: pytest.CaptureFi
     assert add(world) == 0
     before = world.settings_bytes()
     capsys.readouterr()
-    for words in (["remove", "codex-a"], ["account", "remove", "codex-a"], ["account", "rename", "codex-a", "codex-b"], ["account", "add", "codex-a", "--tool", "codex"]):
+    for words in (["remove", "codex-a"], ["account", "rename", "codex-a", "codex-b"], ["account", "add", "codex-a", "--tool", "codex"]):
         assert legion(world, *words) == 2
     assert world.settings_bytes() == before
     assert legion(world, "--help") == 0
