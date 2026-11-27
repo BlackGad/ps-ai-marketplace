@@ -176,6 +176,11 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "remove-old-launchers",
         "update-from-latest-release",
         "purge",
+        "knowledge-setup",
+        "knowledge-adopt",
+        "knowledge-uninstall",
+        "knowledge-declined",
+        "knowledge-purge",
     ]
 
 
@@ -331,7 +336,8 @@ def test_repeat_uninstall_uses_runner_uv_and_reinstall_restores_owned_uv(tmp_pat
     instance.bootstrap(False)
     shutil.rmtree(bin_dir)
 
-    def run(argv: list[str], *, env: dict[str, str]) -> str:
+    def run(argv: list[str], *, env: dict[str, str], answers: str | None = None) -> str:
+        assert answers is None
         executable = Path(argv[0])
         assert executable.is_relative_to(instance.work)
         assert executable.read_bytes() == b"bootstrapped uv"
