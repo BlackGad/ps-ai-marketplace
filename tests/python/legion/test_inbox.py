@@ -256,10 +256,6 @@ def test_nudge_text_with_cmd_syntax_arrives_literally_through_the_cmd_program(
     assert nudged(fake_wrapper) == ["queue", "--thread", QUIET_THREAD, "--message", message(QUIET_SENDER)]
 
 
-def test_the_launcher_parser_and_the_pwsh_lookup_are_gone() -> None:
-    assert not any(hasattr(_inbox, name) for name in ("LAUNCHER_SET", "LAUNCHER_RUN", "_windows_launcher", "_pwsh_path"))
-
-
 @pytest.mark.parametrize(("tool", "session"), [("claude", "fixture-thread"), ("codex", ""), ("", "")])
 def test_send_without_eligible_lease_does_not_nudge(
     inbox_home: Path, repo: Path, fake_wrapper: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tool: str, session: str

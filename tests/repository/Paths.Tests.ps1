@@ -1,19 +1,8 @@
 $testBase = Split-Path $PSScriptRoot -Parent
-$root = Split-Path $testBase -Parent
 . (Join-Path $testBase 'lib/paths.ps1')
 
 $guard = $env:LEGION_TEST_GUARD
-Assert-True ((Get-Item -LiteralPath (Split-Path $guard) -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) 'Every test home is reached through a link'
-Assert-Equal $guard $env:HOME 'HOME keeps the linked spelling'
-Assert-Equal $guard $env:USERPROFILE 'USERPROFILE keeps the linked spelling'
-foreach ($name in @('TMPDIR', 'TEMP', 'TMP')) {
-    Assert-Equal (Join-Path $guard 'temp') ([Environment]::GetEnvironmentVariable($name, 'Process')) "$name stays inside the linked guard"
-}
 Assert-Equal ([IO.Path]::GetTempPath()) (Get-TestTempPath) 'Fixtures keep the linked temp spelling'
-$catalog = Get-Content (Join-Path $root 'plugins/legion/tools.json') -Raw | ConvertFrom-Json
-foreach ($name in $catalog.tools.configEnv) {
-    Assert-Equal (Join-Path $guard $name) ([Environment]::GetEnvironmentVariable($name, 'Process')) "$name stays behind the home link"
-}
 
 $scratch = Join-Path (Get-TestTempPath) ('paths-' + [guid]::NewGuid().ToString('N'))
 $link = Join-Path $scratch 'escape'

@@ -28,7 +28,9 @@ WARNING = "legion: channel my-telegram is bound to this account but not connecte
 
 def test_status_report_matches_status_lines(parity_home: tuple[Path, Path]) -> None:
     repo, home = parity_home
+    before = snapshot(home), snapshot(repo)
     report = status(repo, home)
+    assert (snapshot(home), snapshot(repo)) == before
     assert _status.status_lines(report) == [
         "accounts",
         "  claude-a  claude  ~/.claude  legion missing",
@@ -40,13 +42,6 @@ def test_status_report_matches_status_lines(parity_home: tuple[Path, Path]) -> N
     ]
     assert report.repository.mode == "Shared"
     assert report.repository.lease == "free"
-
-
-def test_status_service_writes_nothing(parity_home: tuple[Path, Path]) -> None:
-    repo, home = parity_home
-    before = snapshot(home), snapshot(repo)
-    status(repo, home)
-    assert (snapshot(home), snapshot(repo)) == before
 
 
 @pytest.mark.parametrize("broken", ["invalid", "unreadable"])

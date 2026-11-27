@@ -115,7 +115,9 @@ def test_models_list_marks_new_kept_and_gone_and_a_failed_discovery_never_marks_
     before = settings_path(bench.home).read_bytes()
     rows = [CLAUDE_ROWS[0], {"name": "claude-haiku-x", "properties": {"model": {"name": "claude-haiku-x"}}}]
     bench.answers({**ANSWERS, DEPLOYMENTS_KEY: {"stdout": json.dumps(rows)}})
-    states = {item["name"]: item["state"] for item in json.loads(models(bench, list_only=True)[0])["deployments"]}
+    managed = json.loads(models(bench, list_only=True)[0])
+    assert list(managed) == ["source", "error", "deployments"]
+    states = {item["name"]: item["state"] for item in managed["deployments"]}
     assert states == {"claude-opus-x": "kept", "claude-haiku-x": "new", "claude-sonnet-x": "gone"}
     bench.answers({ACCESS_CALL: TOKEN_ANSWER})
     listed = json.loads(models(bench, list_only=True)[0])

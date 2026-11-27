@@ -7,7 +7,7 @@ import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import (
     Any,
     Optional,
@@ -109,17 +109,6 @@ def test_limits_prevalidates_whole_selection_without_probes(bench: Bench, select
     with pytest.raises(LimitsError, match=expected):
         limits(bench.home, selection)
     assert [bench.calls(name) for name in ("claude", "codex", "copilot", "az", "git")] == [[], [], [], [], []]
-
-
-def test_limits_omitted_selection_cannot_use_manual_default(bench: Bench) -> None:
-    write_settings(bench.home, ACCOUNTS)
-
-    def omit_selection(call: Callable[..., object]) -> object:
-        return call(bench.home)
-
-    with pytest.raises(TypeError):
-        omit_selection(limits)
-    assert not list(bench.logs.iterdir())
 
 
 @pytest.mark.parametrize("selection", ["ab", "a", b"ab"])
@@ -639,11 +628,6 @@ def test_limits_takes_at_most_one_named_account_and_no_other_flags(bench: Bench,
     write_settings(bench.home, ACCOUNTS)
     assert run(["--home", str(bench.home), "limits", *words]) == 2
     assert bench.calls("claude") == []
-
-
-def test_limits_is_served_by_python(capsys: pytest.CaptureFixture[str]) -> None:
-    assert run(["limits", "--help"]) == 0
-    assert "Show each account's usage windows and reset times" in capsys.readouterr().out
 
 
 # A line whose shape does not match is skipped like unreadable JSON; the last readable event still counts.

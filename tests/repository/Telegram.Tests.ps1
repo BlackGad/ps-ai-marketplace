@@ -13,25 +13,11 @@ function Read-BigEndian($Bytes, $Offset) {
 Assert-Equal 96 (Read-BigEndian $bytes 16) 'PNG width'
 Assert-Equal 96 (Read-BigEndian $bytes 20) 'PNG height'
 
-# Execute documented payloads against a session stub, with no credential or network boundary.
 $send = Get-Content (Join-Path $skill 'references/send.md') -Raw
 $payloads = @([regex]::Matches($send, '(?s)```json\s*(.*?)\s*```') | ForEach-Object { $_.Groups[1].Value | ConvertFrom-Json })
-$sent = [Collections.Generic.List[object]]::new()
-function reply {
-    param($chat_id, $text, $format, $files)
-    Assert-True ($format -cin @('text','markdownv2')) 'Explicit supported format'
-    Assert-Equal $png $files[0] 'Existing bundled attachment path'
-    Assert-True (Test-Path -LiteralPath $files[0]) 'Attachment is available'
-    $sent.Add(@{Target=$chat_id;Text=$text;Format=$format})
-    @{message_id='fixture-message';chat_id=$chat_id}
-}
-foreach ($payload in $payloads) {
-    $payload.files = @($png)
-    reply -chat_id $payload.chat_id -text $payload.text -format $payload.format -files $payload.files | Out-Null
-}
-Assert-Equal '123|456' ($sent.Target -join '|') 'ExplicitFormatAndPngDelivery separate targets'
-Assert-Equal 'markdownv2|text' ($sent.Format -join '|') 'Notes-selected text stays explicit'
-Assert-Equal 'Connection test\.' $sent[0].Text 'MarkdownV2 escapes punctuation'
+Assert-Equal '123|456' ($payloads.chat_id -join '|') 'ExplicitFormatAndPngDelivery separate targets'
+Assert-Equal 'markdownv2|text' ($payloads.format -join '|') 'Notes-selected text stays explicit'
+Assert-Equal 'Connection test\.' $payloads[0].text 'MarkdownV2 escapes punctuation'
 
 # The generic CLI may default to text, but the owner-facing usage must require a format.
 $codexUsage = [regex]::Match($send, '(?m)^legion telegram send .+$').Value

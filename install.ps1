@@ -70,13 +70,6 @@ function Invoke-InstallDownload {
     throw 'Too many redirects.'
 }
 
-# Runs uv with the given arguments; its output goes to the owner, the result is only the exit code.
-function Invoke-InstallUv {
-    param([string]$Uv, [string[]]$Arguments)
-    & $Uv @Arguments | Out-Host
-    return $LASTEXITCODE
-}
-
 function Test-InstallUv {
     param([string]$Uv)
     try { & $Uv --version *> $null } catch { return $false }
@@ -144,14 +137,14 @@ function Install-InstallUvRelease {
 
 # Returns the path of uv, or $null when the owner has to act first (dry run, or no consent).
 function Ensure-InstallUv {
-    param([bool]$OnWindows = ($env:OS -eq 'Windows_NT'), [switch]$DryRun, [switch]$Yes, [string]$TemporaryUv)
+    param([switch]$DryRun, [switch]$Yes, [string]$TemporaryUv)
     $uv = Get-InstallUv
     if ($uv) {
         Write-Host 'skip: uv (already done)'
         return $uv
     }
     Write-Host 'uv is missing.'
-    if (-not $OnWindows) {
+    if ($env:OS -ne 'Windows_NT') {
         Write-Host 'On macOS and Linux run install.sh instead: https://github.com/BlackGad/ps-legion-marketplace'
         return $null
     }
@@ -251,7 +244,9 @@ function Invoke-InstallBootstrap {
             $uv = $temporaryUv
         }
         if ($cleanup) { $env:PATH = $temporary + [IO.Path]::PathSeparator + $env:PATH }
-        $script:bootstrapExitCode = Invoke-InstallUv -Uv $uv -Arguments (@('run', '--project', $project, '--frozen', '--quiet', 'legion') + @(Get-InstallArguments -Parameters $Parameters))
+        $arguments = @('run', '--project', $project, '--frozen', '--quiet', 'legion') + @(Get-InstallArguments -Parameters $Parameters)
+        & $uv @arguments | Out-Host
+        $script:bootstrapExitCode = $LASTEXITCODE
     } finally {
         $env:UV_PROJECT_ENVIRONMENT = $savedEnvironment
         Remove-InstallTemporary -Path $temporary

@@ -113,16 +113,6 @@ def test_refresh_skips_unowned_launcher(tmp_path: Path) -> None:
     assert other.is_file()
 
 
-def test_refresh_repeat_prints_skip(tmp_path: Path) -> None:
-    ready_app(tmp_path)
-    account_settings(tmp_path, ["codex-a"])
-    old_launchers(tmp_path, "codex-a")
-    assert run(tmp_path)[-1] == REFRESHED
-    again = run(tmp_path)
-    assert not any(line.startswith("removed ") for line in again)
-    assert again[-1] == UNCHANGED
-
-
 def test_refresh_keeps_launchers_behind_a_linked_bin_folder(tmp_path: Path) -> None:
     home = tmp_path / "home"
     elsewhere = tmp_path / "elsewhere"

@@ -13,7 +13,7 @@ if (Test-Path -LiteralPath $catalogPath) {
     $configEnvs = (Get-Content $catalogPath -Raw | ConvertFrom-Json).tools.configEnv
 }
 $toolConfigEnvs = @($configEnvs)
-$configEnvs += @('LEGION_TEST_UV_SYNC', 'LEGION_ROLE', 'LEGION_TASK', 'TELEGRAM_STATE_DIR', 'TELEGRAM_BOT_TOKEN', 'HOME', 'USERPROFILE', 'LEGION_TEST_GUARD', 'LEGION_TEST_USER_PATH_FILE', 'TMPDIR', 'TEMP', 'TMP')
+$configEnvs += @('LEGION_ROLE', 'LEGION_TASK', 'TELEGRAM_STATE_DIR', 'TELEGRAM_BOT_TOKEN', 'HOME', 'USERPROFILE', 'LEGION_TEST_GUARD', 'LEGION_TEST_USER_PATH_FILE', 'TMPDIR', 'TEMP', 'TMP')
 function Get-TestOutsideSnapshot {
     param([string]$Path)
     return @(Get-ChildItem -LiteralPath $Path -File -Recurse -Force | Sort-Object FullName | ForEach-Object { $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash }) -join '|'
@@ -50,20 +50,17 @@ foreach ($test in $testFiles) {
     [IO.File]::WriteAllText($env:LEGION_TEST_USER_PATH_FILE, '')
     foreach ($tempEnv in @('TMPDIR', 'TEMP', 'TMP')) { [Environment]::SetEnvironmentVariable($tempEnv, $temp, 'Process') }
     foreach ($configEnv in $toolConfigEnvs) { [Environment]::SetEnvironmentVariable($configEnv, (Join-Path $guardHome $configEnv), 'Process') }
-    # Tests never run the real uv: a stand-in first on PATH rejects every call, except `uv sync` for a
-    # test that opts in with LEGION_TEST_UV_SYNC; that sync succeeds and does nothing.
+    # A stand-in first on PATH rejects every uv call.
     $fakeUvFolder = Join-Path $guard 'fake-uv'
     New-Item -ItemType Directory -Path $fakeUvFolder -Force | Out-Null
     if ($IsWindows) {
         [IO.File]::WriteAllText((Join-Path $fakeUvFolder 'uv.cmd'), (@(
-            '@if "%~1"=="sync" if defined LEGION_TEST_UV_SYNC exit /b 0'
             '@>&2 echo fake uv: unexpected call: uv %*'
             '@exit /b 2'
         ) -join "`r`n") + "`r`n")
     } else {
         [IO.File]::WriteAllText((Join-Path $fakeUvFolder 'uv'), (@(
             '#!/bin/sh'
-            'if [ "$1" = sync ] && [ -n "$LEGION_TEST_UV_SYNC" ]; then exit 0; fi'
             'echo "fake uv: unexpected call: uv $*" >&2'
             'exit 2'
         ) -join "`n") + "`n")

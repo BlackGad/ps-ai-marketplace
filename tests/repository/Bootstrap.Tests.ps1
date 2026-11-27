@@ -5,6 +5,15 @@ $testBase = Split-Path $PSScriptRoot -Parent
 $bootstrap = Join-Path $repo 'install.ps1'
 $fixture = Join-Path $testBase 'fixtures/install/Test-Bootstrap.ps1'
 
+function Get-BootstrapRuntimes {
+    Get-InstallTestPwsh
+    if ($IsWindows) {
+        $legacy = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        Assert-True ($null -ne $legacy) 'Windows PowerShell 5.1 (powershell.exe) is required for bootstrap tests'
+        $legacy.Source
+    }
+}
+
 function New-BootstrapScratch {
     $scratch = New-InstallTestFolder 'bootstrap'
     $fakeSource = Join-Path $scratch 'fake-uv-source'
@@ -66,10 +75,7 @@ Invoke-InstallTestCase 'BootstrapArguments' {
 Invoke-InstallTestCase 'BootstrapHandsOverToUv' {
     $scratch = New-BootstrapScratch
     try {
-        $runtimes = @(Get-InstallTestPwsh)
-        $legacy = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($legacy) { $runtimes += $legacy.Source }
-        foreach ($runtime in $runtimes) {
+        foreach ($runtime in @(Get-BootstrapRuntimes)) {
             $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'checkout' -Scratch $scratch
             $text = $result.Lines -join "`n"
             Assert-Equal 0 $result.ExitCode "Checkout run in ${runtime}: $text"
@@ -112,10 +118,7 @@ Invoke-InstallTestCase 'BootstrapDownloadsTheRightBranch' {
 Invoke-InstallTestCase 'RemoteBootstrapDryRun' {
     $scratch = New-BootstrapScratch
     try {
-        $runtimes = @(Get-InstallTestPwsh)
-        $legacy = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($legacy) { $runtimes += $legacy.Source }
-        foreach ($runtime in $runtimes) {
+        foreach ($runtime in @(Get-BootstrapRuntimes)) {
             $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'remote-dry-run' -Scratch $scratch -UvOnPath $false
             $text = $result.Lines -join "`n"
             Assert-Equal 0 $result.ExitCode "Remote dry run in ${runtime}: $text"
@@ -142,7 +145,8 @@ Invoke-InstallTestCase 'BootstrapUvOutputAndExitCode' {
             $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'uv-call' -Scratch $scratch
             $text = $result.Lines -join "`n"
             Assert-True ($result.Lines -contains 'fake uv output') "uv's output reaches the owner: $text"
-            Assert-True ($result.Lines -contains 'result=3') "The hand-over returns only the exit code: $text"
+            Assert-True ($result.Lines -contains 'exit=3') "The hand-over preserves the exit code: $text"
+            Assert-True ($result.Lines -contains 'resultCount=0') "uv output does not enter the output pipeline: $text"
         }
     } finally { Remove-InstallTestFolder $scratch }
 }

@@ -16,15 +16,6 @@ function New-TestCommandStub {
     return $path
 }
 
-function Write-TestPersonalisation {
-    param([string]$HomeRoot, [object[]]$Agents = @(), [object[]]$Channels = @())
-    $folder = Join-Path $HomeRoot '.legion/configuration'
-    New-Item -ItemType Directory -Path $folder -Force | Out-Null
-    $path = Join-Path $folder 'personalisation.json'
-    @{ schemaVersion = 1; agents = @($Agents); channels = @($Channels) } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $path
-    return $path
-}
-
 function Set-TestExecutable {
     # Fake commands need the execute bit on macOS and Linux; Windows has no such bit.
     param([string]$Path)

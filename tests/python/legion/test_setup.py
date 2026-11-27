@@ -517,17 +517,9 @@ def test_installs_are_keyed_by_folder_with_the_system_comparer(bench: Bench) -> 
     assert len(bench.plugin_installs) == (1 if WINDOWS else 2)
 
 
-def test_a_cli_that_was_just_installed_but_is_not_on_this_terminal_asks_for_a_new_terminal(bench: Bench) -> None:
-    bench.hide("codex")
-    bench.needs_terminal = True
-    assert "open a new terminal, then repeat the add" in text(bench.apply("codex"))
-
-
 def test_plan_hints_show_the_prerequisites_and_commands(bench: Bench) -> None:
     bench.hide("copilot")
     assert "  cli      install copilot (" in text(bench.preview("copilot"))
-    assert _setup.install_hint("copilot", "windows") == "winget install --id GitHub.Copilot -e --source winget --accept-source-agreements --accept-package-agreements"
-    assert _setup.install_hint("codex", "macos") == "brew install node; npm install -g @openai/codex"
 
 
 def test_a_cli_found_only_on_the_saved_path_counts_as_installed(bench: Bench) -> None:

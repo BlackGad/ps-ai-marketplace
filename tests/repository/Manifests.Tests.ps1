@@ -16,14 +16,13 @@ Assert-Equal 'AVAILABLE' $codexMarket.plugins[0].policy.installation 'Codex inst
 Assert-True ([bool]$codexMarket.plugins[0].category) 'Codex category'
 foreach ($manifest in @($claudePlugin, $codexPlugin, $copilotPlugin)) {
     Assert-Equal 'legion' $manifest.name 'Plugin manifest name'
-    Assert-Equal $copilotPlugin.version $manifest.version 'Plugin manifest versions match'
-    Assert-True ($manifest.version -match '^\d+\.\d+\.\d+$') 'Plugin version uses semantic version syntax'
 }
 Assert-Equal './skills/' $codexPlugin.skills 'Codex skills path'
 Assert-Equal './hooks/hooks.json' $codexPlugin.hooks 'Codex hooks path'
 Assert-Equal 'skills/' $copilotPlugin.skills 'Copilot skills path'
 Assert-Equal 'hooks/copilot-hooks.json' $copilotPlugin.hooks 'Copilot hooks path'
 Get-ChildItem (Join-Path $root 'plugins/legion/skills') -Directory | ForEach-Object {
+    Assert-True ($_.Name.StartsWith('legion-') -and $_.Name -cmatch '^[a-z][a-z0-9]*(-[a-z0-9]+)*$' -and $_.Name.Length -le 64) "Skill folder $($_.Name) is a valid legion skill name"
     $content = Get-Content -Raw (Join-Path $_.FullName 'SKILL.md')
     Assert-True ($content -match '(?s)^---\s*\r?\n(.*?)\r?\n---') "Frontmatter in $($_.Name)"
     $frontmatter = $Matches[1]

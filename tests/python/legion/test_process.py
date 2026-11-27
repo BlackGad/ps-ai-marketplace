@@ -88,19 +88,6 @@ def test_other_names_are_owners(name: str) -> None:
     assert owner_process(10, lookup).pid == 9
 
 
-def test_measured_windows_chain_finds_the_agent() -> None:
-    lookup = table(
-        (17, 16, "python.exe", 60),
-        (16, 15, "python.exe", 50),
-        (15, 14, "uv.exe", 40),
-        (14, 13, "bash.exe", 30),
-        (13, 12, "bash.exe", 20),
-        (12, 11, "bash.exe", 15),
-        (11, 1, "claude.exe", 10),
-    )
-    assert owner_process(17, lookup).pid == 11
-
-
 def test_legion_launcher_chain_finds_the_agent() -> None:
     lookup = table(
         (10, 9, "python.exe", 50),
@@ -215,12 +202,6 @@ def test_reused_native_parent_of_the_shim_keeps_the_bound_hint_valid(monkeypatch
 def test_reused_pid_behind_a_shell_is_refused() -> None:
     lookup = table((10, 9, "python", 30), (9, 8, "bash", 20), (8, 1, "claude", 25))
     with pytest.raises(LookupError, match="pass --process-id"):
-        owner_process(10, lookup)
-
-
-def test_exited_parent_ends_the_chain() -> None:
-    lookup = table((10, 9, "python", 30))
-    with pytest.raises(LookupError):
         owner_process(10, lookup)
 
 

@@ -12,6 +12,3 @@ $violations = @(
     }
 )
 if ($violations.Count) { throw "Legacy names remain in $($violations.Count) tracked files: $($violations -join ', ')" }
-
-Assert-True (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'plugins/legion/bin'))) 'Legion has no PowerShell scripts folder'
-Assert-True (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'plugins/legion/install.ps1'))) 'The plugin has no PowerShell installer'

@@ -104,29 +104,6 @@ foreach ($name in @('TMPDIR', 'TEMP', 'TMP')) {
 '@ | Set-Content (Join-Path $testRoot 'D.Tests.ps1')
     $linkType = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
     New-Item -ItemType $linkType -Path $linkedRoot -Target $fixtureRepo | Out-Null
-    $linkedOutput = & pwsh -NoProfile -File (Join-Path $linkedRoot 'tests/run.ps1')
-    Assert-Equal 0 $LASTEXITCODE 'Runner succeeds through a linked ancestor'
-    Assert-Equal '3 passed, 0 failed' $linkedOutput[-1] 'Every fenced home, tool folder and temp folder stays behind a link'
-    Assert-Equal 0 @(Get-ChildItem (Join-Path $fixtureRepo '.agents/temp') -Force).Count 'Successful and failed child runs remove their links and physical homes'
-
-    # Inherited account overrides must survive the profile test's applying purge.
-    $seeds = @{
-        'claude/settings.json' = '{"enabledPlugins":{"legion@ps-legion-marketplace":true,"other@else":true}}'
-        'claude/plugins/known_marketplaces.json' = '{"ps-legion-marketplace":{"source":{"source":"github"}},"other":{"keep":1}}'
-        'claude/plugins/installed_plugins.json' = '{"version":2,"plugins":{"legion@ps-legion-marketplace":[{"scope":"user"}],"other@else":[{"scope":"user"}]}}'
-        'codex/config.toml' = "[plugins.`"legion@ps-legion-marketplace`"]`nenabled = true`n[plugins.`"other@else`"]`nenabled = true`n[marketplaces.ps-legion-marketplace]`nsource = 'example/repo'`n"
-        'copilot/config.json' = '{"installedPlugins":[{"name":"legion","marketplace":"ps-legion-marketplace"},{"name":"other","marketplace":"else"}]}'
-    }
-    foreach ($tool in @('claude', 'codex', 'copilot')) {
-        foreach ($marketplace in @('ps-legion-marketplace', ('ps-' + 'ai-marketplace'))) {
-            $seeds["$tool/plugins/cache/$marketplace/legion/keep.txt"] = 'cache sentinel'
-        }
-    }
-    foreach ($relative in $seeds.Keys) {
-        $path = Join-Path $fakeReal $relative
-        New-Item -ItemType Directory -Path (Split-Path $path -Parent) -Force | Out-Null
-        [IO.File]::WriteAllText($path, $seeds[$relative])
-    }
     function Get-RunnerFixtureSnapshot {
         return @(Get-ChildItem -LiteralPath $fakeReal -Recurse -Force | Sort-Object FullName | ForEach-Object {
             if ($_.PSIsContainer) { $_.FullName } else { $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash }
@@ -134,12 +111,13 @@ foreach ($name in @('TMPDIR', 'TEMP', 'TMP')) {
     }
     $before = Get-RunnerFixtureSnapshot
     try {
-        $profile = Invoke-RunnerChild -Arguments @('-File', (Join-Path $repo 'tests/run.ps1'), '-Name', 'Paths*')
+        $linked = Invoke-RunnerChild -Arguments @('-File', (Join-Path $linkedRoot 'tests/run.ps1'))
     } finally {
-        Assert-True ($before -ceq (Get-RunnerFixtureSnapshot)) 'Inherited fake-real account bytes and directory entries are unchanged'
+        Assert-True ($before -ceq (Get-RunnerFixtureSnapshot)) 'Inherited fake-real account folders are unchanged'
     }
-    Assert-Equal 0 $profile.ExitCode 'Paths regression succeeds with inherited fixture account overrides'
-    Assert-Equal '1 passed, 0 failed' $profile.Output[-1] 'Paths regression runs only Paths'
+    Assert-Equal 0 $linked.ExitCode 'Runner succeeds through a linked ancestor with inherited account overrides'
+    Assert-Equal '3 passed, 0 failed' $linked.Output[-1] 'Every fenced home, tool folder and temp folder stays behind a link'
+    Assert-Equal 0 @(Get-ChildItem (Join-Path $fixtureRepo '.agents/temp') -Force).Count 'Successful and failed child runs remove their links and physical homes'
 } finally {
     $allowed = [IO.Path]::GetFullPath((Join-Path $repo '.agents/temp/'))
     if (-not [IO.Path]::GetFullPath($tempRoot).StartsWith($allowed)) { throw 'Unsafe runner fixture cleanup' }

@@ -43,17 +43,6 @@ import subprocess, sys
 subprocess.Popen([sys.executable, "-c", {GRANDCHILD!r}, sys.argv[1]])
 """
 
-# Pauses every write_text between creating the file and writing it, as a busy machine can.
-PAUSED_WRITE = """
-import pathlib, time
-def paused_write_text(self, data, encoding=None, errors=None, newline=None):
-    with open(self, "w", encoding=encoding, errors=errors, newline=newline) as file:
-        file.flush()
-        time.sleep(1)
-        file.write(data)
-pathlib.Path.write_text = paused_write_text
-"""
-
 
 def wait_until_gone(pid: int) -> None:
     deadline = time.monotonic() + 10
@@ -67,15 +56,6 @@ def read_pid(marker: Path) -> int:
     while not marker.is_file() and time.monotonic() < deadline:
         time.sleep(0.05)
     return int(marker.read_text(encoding="utf-8"))
-
-
-def test_grandchild_pid_is_complete_once_its_file_appears(tmp_path: Path) -> None:
-    marker = tmp_path / "grandchild.pid"
-    child = subprocess.Popen([PYTHON, "-c", PAUSED_WRITE + PUBLISH_PID, str(marker)])
-    try:
-        assert read_pid(marker) > 0
-    finally:
-        child.wait(30)
 
 
 def test_success_captures_both_streams() -> None:

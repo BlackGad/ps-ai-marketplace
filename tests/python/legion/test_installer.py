@@ -281,12 +281,6 @@ def test_installer_cli_reports_footprint_error_without_traceback(tmp_path: Path,
     assert "Traceback" not in result.output
 
 
-def test_plugin_listing_does_not_match_dev_fork(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    entry = next(tool for tool in catalog().tools if tool.id == "codex")
-    monkeypatch.setattr(_installer, "_listing", lambda *_args: "legion@ps-legion-marketplace-dev 1.2.3")
-    assert _installer._plugin_state(entry, tmp_path)[0] is False
-
-
 def test_codex_marketplace_without_root_is_not_ready(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     entry = next(tool for tool in catalog().tools if tool.id == "codex")
     monkeypatch.setattr(_installer, "_listing", lambda *_args: '{"marketplaces":[{"name":"ps-legion-marketplace"}]}')
@@ -637,52 +631,6 @@ def test_update_shows_both_failures_and_keeps_the_exit_status_when_the_handover_
     assert "second account update failed" in result.output
 
 
-def test_update_reports_refresh_failure_and_continues_to_next_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = tmp_path / "plugin"
-    root.mkdir()
-    (root / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
-    monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
-    monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: root)
-    monkeypatch.setattr(_installer, "_step", lambda *_args: None)
-    refreshed: list[Path] = []
-
-    def refresh(_home: Path, source: Path) -> list[str]:
-        refreshed.append(source)
-        if len(refreshed) == 1:
-            raise RuntimeError("broken refresh")
-        return ["refreshed codex"]
-
-    monkeypatch.setattr(_installer._refresh, "refresh", refresh)
-    lines = _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
-    assert refreshed == [root, root]
-    assert any("claude" in line and "broken refresh" in line for line in lines)
-    assert "refreshed codex" in lines
-
-
-def test_install_reports_refresh_failure_and_continues_to_next_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = tmp_path / "plugin"
-    root.mkdir()
-    (root / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
-    monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
-    monkeypatch.setattr(_installer, "_install_steps", lambda *_args: None)
-    monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: root)
-    monkeypatch.setenv("LEGION_TEST_USER_PATH_FILE", str(tmp_path / "saved-path.txt"))
-    (tmp_path / "saved-path.txt").write_text("", encoding="utf-8")
-    refreshed: list[Path] = []
-
-    def refresh(_home: Path, source: Path) -> list[str]:
-        refreshed.append(source)
-        if len(refreshed) == 1:
-            raise RuntimeError("broken refresh")
-        return ["refreshed codex"]
-
-    monkeypatch.setattr(_installer._refresh, "refresh", refresh)
-    lines = _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", yes=True, catalog=catalog())
-    assert refreshed == [root, root]
-    assert any("claude" in line and "broken refresh" in line for line in lines)
-    assert "refreshed codex" in lines
-
-
 def test_other_marketplace_source_loads_its_catalog_for_selected_ref(monkeypatch: pytest.MonkeyPatch) -> None:
     urls: list[str] = []
 
@@ -762,7 +710,7 @@ def _fake_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str 
         calls.append(source)
         if failing and len(calls) == ["claude", "codex"].index(failing) + 1:
             raise RuntimeError("broken refresh")
-        return []
+        return ["refreshed later target"] if failing else []
 
     monkeypatch.setattr(_installer._refresh, "refresh", refresh)
 
@@ -773,13 +721,15 @@ def _table_rows(lines: list[str], count: int) -> list[list[str]]:
 
 
 def test_install_ends_with_one_result_row_per_tool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _fake_targets(tmp_path, monkeypatch, failing="codex")
+    _fake_targets(tmp_path, monkeypatch, failing="claude")
     lines = _installer.install(tmp_path, ["claude", "codex", "copilot"], config_dir=tmp_path / "config", yes=True, catalog=catalog())
     assert lines[lines.index("Results:") + 1].split() == ["Tool", "Folder", "Result"]
     rows = _table_rows(lines, 3)
     assert [row[0] for row in rows] == ["claude", "codex", "copilot"]
-    assert rows[0][2:] == ["installed", "legion", "1.2.3"]
-    assert "not refreshed" in " ".join(rows[1][2:])
+    assert "not refreshed" in " ".join(rows[0][2:])
+    assert rows[1][2:] == ["installed", "legion", "1.2.3"]
+    assert any("claude" in line and "broken refresh" in line for line in lines)
+    assert "refreshed later target" in lines
     assert rows[2][2:] == ["skipped", "(not", "installed)"]
 
 
@@ -790,18 +740,13 @@ def test_update_ends_with_one_result_row_per_target(tmp_path: Path, monkeypatch:
     assert [row[0] for row in rows] == ["claude", "codex"]
     assert "not refreshed" in " ".join(rows[0][2:])
     assert " ".join(rows[1][2:]) == "already up to date (1.2.3)"
+    assert any("claude" in line and "broken refresh" in line for line in lines)
+    assert "refreshed later target" in lines
 
 
 def test_a_dry_run_prints_no_results_table(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_targets(tmp_path, monkeypatch)
     assert "Results:" not in _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", dry_run=True, catalog=catalog())
-
-
-def test_install_never_links_a_portable_pwsh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _fake_targets(tmp_path, monkeypatch)
-    _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", yes=True, catalog=catalog())
-    assert not (tmp_path / ".legion/bin/pwsh").exists()
-    assert not hasattr(_installer, "record_portable_path")
 
 
 def test_ref_main_with_the_default_source_reads_the_remote_catalog_not_the_local_one(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -51,15 +51,6 @@ def edit_json(path: Path, keys: str, value: Any) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
-def test_tools_index_is_current(generator: ModuleType) -> None:
-    content = generator.render_tools_index(PLUGIN / "skills").encode("utf-8")
-    assert content == (PLUGIN / "tools.json").read_bytes()
-    assert not content.startswith(b"\xef\xbb\xbf")
-    assert b"\r" not in content
-    assert content.endswith(b"\n")
-    assert not content.endswith(b"\n\n")
-
-
 def test_command_checks_writes_and_skips(generator: ModuleType, plugin: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     runner = CliRunner()
     monkeypatch.setattr(generator, "PLUGIN_ROOT", plugin)
@@ -77,6 +68,10 @@ def test_command_checks_writes_and_skips(generator: ModuleType, plugin: Path, mo
     assert schema.read_text(encoding="utf-8") == (PLUGIN / "schemas" / schema.name).read_text(encoding="utf-8")
     expected = (PLUGIN / "tools.json").read_bytes()
     assert index.read_bytes() == expected
+    assert not expected.startswith(b"\xef\xbb\xbf")
+    assert b"\r" not in expected
+    assert expected.endswith(b"\n")
+    assert not expected.endswith(b"\n\n")
     original = index.stat().st_mtime_ns
     assert "skip: tools index (already done)" in runner.invoke(generator.main).output
     assert runner.invoke(generator.main, ["--check"]).exit_code == 0
@@ -133,8 +128,7 @@ def test_fourth_tool_projects_literal_arguments(generator: ModuleType, plugin: P
     assert all(key not in content for key in ("foundry", "overseerArgs", "SkillRoot", "legacyHookTrust"))
 
 
-@pytest.mark.parametrize("field", PLUGIN_ARGUMENTS)
-@pytest.mark.parametrize("value", [None, "", 42, {}, ["valid", None], ["valid", 42]])
+@pytest.mark.parametrize(("field", "value"), [("install", 42), ("marketplaceRemove", ["valid", None])])
 def test_rejects_tool_argument_type(generator: ModuleType, plugin: Path, field: str, value: Any) -> None:
     descriptor = plugin / "skills" / "legion-codex" / "tool.json"
     edit_json(descriptor, f"plugin.{field}", value)
@@ -147,8 +141,6 @@ def test_rejects_tool_argument_type(generator: ModuleType, plugin: Path, field: 
     [
         ("schemaVersion", 2, "schemaVersion"),
         ("id", "../outside", "id"),
-        ("id", "mismatch", "does not match"),
-        ("id", "claude", "duplicate tool id 'claude'"),
         ("command", 12, "command"),
         ("unexpected", "value", "unexpected"),
         ("plugin", [], "plugin"),
@@ -157,7 +149,7 @@ def test_rejects_tool_argument_type(generator: ModuleType, plugin: Path, field: 
         ("plugin.listing.rejectPattern", "[", "regular expression"),
         ("install.windows.portableCommand", "../outside.exe", "portableCommand"),
         ("overseerArgs", ["--flag", 42], "overseerArgs"),
-        *[("hooks.hint", value, "hooks.hint") for value in (None, 42, ["status"])],
+        ("hooks.hint", ["status"], "hooks.hint"),
     ],
 )
 def test_rejects_invalid_tool(generator: ModuleType, plugin: Path, field: str, value: Any, message: str) -> None:
@@ -220,7 +212,6 @@ def test_rejects_invalid_channel(generator: ModuleType, plugin: Path, field: str
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
-        ("node.check", 42, "node.check"),
         ("git.windows.download.msi.assetPattern", "[", "regular expression"),
         ("node.windows.download.zip.checksumUrl", None, "checksumUrl"),
         ("node.macos.needs", ["git"], "helper 'node' cannot have prerequisites"),

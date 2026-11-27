@@ -113,7 +113,7 @@ main() {
     trap 'rm -rf "$temporary"' 0
     trap 'exit 1' 1 2 3 15
 
-    if ! find_uv; then
+    if [ -z "$uv" ]; then
         install_uv
         [ "$cleanup" = 1 ] || find_uv || fail 'uv was installed but could not be found; open a new terminal and run the bootstrap again.'
     fi

@@ -181,11 +181,6 @@ def test_default_single_account_is_usable(connection: Connection, bench: Bench) 
     assert len(bench.calls("copilot")) == 1
 
 
-def test_eof_closes_server(connection: Connection) -> None:
-    connection.eof()
-    assert connection.process.wait(timeout=5) == 0
-
-
 @pytest.mark.parametrize("stop", ["eof", "cancel"])
 @pytest.mark.parametrize("target", ["claude", "codex", "copilot", "az", "git"])
 def test_interrupted_limits_kills_tree_and_removes_folder(connection: Connection, bench: Bench, stop: str, target: str) -> None:
@@ -360,6 +355,8 @@ def test_abrupt_host_loss_cleans_probe_and_reconnects(bench: Bench) -> None:
         try:
             reconnect.ready()
             assert reconnect.process.pid != server_pid
+            reconnect.eof()
+            assert reconnect.process.wait(timeout=5) == 0
         finally:
             reconnect.close()
     finally:
@@ -368,20 +365,6 @@ def test_abrupt_host_loss_cleans_probe_and_reconnects(bench: Bench) -> None:
             host.wait(timeout=5)
         assert host.stdin is not None
         host.stdin.close()
-
-
-def test_reconnect_starts_fresh_process(bench: Bench) -> None:
-    pids = []
-    for _ in range(2):
-        connection = Connection(bench.home)
-        try:
-            connection.ready()
-            pids.append(connection.process.pid)
-            connection.eof()
-            assert connection.process.wait(timeout=5) == 0
-        finally:
-            connection.close()
-    assert pids[0] != pids[1]
 
 
 @pytest.mark.parametrize("tool", ["status", "limits"])

@@ -47,17 +47,14 @@ def test_verdict_and_semantic_messages_match_the_recorded_old_run(case: dict[str
     if not case["output"] or not case["output"][0].startswith("$:"):
         assert issues == case["output"]
         return
-    assert issues
+    assert len(issues) == len(case["output"])
     for issue in issues:
         assert issue.startswith("$: ")
         assert issue.endswith(SUFFIX)
-
-
-def test_schema_message_is_normalised_to_one_line() -> None:
-    (issue,) = _validate.validate("personalisation", FIXTURES / "personalisation" / "invalid-version.json")
-    assert "schemaVersion" in issue
-    assert "\n" not in issue
-    assert "  " not in issue
+        assert "\n" not in issue
+        assert "  " not in issue
+    if case["name"] == "invalid-version":
+        assert "schemaVersion" in issues[0]
 
 
 def test_every_schema_problem_is_one_framed_line_with_its_location() -> None:

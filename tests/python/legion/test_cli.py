@@ -37,14 +37,6 @@ def test_version_reads_plugin_manifest(plugin_manifest: Path, capsys: pytest.Cap
     assert capsys.readouterr().out == "legion 9.8.8\n"
 
 
-def test_help_lists_inbox_and_telegram(capsys: pytest.CaptureFixture[str]) -> None:
-    assert run(["--help"]) == 0
-    output = capsys.readouterr().out
-    assert "inbox" in output
-    assert "telegram" in output
-    assert "--home" in output
-
-
 def test_unknown_command_exit_2(capsys: pytest.CaptureFixture[str]) -> None:
     assert run(["unknown"]) == 2
     assert "unknown" in capsys.readouterr().err
@@ -61,11 +53,6 @@ def test_inbox_send_read_roundtrip_via_click(tmp_path: Path, capsys: pytest.Capt
     output = capsys.readouterr().out
     assert "from: repo-a" in output
     assert "    hello" in output
-
-
-def test_home_changes_the_telegram_bot_folder(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert run(["--home", str(tmp_path), "telegram", "react", "--channel", "main", "--chat", "1", "--message", "2", "--emoji", "x"]) == 1
-    assert "no bot token for channel 'main'" in capsys.readouterr().err
 
 
 def test_relative_home_is_absolute_before_a_verb_receives_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -101,18 +88,9 @@ def test_help_does_not_import_command_modules() -> None:
 def test_help_verb_lists_every_verb_and_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
     assert run(["help"]) == 0
     output = capsys.readouterr().out
+    assert "--home" in output
     for verb in ("inbox", "telegram", "validate", "setup", "add", "remove", "status", "limits", "update", "uninstall", "pick", "help"):
         assert f"  {verb} " in output
-
-
-def test_help_verb_runs_no_other_program(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
-    assert run(["help"]) == 0
-
-
-@pytest.mark.parametrize("words", [["--check", "--yes"], ["--force"], ["--check", "extra"], ["--check", "--unknown"], ["--unknown"]])
-def test_invalid_update_combinations_exit_2(words: list[str]) -> None:
-    assert run(["update", *words]) == 2
 
 
 @pytest.mark.parametrize(
@@ -122,6 +100,9 @@ def test_invalid_update_combinations_exit_2(words: list[str]) -> None:
         (["--check", "--yes"], "--yes cannot be used with --check"),
         (["-Yes"], "No such option '-Y'."),
         (["extra"], "Got unexpected extra argument (extra)"),
+        (["--check", "extra"], "Got unexpected extra argument (extra)"),
+        (["--check", "--unknown"], "No such option '--unknown'."),
+        (["--unknown"], "No such option '--unknown'."),
     ],
 )
 def test_update_usage_errors_are_plain(words: list[str], message: str, capsys: pytest.CaptureFixture[str]) -> None:

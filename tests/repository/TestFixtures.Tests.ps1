@@ -25,11 +25,6 @@ try {
     $lines = @(& $command 'two words' 'semi;literal')
     Assert-Equal 23 $LASTEXITCODE 'Shared command stub forwards the exit code'
     Assert-Equal 'two words|semi;literal' ($lines -join '') 'Shared command stub forwards literal arguments'
-    $settings = Write-TestPersonalisation -HomeRoot $allowed -Agents @(@{ id = 'fixture'; tool = 'codex'; configDir = '~/.codex' })
-    $data = Get-Content $settings -Raw | ConvertFrom-Json
-    Assert-Equal 1 $data.schemaVersion 'Shared settings include the schema version'
-    Assert-Equal 'fixture' $data.agents[0].id 'Shared settings preserve agents'
-    Assert-Equal 0 $data.channels.Count 'Shared settings default to no channels'
     $installFolder = New-InstallTestFolder 'fixture-home'
     try { Assert-True (Test-LegionPathUnder -Path $installFolder -Root (Get-TestTempPath)) 'Installer fixture homes live under the runner temp' }
     finally { Remove-InstallTestFolder $installFolder }

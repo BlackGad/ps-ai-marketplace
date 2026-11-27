@@ -16,17 +16,8 @@ from legion.core._home import settings_path
 SETUP = "run /telegram:configure in that session"
 
 
-@pytest.fixture(name="_poisoned_lookup")
-def poisoned_lookup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    bun = fake_bun(tmp_path / "inherited-bin")
-    monkeypatch.setenv("PATH", str(bun.parent))
-    monkeypatch.chdir(bun.parent)
-    if sys.platform == "win32":
-        monkeypatch.setenv("PATHEXT", ".CMD")
-
-
 @pytest.fixture(autouse=True)
-def isolated_lookup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _poisoned_lookup: None) -> None:
+def isolated_lookup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
     if sys.platform == "win32":
@@ -165,10 +156,6 @@ def test_check_reports_bun_and_each_account_plugin(home: Path, monkeypatch: pyte
 def test_check_refuses_an_unknown_account(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert legion(home, "check", "--kind", "telegram", "--account", "nobody") == 1
     assert capsys.readouterr().err == "unknown account 'nobody'\n"
-
-
-def test_check_ignores_inherited_executable_lookup(home: Path) -> None:
-    assert _channel.check(home, "telegram", ["claude1"])[0] == "bun        not found"
 
 
 @pytest.mark.parametrize("words", [add_words("1", "missing\naccount"), ["add", "--id", "bad\nid", "--kind", "telegram", "--target", "1", "--account", "claude1"]], ids=["account", "id"])

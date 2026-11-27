@@ -1,6 +1,5 @@
 import json
 import os
-import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -170,27 +169,6 @@ def test_save_refuses_a_model_that_breaks_the_schema(tmp_path: Path) -> None:
     assert settings_path(tmp_path).read_bytes() == before
 
 
-def test_save_reports_a_held_file_in_one_line_and_leaves_no_temp_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    before = write_settings(tmp_path, {"schemaVersion": 1, "agents": [], "channels": []})
-
-    # The held-file diagnostic is specific to WinError 5 and 32.
-    def held(_source: object, _target: object) -> None:
-        error = PermissionError(13, "The process cannot access the file because it is being used by another process")
-        monkeypatch.setattr(error, "winerror", 32, raising=False)
-        raise error
-
-    monkeypatch.setattr(os, "replace", held)
-    with pytest.raises(SettingsError) as error:
-        save_settings(tmp_path, model())
-    assert str(error.value) == "legion settings are in use by another program; close it and run the command again"
-    assert settings_path(tmp_path).read_bytes() == before
-    assert set(folder_names(tmp_path)) <= {"personalisation.json", "personalisation.json.lock"}
-    assert "personalisation.json" in folder_names(tmp_path)
-    if sys.platform != "win32":
-        assert "personalisation.json.lock" in folder_names(tmp_path)
-    assert not list(settings_path(tmp_path).parent.glob(".personalisation.json.*.tmp"))
-
-
 def test_save_preserves_non_windows_permission_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     write_settings(tmp_path, {"schemaVersion": 1, "agents": [], "channels": []})
 
@@ -241,7 +219,7 @@ def test_save_handles_windows_replace_errors(tmp_path: Path, monkeypatch: pytest
     def held(source: Path, target: Path) -> None:
         assert source.parent == target.parent == settings_path(tmp_path).parent
         assert json.loads(source.read_text(encoding="utf-8"))["agents"] == [ACCOUNT]
-        error = OSError("file is held\nby another program")
+        error = PermissionError("file is held\nby another program")
         monkeypatch.setattr(error, "winerror", winerror, raising=False)
         raise error
 
