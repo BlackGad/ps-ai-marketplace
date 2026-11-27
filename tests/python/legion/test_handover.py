@@ -89,38 +89,22 @@ def test_the_posix_shell_waits_for_the_starting_process_to_exit(tmp_path: Path) 
     assert not folder.exists()
 
 
-def test_the_run_command_text_holds_no_word_of_the_command_and_no_path_to_remove(tmp_path: Path) -> None:
-    folder, stop = tmp_path / "constraints %PATH%", tmp_path / "stop"
-    folder.mkdir()
-    stop.write_text("1", encoding="utf-8")
-    command = ["uv", "tool", "install", f"{tmp_path}[mcp]", "--reinstall"]
-    program, variables = _handover.run_command_line(command, [folder, stop])
-    assert {name: value for name, value in variables.items() if name.startswith("LEGION_REMOVE_")} == {"LEGION_REMOVE_1": str(folder), "LEGION_REMOVE_2": str(stop)}
-    if WINDOWS:
-        assert isinstance(program, str)
-        assert variables == {**{f"LEGION_RUN_{number}": word for number, word in enumerate(command, 1)}, "LEGION_REMOVE_1": str(folder), "LEGION_REMOVE_2": str(stop)}
-        assert str(tmp_path) not in program
-        assert "uv" not in program.replace("LEGION_RUN", "")
-        assert 'rmdir /s /q "%LEGION_REMOVE_1%"' in program
-        assert 'del /f /q "%LEGION_REMOVE_2%"' in program
-    else:
-        assert program[:2] == ["/bin/sh", "-c"]
-        assert program[3:] == ["sh", str(os.getpid()), *command]
-        assert 'rm -rf -- "$LEGION_REMOVE_1" "$LEGION_REMOVE_2"' in program[2]
-        assert str(tmp_path) not in program[2]
-
-
-def test_start_command_runs_detached_and_without_a_folder_to_remove(monkeypatch: pytest.MonkeyPatch) -> None:
-    started: list[tuple[object, dict[str, object]]] = []
+def test_start_command_runs_base_python_detached_and_writes_to_the_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    started: list[tuple[list[str], dict[str, object]]] = []
     monkeypatch.setattr(_handover.subprocess, "Popen", lambda command, **options: started.append((command, options)))
-    _handover.start_command(["uv", "tool", "uninstall", "legion"])
+    log = tmp_path / ".legion/temp/uv-tool.log"
+    stop = tmp_path / "stop"
+    _handover.start_command(["uv", "tool", "uninstall", "legion"], [stop], log=log)
     ((command, options),) = started
-    assert command == _handover.run_command_line(["uv", "tool", "uninstall", "legion"], [])[0]
-    assert options["stdin"] == options["stdout"] == options["stderr"] == subprocess.DEVNULL
+    assert command[:3] == [getattr(sys, "_base_executable", sys.executable), "-I", "-c"]
+    assert command[4:] == [str(os.getpid()), str(_handover.UV_WAIT_SECONDS), "1", str(stop), "uv", "tool", "uninstall", "legion"]
+    assert options["stdin"] == subprocess.DEVNULL
+    assert options["stdout"] is options["stderr"]
+    assert log.is_file()
     assert ("creationflags" in options) if WINDOWS else options["start_new_session"] is True
 
 
-# The real shell runs a script with awkward words after the starting process exits, then removes the folder and the stop file.
+# The detached helper runs a script with awkward words after the starting process exits, then removes the folder and the stop file.
 def test_the_shell_runs_the_command_once_the_parent_is_gone_and_removes_the_folder_and_the_stop_file(tmp_path: Path) -> None:
     folder = tmp_path / "constraints folder"
     folder.mkdir()
@@ -131,7 +115,10 @@ def test_the_shell_runs_the_command_once_the_parent_is_gone_and_removes_the_fold
     script.write_text("import sys\nfrom pathlib import Path\nPath(sys.argv[1]).write_text(sys.argv[2], encoding='utf-8')\n", encoding="utf-8")
     out = tmp_path / "out.txt"
     words = "legion[mcp] & 100% !x!"
-    code = "import sys; from pathlib import Path; from legion.services.installation import _handover; _handover.start_command(sys.argv[1:-2], [Path(sys.argv[-2]), Path(sys.argv[-1])])"
+    code = (
+        "import sys; from pathlib import Path; from legion.services.installation import _handover; "
+        "_handover.start_command(sys.argv[1:-2], [Path(sys.argv[-2]), Path(sys.argv[-1])], log=Path(sys.argv[-1]).with_suffix('.log'))"
+    )
     subprocess.run([sys.executable, "-c", code, sys.executable, str(script), str(out), words, str(folder), str(stop)], check=True, timeout=60)
     deadline = time.monotonic() + 60
     while (not out.exists() or folder.exists() or stop.exists()) and time.monotonic() < deadline:
@@ -141,23 +128,54 @@ def test_the_shell_runs_the_command_once_the_parent_is_gone_and_removes_the_fold
     assert not stop.exists()
 
 
-@pytest.mark.skipif(not WINDOWS, reason="only Windows retries while a file is locked")
-def test_windows_retries_the_command_until_it_succeeds(tmp_path: Path) -> None:
-    script = tmp_path / "flaky.py"
-    lines = [
-        "import sys",
-        "from pathlib import Path",
-        "marker = Path(sys.argv[1])",
-        "if not marker.exists():",
-        "    marker.write_text('first try fails', encoding='utf-8')",
-        "    sys.exit(1)",
-        "Path(sys.argv[2]).write_text('done', encoding='utf-8')",
-    ]
-    script.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    marker, out = tmp_path / "marker.txt", tmp_path / "out.txt"
-    code = "import sys; from legion.services.installation import _handover; _handover.start_command(sys.argv[1:])"
-    subprocess.run([sys.executable, "-c", code, sys.executable, str(script), str(marker), str(out)], check=True, timeout=60)
-    deadline = time.monotonic() + 60
-    while not out.exists() and time.monotonic() < deadline:
-        time.sleep(0.5)
-    assert out.read_text(encoding="utf-8") == "done"
+@pytest.mark.parametrize("exit_code", [0, 2, None])
+def test_uv_handover_waits_for_exit_logs_the_result_and_cleans_up(tmp_path: Path, exit_code: int | None) -> None:
+    folder = tmp_path / "constraints %PATH%"
+    folder.mkdir()
+    stop = tmp_path / "stop"
+    stop.touch()
+    log = tmp_path / ".legion/temp/uv-tool.log"
+    ready = tmp_path / "ready"
+    code = """import sys
+from pathlib import Path
+from legion.services.installation import _handover
+log, folder, stop, ready = map(Path, sys.argv[1:5])
+command = [sys.executable, "-c", "import sys; print('uv output', flush=True); print('uv error', file=sys.stderr); sys.exit(int(sys.argv[1]))", sys.argv[5]]
+if sys.argv[5] == "None":
+    _handover.UV_WAIT_SECONDS = 3
+_handover.start_command(command, [folder, stop], log=log)
+ready.touch()
+sys.stdin.read()
+"""
+    with subprocess.Popen([sys.executable, "-c", code, str(log), str(folder), str(stop), str(ready), str(exit_code)], stdin=subprocess.PIPE) as parent:
+        try:
+            deadline = time.monotonic() + 10
+            while not ready.exists() and parent.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert ready.exists()
+            time.sleep(1.5)
+            assert folder.is_dir()
+            assert stop.is_file()
+            assert "uv output" not in log.read_text(encoding="utf-8")
+            if exit_code is None:
+                deadline = time.monotonic() + 10
+                while (folder.exists() or stop.exists()) and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                assert not folder.exists()
+                assert not stop.exists()
+                assert parent.poll() is None
+        finally:
+            parent.communicate(timeout=10)
+    deadline = time.monotonic() + 10
+    while (folder.exists() or stop.exists()) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not folder.exists()
+    assert not stop.exists()
+    output = log.read_text(encoding="utf-8")
+    if exit_code is None:
+        assert "Timed out waiting for the legion command to exit" in output
+        assert "uv output" not in output
+    else:
+        assert "uv output" in output
+        assert "uv error" in output
+        assert f"exited {exit_code}" in output

@@ -239,5 +239,5 @@ def test_a_tool_killed_by_a_signal_is_reported_as_a_shell_would(tmp_path: Path, 
     monkeypatch.setattr(_launch._settings_io, "load", lambda _home: SimpleNamespace(agents=[agent]))
     monkeypatch.setattr(_launch, "account_command", lambda *_args: _launch.AccountCommand(Path("/fake/codex"), [], {}))
     monkeypatch.setattr(_launch, "sys", SimpleNamespace(platform="linux", stdout=sys.stdout, stderr=sys.stderr))
-    monkeypatch.setattr(_launch.subprocess, "Popen", lambda *_args, **_kwargs: SimpleNamespace(wait=lambda: -signal.SIGINT, stdout=None, stderr=None))
+    monkeypatch.setattr(_launch.subprocess, "Popen", lambda *_args, **_kwargs: SimpleNamespace(pid=2**30, wait=lambda: -signal.SIGINT, stdout=None, stderr=None))
     assert _launch.run_account("codex-a", [], tmp_path) == 130

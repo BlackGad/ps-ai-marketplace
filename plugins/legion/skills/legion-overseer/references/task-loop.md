@@ -38,7 +38,7 @@ For a Foundry agent, resolve a requested tier word against separate tokens in di
 
 ## legion run and updates
 
-Each `legion run` wrapper registers itself while its program runs. `legion update` and a full `legion uninstall` end every registered process: a wrapper ends its program by process id only and prints `legion: stopped for an update; resume this session afterwards` on stderr. When the tool prints a session id in its output, `legion run` repeats it as `legion: session id <id>` on stderr when the run ends; keep the task's stderr in its log path and read the line there. Record each member's session id in its handoff row. At [takeover](takeover.md#takeover-and-handoff), a row ended by an update is resumed by its session id on the same account and in the same worktree through the tool skill's resume recipe; without a session id it is rerun from its task file.
+Each `legion run` wrapper registers itself while its program runs. An update or full uninstall stops registered processes in the current legion home, with the initiating process and its ancestors exempt. A stopped wrapper ends the account's process tree by pid and prints `legion: stopped for an update` in its stderr message. When Codex reports a session id, `legion run` repeats it as `legion: session id <id>` on stderr when the run ends. Keep the task's stderr in its log and record the Codex id in the handoff row. At [takeover](takeover.md#takeover-and-handoff), resume a stopped Codex member with a recorded id on the same account and worktree. Rerun Claude and Copilot members, and Codex members without a recorded id, from the handoff's task file.
 
 ## Default routing
 

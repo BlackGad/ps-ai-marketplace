@@ -5,7 +5,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict
 
 from legion.services.repository import _lease
-from legion.services.installation import _knowledge_hub
+from legion.services.installation import _knowledge_hub, _uv_tool
 from legion.services.status import _status
 from legion.core._home import (
     home_path,
@@ -119,6 +119,10 @@ def status(repo: Path, home: Optional[Path] = None) -> StatusReport:
             if knowledge and (tool is None or _status.installed_version(config, tool, "wiki") is None):
                 missing_wiki.append(agent.id)
             accounts.append(AccountStatus(id=agent.id, tool=agent.tool, config_dir=agent.config_dir, legion_version=version))
+    warnings = _status.channel_warnings(settings, home, tools) if settings else []
+    uv = _uv_tool.find_uv()
+    if uv is not None and _uv_tool.installed_version(uv) is not None and _uv_tool.path_missing(uv):
+        warnings.append("The uv tool folder is missing from your PATH. Run legion setup to add it.")
     return StatusReport(
         settings=SettingsState(state=state, path=str(file)),
         accounts=accounts,
@@ -130,5 +134,5 @@ def status(repo: Path, home: Optional[Path] = None) -> StatusReport:
             hub_repository=_knowledge_hub.is_repository(home) if knowledge else None,
             missing_accounts=missing_wiki,
         ),
-        warnings=_status.channel_warnings(settings, home, tools) if settings else [],
+        warnings=warnings,
     )

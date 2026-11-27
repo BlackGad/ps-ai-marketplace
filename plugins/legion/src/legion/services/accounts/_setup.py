@@ -84,6 +84,8 @@ class Plan:
     uv_missing: bool
     missing_tools: list[ToolDescriptor]
     command_missing: bool
+    path_missing: bool
+    tool_roots: list[tuple[str, Path]] = field(default_factory=list)
 
     @property
     def notes(self) -> Path:
@@ -256,7 +258,8 @@ def build_plan(home: Path, tool_id: Optional[str], config_dir: Optional[str], ac
     needs_stock = {row.tool.id for row in accounts if row.usable and row.command is None}
     missing = [tool for tool in tools.values() if tool.id in needs_stock and not command_available(tool.command)]
     command_missing = uv is not None and _uv_tool.installed_version(uv) != _uv_tool.plugin_version(PLUGIN_ROOT)
-    return Plan(home, file, accounts, uv_missing, missing, command_missing)
+    path_missing = uv is not None and not command_missing and _uv_tool.path_missing(uv)
+    return Plan(home, file, accounts, uv_missing, missing, command_missing, path_missing)
 
 
 # --- the plan the owner reads ---
@@ -286,6 +289,8 @@ def plan_lines(plan: Plan) -> list[str]:
         lines.append(f"  permission allow {', '.join(permissions[folder].missing_allow_rules)} in {folder}/settings.json")
     if plan.command_missing:
         lines.append("  command  install the legion command with uv, then run uv tool update-shell, which puts it on your PATH (your shell profile or user PATH)")
+    elif plan.path_missing:
+        lines.append("  command  run uv tool update-shell to put the uv tool folder on your PATH")
     if not lines:
         return [NOTHING_TO_DO]
     return ["Plan (nothing changed yet):", *lines, RUN_AGAIN]
@@ -378,9 +383,9 @@ def add_allow_rules(plan: Plan, say: Callable[[str], None]) -> None:
 
 # The plugin goes into an account's folder by the installer module, without questions (yes); its output goes to a log.
 # Returns 0 when it finished, 1 when it failed.
-def install_plugin(tool_id: str, folder: Path, home: Path, source: Optional[str]) -> int:
+def install_plugin(tool_id: str, folder: Path, home: Path, source: Optional[str], tool_roots: list[tuple[str, Path]]) -> int:
     try:
-        output = "\n".join(_installer.install(home, tools=[tool_id], config_dir=folder, update=True, yes=True, source=source or _installer.DEFAULT_SOURCE, with_knowledge=False))
+        output = "\n".join(_installer.install(home, tools=[tool_id], config_dir=folder, update=True, yes=True, source=source or _installer.DEFAULT_SOURCE, with_knowledge=False, tool_roots=tool_roots))
         code = 0
     except (_installer.InstallerError, _footprints.FootprintError, _launchers.LauncherError, _settings_io.SettingsError, OSError, ValueError) as error:
         output, code = str(error), 1
@@ -402,7 +407,7 @@ def install_plugins(plan: Plan, source: Optional[str], say: Callable[[str], None
         key = f"{row.tool.id}:{os.path.normcase(str(resolve_directory(row.folder)))}"
         if key not in results:
             try:
-                results[key] = install_plugin(row.tool.id, row.folder, plan.home, source)
+                results[key] = install_plugin(row.tool.id, row.folder, plan.home, source, plan.tool_roots)
             except (OSError, ValueError):
                 results[key] = 1
         row.version = _status.installed_version(row.folder, row.tool)
@@ -414,7 +419,8 @@ def write_commands(plan: Plan, say: Callable[[str], None]) -> None:
     if plan.uv_missing:
         say("uv is missing. Ask the owner before installing it.")
         return
-    for line in _refresh.refresh(plan.home, update_shell=True):
+    source = _installer._newest_source(plan.tool_roots) if plan.tool_roots else PLUGIN_ROOT
+    for line in _refresh.refresh(plan.home, source=source, update_shell=True):
         say(line)
 
 
@@ -470,7 +476,7 @@ def apply(
     say: Callable[[str], None],
     knowledge: Optional[bool],
     explicit: bool,
-) -> None:
+) -> Plan:
     # A fresh home can reject bad input without creating a lock file or settings folder.
     if not settings_path(home).exists():
         build_plan(home, tool_id, config_dir, account_id)
@@ -482,8 +488,8 @@ def apply(
         add_accounts(plan, say)
         add_allow_rules(plan, say)
         install_plugins(plan, source, say)
-        write_commands(plan, say)
     write_table(plan, say)
+    return plan
 
 
 # --- the owner's flow ---
@@ -523,10 +529,13 @@ def run(
                 return
     if not explicit and tool_id is None and can_ask and _settings_io.load_or_empty(home).knowledge_enabled is None:
         knowledge = click.confirm("Install the llm-wiki knowledge base in every account? [y/N]", default=False, show_default=False, prompt_suffix=" ")
+    plan = None
     if yes:
-        apply(home, tool_id, config_dir, account_id, source, say, knowledge, explicit)
+        plan = apply(home, tool_id, config_dir, account_id, source, say, knowledge, explicit)
     elif knowledge is not None:
         with _settings_io.writer(home, require_existing=False):
             _save_knowledge_locked(home, knowledge, explicit, say)
     with saved_path():
         _install_knowledge(home, say)
+        if plan is not None:
+            write_commands(plan, say)

@@ -39,7 +39,9 @@ class FakeUv:
     def __init__(self, monkeypatch: pytest.MonkeyPatch, bin_folder: Path) -> None:
         self.calls: list[list[str]] = []
         self.detached: list[tuple[list[str], list[Path]]] = []
+        self.logs: list[Path] = []
         self.installed: str | None = None
+        self.shell_updated = False
         self.fail: dict[str, int] = {}
         self.bin = bin_folder
         # Where `uv tool dir` says the tools live.
@@ -47,7 +49,11 @@ class FakeUv:
         monkeypatch.setattr(_uv_tool, "find_uv", lambda: "uv")
         monkeypatch.setattr(_uv_tool, "run_command", self.run)
         monkeypatch.setattr("legion.services.installation._constraints.run_command", self.run)
-        monkeypatch.setattr(_uv_tool._handover, "start_command", lambda command, remove=None: self.detached.append((command, remove or [])))
+        monkeypatch.setattr(_uv_tool._handover, "start_command", self.hand_over)
+
+    def hand_over(self, command: list[str], remove: list[Path], *, log: Path) -> None:
+        self.detached.append((command, remove))
+        self.logs.append(log)
 
     def installs(self) -> list[list[str]]:
         return [call for call in self.calls if call[:2] == ["tool", "install"]]
@@ -65,6 +71,8 @@ class FakeUv:
             output = f"{self.tools}\n"
         elif arguments == ["tool", "dir", "--bin"]:
             output = f"{self.bin}\n"
+        elif name == "tool update-shell":
+            self.shell_updated = True
         elif arguments[0] == "export":
             output = "mcp==1.0.0\n"
         elif name == "tool install":

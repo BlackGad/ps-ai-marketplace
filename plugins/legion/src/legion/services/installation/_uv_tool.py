@@ -9,10 +9,15 @@ from pathlib import Path
 from typing import Optional
 
 from legion.core import _stop_event
-from legion.core._home import path_contains, resolve_directory, same_path
+from legion.core._home import (
+    owner_path_safe,
+    path_contains,
+    resolve_directory,
+    same_path,
+)
 from legion.core._run import display_command, run_command
 from legion.core._settings_models import PluginManifest
-from legion.services.installation import _handover
+from legion.services.installation import _handover, _user_path
 from legion.services.installation._constraints import export_constraints
 
 UV_MISSING = "uv is missing. Ask the owner before installing it, then run the legion installer again."
@@ -54,6 +59,17 @@ def bin_directory(uv: str) -> Optional[Path]:
     return Path(result.output.strip()) if result.exit_code == 0 and result.output.strip() else None
 
 
+def path_missing(uv: str) -> bool:
+    folder = bin_directory(uv)
+    return folder is not None and not path_contains(_saved_path(), folder)
+
+
+def _saved_path() -> str:
+    if sys.platform == "win32":
+        return os.pathsep.join(_user_path.persistent_folders())
+    return os.environ.get("PATH", "")
+
+
 # The lock file's exact versions, written into a folder of its own, which the caller removes.
 def _write_constraints(uv: str, plugin_root: Path) -> Path:
     folder = Path(tempfile.mkdtemp(prefix="legion-constraints-"))
@@ -71,13 +87,22 @@ def running_from_tool(uv: str) -> bool:
     return result.exit_code == 0 and bool(result.output.strip()) and same_path(resolve_directory(Path(sys.prefix)), resolve_directory(Path(result.output.strip()) / TOOL))
 
 
-# Ends every registered legion process, then returns; on a timeout the stop event is lifted again and nothing changes.
-def _stop_running(home: Path) -> None:
+# Waits for registered processes that can be stopped. On a timeout, lift the stop event before reporting the failure.
+def stop_running(home: Path) -> None:
+    if not owner_path_safe(_stop_event.stop_path(home), home):
+        raise UvToolError("The legion stop file path contains a link; resolve it before continuing")
     remaining = _stop_event.stop_all(home)
     if remaining:
         _stop_event.clear_stop(home)
         ids = ", ".join(str(pid) for pid in remaining)
         raise UvToolError(f"legion is still running after {_stop_event.WAIT_SECONDS:g} seconds (process {ids}); close those sessions and run the command again")
+
+
+def _hand_over(home: Path, command: list[str], remove: list[Path]) -> None:
+    log = home / ".legion/temp/uv-tool.log"
+    if not owner_path_safe(log, home):
+        raise UvToolError("The uv tool log path contains a link; resolve it before continuing")
+    _handover.start_command(command, remove, log=log)
 
 
 # The saved PATH is uv's to write, and only with the owner's yes. The current process learns the folder from uv.
@@ -94,10 +119,10 @@ def _path_lines(uv: str, update_shell: bool) -> list[str]:
     return lines
 
 
-# Replaces legion with the plugin at `plugin_root`. A repeat of the installed version changes nothing.
-# Every running legion process is stopped first (the stop event). `detached` leaves the uv step to a helper that starts after
+# Replaces legion with the plugin at `plugin_root`. A repeat only repairs PATH if needed and approved.
+# The stop event precedes replacement. `detached` leaves the uv step to a helper that starts after
 # this process exits, and lifts the stop event after it: Windows cannot replace a running legion.exe.
-# By default it is detached on Windows when this process runs from the tool. `update_shell` also runs `uv tool update-shell`,
+# By default it is detached when this process runs from the tool. `update_shell` also runs `uv tool update-shell`,
 # which edits the owner's shell profile or user PATH: callers pass it only inside the owner's yes.
 def install(plugin_root: Path, home: Path, dry_run: bool = False, detached: Optional[bool] = None, update_shell: bool = False) -> list[str]:
     uv = find_uv()
@@ -105,45 +130,52 @@ def install(plugin_root: Path, home: Path, dry_run: bool = False, detached: Opti
         return [UV_MISSING]
     version = plugin_version(plugin_root)
     if installed_version(uv) == version:
-        return [f"skip: legion command {version} (already done)"]
+        lines = [f"skip: legion command {version} (already done)"]
+        if update_shell and path_missing(uv):
+            lines.extend([display_command([uv, "tool", "update-shell"])] if dry_run else _path_lines(uv, True))
+        return lines
     spec = f"{plugin_root}[mcp]"
     if dry_run:
         shell = [display_command([uv, "tool", "update-shell"])] if update_shell else []
         return [STOP_NOTICE, display_command([uv, "tool", "install", spec, "--constraints", "<exported uv.lock>", "--reinstall"]), *shell]
     if detached is None:
-        detached = sys.platform == "win32" and running_from_tool(uv)
-    _stop_running(home)
+        detached = running_from_tool(uv)
+    stop_running(home)
     folder: Optional[Path] = None
     handed_over = False
     try:
         folder = _write_constraints(uv, plugin_root)
         command = [uv, "tool", "install", spec, "--constraints", str(folder / "constraints.txt"), "--reinstall"]
         if detached:
-            _handover.start_command(command, [folder, _stop_event.stop_path(home)])
+            path_lines = _path_lines(uv, update_shell)
+            _hand_over(home, command, [folder, _stop_event.stop_path(home)])
             handed_over = True
-            lines = [f"legion command {version} is installed when this command ends"]
-        else:
-            result = run_command(uv, command[1:])
-            if result.exit_code != 0:
-                raise _failure("uv tool install", result.error, result.exit_code)
-            lines = [f"legion command {version} installed"]
+            return [f"legion command {version} is installed when this command ends", *path_lines]
+        result = run_command(uv, command[1:])
+        if result.exit_code != 0:
+            raise _failure("uv tool install", result.error, result.exit_code)
     finally:
         if not handed_over:
             _stop_event.clear_stop(home)
             if folder is not None:
                 shutil.rmtree(folder, ignore_errors=True)
-    return [*lines, *_path_lines(uv, update_shell)]
+    return [f"legion command {version} installed", *_path_lines(uv, update_shell)]
 
 
 # Removes the legion tool after this process exits; uv itself stays. Returns no line when there is nothing to remove.
 # Every running legion process is stopped first; the helper lifts the stop event after the uv step.
-def uninstall(home: Path, dry_run: bool = False) -> list[str]:
+def uninstall(home: Path, dry_run: bool = False, *, stopped: bool = False) -> list[str]:
     uv = find_uv()
     if uv is None or installed_version(uv) is None:
         return []
     command = [uv, "tool", "uninstall", TOOL]
     if dry_run:
         return [STOP_NOTICE, display_command(command)]
-    _stop_running(home)
-    _handover.start_command(command, [_stop_event.stop_path(home)])
+    if not stopped:
+        stop_running(home)
+    try:
+        _hand_over(home, command, [_stop_event.stop_path(home)])
+    except BaseException:
+        _stop_event.clear_stop(home)
+        raise
     return ["legion command is removed when this command ends"]

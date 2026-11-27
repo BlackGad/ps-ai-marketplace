@@ -102,6 +102,19 @@ def test_stop_all_raises_the_event_and_returns_at_once_when_nothing_runs(tmp_pat
     assert _stop_event.stop_path(tmp_path).is_file()
 
 
+def test_stop_all_protects_the_caller_and_its_registered_ancestor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    stopped: list[bool] = []
+    parent = run_folder(tmp_path) / f"{os.getppid()}.pid"
+    with _stop_event.registered(tmp_path, lambda: stopped.append(True)):
+        parent.write_text(str(os.getppid()), encoding="ascii")
+        assert _stop_event.stop_all(tmp_path, timeout=0.2) == []
+        assert not _stop_event.stop_raised(tmp_path, pid=os.getppid())
+        time.sleep(0.2)
+        assert stopped == []
+        assert set(_stop_event.running(tmp_path)) == {os.getpid(), os.getppid()}
+    assert capsys.readouterr().err.splitlines() == ["Restart this session after the legion update."]
+
+
 # The process id a started process registered: on Windows a venv's python.exe starts the real one, so it is not the Popen pid.
 def registered_pid(home: Path) -> int:
     assert wait_for(lambda: list(run_folder(home).glob("*.pid")))

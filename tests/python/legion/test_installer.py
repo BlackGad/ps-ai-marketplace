@@ -457,6 +457,7 @@ def test_install_and_uninstall_target_use_fake_cli_and_refresh(tmp_path: Path, m
     refreshed: list[Path] = []
     options_seen: list[dict[str, object]] = []
     monkeypatch.setattr(_installer._refresh, "refresh", lambda _home, source, **options: refreshed.append(source) or options_seen.append(options) or [])
+    monkeypatch.setattr(_uv_tool, "running_from_tool", lambda _uv: False)
     first = _installer.install(tmp_path, [tool_id], source=tmp_path, config_dir=folder, yes=True, catalog=catalog())
     assert installed == {"marketplace": True, "plugin": True}
     assert refreshed == [root]
@@ -543,6 +544,31 @@ def test_update_never_runs_uv_tool_update_shell(tmp_path: Path, monkeypatch: pyt
     monkeypatch.setattr(_installer, "_manifest", lambda _root: SimpleNamespace(version="1.2.3"))
     _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
     assert seen == [{"detached": True}]
+
+
+def test_update_reconciles_knowledge_before_handing_over(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[str] = []
+    monkeypatch.setattr(_installer, "_personalisation", lambda *_args: SimpleNamespace(agents=[], knowledge_enabled=True))
+    monkeypatch.setattr(_installer, "reconcile_knowledge", lambda *_args: events.append("knowledge"))
+    monkeypatch.setattr(_installer._refresh, "refresh", lambda *_args, **_options: events.append("handover") or [])
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
+    monkeypatch.setattr(_installer, "_step", lambda *_args: None)
+    monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: tmp_path / "plugin")
+    monkeypatch.setattr(_installer, "_manifest", lambda _root: SimpleNamespace(version="1.2.3"))
+    _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
+    assert events == ["knowledge", "handover"]
+
+
+def test_update_inside_setup_collects_its_source_without_handing_over(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    roots: list[tuple[str, Path]] = []
+    root = tmp_path / "plugin"
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
+    monkeypatch.setattr(_installer, "_step", lambda *_args: None)
+    monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: root)
+    monkeypatch.setattr(_installer, "_manifest", lambda _root: SimpleNamespace(version="1.2.3"))
+    monkeypatch.setattr(_installer._refresh, "refresh", lambda *_args, **_options: pytest.fail("setup has not finished"))
+    _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog(), tool_roots=roots)
+    assert roots == [("1.2.3", root)]
 
 
 def test_update_reports_a_failed_uv_install_once_with_a_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -720,6 +746,17 @@ def test_install_ends_with_one_result_row_per_tool(tmp_path: Path, monkeypatch: 
     assert any("claude" in line and "broken refresh" in line for line in lines)
     assert "refreshed later target" in lines
     assert rows[2][2:] == ["skipped", "(not", "installed)"]
+
+
+def test_install_from_the_uv_tool_hands_over_only_after_installing_all_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_targets(tmp_path, monkeypatch)
+    events: list[str] = []
+    monkeypatch.setattr(_uv_tool, "find_uv", lambda: "uv")
+    monkeypatch.setattr(_uv_tool, "running_from_tool", lambda _uv: True)
+    monkeypatch.setattr(_installer, "_install_steps", lambda entry, *_args: events.append(entry.id))
+    monkeypatch.setattr(_installer._refresh, "refresh", lambda *_args, **_options: events.append("handover") or [])
+    _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", yes=True, catalog=catalog())
+    assert events == ["claude", "codex", "handover"]
 
 
 def test_update_ends_with_one_result_row_per_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

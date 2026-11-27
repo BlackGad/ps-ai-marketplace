@@ -122,11 +122,16 @@ def test_a_full_uninstall_hands_only_the_legion_tool_to_the_helper_and_never_rem
 
 def test_a_legion_that_will_not_stop_blocks_the_uninstall_before_anything_is_deleted(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
     recorder.uv.installed = "1.0.0"
+    hub = home / ".legion/knowledge"
+    hub.mkdir()
+    monkeypatch.setattr(_installer.click, "confirm", lambda *_args, **_options: True)
     monkeypatch.setattr(_stop_event, "stop_all", lambda _home: [4242])
     with pytest.raises(_uv_tool.UvToolError, match="process 4242"):
         run(home, yes=True, purge=True)
     assert recorder.handed == []
     assert recorder.uv.detached == []
+    assert recorder.steps == []
+    assert hub.is_dir()
 
 
 def test_a_full_uninstall_raises_the_stop_event_before_the_uv_step_and_a_partial_one_does_not(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:

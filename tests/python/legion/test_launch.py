@@ -237,3 +237,26 @@ def test_run_registers_while_the_tool_runs_and_the_stop_event_ends_the_tool_by_i
     finally:
         wrapper.kill()
         wrapper.communicate()
+
+
+def test_stop_event_ends_the_descendant_of_a_wrapper_child(tmp_path: Path) -> None:
+    python = getattr(sys, "_base_executable", sys.executable)
+    if sys.platform == "win32":
+        batch = tmp_path / "tool.cmd"
+        batch.write_text(f'@"{python}" %*\n', encoding="utf-8")
+        save_agents(tmp_path, agent("codex-a", tmp_path / "config", command=str(batch)))
+    else:
+        python_account(tmp_path)
+    code = "import subprocess, time; " + f"child = subprocess.Popen([{python!r}, '-c', 'import time; time.sleep(120)']); " + "print(child.pid, flush=True); time.sleep(120)"
+    with start_wrapper(tmp_path, code) as wrapper:
+        assert wrapper.stdout is not None
+        child = psutil.Process(int(wrapper.stdout.readline()))
+        try:
+            _stop_event.raise_stop(tmp_path)
+            _, errors = wrapper.communicate(timeout=20)
+            assert "stopped for an update" in errors
+            assert not child.is_running() or child.status() == psutil.STATUS_ZOMBIE
+        finally:
+            if child.is_running():
+                child.kill()
+            wrapper.kill()

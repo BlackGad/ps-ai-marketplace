@@ -25,7 +25,7 @@ from pydantic import (
     TypeAdapter,
 )
 
-from legion.core import _stop_event
+from legion.core import _process, _stop_event
 from legion.core._home import legion_home
 from legion.core._run import DRAIN_SECONDS
 from legion.services.limits import AccountLimits
@@ -36,8 +36,6 @@ CALL_BUDGET = 25.0
 # Reserve time for CLI startup and output, plus both process drain waits after a timeout.
 PROBE_RESERVE = 2 * DRAIN_SECONDS + 2.0
 PROBE_BUDGET = CALL_BUDGET - PROBE_RESERVE
-# How long a terminated process may take to exit before it is killed.
-STOP_SECONDS = 3.0
 # How long the server gets to end on its own after the stop event, before the process is ended.
 STOP_GRACE_SECONDS = 2.0
 
@@ -81,7 +79,7 @@ async def _run_child(arguments: list[str], home: Optional[Path], cwd: Optional[P
         with anyio.CancelScope(shield=True):
             try:
                 if child is not None:
-                    await anyio.to_thread.run_sync(_end_tree, child)
+                    await anyio.to_thread.run_sync(_process.end_tree, child)
             finally:
                 await process.aclose()
     if process.returncode != 0:
@@ -99,33 +97,6 @@ async def _start(command: list[str], cwd: Optional[Path], environment: dict[str,
         except psutil.NoSuchProcess:
             return process, None
     raise AssertionError("unreachable: the shielded start always returns")  # pyright cannot see that a shield never swallows
-
-
-# Go on past a process that cannot be stopped, then report the first such failure.
-def _end_tree(child: psutil.Process) -> None:
-    if not child.is_running():
-        return
-    failures: list[psutil.Error] = []
-
-    def stop(processes: list[psutil.Process], action: str) -> None:
-        for process in processes:
-            try:
-                getattr(process, action)()
-            except psutil.NoSuchProcess:
-                continue
-            except psutil.Error as error:
-                failures.append(error)
-
-    try:
-        tree = [*child.children(recursive=True), child]
-    except psutil.NoSuchProcess:
-        return
-    stop(tree, "terminate")
-    _, alive = psutil.wait_procs(tree, timeout=STOP_SECONDS)
-    stop(alive, "kill")
-    psutil.wait_procs(alive, timeout=STOP_SECONDS)
-    if failures:
-        raise failures[0]
 
 
 def build(home: Optional[Path] = None) -> FastMCP:

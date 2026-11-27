@@ -16,6 +16,6 @@ After the owner's yes, run `legion update --yes`; the owner has already agreed, 
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Update
 ```
 
-`legion update` first ends every running legion session (the MCP server and `legion run` wrappers) and waits up to 30 seconds for them; tell the owner before approving, and a member that was running is resumed afterwards from the handoff. If it reports that legion is still running, ask the owner to close those sessions and run it again. Then the legion command is replaced with `uv tool install` after legion exits.
+`legion update` stops MCP servers and `legion run` wrappers registered under its own legion home before replacing the command. Tell the owner before approval. The session that starts the update stays open and must be restarted afterwards. If legion reports that other sessions are still running after 30 seconds, ask the owner to close them and run it again. Continue stopped members from the [handoff](../../legion-overseer/references/takeover.md).
 
-Do not infer success from starting the installer; inspect its result.
+The detached helper runs `uv tool install` after legion exits. When the command hands over to the helper, inspect `<home>/.legion/temp/uv-tool.log` for its result before reporting success.

@@ -4,6 +4,7 @@
 
 import contextlib
 import os
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -25,38 +26,46 @@ def stop_path(home: Path) -> Path:
     return run_folder(home) / STOP_FILE
 
 
-def stop_raised(home: Path) -> bool:
+def stop_raised(home: Path, *, pid: int | None = None) -> bool:
+    path = stop_path(home)
     try:
-        return time.time() - stop_path(home).stat().st_mtime < STOP_VALID_SECONDS
+        if time.time() - path.stat().st_mtime >= STOP_VALID_SECONDS:
+            return False
+        return pid is None or str(pid).encode("ascii") not in path.read_bytes().split()[1:]
     except OSError:
         return False
 
 
 # Registers this process until the block ends and calls `on_stop` once from a helper thread when the stop file appears.
 @contextlib.contextmanager
-def registered(home: Path, on_stop: Callable[[], None]) -> Iterator[None]:
-    registration = run_folder(home) / f"{os.getpid()}.pid"
+def registered(home: Path, on_stop: Callable[[], None], *, wait_for_stop: bool = False) -> Iterator[None]:
+    pid = os.getpid()
+    registration = run_folder(home) / f"{pid}.pid"
     # Written whole, so a reader never sees an empty file.
     atomic_write_bytes(registration, str(os.getpid()).encode("ascii"), keep_mode=False)
     finished = threading.Event()
 
     def watch() -> None:
         while not finished.wait(CHECK_SECONDS):
-            if stop_raised(home):
+            if stop_raised(home, pid=pid):
                 on_stop()
                 return
 
-    threading.Thread(target=watch, daemon=True).start()
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
     try:
         yield
     finally:
         finished.set()
+        if wait_for_stop:
+            watcher.join()
         registration.unlink(missing_ok=True)
 
 
-def raise_stop(home: Path) -> None:
-    stop_path(home).parent.mkdir(parents=True, exist_ok=True)
-    stop_path(home).write_text(str(os.getpid()), encoding="ascii")
+def raise_stop(home: Path, protected: set[int] | None = None) -> None:
+    # Store the exclusions for the entire handover, including after the updater exits.
+    contents = "\n".join(map(str, [os.getpid(), *sorted(protected or ())]))
+    atomic_write_bytes(stop_path(home), contents.encode("ascii"), keep_mode=False)
 
 
 def clear_stop(home: Path) -> None:
@@ -84,10 +93,18 @@ def running(home: Path) -> list[int]:
 
 # Raises the stop event and waits until no registered process is alive. Returns the ones still alive after the timeout.
 def stop_all(home: Path, timeout: float = WAIT_SECONDS, poll: float = 0.2) -> list[int]:
-    raise_stop(home)
+    caller = os.getpid()
+    ancestors = {process.pid for process in _process.ancestors(caller)}
+    protected = {caller, *ancestors}
+    raise_stop(home, protected)
     deadline = time.monotonic() + timeout
+    warned = False
     while True:
-        alive = running(home)
+        registered_pids = running(home)
+        if not warned and ancestors.intersection(registered_pids):
+            print("Restart this session after the legion update.", file=sys.stderr, flush=True)
+            warned = True
+        alive = [pid for pid in registered_pids if pid not in protected]
         if not alive or time.monotonic() >= deadline:
             return alive
         time.sleep(poll)

@@ -5,8 +5,12 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import BinaryIO
+
+from legion.core import _process
 
 RETRIES = 30
+UV_WAIT_SECONDS = 60
 
 
 # POSIX: wait for the parent to exit, then rm. Windows: cmd pauses, then retries while the files stay locked.
@@ -23,27 +27,27 @@ def delete_command(folders: list[Path]) -> tuple[str | list[str], dict[str, str]
     return command, {name: str(folder) for name, folder in names.items()}
 
 
-# Runs one command after the parent exits, retrying while Windows files stay locked, then deletes the paths in `remove`.
-# Each word and each path travels in its own environment variable, so the command text holds no path and no shell expands one.
-def run_command_line(command: list[str], remove: list[Path]) -> tuple[str | list[str], dict[str, str]]:
-    removed = {f"LEGION_REMOVE_{number}": path for number, path in enumerate(remove, 1)}
-    if sys.platform != "win32":
-        words = " ".join(f'"${name}"' for name in removed)
-        cleanup = f"rm -rf -- {words}; " if removed else ""
-        script = f'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; shift; "$@"; status=$?; {cleanup}exit $status'
-        return ["/bin/sh", "-c", script, "sh", str(os.getpid()), *command], {name: str(path) for name, path in removed.items()}
-    system = Path(os.environ["SYSTEMROOT"]) / "System32"
-    pause = f'"{system / "ping.exe"}" -n 2 127.0.0.1 >nul'
-    names = {f"LEGION_RUN_{number}": word for number, word in enumerate(command, 1)}
-    line = " ".join(f'"%{name}%"' for name in names)
-    cleanup = "".join(f'{"rmdir /s /q" if path.is_dir() else "del /f /q"} "%{name}%" 2>nul & ' for name, path in removed.items())
-    program = f'"{system / "cmd.exe"}" /d /v:off /s /c "{pause} & for /l %i in (1,1,{RETRIES}) do @({line} && ({cleanup}exit 0) || {pause})"'
-    return program, {**names, **{name: str(path) for name, path in removed.items()}}
+# Read the helper before uv replaces or removes this environment. The base interpreter lives outside the uv tool.
+def start_command(command: list[str], remove: list[Path], *, log: Path) -> None:
+    code = Path(__file__).with_name("_uv_handover.py").read_text(encoding="utf-8")
+    python = getattr(sys, "_base_executable", sys.executable)
+    program = [python, "-I", "-c", code, _uv_parent_pids(), str(UV_WAIT_SECONDS), str(len(remove)), *map(str, remove), *command]
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("wb") as stream:
+        _detach(program, {}, output=stream)
 
 
-def start_command(command: list[str], remove: list[Path] | None = None) -> None:
-    program, variables = run_command_line(command, remove or [])
-    _detach(program, variables)
+def _uv_parent_pids() -> str:
+    pid = os.getpid()
+    if sys.platform == "win32":
+        # uv's entry point waits for Python and can still have legion.exe open as Python exits.
+        for parent in _process.ancestors(pid):
+            name = parent.name.lower()
+            if name == "legion.exe":
+                return f"{pid},{parent.pid}"
+            if not name.startswith("python"):
+                break
+    return str(pid)
 
 
 def start(folders: list[Path]) -> None:
@@ -53,8 +57,8 @@ def start(folders: list[Path]) -> None:
     _detach(command, variables)
 
 
-def _detach(command: str | list[str], variables: dict[str, str]) -> None:
-    quiet = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "env": {**os.environ, **variables}}
+def _detach(command: str | list[str], variables: dict[str, str], *, output: int | BinaryIO = subprocess.DEVNULL) -> None:
+    quiet = {"stdin": subprocess.DEVNULL, "stdout": output, "stderr": output, "env": {**os.environ, **variables}}
     if sys.platform == "win32":
         subprocess.Popen(command, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW, **quiet)
     else:

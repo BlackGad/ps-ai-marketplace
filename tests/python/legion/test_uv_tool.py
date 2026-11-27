@@ -1,6 +1,7 @@
 # Install, update and uninstall of the legion command through a recording fake uv. No test starts the real uv.
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,7 +11,7 @@ from app_fakes import FakeUv, make_source
 
 from legion.core import _stop_event
 from legion.core._run import RunResult
-from legion.services.installation import _uv_tool
+from legion.services.installation import _user_path, _uv_tool
 
 
 @pytest.fixture
@@ -55,6 +56,15 @@ def test_update_shell_runs_only_with_the_owners_yes(tmp_path: Path, home: Path, 
     assert ["tool", "update-shell"] not in uv.calls
     _uv_tool.install(make_source(tmp_path / "again", "2.0.0"), home, update_shell=True)
     assert ["tool", "update-shell"] in uv.calls
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows saved PATH")
+def test_a_folder_on_the_windows_process_path_can_still_be_missing_from_the_saved_path(uv: FakeUv, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PATH", str(uv.bin))
+    monkeypatch.setattr(_user_path, "persistent_folders", list)
+    assert _uv_tool.path_missing("uv")
+    monkeypatch.setattr(_user_path, "persistent_folders", lambda: [str(uv.bin)])
+    assert not _uv_tool.path_missing("uv")
 
 
 def test_a_dry_run_shows_update_shell_only_when_it_would_run(tmp_path: Path, home: Path, uv: FakeUv) -> None:
@@ -104,6 +114,7 @@ def test_a_detached_install_starts_the_helper_and_leaves_the_stop_event_to_it(tm
     source = make_source(tmp_path)
     lines = _uv_tool.install(source, home, detached=True)
     assert lines[0] == "legion command 1.0.0 is installed when this command ends"
+    assert uv.logs == [home / ".legion/temp/uv-tool.log"]
     assert uv.installs() == []
     ((command, remove),) = uv.detached
     assert command[:3] == ["uv", "tool", "install"]
@@ -116,10 +127,8 @@ def test_a_detached_install_starts_the_helper_and_leaves_the_stop_event_to_it(tm
     shutil.rmtree(constraints)
 
 
-@pytest.mark.parametrize(("platform", "inside", "expected"), [("win32", True, True), ("win32", False, False), ("linux", True, False)])
-def test_setup_hands_the_install_over_on_windows_when_it_runs_from_the_tool(
-    tmp_path: Path, home: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch, platform: str, inside: bool, expected: bool
-) -> None:
+@pytest.mark.parametrize(("platform", "inside", "expected"), [("win32", True, True), ("win32", False, False), ("linux", True, True), ("darwin", True, True)])
+def test_setup_hands_the_install_over_when_it_runs_from_the_tool(tmp_path: Path, home: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch, platform: str, inside: bool, expected: bool) -> None:
     prefix = str(uv.tools / "legion" if inside else tmp_path / "elsewhere")
     monkeypatch.setattr(_uv_tool, "sys", SimpleNamespace(platform=platform, prefix=prefix))
     lines = _uv_tool.install(make_source(tmp_path), home)

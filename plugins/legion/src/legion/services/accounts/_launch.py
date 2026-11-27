@@ -13,7 +13,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Optional
 
-from legion.core import _settings_io, _stop_event
+import psutil
+
+from legion.core import _process, _settings_io, _stop_event
 from legion.core._home import full_path, home_path
 from legion.core._run import _cmd_line, launch_environment
 from legion.core._settings_models import Agent
@@ -94,13 +96,14 @@ def _start_readers(child: "subprocess.Popen[bytes]", session: list[str]) -> list
     return readers
 
 
-# The stop event ends the account's program by its process id only, never by name.
-def _end_children(children: list["subprocess.Popen[bytes]"]) -> None:
-    print("legion: stopped for an update; resume this session afterwards", file=sys.stderr, flush=True)
-    for child in children:
-        if child.poll() is None:
-            with suppress(OSError):
-                child.terminate()
+# The stop event ends the account's process tree by pid.
+def _end_child(child: psutil.Process | None) -> None:
+    print("legion: stopped for an update; continue from the handoff afterwards", file=sys.stderr, flush=True)
+    if child is not None:
+        try:
+            _process.end_tree(child)
+        except psutil.Error as error:
+            print(f"legion: could not stop the account process tree: {error}", file=sys.stderr, flush=True)
 
 
 # On POSIX a SIGINT or SIGTERM sent to legion's own process is passed on.
@@ -136,20 +139,30 @@ def run_account(account: str, arguments: list[str], home: Path, *, cwd: Optional
         raise LauncherError(f"unknown account '{account}'")
     command = account_command(agent, home)
     path = command.provider_file[0] if command.provider_file else None
-    children: list[subprocess.Popen[bytes]] = []
+    ready = threading.Event()
+    identity: psutil.Process | None = None
+
+    def stop() -> None:
+        ready.wait()
+        _end_child(identity)
+
     try:
-        with _stop_event.registered(home, lambda: _end_children(children)):
-            if command.provider_file:
-                write_provider(*command.provider_file)
-            if command.notice:
-                print(command.notice, flush=True)
-            line: str | list[str] = command.words(arguments)
-            if sys.platform == "win32" and Path(line[0]).suffix.lower() in (".cmd", ".bat"):
-                line = _cmd_line(line)
-            stdout = None if sys.stdout.isatty() else subprocess.PIPE
-            stderr = None if sys.stderr.isatty() else subprocess.PIPE
-            child = subprocess.Popen(line, cwd=cwd, env=command.environment(environment), stdout=stdout, stderr=stderr)
-            children.append(child)
+        with _stop_event.registered(home, stop, wait_for_stop=True):
+            try:
+                if command.provider_file:
+                    write_provider(*command.provider_file)
+                if command.notice:
+                    print(command.notice, flush=True)
+                line: str | list[str] = command.words(arguments)
+                if sys.platform == "win32" and Path(line[0]).suffix.lower() in (".cmd", ".bat"):
+                    line = _cmd_line(line)
+                stdout = None if sys.stdout.isatty() else subprocess.PIPE
+                stderr = None if sys.stderr.isatty() else subprocess.PIPE
+                child = subprocess.Popen(line, cwd=cwd, env=command.environment(environment), stdout=stdout, stderr=stderr)
+                with suppress(psutil.NoSuchProcess):
+                    identity = psutil.Process(child.pid)
+            finally:
+                ready.set()
             session: list[str] = []
             readers = _start_readers(child, session)
             code = _wait(child)
