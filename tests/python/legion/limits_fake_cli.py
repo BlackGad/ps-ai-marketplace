@@ -7,8 +7,18 @@ import sys
 import time
 from pathlib import Path
 
-# The grandchild publishes its pid through a sibling file, so a reader that sees the file sees all of it.
-SLEEPER = "import os, sys, time; from pathlib import Path; part = Path(sys.argv[1] + '.part'); part.write_text(str(os.getpid())); part.replace(sys.argv[1]); time.sleep(60)"
+# Publish readiness only after closing the PID file. Readers never need to open the marker.
+SLEEPER = """
+import os, sys, time
+from pathlib import Path
+
+pid = Path(sys.argv[1])
+part = pid.with_suffix(".part")
+part.write_text(str(os.getpid()), encoding="utf-8")
+part.replace(pid)
+pid.with_suffix(".ready").touch()
+time.sleep(60)
+"""
 
 
 def setting(name: str) -> str:
