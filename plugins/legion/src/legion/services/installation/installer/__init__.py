@@ -377,13 +377,16 @@ def _pinned_marketplace(entry: CatalogTool, folder: Path, item: dict[str, object
     if not isinstance(source, str):
         return False
     source, _, source_ref = source.partition("#")
-    if source.removesuffix(".git").removeprefix("https://github.com/").removeprefix("git@github.com:") != pin.source:
+    if source.removeprefix("GitHub: ").removesuffix(".git").removeprefix("https://github.com/").removeprefix("git@github.com:") != pin.source:
         return False
     ref = details.get("ref") or item.get("ref") or source_ref
-    if not ref and entry.id == "codex":
-        # Codex lists the configured source but omits its ref from the JSON result.
+    if not ref:
+        # Codex and Copilot can omit the ref from their marketplace listings.
         try:
-            ref = tomllib.loads((folder / "config.toml").read_text(encoding="utf-8-sig"))["marketplaces"][pin.marketplace]["ref"]
+            if entry.id == "codex":
+                ref = tomllib.loads((folder / "config.toml").read_text(encoding="utf-8-sig"))["marketplaces"][pin.marketplace]["ref"]
+            elif entry.id == "copilot":
+                ref = json.loads((folder / "settings.json").read_text(encoding="utf-8-sig"))["extraKnownMarketplaces"][pin.marketplace]["source"]["ref"]
         except (OSError, ValueError, TypeError, KeyError):
             return False
     return ref == pin.tag

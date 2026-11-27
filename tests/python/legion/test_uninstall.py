@@ -164,6 +164,22 @@ def test_purge_deletes_the_knowledge_hub_only_on_its_own_yes(home: Path, recorde
     assert recorder.handed == [[home / ".legion"]]
 
 
+@pytest.mark.parametrize("external", [False, True])
+def test_purge_of_linked_hub_clears_only_the_pointer_to_the_hub_link(home: Path, recorder: Recorder, answers: list[bool], external: bool) -> None:
+    outside = home / "outside"
+    outside.mkdir()
+    make_link(home / ".legion/knowledge", outside)
+    pointer = home / ".config/llm-wiki/config.json"
+    pointer.parent.mkdir(parents=True)
+    value = outside.as_posix() if external else "~/.legion/knowledge"
+    pointer.write_text(f'{{"hub_path":"{value}"}}', encoding="utf-8")
+    answers.append(True)
+    run(home, yes=True, purge=True)
+    assert pointer.exists() is external
+    assert outside.is_dir()
+    assert recorder.handed == [[home / ".legion"]]
+
+
 def test_purge_of_a_linked_legion_folder_hands_over_the_link_only(tmp_path: Path, recorder: Recorder, answers: list[bool]) -> None:
     answers.append(False)
     outside = tmp_path / "outside"

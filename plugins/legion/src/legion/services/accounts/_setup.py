@@ -310,11 +310,13 @@ def preview(home: Path, tool_id: Optional[str], config_dir: Optional[str], accou
 # --- doing it ---
 
 
-def initialize_files(plan: Plan, say: Callable[[str], None]) -> None:
+def initialize_files(plan: Plan, say: Callable[[str], None], knowledge: Optional[bool] = None, explicit: bool = False) -> None:
     if plan.settings_file.exists():
         say("skip: settings (already done)")
-    else:
+    elif knowledge is None:
         _generated.write_generated(plan.settings_file, _settings_io.EMPTY + "\n", executable=False)
+    if knowledge is not None:
+        _save_knowledge_locked(plan.home, knowledge, explicit)
     if plan.notes.exists():
         say("skip: notes (already done)")
     else:
@@ -449,17 +451,11 @@ def write_table(plan: Plan, say: Callable[[str], None]) -> None:
         say(f"Blocked commands: {', '.join(dict.fromkeys(blocked))}")
 
 
-def _knowledge_choice(home: Path, choice: Optional[bool]) -> None:
-    explicit = choice is not None
-    if not explicit:
-        if _settings_io.load_or_empty(home).knowledge_enabled is not None:
-            return
-        choice = click.confirm("Install the llm-wiki knowledge base in every account? [y/N]", default=False, show_default=False, prompt_suffix=" ")
-    with _settings_io.writer(home, require_existing=False):
-        settings = _settings_io.load_or_empty(home)
-        if settings.knowledge_enabled != choice and (explicit or settings.knowledge_enabled is None):
-            settings.knowledge_enabled = choice
-            _settings_io.save_locked(home, settings)
+def _save_knowledge_locked(home: Path, choice: bool, explicit: bool) -> None:
+    settings = _settings_io.load_or_empty(home)
+    if settings.knowledge_enabled != choice and (explicit or settings.knowledge_enabled is None):
+        settings.knowledge_enabled = choice
+        _settings_io.save_locked(home, settings)
 
 
 def _install_knowledge(home: Path, say: Callable[[str], None]) -> None:
@@ -474,13 +470,22 @@ def _install_knowledge(home: Path, say: Callable[[str], None]) -> None:
             say(line)
 
 
-def apply(home: Path, tool_id: Optional[str], config_dir: Optional[str], account_id: Optional[str], source: Optional[str], say: Callable[[str], None]) -> None:
+def apply(
+    home: Path,
+    tool_id: Optional[str],
+    config_dir: Optional[str],
+    account_id: Optional[str],
+    source: Optional[str],
+    say: Callable[[str], None],
+    knowledge: Optional[bool],
+    explicit: bool,
+) -> None:
     # A fresh home can reject bad input without creating a lock file or settings folder.
     if not settings_path(home).exists():
         build_plan(home, tool_id, config_dir, account_id)
     with _settings_io.writer(home, require_existing=False):
         plan = build_plan(home, tool_id, config_dir, account_id)
-        initialize_files(plan, say)
+        initialize_files(plan, say, knowledge, explicit)
     with saved_path():
         install_tools(plan)
         add_accounts(plan, say)
@@ -514,7 +519,7 @@ def run(
     knowledge: Optional[bool] = None,
 ) -> None:
     can_ask = interactive()
-    ask_knowledge = tool_id is None and can_ask
+    explicit = knowledge is not None
     if not yes and knowledge is None:
         lines = preview(home, tool_id, config_dir, account_id)
         prompt = can_ask and lines[-1] != NOTHING_TO_DO
@@ -525,10 +530,13 @@ def run(
             yes = ask().strip().lower() in ("", "y", "yes")
             if not yes:
                 say("Setup plan declined.")
-                ask_knowledge = False
-    if knowledge is not None or ask_knowledge:
-        _knowledge_choice(home, knowledge)
+                return
+    if not explicit and tool_id is None and can_ask and _settings_io.load_or_empty(home).knowledge_enabled is None:
+        knowledge = click.confirm("Install the llm-wiki knowledge base in every account? [y/N]", default=False, show_default=False, prompt_suffix=" ")
     if yes:
-        apply(home, tool_id, config_dir, account_id, source, say)
+        apply(home, tool_id, config_dir, account_id, source, say, knowledge, explicit)
+    elif knowledge is not None:
+        with _settings_io.writer(home, require_existing=False):
+            _save_knowledge_locked(home, knowledge, explicit)
     with saved_path():
         _install_knowledge(home, say)

@@ -153,6 +153,7 @@ def test_setup_remembers_the_knowledge_answer(bench: Bench, monkeypatch: pytest.
     question = "Install the llm-wiki knowledge base in every account? [y/N]"
     assert (question in first.output) == (answer is not None)
     assert bench.settings().get("knowledgeEnabled") is saved
+    assert "skip: settings (already done)" not in first.output
     assert (bench.home / ".legion/knowledge/wikis.json").exists() is (saved is True)
     report = status(bench.base, bench.home)
     state = {True: "on", False: "declined", None: "off"}[saved]
@@ -176,6 +177,12 @@ def test_knowledge_question_does_not_hold_the_settings_lock(bench: Bench, monkey
     result = CliRunner().invoke(cli.main, ["--home", str(bench.home), "setup"])
     assert result.exit_code == 0, result.exception
     assert bench.settings()["knowledgeEnabled"] is False
+
+
+def test_invalid_setup_leaves_no_settings_even_with_a_knowledge_choice(bench: Bench) -> None:
+    with pytest.raises(_setup.SetupError, match="unknown tool"):
+        _setup.run(bench.home, "unknown", None, None, None, True, lambda _: None, knowledge=True)
+    assert not settings_path(bench.home).exists()
 
 
 def test_unattended_setup_prints_the_plan_and_repairs_the_hub(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -225,7 +232,9 @@ def test_knowledge_adopts_the_plugin_and_follows_later_accounts(bench: Bench, mo
                 elif tool == "claude":
                     market_rows.append({"name": name, "source": "github", "repo": source, "ref": ref, "installLocation": str(folder)})
                 else:
-                    market_rows.append({"name": name, "source": {"source": "github", "repo": source, "ref": ref}})
+                    market_rows.append({"name": name, "source": f"GitHub: {source}", "isDefault": False})
+                    data = {"extraKnownMarketplaces": {name: {"source": {"source": "github", "repo": source, "ref": ref}}}}
+                    (folder / "settings.json").write_text(json.dumps(data), encoding="utf-8")
             output = json.dumps({"marketplaces": market_rows} if tool == "codex" else market_rows)
         elif args == entry.plugin.list_command:
             ids = [plugin for account, plugin in plugins if account == folder]
@@ -938,6 +947,16 @@ def test_an_owner_who_says_no_changes_nothing(bench: Bench, monkeypatch: pytest.
     _setup.run(bench.home, "codex", None, None, None, False, lines.append)
     assert lines[-1] == "Setup plan declined."
     assert not (bench.home / ".legion").exists()
+
+
+def test_declining_setup_does_not_reconcile_a_saved_knowledge_opt_in(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup.run(bench.home, None, None, None, None, True, lambda _: None, knowledge=True)
+    log = bench.home / ".legion/knowledge/log.md"
+    log.unlink()
+    Talk(monkeypatch, True, ["n"])
+    _setup.run(bench.home, "codex", None, None, None, False, lambda _: None)
+    assert not log.exists()
+    assert bench.ids() == []
 
 
 def test_a_script_gets_the_plan_and_the_run_again_hint_and_no_prompt(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -4,6 +4,7 @@ from typing import Literal
 
 from legion.core._atomic_write import atomic_write_bytes
 from legion.core._home import (
+    full_path,
     home_path,
     is_reparse,
     resolve_directory,
@@ -46,8 +47,9 @@ def _hub_value(data: dict[str, object]) -> object:
     return data.get("hub_path") or data.get("resolved_path")
 
 
-def _matches(value: object, home: Path) -> bool:
-    return isinstance(value, str) and same_path(resolve_directory(home_path(value, home)), resolve_directory(home_path(HUB_PATH, home)))
+def _matches(value: object, home: Path, *, follow_links: bool = True) -> bool:
+    resolve = resolve_directory if follow_links else full_path
+    return isinstance(value, str) and same_path(resolve(home_path(value, home)), resolve(home_path(HUB_PATH, home)))
 
 
 def _write_pointer(path: Path, data: dict[str, object], previous: dict[str, object]) -> None:
@@ -81,13 +83,14 @@ def initialize(home: Path, lines: list[str]) -> None:
 
 def purge(home: Path, lines: list[str]) -> None:
     hub = home_path(HUB_PATH, home)
-    if is_reparse(hub.parent) or is_reparse(hub):
-        return  # Handover removes the link, leaving its target in place.
+    if is_reparse(hub.parent):
+        return  # Handover removes the parent link, leaving the hub in place.
+    follow_links = not is_reparse(hub)
     path = home / ".config/llm-wiki/config.json"
     try:
         data = _pointer(path)
-        if _matches(_hub_value(data), home):
-            remaining = {key: value for key, value in data.items() if key not in ("hub_path", "resolved_path") or not _matches(value, home)}
+        if _matches(_hub_value(data), home, follow_links=follow_links):
+            remaining = {key: value for key, value in data.items() if key not in ("hub_path", "resolved_path") or not _matches(value, home, follow_links=follow_links)}
             if remaining:
                 _write_pointer(path, remaining, data)
             elif _pointer(path) == data:
