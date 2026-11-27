@@ -1,3 +1,4 @@
+[tool.ruff]
 # Exclude a variety of commonly ignored directories.
 exclude = [
     ".bzr",
@@ -34,7 +35,7 @@ indent-width = 4
 # Assume Python 3.12 (matches requires-python floor)
 target-version = "py312"
 
-[lint]
+[tool.ruff.lint]
 select = [
     "ARG",
     "B",
@@ -136,7 +137,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 # Set maximum allowed complexity for functions
 mccabe.max-complexity = 15
 
-[format]
+[tool.ruff.format]
 # Like Black, use double quotes for strings.
 quote-style = "double"
 
@@ -163,14 +164,14 @@ docstring-code-format = false
 # enabled.
 docstring-code-line-length = "dynamic"
 
-[lint.flake8-annotations]
+[tool.ruff.lint.flake8-annotations]
 ignore-fully-untyped = true
 allow-star-arg-any = true
 mypy-init-return = true
 suppress-dummy-args = true
 suppress-none-returning = true
 
-[lint.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 # timeout is the approved MCP argument and bounds the synchronous probe, not an async wait.
 "plugins/legion/src/legion/mcp/server.py" = ["ASYNC109"]
 "plugins/legion/src/legion/cli/__init__.py" = ["PLC0415"]
@@ -178,3 +179,27 @@ suppress-none-returning = true
 "plugins/legion/src/legion/services/installation/installer/__init__.py" = ["C901", "PLC0415"]
 "plugins/legion/src/**" = ["S603"]
 "tests/python/**" = ["S603"]
+
+[tool.pyright]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
+include = ["plugins/legion/src", "plugins/legion/hooks", "tests/python", "tests/integration", "tools"]
+extraPaths = ["plugins/legion/src"]
+exclude = ["**/__pycache__", "**/node_modules", "**/.*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+addopts = [
+    "-n",
+    "auto",
+    "--basetemp=.agents/temp/python/pytest-tmp",
+    "--cov=legion",
+    "--cov-config=pyproject.toml",
+    "--cov-report=term-missing",
+    "--cov-report=xml:.agents/temp/python/coverage.xml",
+    "--junitxml=.agents/temp/python/junit.xml",
+]
+cache_dir = ".agents/temp/python/pytest-cache"
+
+[tool.coverage.run]
+data_file = ".agents/temp/python/.coverage"

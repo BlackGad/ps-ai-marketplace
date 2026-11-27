@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 from cli_runner import run
+from jsonschema import Draft7Validator
 from pydantic import ValidationError
 
 from legion.core import _validate
@@ -124,6 +125,13 @@ def test_tool_schema_verdicts_match_the_recorded_old_run(case: dict[str, Any]) -
     except ValidationError:
         valid = False
     assert valid == case["valid"]
+
+
+@pytest.mark.parametrize("case", RECORDED["tool"], ids=lambda case: case["name"])
+def test_published_tool_schema_matches_the_recorded_verdicts(case: dict[str, Any]) -> None:
+    schema = json.loads((REPO / "plugins/legion/schemas/tool.schema.json").read_text(encoding="utf-8"))
+    Draft7Validator.check_schema(schema)
+    assert Draft7Validator(schema).is_valid(edited_descriptor(case)) == case["valid"]
 
 
 def test_cli_prints_nothing_and_exits_zero_for_a_valid_file(capsys: pytest.CaptureFixture[str]) -> None:
