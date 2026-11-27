@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import tomllib
+from contextlib import nullcontext
 from functools import cmp_to_key
 from pathlib import Path
 from typing import Optional
@@ -54,6 +55,10 @@ LEGION_PLUGIN = "legion@ps-legion-marketplace"
 
 
 class InstallerError(ValueError):
+    pass
+
+
+class _MissingAccountCommandError(InstallerError):
     pass
 
 
@@ -396,15 +401,46 @@ def _removal_steps(plugin: Plugin, listed: bool, registered: bool) -> list[list[
     return [arguments for present, arguments in ((listed, plugin.uninstall), (registered, plugin.marketplace_remove)) if present]
 
 
+def _wiki_removal_steps(entry: CatalogTool, folder: Path, pin: PluginPin) -> list[list[str]]:
+    return _removal_steps(_wiki_recipe(entry.plugin, pin), _plugin_state(entry, folder, pin.plugin_id)[0], bool(_marketplace_item(entry, folder, pin.marketplace)))
+
+
 def _account_target(home: Path, catalog: ToolsCatalog, agent: Agent) -> tuple[CatalogTool, Path]:
     entry = _tool(catalog, agent.tool)
     command = registered_command(agent, home) if agent.command is not None else shutil.which(entry.command)
     if command is None:
-        raise InstallerError(f"{agent.tool} command is missing")
+        raise _MissingAccountCommandError(f"{agent.tool} command is missing")
     return entry.model_copy(update={"command": str(command)}), _config_path(home, agent.config_dir)
 
 
-def reconcile_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent], dry_run: bool, lines: list[str]) -> None:
+def remove_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent], lines: list[str]) -> None:
+    pin = catalog.wiki
+    if pin is None:
+        return
+    seen: set[tuple[str, str]] = set()
+    for agent in agents:
+        try:
+            entry, folder = _account_target(home, catalog, agent)
+            key = entry.id, os.path.normcase(str(resolve_directory(folder)))
+            if key not in seen:
+                for arguments in _wiki_removal_steps(entry, folder, pin):
+                    _step(entry, arguments, folder, False, lines)
+                seen.add(key)
+        except _MissingAccountCommandError as error:
+            lines.append(f"skip: knowledge: {agent.id} ({error})")
+        except (OSError, ValueError) as error:
+            raise InstallerError(f"knowledge: {agent.id}: {error}") from error
+
+
+def reconcile_knowledge(home: Path, catalog: ToolsCatalog, dry_run: bool, lines: list[str]) -> None:
+    # Re-read the choice after acquiring the lock in case setup turned knowledge off during an update.
+    with nullcontext() if dry_run else _settings_io.writer(home, require_existing=False):
+        settings = _personalisation(home)
+        if settings and settings.knowledge_enabled:
+            _reconcile_knowledge(home, catalog, settings.agents, dry_run, lines)
+
+
+def _reconcile_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent], dry_run: bool, lines: list[str]) -> None:
     pin = catalog.wiki
     if pin is None:
         return
@@ -495,7 +531,7 @@ def install(
         if not dry_run:
             lines.extend(_refresh.refresh(home, source=PLUGIN_ROOT))
         if manage_knowledge:
-            reconcile_knowledge(home, catalog, agents, dry_run, lines)
+            reconcile_knowledge(home, catalog, dry_run, lines)
         return lines
     if update:
         targets: list[tuple[CatalogTool, Path]] = []
@@ -556,7 +592,7 @@ def install(
             raise
         _hand_over(home, confirmed, lines, rows)
         if manage_knowledge:
-            reconcile_knowledge(home, catalog, agents, dry_run, lines)
+            reconcile_knowledge(home, catalog, dry_run, lines)
         if targets and not dry_run:
             lines.extend(_results_table(rows))
             lines.append("done: restart your sessions; run legion in the repository")
@@ -644,8 +680,7 @@ def _uninstall(
                     lines.append(f"skip: {tool_id} {what} in {folder} (not installed)")
             if pin is not None:
                 try:
-                    recipe = _wiki_recipe(target.plugin, pin)
-                    for arguments in _removal_steps(recipe, _plugin_state(target, folder, pin.plugin_id)[0], bool(_marketplace_item(target, folder, pin.marketplace))):
+                    for arguments in _wiki_removal_steps(target, folder, pin):
                         steps.append((target, folder, arguments, True))
                         lines.append(_command_line(target, arguments, folder))
                 except (OSError, ValueError) as error:

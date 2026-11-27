@@ -316,7 +316,7 @@ def initialize_files(plan: Plan, say: Callable[[str], None], knowledge: Optional
     elif knowledge is None:
         _generated.write_generated(plan.settings_file, _settings_io.EMPTY + "\n", executable=False)
     if knowledge is not None:
-        _save_knowledge_locked(plan.home, knowledge, explicit)
+        _save_knowledge_locked(plan.home, knowledge, explicit, say)
     if plan.notes.exists():
         say("skip: notes (already done)")
     else:
@@ -451,11 +451,28 @@ def write_table(plan: Plan, say: Callable[[str], None]) -> None:
         say(f"Blocked commands: {', '.join(dict.fromkeys(blocked))}")
 
 
-def _save_knowledge_locked(home: Path, choice: bool, explicit: bool) -> None:
+def _save_knowledge_locked(home: Path, choice: bool, explicit: bool, say: Callable[[str], None]) -> None:
     settings = _settings_io.load_or_empty(home)
-    if settings.knowledge_enabled != choice and (explicit or settings.knowledge_enabled is None):
-        settings.knowledge_enabled = choice
-        _settings_io.save_locked(home, settings)
+    if settings.knowledge_enabled == choice:
+        if explicit and not choice:
+            say("skip: knowledge declined (already done)")
+        return
+    if not explicit and settings.knowledge_enabled is not None:
+        return
+    if not choice and settings.knowledge_enabled:
+        lines: list[str] = []
+        try:
+            with saved_path():
+                catalog = _installer._catalog(_installer.DEFAULT_SOURCE, "release", None)
+                _installer.remove_knowledge(home, catalog, settings.agents, lines)
+        except (OSError, ValueError):
+            lines.append("knowledge stays on; run legion setup --no-knowledge again")
+            raise
+        finally:
+            for line in lines:
+                say(line)
+    settings.knowledge_enabled = choice
+    _settings_io.save_locked(home, settings)
 
 
 def _install_knowledge(home: Path, say: Callable[[str], None]) -> None:
@@ -465,7 +482,7 @@ def _install_knowledge(home: Path, say: Callable[[str], None]) -> None:
     if settings.knowledge_enabled:
         lines: list[str] = []
         catalog = _installer._catalog(_installer.DEFAULT_SOURCE, "release", None)
-        _installer.reconcile_knowledge(home, catalog, settings.agents, False, lines)
+        _installer.reconcile_knowledge(home, catalog, False, lines)
         for line in lines:
             say(line)
 
@@ -537,6 +554,6 @@ def run(
         apply(home, tool_id, config_dir, account_id, source, say, knowledge, explicit)
     elif knowledge is not None:
         with _settings_io.writer(home, require_existing=False):
-            _save_knowledge_locked(home, knowledge, explicit)
+            _save_knowledge_locked(home, knowledge, explicit, say)
     with saved_path():
         _install_knowledge(home, say)

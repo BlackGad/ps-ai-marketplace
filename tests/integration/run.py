@@ -15,6 +15,7 @@ import sys
 import tempfile
 import threading
 import time
+import tomllib
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -24,6 +25,11 @@ from typing import Any
 
 TOOLS = ("claude", "codex", "copilot")
 MARKETPLACE = "BlackGad/ps-legion-marketplace"
+WIKI_MARKETPLACE = "llm-wiki"
+WIKI_PLUGIN = "wiki@llm-wiki"
+WIKI_SOURCE = "nvk/llm-wiki"
+WIKI_TAG = "v1.0.0"
+WIKI_COMMIT = "35d37c5591c7585643196333edd83922e7bbc757"
 ENDPOINT = "https://example-resource.cognitiveservices.azure.com"
 WINDOWS = sys.platform == "win32"
 CODEX_PROBE_SECONDS = 120
@@ -141,22 +147,22 @@ def _row_id(line: str) -> str | None:
     return None
 
 
-def listed(entry: dict[str, Any], output: str, include_disabled: bool = False, kind: str = "plugin") -> bool:
+def listed(entry: dict[str, Any], output: str, include_disabled: bool = False, kind: str = "plugin", *, wanted: str | None = None) -> bool:
     """Read CLI listings using the formats advertised by tools.json."""
     # Hand-built, reason: the three public CLIs expose different listing formats described by tools.json.
     if not output.strip():
         return False
+    wanted = wanted or ("ps-legion-marketplace" if kind == "marketplace" else "legion@ps-legion-marketplace")
     listing = entry["plugin"]["marketplaceListing" if kind == "marketplace" else "listing"]
     if listing["format"] == "json":
         items = json.loads(output)
         if "collectionField" in listing:
             items = items[listing["collectionField"]]
-        wanted = "ps-legion-marketplace" if kind == "marketplace" else "legion@ps-legion-marketplace"
         for item in items:
             if item.get(listing.get("nameField", listing.get("idField"))) == wanted:
                 return include_disabled or kind == "marketplace" or item.get(listing["enabledField"]) is True
         return False
-    matches = [line for line in output.splitlines() if _row_id(line) == "legion@ps-legion-marketplace" and "not installed" not in line]
+    matches = [line for line in output.splitlines() if _row_id(line) == wanted and "not installed" not in line]
     return bool(matches) if include_disabled else any(not re.search(listing["rejectPattern"], line) for line in matches)
 
 
@@ -360,21 +366,22 @@ class Runner:
             raise AssertionError(f"{name} was not found on PATH after install")
         return path
 
-    def run(self, argv: list[str], *, env: dict[str, str] | None = None, cwd: Path | None = None, check: bool = True) -> str:
-        result = subprocess.run(argv, cwd=cwd, env=env or self.env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, check=False)  # noqa: S603
+    def run(self, argv: list[str], *, env: dict[str, str] | None = None, cwd: Path | None = None, check: bool = True, answers: str | None = None) -> str:
+        stdin = subprocess.DEVNULL if answers is None else None
+        result = subprocess.run(argv, cwd=cwd, env=env or self.env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=stdin, input=answers, check=False)  # noqa: S603
         output = result.stdout.rstrip()
         self.log.append(output)
         if check and result.returncode:
             raise RuntimeError(f"{Path(argv[0]).name} exited {result.returncode}\n{output}")
         return output
 
-    def legion(self, *args: str, owner: bool = False) -> str:
+    def legion(self, *args: str, owner: bool = False, answers: str | None = None) -> str:
         if owner:
-            return self.run([str(self.launcher("legion")), *args])
+            return self.run([str(self.launcher("legion")), *args], answers=answers)
         uv = str(self.runner_uv) if self.runner_uv.is_file() else self.command("uv")
         env = self.env.copy()
         env["UV_PROJECT_ENVIRONMENT"] = str(self.work / "python-env")
-        return self.run([uv, "run", "--project", str(self.checkout / "plugins/legion"), "--frozen", "--quiet", "legion", "--home", str(self.home), *args], env=env)
+        return self.run([uv, "run", "--project", str(self.checkout / "plugins/legion"), "--frozen", "--quiet", "legion", "--home", str(self.home), *args], env=env, answers=answers)
 
     def launcher(self, name: str) -> Path:
         return self.home / ".legion/bin" / (name + ".cmd" if sys.platform == "win32" else name)
@@ -395,8 +402,8 @@ class Runner:
         env.update(entry["plugin"].get("listingEnv", {}))
         return self.run([self.command(entry["command"]), *args], env=env, cwd=self.work)
 
-    def listing(self, tool: str, folder: Path, kind: str = "plugin", include_disabled: bool = False) -> bool:
-        return listed(self.catalog[tool], self.listing_output(tool, folder, kind), include_disabled, kind)
+    def listing(self, tool: str, folder: Path, kind: str = "plugin", include_disabled: bool = False, *, wanted: str | None = None) -> bool:
+        return listed(self.catalog[tool], self.listing_output(tool, folder, kind), include_disabled, kind, wanted=wanted)
 
     def listing_output(self, tool: str, folder: Path, kind: str = "plugin") -> str:
         args = self.catalog[tool]["plugin"]["marketplaceList" if kind == "marketplace" else "list"]
@@ -1076,6 +1083,171 @@ asyncio.run(main())
             self.state["purge_snapshot"] = self.home_snapshot()
         return output
 
+    def knowledge_runner(self) -> "Runner":
+        remote = f"https://github.com/{WIKI_SOURCE}"
+        source = self.work / WIKI_MARKETPLACE
+        git = ["git", "-C", str(source)]
+        self.run(["git", "-c", "advice.detachedHead=false", "clone", "--quiet", "--depth", "1", "--branch", WIKI_TAG, "--config", "core.longpaths=true", remote, str(source)])
+        require(self.run([*git, "rev-parse", "HEAD"]) == WIKI_COMMIT, f"{WIKI_SOURCE} {WIKI_TAG} moved")
+        self.run([*git, "tag", "--force", WIKI_TAG, WIKI_COMMIT])
+        self.run([*git, "switch", "--quiet", "-c", "fixture-default"])
+
+        wiki = Runner(self.checkout, self.work / "knowledge" / "home", self.out, False)
+        wiki.log = self.log
+        wiki.env["PATH"] = os.pathsep.join((str(wiki.owned_uv.parent), self.env["PATH"]))
+        wiki.runner_uv = self.runner_uv
+        wiki.owned_uv.parent.mkdir(parents=True)
+        shutil.copy2(wiki.runner_uv, wiki.owned_uv)
+        for tool in TOOLS:
+            output = wiki.legion("add", tool, "--id", f"wiki-{tool}", "--source", str(self.checkout), "--yes")
+            require("uv is missing" not in output, f"uv is missing while adding wiki-{tool} in the knowledge home")
+        require({agent["tool"] for agent in wiki.settings()["agents"]} == set(TOOLS), "knowledge must test every CLI")
+        rewrite = f"url.{source.resolve().as_uri()}.insteadOf"
+        wiki.env.update(
+            {
+                "GIT_ALLOW_PROTOCOL": "file",
+                "GIT_CONFIG_COUNT": "3",
+                "GIT_CONFIG_KEY_0": rewrite,
+                "GIT_CONFIG_VALUE_0": remote + ".git",
+                "GIT_CONFIG_KEY_1": rewrite,
+                "GIT_CONFIG_VALUE_1": remote,
+                "GIT_CONFIG_KEY_2": "core.longpaths",
+                "GIT_CONFIG_VALUE_2": "true",
+            }
+        )
+        return wiki
+
+    def wiki_accounts(self) -> list[tuple[str, Path]]:
+        return [(agent["tool"], self.resolve_folder(agent["configDir"])) for agent in self.settings()["agents"]]
+
+    def wiki_ref(self, tool: str, folder: Path) -> object:
+        output = json.loads(self.listing_output(tool, folder, "marketplace"))
+        rows = output["marketplaces"] if tool == "codex" else output
+        row = next((row for row in rows if row["name"] == WIKI_MARKETPLACE), None)
+        if row is None:
+            raise AssertionError(f"{tool} did not register {WIKI_MARKETPLACE}")
+        require(WIKI_SOURCE in json.dumps(row), f"{tool} registered the wrong wiki source")
+        if tool == "codex":
+            return tomllib.loads((folder / "config.toml").read_text(encoding="utf-8-sig"))["marketplaces"][WIKI_MARKETPLACE].get("ref")
+        if tool == "copilot":
+            settings = json.loads((folder / "settings.json").read_text(encoding="utf-8-sig"))
+            return settings["extraKnownMarketplaces"][WIKI_MARKETPLACE]["source"].get("ref")
+        return row.get("ref")
+
+    def check_wiki(self, ref: str | None) -> None:
+        for tool, folder in self.wiki_accounts():
+            require(self.listing(tool, folder, wanted=WIKI_PLUGIN), f"{tool} did not enable {WIKI_PLUGIN}")
+            actual = self.wiki_ref(tool, folder)
+            require(actual == ref, f"{tool} wiki ref is {actual!r}, expected {ref!r}")
+            if tool == "copilot":
+                require(any((folder / "installed-plugins/llm-wiki/wiki/skills").glob("*/SKILL.md")), "Copilot did not install the wiki skill")
+
+    def manual_wiki(self) -> None:
+        names = {"legion@ps-legion-marketplace": WIKI_PLUGIN, "{source}": WIKI_SOURCE}
+        for tool, folder in self.wiki_accounts():
+            recipe = self.catalog[tool]["plugin"]
+            for step in ("marketplaceAdd", "install"):
+                arguments: list[str] = recipe[step]
+                self.cli(tool, [names.get(word, word) for word in arguments], folder)
+        self.check_wiki(None)
+
+    def knowledge_setup(self, repeat: bool) -> str:
+        if not repeat:
+            require("knowledgeEnabled" not in self.settings(), "knowledge choice must be unset before manual installation")
+            self.manual_wiki()
+        hub = self.home / ".legion/knowledge"
+        pointer = self.home / ".config/llm-wiki/config.json"
+        before = self.home_snapshot() if repeat else {}
+        pointer_before = pointer.read_bytes() if repeat else b""
+        output = self.legion("setup", "--knowledge", "--yes")
+        if repeat:
+            contains(output, "skip: knowledge hub (already done)")
+            contains(output, "skip: llm-wiki hub pointer (already done)")
+            skips = [line for line in output.splitlines() if line.startswith("skip: ") and WIKI_PLUGIN in line]
+            require(len(skips) == len(self.wiki_accounts()), "expected a wiki install skip for every account")
+            unchanged(before, self.home_snapshot())
+            require(pointer.read_bytes() == pointer_before, "wiki pointer changed on repeat")
+        self.check_wiki(WIKI_TAG)
+        require(json.loads(pointer.read_text(encoding="utf-8"))["hub_path"] == "~/.legion/knowledge", "wrong wiki hub pointer")
+        require((hub / "topics").is_dir() and all((hub / name).is_file() for name in ("wikis.json", "_index.md", "log.md")), "wiki hub files missing")
+        status = json.loads(self.legion("status", "--json"))["knowledge"]
+        require(status == {"state": "on", "hub": "ready", "missing_accounts": []}, f"unexpected wiki status: {status}")
+        return output
+
+    def check_wiki_removed(self) -> None:
+        for tool, folder in self.wiki_accounts():
+            require(not self.listing(tool, folder, include_disabled=True, wanted=WIKI_PLUGIN), f"{tool} still lists the wiki plugin")
+            require(not self.listing(tool, folder, "marketplace", wanted=WIKI_MARKETPLACE), f"{tool} still lists the wiki marketplace")
+
+    def knowledge_off(self, repeat: bool) -> str:
+        if not repeat:
+            self.legion("setup", "--knowledge")
+            self.check_wiki(WIKI_TAG)
+        hub = self.home / ".legion/knowledge"
+        pointer = self.home / ".config/llm-wiki/config.json"
+        before = self.home_snapshot() if repeat else snapshot(hub)
+        pointer_before = pointer.read_bytes()
+        output = self.legion("setup", "--no-knowledge")
+        if repeat:
+            contains(output, "skip: knowledge declined (already done)")
+            unchanged(before, self.home_snapshot())
+        else:
+            unchanged(before, snapshot(hub))
+        require(hub.is_dir(), "disabling knowledge removed the wiki hub")
+        require(pointer.read_bytes() == pointer_before, "disabling knowledge changed the wiki pointer")
+        self.check_wiki_removed()
+        status = json.loads(self.legion("status", "--json"))["knowledge"]
+        require(status["state"] == "declined", f"wiki choice was not declined: {status}")
+        return output
+
+    def knowledge_uninstall(self, repeat: bool) -> str:
+        hub = self.home / ".legion/knowledge"
+        before = snapshot(hub)
+        output = self.legion("uninstall", "--yes")
+        if repeat:
+            contains(output, "skip: uninstall (already done)")
+        self.check_wiki_removed()
+        wait_gone(*(self.home / ".legion" / name for name in ("app", "bin", "python")))
+        require(hub.is_dir(), "uninstall removed the wiki hub")
+        unchanged(before, snapshot(hub))
+        return output
+
+    def knowledge_declined(self, repeat: bool) -> str:
+        if not repeat:
+            self.legion("setup", "--no-knowledge")
+            self.owned_uv.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.runner_uv, self.owned_uv)
+            for tool, folder in self.wiki_accounts():
+                self.legion("install", "--tool", tool, "--config-dir", str(folder), "--source", str(self.checkout), "--yes")
+                require(self.listing(tool, folder), f"{tool} did not reinstall Legion for the declined case")
+            self.manual_wiki()
+        status = json.loads(self.legion("status", "--json"))["knowledge"]
+        require(status["state"] == "declined", f"wiki choice was not declined: {status}")
+        output = self.legion("uninstall", "--yes")
+        for tool, folder in self.wiki_accounts():
+            self.check_uninstalled(tool, folder)
+        wait_gone(*(self.home / ".legion" / name for name in ("app", "bin", "python")))
+        self.check_wiki(None)
+        return output
+
+    def knowledge_purge(self, repeat: bool) -> str:
+        hub = self.home / ".legion/knowledge"
+        before = snapshot(hub)
+        output = self.legion("uninstall", "--purge", answers="y\nn\n")
+        contains(output, "Purge legion and all its data now? [y/N]")
+        contains(output, "Also delete the knowledge hub in ~/.legion/knowledge? [y/N]")
+        wait_gone(self.home / ".legion/configuration")
+        require(hub.is_dir(), "purge removed the wiki hub after a decline")
+        unchanged(before, snapshot(hub))
+        return output
+
+    def knowledge_step(self, action: str, repeat: bool) -> str:
+        if action == "setup" and not repeat:
+            self.state["knowledge"] = self.knowledge_runner()
+        wiki: Runner = self.state["knowledge"]
+        wiki.log = self.log
+        return getattr(wiki, f"knowledge_{action}")(repeat)
+
     def steps(self) -> list[tuple[str, Any]]:
         steps = [("bootstrap", self.bootstrap)]
         steps += [(f"install-cli-{tool}", lambda repeat, tool=tool: self.install_cli(tool, repeat)) for tool in TOOLS]
@@ -1096,6 +1268,7 @@ asyncio.run(main())
             ("update-from-latest-release", self.update_from_release),
             ("purge", self.purge),
         ]
+        steps += [(f"knowledge-{action}", lambda repeat, action=action: self.knowledge_step(action, repeat)) for action in ("setup", "uninstall", "declined", "off", "purge")]
         return steps
 
     def execute(self) -> list[Case]:

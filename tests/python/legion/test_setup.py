@@ -23,6 +23,7 @@ from launcher_fakes import (
 from legion.services.accounts import _accounts, _setup
 from legion.services.installation import (
     _installed_runtime,
+    _knowledge_hub,
     installer as _installer,
     _refresh,
     _tool_install,
@@ -298,6 +299,74 @@ def test_knowledge_adopts_the_plugin_and_follows_later_accounts(bench: Bench, mo
     assert (first, "llm-wiki") not in markets
     assert hub.is_dir()
     assert pointer.is_file()
+
+
+@pytest.mark.parametrize(("was_enabled", "fail_once", "missing_cli"), [(True, False, False), (True, True, False), (False, False, False), (True, False, True)])
+def test_setup_no_knowledge_removes_only_managed_wiki(bench: Bench, monkeypatch: pytest.MonkeyPatch, was_enabled: bool, fail_once: bool, missing_cli: bool) -> None:
+    if missing_cli:
+        bench.seed("wiki-missing", "codex", command=bench.base / "missing.exe")
+    for account in ("wiki-a", "wiki-b"):
+        bench.apply("claude", account_id=account)
+    folders = {bench.folder(account) for account in ("wiki-a", "wiki-b")}
+    if was_enabled:
+        _knowledge_hub.initialize(bench.home, [])
+        path = settings_path(bench.home)
+        path.write_text(json.dumps({**bench.settings(), "knowledgeEnabled": True}), encoding="utf-8")
+    hub = bench.home / ".legion/knowledge"
+    pointer = bench.home / ".config/llm-wiki/config.json"
+    before = {path: path.read_bytes() for path in (*hub.rglob("*"), pointer) if path.is_file()}
+    plugins, marketplaces = folders.copy(), folders.copy()
+    removals: list[tuple[Path, list[str]]] = []
+    remove_plugin = ["plugin", "uninstall", "wiki@llm-wiki"]
+    remove_marketplace = ["plugin", "marketplace", "remove", "llm-wiki"]
+    fail_removal = fail_once
+
+    def fake_run(_program: str, args: list[str], *, env: dict[str, str], **_options: object) -> RunResult:
+        nonlocal fail_removal
+        folder = Path(env["CLAUDE_CONFIG_DIR"])
+        output = ""
+        if args == ["plugin", "list", "--json"]:
+            output = json.dumps([{"id": "wiki@llm-wiki", "enabled": False}] if folder in plugins else [])
+        elif args == ["plugin", "marketplace", "list", "--json"]:
+            output = json.dumps([{"name": "llm-wiki"}] if folder in marketplaces else [])
+        elif args == remove_plugin:
+            plugins.remove(folder)
+            removals.append((folder, args))
+            output = "fixture removed wiki plugin"
+        else:
+            assert args == remove_marketplace
+            assert folder not in plugins
+            if fail_removal:
+                fail_removal = False
+                return RunResult(exit_code=1, output="", error="fixture marketplace failure", timed_out=False)
+            marketplaces.remove(folder)
+            removals.append((folder, args))
+        return RunResult(exit_code=0, output=output, error="", timed_out=False)
+
+    monkeypatch.setattr(_installer, "run_command", fake_run)
+    args = ["--home", str(bench.home), "setup", "--no-knowledge"]
+    result = CliRunner().invoke(cli.main, args)
+    if fail_once:
+        assert result.exit_code == 1
+        assert "fixture marketplace failure" in result.output
+        assert "fixture removed wiki plugin\nknowledge stays on; run legion setup --no-knowledge again\n" in result.output
+        assert bench.settings()["knowledgeEnabled"] is True
+        result = CliRunner().invoke(cli.main, args)
+    assert result.exit_code == 0, result.output
+    if missing_cli:
+        assert "skip: knowledge: wiki-missing (codex command is missing)\nfixture removed wiki plugin" in result.output
+    assert plugins == marketplaces == (set() if was_enabled else folders)
+    for folder in folders:
+        assert [args for target, args in removals if target == folder] == ([remove_plugin, remove_marketplace] if was_enabled else [])
+    assert status(bench.base, bench.home).knowledge.state == "declined"
+    saved = settings_path(bench.home).read_bytes()
+    removals.clear()
+    repeat = CliRunner().invoke(cli.main, args)
+    assert repeat.exit_code == 0, repeat.output
+    assert "skip: knowledge declined (already done)" in repeat.output
+    assert not removals
+    assert settings_path(bench.home).read_bytes() == saved
+    assert {path: path.read_bytes() for path in (*hub.rglob("*"), pointer) if path.is_file()} == before
 
 
 @pytest.mark.parametrize("external", [False, True])
