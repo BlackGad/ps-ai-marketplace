@@ -200,6 +200,8 @@ def status_lines(report: StatusReport) -> list[str]:
     lines.append(f"knowledge: {'off (not asked)' if knowledge.state == 'off' else knowledge.state}")
     if knowledge.hub in ("missing", "invalid"):
         lines.append(f"  knowledge hub {knowledge.hub}: ~/.legion/knowledge")
+    if knowledge.hub == "ready" and knowledge.hub_repository is False:
+        lines.append("  knowledge hub is not a git repository: ~/.legion/knowledge")
     if knowledge.missing_accounts:
         lines.append(f"  wiki plugin missing in: {', '.join(knowledge.missing_accounts)}")
     lines.extend([repository_line(report.repository), *report.warnings])

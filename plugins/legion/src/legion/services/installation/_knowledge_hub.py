@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Literal
 
@@ -18,6 +20,10 @@ HUB_FILES = {
     "_index.md": "# Knowledge hub\n\n| Wiki | Description |\n| --- | --- |\n",
     "log.md": "# Knowledge hub log\n",
 }
+
+
+def is_repository(home: Path) -> bool:
+    return (home_path(HUB_PATH, home) / ".git").exists()
 
 
 def hub_status(home: Path) -> Literal["ready", "missing", "invalid"]:
@@ -56,6 +62,30 @@ def _write_pointer(path: Path, data: dict[str, object], previous: dict[str, obje
     atomic_write_bytes(path, (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8"), verify=lambda: _pointer(path) == previous)
 
 
+def _git(hub: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([shutil.which("git") or "git", *args], cwd=hub, capture_output=True, text=True, stdin=subprocess.DEVNULL, check=False)
+
+
+def _has_identity(hub: Path) -> bool:
+    return all(_git(hub, "config", key).stdout.strip() for key in ("user.name", "user.email"))
+
+
+def _track(hub: Path, lines: list[str]) -> None:
+    if (hub / ".git").exists():
+        lines.append("skip: knowledge hub git repository (already done)")
+        return
+    if shutil.which("git") is None:
+        lines.append("knowledge: git is not installed, so the hub has no history yet (knowledge still works)")
+        return
+    (hub / ".gitignore").write_text(".sessions/\n", encoding="utf-8")
+    identity = [] if _has_identity(hub) else ["-c", "user.name=legion", "-c", "user.email=legion@localhost"]
+    for args in (["init"], ["add", "-A"], [*identity, "commit", "-m", "chore: start the knowledge hub history"]):
+        result = _git(hub, *args)
+        if result.returncode != 0:
+            raise RuntimeError(f"git failed: {result.stderr.strip()}")
+    lines.append("done: knowledge hub git repository")
+
+
 def initialize(home: Path, lines: list[str]) -> None:
     hub = home_path(HUB_PATH, home)
     changed = not (hub / "topics").is_dir()
@@ -68,6 +98,8 @@ def initialize(home: Path, lines: list[str]) -> None:
         except FileExistsError:
             pass
     lines.append("done: knowledge hub" if changed else "skip: knowledge hub (already done)")
+
+    _track(hub, lines)
 
     path = home / ".config/llm-wiki/config.json"
     data = _pointer(path)

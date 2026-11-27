@@ -11,3 +11,5 @@ Before and after writing, check:
 - [ ] The project tag is only the neutral `label`.
 
 Replace specifics with roles such as “the service” or “the readiness signal.” If removing specifics destroys the lesson, drop it. A behavior-changing lesson also belongs in `~/.legion/configuration/notes.md`.
+
+After the note passes the checks, commit it in the hub with a short message naming the note, for example `git -C ~/.legion/knowledge add -A` then `git -C ~/.legion/knowledge commit -m "file: <note title>"`. If the hub is not a git repository, skip the commit and say so.
