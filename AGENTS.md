@@ -15,15 +15,16 @@ A plugin marketplace with one plugin, `legion`: orchestration as skills for Clau
 | `plugins/legion/schemas/` | JSON schemas for personalisation and project files |
 | `install.ps1`, `install.sh` | Root bootstraps: they only obtain uv, then run the Python `legion install` with the same options; `install.ps1` runs on Windows PowerShell 5.1 and 7 |
 | `docs/reference.md` | Installer options, CLI guides and technical details |
-| `tests/repository/` | PowerShell repository checks (`*.Tests.ps1`); shared fakes and fixtures stay under `tests/` |
-| `tests/python/` | Python tests, with root `pytest.ini`, `ruff.toml` and `pyrightconfig.json` kept outside the client plugin |
+| `tests/repository/` | Temporary PowerShell bootstrap tests and runner support under `tests/` |
+| `tests/python/` | Python tests, including repository checks under `tests/python/repository/` |
+| `pyproject.toml` | Repository settings for Ruff, Pyright, pytest and Coverage.py, outside the client plugin |
 | `tools/` | Python maintenance scripts, including `generate.py` for the tools index and editor schemas |
 
 ## Rules
 
 A settings field exists only if a script reads it. Everything else is a plain-words preference in the owner's `legion-notes.md`, which agents read. Do not add a property for each decision.
 
-- **Legion runs in Python.** PowerShell remains only in the Windows bootstrap `install.ps1` (5.1 and 7) and the repository tests (PowerShell 7, Windows, macOS and Linux).
+- **Legion runs in Python.** The only PowerShell runtime script is the Windows bootstrap `install.ps1` (5.1 and 7). Its bootstrap tests and their support scripts remain temporarily.
 - **Safe to run again.** Every script checks before it acts; a repeat prints `skip: <what> (already done)` and changes nothing.
 - **Ask before installing.** Install commands are shown as hints and run only after the owner's yes (`-Yes`).
 - **No secrets, no personal data.** Never store or print tokens or keys. Never commit user names, host names, local paths, endpoints, chat ids or account names from a real setup; use neutral examples (`codex-a`, `my-project`, `https://<resource>.cognitiveservices.azure.com`).
@@ -31,7 +32,7 @@ A settings field exists only if a script reads it. Everything else is a plain-wo
 - **DRY is desired.** Keep one home for each rule, format or list and reuse it, unless repeating it is simpler to read.
 - **Minimal diff.** Change only what the task needs.
 - **Docs always in sync.** Every change that alters behavior, commands, files or settings updates `README.md`, `docs/reference.md` and the affected skills and their `references/` in the same pull request. Reviews treat stale docs as a defect.
-- Compare paths by resolving links with `resolve_directory` and `same_path` in `plugins/legion/src/legion/core/_home.py` (PowerShell tests: `Resolve-LegionDirectoryPath` in `tests/lib/paths.ps1`), then using the OS comparer; keep deliberate link-refusal checks lexical.
+- Resolve paths with `resolve_directory` and compare them with `same_path` in `plugins/legion/src/legion/core/_home.py`. Keep deliberate link-refusal checks lexical.
 - Skills talk to the owner in plain words. `SKILL.md` holds the flow and the conversation; commands, script paths and flags go in `references/`.
 
 ## Release
@@ -40,17 +41,24 @@ Versions and the changelog are made by the release workflow. Task branches and p
 
 ## Tests
 
+Tests never call real `az`, `claude`, `codex`, `copilot`, winget or the network. Use the fakes in `tests/` and replace download functions.
+
+Python uses uv only (Python >=3.12). The root `pyproject.toml` holds the tool settings, including standard-mode Pyright. From the repository root, set `UV_PROJECT_ENVIRONMENT` to an absolute path outside the plugin cache, such as `(Join-Path $PWD '.agents/temp/python/env')`. Before pytest, set `LEGION_TEST_PWSH` to the absolute pwsh path, such as `(Get-Command pwsh).Source`.
+
+```powershell
+uv run --project plugins/legion --frozen --extra mcp --group dev ruff check plugins/legion/src tests/python tests/integration tools
+uv run --project plugins/legion --frozen --extra mcp --group dev ruff format --check plugins/legion/src tests/python tests/integration tools
+uv run --project plugins/legion --frozen --extra mcp --group dev pyright --project pyproject.toml
+uv run --project plugins/legion --frozen --extra mcp --group dev pytest
+```
+
+Run the remaining bootstrap tests through their PowerShell runner. The last line must be `<n> passed, 0 failed`.
+
 ```powershell
 pwsh -NoProfile -File tests/run.ps1
 ```
 
-Run a single file with `pwsh -NoProfile -File tests/run.ps1 -Name <file>` (wildcards allowed), never directly.
-
-The last line must be `<n> passed, 0 failed`. Tests never call real `az`, `claude`, `codex`, `copilot`, winget or the network; use the fakes in `tests/` and replace download functions.
-
-CI runs the same command on Windows, macOS and Linux, and runs the integration suite (`tests/integration/run.py`) on every pull request; both are required checks.
-
-Python uses uv only (Python >=3.12), with code style from ps-poetry: the repository's `ruff.toml` and standard-mode `pyrightconfig.json`. From the repository root, set `UV_PROJECT_ENVIRONMENT` to a folder outside the plugin cache, for example `.agents/temp/python/env` (ignored scratch), then use `uv run --project plugins/legion --frozen --extra mcp --group dev` followed by `ruff check plugins/legion/src tests/python tests/integration tools`, `ruff format --check plugins/legion/src tests/python tests/integration tools`, `pyright`, or `pytest`. Before pytest, set `LEGION_TEST_PWSH` to the absolute pwsh path, for example `(Get-Command pwsh).Source`. Keep environments outside the plugin cache; the PowerShell test runner stays PowerShell-only.
+CI runs the test gates on Windows, macOS and Linux and parses `install.ps1` with Windows PowerShell 5.1. The test gate and the integration suite (`tests/integration/run.py`) are required checks.
 
 ## Not committed
 

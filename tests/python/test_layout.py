@@ -74,6 +74,6 @@ def test_console_target_uses_cli_package() -> None:
     assert 'legion = "legion.cli:main"' in project
 
 
-def test_powershell_checks_are_grouped_by_subject() -> None:
+def test_only_bootstrap_repository_checks_use_powershell() -> None:
     assert not list((ROOT / "tests").glob("*.Tests.ps1"))
-    assert list((ROOT / "tests/repository").glob("*.Tests.ps1"))
+    assert [path.name for path in (ROOT / "tests/repository").glob("*.Tests.ps1")] == ["Bootstrap.Tests.ps1"]

@@ -248,10 +248,10 @@ def test_published_source_repeat_uses_documented_owner_command(tmp_path: Path) -
 def test_installed_source_check_rejects_different_plugin_bytes(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
     root = instance.folder("codex") / instance.catalog["codex"]["plugin"]["installedRoot"] / "1.2.3"
-    source = root / "src/legion/services/installation/_installed_runtime.py"
+    source = root / "hooks/session_start.py"
     source.parent.mkdir(parents=True)
     (root / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
-    source.write_bytes((instance.checkout / "plugins/legion/src/legion/services/installation/_installed_runtime.py").read_bytes())
+    source.write_bytes((instance.checkout / "plugins/legion/hooks/session_start.py").read_bytes())
     for metadata in (".codex-plugin", ".claude-plugin"):
         sibling = root / metadata
         sibling.mkdir()
