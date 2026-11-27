@@ -408,3 +408,47 @@ def test_malformed_hub_files_are_skipped(repo: Path, tmp_path: Path) -> None:
     assert "- beta: Two" in text
     (home / ".legion" / "configuration" / "personalisation.json").write_text("{bad", encoding="utf-8")
     assert mode_text(repo, {"LEGION_HOME": str(home)}) == ORCHESTRATED
+
+
+def test_one_huge_topic_is_bounded_and_points_to_the_index(repo: Path, tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    hub = make_hub(home, {"alpha": [f"Article number {number}" for number in range(5000)], "beta": ["Two"]})
+    text = mode_text(repo, {"LEGION_HOME": str(home)})
+    topic_lines = [line for line in text.splitlines() if line.startswith("- ")]
+    assert len("\n".join(topic_lines)) <= _hook.MAX_BLOCK_CHARS
+    assert "Article number 0" in text
+    assert "Article number 4999" not in text
+    assert f"more in {hub / '_index.md'}" in text.splitlines()
+
+
+def test_over_the_cap_reads_no_article_indexes(repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    make_hub(home, {f"topic{number:02}": ["One"] for number in range(41)})
+
+    def forbidden(_index: Path) -> list[str]:
+        raise AssertionError("article index read")
+
+    monkeypatch.setattr(_hook, "article_titles", forbidden)
+    assert "more in" in mode_text(repo, {"LEGION_HOME": str(home)})
+
+
+def test_text_outside_the_stdout_code_page_does_not_crash(repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    make_hub(home, {"alpha": ["Caf\u00e9 \u65e5\u672c"]})
+    monkeypatch.setenv("LEGION_HOME", str(home))
+    monkeypatch.setattr(sys, "stdin", stdin(json.dumps({"cwd": str(repo)})))
+    raw = io.BytesIO()
+    out = io.TextIOWrapper(raw, encoding="ascii", errors="strict")
+    monkeypatch.setattr(sys, "stdout", out)
+    assert _hook.main(["--format", "text"]) == 0
+    out.flush()
+    assert "Caf? ??" in raw.getvalue().decode("ascii")
+
+
+def test_home_lookup_failure_keeps_mode_guidance(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken() -> Path:
+        raise RuntimeError("no home")
+
+    monkeypatch.setattr(Path, "home", broken)
+    assert mode_text(repo, {}) == ORCHESTRATED
+    assert mode_text(repo, {"LEGION_ROLE": "member", "LEGION_TASK": "x.md"}) == MEMBER
