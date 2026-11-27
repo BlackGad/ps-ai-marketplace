@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.21.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.20.0...v0.21.0) (2026-11-27)
+
+
+### Features
+
+* **setup:** install the llm-wiki knowledge base in every account ([#127](https://github.com/BlackGad/ps-legion-marketplace/issues/127)) ([0e8cf25](https://github.com/BlackGad/ps-legion-marketplace/commit/0e8cf25e0d4b73a150232e72a8f66619a2035996))
+* **setup:** prove the knowledge wiki on three systems; turning it off removes it ([#129](https://github.com/BlackGad/ps-legion-marketplace/issues/129)) ([0bd29af](https://github.com/BlackGad/ps-legion-marketplace/commit/0bd29af68e22250e56c3fd22dec718e5e0fcf368))
+
 ## [0.20.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.19.0...v0.20.0) (2026-11-27)
 
 
