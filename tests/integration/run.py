@@ -309,6 +309,8 @@ class Runner:
         self.work = home.parent / "legion-work"
         self.work.mkdir(parents=True, exist_ok=True)
         self.home.mkdir(parents=True, exist_ok=True)
+        self.owned_uv = self.home / ".legion/bin" / ("uv.exe" if WINDOWS else "uv")
+        self.runner_uv = self.work / self.owned_uv.name
         self.catalog = {entry["id"]: entry for entry in json.loads((checkout / "plugins/legion/tools.json").read_text(encoding="utf-8"))["tools"]}
         self.targets: dict[str, tuple[str, str]] = {}
         self.not_tested: dict[str, str] = {}
@@ -369,9 +371,10 @@ class Runner:
     def legion(self, *args: str, owner: bool = False) -> str:
         if owner:
             return self.run([str(self.launcher("legion")), *args])
+        uv = str(self.runner_uv) if self.runner_uv.is_file() else self.command("uv")
         env = self.env.copy()
         env["UV_PROJECT_ENVIRONMENT"] = str(self.work / "python-env")
-        return self.run([self.command("uv"), "run", "--project", str(self.checkout / "plugins/legion"), "--frozen", "--quiet", "legion", "--home", str(self.home), *args], env=env)
+        return self.run([uv, "run", "--project", str(self.checkout / "plugins/legion"), "--frozen", "--quiet", "legion", "--home", str(self.home), *args], env=env)
 
     def launcher(self, name: str) -> Path:
         return self.home / ".legion/bin" / (name + ".cmd" if sys.platform == "win32" else name)
@@ -519,9 +522,10 @@ class Runner:
         else:
             output = self.run(["sh", str(self.checkout / "install.sh"), "--yes"])
         contains(output, "skip: uv (already done)")
-        uv = self.home / ".legion/bin" / ("uv.exe" if sys.platform == "win32" else "uv")
-        require(uv.is_file(), f"bootstrap did not install uv at {uv}")
-        return output + "\n" + self.run([str(uv), "--version"])
+        require(self.owned_uv.is_file(), f"bootstrap did not install uv at {self.owned_uv}")
+        if not repeat:
+            shutil.copy2(self.owned_uv, self.runner_uv)
+        return output + "\n" + self.run([str(self.owned_uv), "--version"])
 
     def install_legion(self, tool: str) -> str:
         source, ref = self.targets.get(tool, (str(self.checkout), "release"))
@@ -1032,6 +1036,10 @@ asyncio.run(main())
     def reinstall(self, repeat: bool, old_launchers: bool = False) -> str:
         if old_launchers and not repeat:
             self.write_old_launchers()
+        elif not repeat:
+            # Reuse the bootstrap's uv download while preserving the per-tool install sources.
+            self.owned_uv.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.runner_uv, self.owned_uv)
         output = "\n".join(self.install_legion(tool) for tool in self.active())
         if repeat:
             contains(output, "skip:")
