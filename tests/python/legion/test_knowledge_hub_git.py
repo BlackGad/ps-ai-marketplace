@@ -61,15 +61,45 @@ def test_an_existing_hub_that_is_not_a_repository_is_adopted_once(tmp_path: Path
 
 
 @needs_git
-def test_an_existing_repository_is_left_alone(tmp_path: Path) -> None:
+def test_an_existing_repository_with_a_commit_is_left_alone(tmp_path: Path) -> None:
+    _knowledge_hub.initialize(tmp_path, [])
     hub = tmp_path / ".legion/knowledge"
-    hub.mkdir(parents=True)
-    subprocess.run([GIT, "init", str(hub)], capture_output=True, check=True)
+    (hub / "later.md").write_text("new\n", encoding="utf-8")
     lines: list[str] = []
     _knowledge_hub.initialize(tmp_path, lines)
     assert "skip: knowledge hub git repository (already done)" in lines
-    assert not (hub / ".gitignore").exists()
-    assert subprocess.run([GIT, "-C", str(hub), "log"], capture_output=True, check=False).returncode != 0
+    assert len(commits(hub)) == 1
+
+
+@needs_git
+def test_a_repository_without_a_commit_gets_its_first_commit(tmp_path: Path) -> None:
+    hub = tmp_path / ".legion/knowledge"
+    hub.mkdir(parents=True)
+    subprocess.run([GIT, "init", str(hub)], capture_output=True, check=True)
+    _knowledge_hub.initialize(tmp_path, [])
+    assert len(commits(hub)) == 1
+
+
+@needs_git
+def test_adopting_keeps_an_existing_gitignore(tmp_path: Path) -> None:
+    hub = tmp_path / ".legion/knowledge"
+    hub.mkdir(parents=True)
+    (hub / ".gitignore").write_text("*.tmp", encoding="utf-8")
+    _knowledge_hub.initialize(tmp_path, [])
+    assert (hub / ".gitignore").read_text(encoding="utf-8") == "*.tmp\n.sessions/\n"
+
+
+@needs_git
+def test_a_hub_inside_a_parent_repository_gets_its_own_repository(tmp_path: Path) -> None:
+    subprocess.run([GIT, "init", str(tmp_path)], capture_output=True, check=True)
+    subprocess.run([GIT, "-C", str(tmp_path), "config", "user.name", "Parent"], capture_output=True, check=True)
+    subprocess.run([GIT, "-C", str(tmp_path), "config", "user.email", "parent@example.com"], capture_output=True, check=True)
+    _knowledge_hub.initialize(tmp_path, [])
+    hub = tmp_path / ".legion/knowledge"
+    assert (hub / ".git").exists()
+    assert len(commits(hub)) == 1
+    local = subprocess.run([GIT, "-C", str(hub), "config", "--local", "user.name"], capture_output=True, text=True, check=True).stdout.strip()
+    assert local == "legion"
 
 
 def test_missing_git_prints_one_line_and_continues(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

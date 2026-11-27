@@ -70,19 +70,37 @@ def _has_identity(hub: Path) -> bool:
     return all(_git(hub, "config", key).stdout.strip() for key in ("user.name", "user.email"))
 
 
+def _run(hub: Path, *args: str) -> None:
+    result = _git(hub, *args)
+    if result.returncode != 0:
+        raise RuntimeError(f"git failed: {result.stderr.strip()}")
+
+
+def _is_own_repository(hub: Path) -> bool:
+    result = _git(hub, "rev-parse", "--show-toplevel")
+    return result.returncode == 0 and same_path(resolve_directory(Path(result.stdout.strip())), resolve_directory(hub))
+
+
 def _track(hub: Path, lines: list[str]) -> None:
-    if (hub / ".git").exists():
-        lines.append("skip: knowledge hub git repository (already done)")
-        return
     if shutil.which("git") is None:
         lines.append("knowledge: git is not installed, so the hub has no history yet (knowledge still works)")
         return
-    (hub / ".gitignore").write_text(".sessions/\n", encoding="utf-8")
-    identity = [] if _has_identity(hub) else ["-c", "user.name=legion", "-c", "user.email=legion@localhost"]
-    for args in (["init"], ["add", "-A"], [*identity, "commit", "-m", "chore: start the knowledge hub history"]):
-        result = _git(hub, *args)
-        if result.returncode != 0:
-            raise RuntimeError(f"git failed: {result.stderr.strip()}")
+    own = _is_own_repository(hub)
+    if own and _git(hub, "rev-parse", "--verify", "HEAD").returncode == 0:
+        lines.append("skip: knowledge hub git repository (already done)")
+        return
+    if not own:
+        _run(hub, "init")
+    ignore = hub / ".gitignore"
+    existing = ignore.read_text(encoding="utf-8") if ignore.exists() else ""
+    if ".sessions/" not in existing.splitlines():
+        separator = "" if not existing or existing.endswith("\n") else "\n"
+        ignore.write_text(f"{existing}{separator}.sessions/\n", encoding="utf-8")
+    if not _has_identity(hub):
+        _run(hub, "config", "user.name", "legion")
+        _run(hub, "config", "user.email", "legion@localhost")
+    _run(hub, "add", "-A")
+    _run(hub, "commit", "-m", "chore: start the knowledge hub history")
     lines.append("done: knowledge hub git repository")
 
 

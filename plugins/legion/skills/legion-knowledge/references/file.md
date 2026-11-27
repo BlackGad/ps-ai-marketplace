@@ -12,4 +12,4 @@ Before and after writing, check:
 
 Replace specifics with roles such as “the service” or “the readiness signal.” If removing specifics destroys the lesson, drop it. A behavior-changing lesson also belongs in `~/.legion/configuration/notes.md`.
 
-After the note passes the checks, commit it in the hub with a short message naming the note, for example `git -C ~/.legion/knowledge add -A` then `git -C ~/.legion/knowledge commit -m "file: <note title>"`. If the hub is not a git repository, skip the commit and say so.
+After the note passes the checks, commit it in the hub: the one named in `~/.config/llm-wiki/config.json` (`hub_path`, then legacy `resolved_path`), or `~/.legion/knowledge` when no pointer is saved, as [consult.md](consult.md) says. Commit only if the hub is its own git repository, meaning `git -C <hub> rev-parse --show-toplevel` prints the hub itself; otherwise skip the commit and say so. Stage by path only the files this filing changed (the note, its indexes, the log) with `git -C <hub> add -- <paths>`, never `git add -A`, then `git -C <hub> commit -m "file: <note title>"`.
