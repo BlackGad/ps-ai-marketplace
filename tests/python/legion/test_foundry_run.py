@@ -37,13 +37,13 @@ class Bench:
         self.home = root / "owner with spaces"
         self.bin = root / "bin"
         self.logs = root / "logs"
-        for folder in (self.home / ".legion" / "bin", self.bin, self.logs):
+        for folder in (self.home / ".legion", self.bin, self.logs):
             folder.mkdir(parents=True)
         for name in [name for name in os.environ if name.startswith("LEGION_FAKE_")]:
             monkeypatch.delenv(name)
         for name in [name for name in os.environ if name.startswith("ANTHROPIC_FOUNDRY")]:
             monkeypatch.delenv(name)
-        monkeypatch.setenv("PATH", os.pathsep.join([str(self.home / ".legion" / "bin"), str(self.bin)]))
+        monkeypatch.setenv("PATH", str(self.bin))
         monkeypatch.setenv("LEGION_FAKE_LOG", str(self.logs))
         monkeypatch.setenv("LEGION_FAKE_HOME", str(self.home))
         if WINDOWS:
@@ -102,7 +102,7 @@ def test_claude_child_gets_foundry_environment_and_parent_is_untouched(bench: Be
     assert "CLAUDE_CODE_USE_BEDROCK" not in environment
     assert "VIRTUAL_ENV" not in environment
     assert "UV_PROJECT_ENVIRONMENT" not in environment
-    assert environment["PATH"] == os.pathsep.join([str(bench.home / ".legion" / "bin"), str(bench.bin)])
+    assert environment["PATH"] == str(bench.bin)
     assert Path(environment["CLAUDE_CONFIG_DIR"]) == bench.home / ".legion" / "agents" / "claude-dev"
     assert bench.calls("claude")[0]["arguments"] == ["-p", "hi"]
     assert os.environ["CLAUDE_CODE_USE_BEDROCK"] == "1"
@@ -183,12 +183,6 @@ def test_a_subscription_account_runs_without_az(bench: Bench) -> None:
     assert bench.calls("az") == []
 
 
-def test_tool_lookup_skips_the_legion_bin_folder(bench: Bench) -> None:
-    write_executable(bench.home / ".legion" / "bin", "claude", {"LEGION_FAKE_EXIT": "99"})
-    assert _launch.run_account("claude-dev", [], bench.home) == 0
-    assert len(bench.calls("claude")) == 1
-
-
 def test_a_tool_that_cannot_start_removes_the_provider_file_and_never_prints_the_token(bench: Bench, capsys: pytest.CaptureFixture[str]) -> None:
     for path in bench.bin.glob("copilot*"):
         path.unlink()
@@ -244,6 +238,6 @@ def test_a_tool_killed_by_a_signal_is_reported_as_a_shell_would(tmp_path: Path, 
     agent = SimpleNamespace(id="codex-a")
     monkeypatch.setattr(_launch._settings_io, "load", lambda _home: SimpleNamespace(agents=[agent]))
     monkeypatch.setattr(_launch, "account_command", lambda *_args: _launch.AccountCommand(Path("/fake/codex"), [], {}))
-    monkeypatch.setattr(_launch, "sys", SimpleNamespace(platform="linux"))
-    monkeypatch.setattr(_launch.subprocess, "Popen", lambda *_args, **_kwargs: SimpleNamespace(wait=lambda: -signal.SIGINT))
+    monkeypatch.setattr(_launch, "sys", SimpleNamespace(platform="linux", stdout=sys.stdout, stderr=sys.stderr))
+    monkeypatch.setattr(_launch.subprocess, "Popen", lambda *_args, **_kwargs: SimpleNamespace(wait=lambda: -signal.SIGINT, stdout=None, stderr=None))
     assert _launch.run_account("codex-a", [], tmp_path) == 130

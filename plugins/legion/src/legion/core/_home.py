@@ -88,8 +88,9 @@ def owner_path_safe(path: Path, stop_root: Path) -> bool:
     return True
 
 
-def bin_folder(home: Path) -> Path:
-    return home / ".legion" / "bin"
+# Registrations of running legion processes and the stop file that ends them (see _stop_event).
+def run_folder(home: Path) -> Path:
+    return home / ".legion" / "run"
 
 
 def update_cache_path(home: Path) -> Path:

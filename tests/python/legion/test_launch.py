@@ -2,8 +2,10 @@
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
+import psutil
 import pytest
 from cli_runner import run
 from launcher_fakes import (
@@ -15,6 +17,7 @@ from launcher_fakes import (
 )
 from settings_fakes import save_settings
 
+from legion.core import _stop_event
 from legion.core._settings_models import Agent, PersonalisationSettings
 from legion.services.accounts._launch import account_command, run_account
 from legion.services.foundry._az import AzAccessToken
@@ -176,3 +179,61 @@ def test_hidden_run_absent_from_help(capsys: pytest.CaptureFixture[str]) -> None
     assert "run" not in verbs
     assert "foundry" not in verbs
     assert "account" in verbs
+
+
+# A real program the wrapper starts: the base interpreter (a venv's python.exe on Windows starts the real one as a child).
+def python_account(home: Path) -> None:
+    save_agents(home, agent("codex-a", home / "config", command=getattr(sys, "_base_executable", sys.executable)))
+
+
+def start_wrapper(home: Path, code: str) -> subprocess.Popen[str]:
+    arguments = [sys.executable, "-c", RUNNER, "--home", str(home), "run", "--account", "codex-a", "--", "-c", code]
+    return subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
+SESSION = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [f"print('session id: {SESSION}')", f'print(\'{{"session_id": "{SESSION}"}}\')', f"import sys; print('thread_id: {SESSION}', file=sys.stderr)"],
+)
+def test_run_prints_the_session_id_the_tool_reports_and_passes_the_output_through(tmp_path: Path, printed: str) -> None:
+    python_account(tmp_path)
+    wrapper = start_wrapper(tmp_path, printed)
+    output, errors = wrapper.communicate(timeout=60)
+    assert wrapper.returncode == 0, errors
+    assert SESSION in output + errors
+    assert f"legion: session id {SESSION}" in errors.splitlines()
+
+
+def test_run_prints_no_session_line_when_the_tool_reports_none(tmp_path: Path) -> None:
+    python_account(tmp_path)
+    wrapper = start_wrapper(tmp_path, "print('hello')")
+    output, errors = wrapper.communicate(timeout=60)
+    assert (wrapper.returncode, output.strip(), errors) == (0, "hello", "")
+
+
+def test_run_registers_while_the_tool_runs_and_the_stop_event_ends_the_tool_by_its_pid(tmp_path: Path) -> None:
+    python_account(tmp_path)
+    marker = tmp_path / "tool.pid"
+    code = f"import os, pathlib, time; pathlib.Path({str(marker)!r}).write_text(str(os.getpid())); time.sleep(120)"
+    wrapper = start_wrapper(tmp_path, code)
+    try:
+        deadline = time.monotonic() + 60
+        while not marker.is_file() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        time.sleep(0.2)
+        tool_pid = int(marker.read_text(encoding="utf-8"))
+        assert len(_stop_event.running(tmp_path)) == 1
+        _stop_event.raise_stop(tmp_path)
+        _output, errors = wrapper.communicate(timeout=60)
+        assert "stopped for an update" in errors
+        deadline = time.monotonic() + 30
+        while psutil.pid_exists(tool_pid) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert not psutil.pid_exists(tool_pid)
+        assert _stop_event.running(tmp_path) == []
+    finally:
+        wrapper.kill()
+        wrapper.communicate()

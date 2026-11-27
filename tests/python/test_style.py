@@ -81,9 +81,9 @@ def test_long_imports_are_parenthesized() -> None:
                     assert "(" in (ast.get_source_segment(source, node) or ""), f"{path.relative_to(REPO)}:{node.lineno}"
 
 
-# Path.replace takes one argument (str.replace takes two). _installed_runtime moves whole folders aside and back; that is not a file write.
+# Path.replace takes one argument (str.replace takes two).
 def test_no_handwritten_temp_replace() -> None:
-    exempt = {"_atomic_write.py", "_installed_runtime.py"}
+    exempt = {"_atomic_write.py"}
     for path in SOURCE.rglob("*.py"):
         if path.name in exempt:
             continue

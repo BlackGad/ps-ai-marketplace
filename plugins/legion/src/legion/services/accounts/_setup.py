@@ -49,7 +49,7 @@ class SetupError(Exception):
 
 
 # What a setup step can raise; the verb prints one line and exits 1.
-ERRORS = (SetupError, _accounts.AccountError, _footprints.FootprintError, _launchers.LauncherError, _settings_io.SettingsError, _user_path.PathError, ValidationError, ValueError, OSError)
+ERRORS = (SetupError, _accounts.AccountError, _footprints.FootprintError, _launchers.LauncherError, _settings_io.SettingsError, ValidationError, ValueError, OSError)
 
 
 def one_line(text: str) -> str:
@@ -195,11 +195,11 @@ def _row(agent: Agent, tool: ToolDescriptor, home: Path, requested: bool = False
     )
 
 
-def _next_id(tool_id: str, settings: PersonalisationSettings, home: Path) -> str:
+def _next_id(tool_id: str, settings: PersonalisationSettings) -> str:
     number = 1
     while True:
         candidate = f"{tool_id}{number}"
-        if all(agent.id != candidate for agent in settings.agents) and _launchers.find_command(candidate, home) is None:
+        if all(agent.id != candidate for agent in settings.agents) and _launchers.find_command(candidate) is None:
             return candidate
         number += 1
 
@@ -216,14 +216,14 @@ def _added_account(tool_id: str, config_dir: Optional[str], account_id: Optional
             same = next((agent for agent in settings.agents if agent.tool == tool_id and agent.provider is None and _same_folder(_resolve(agent.config_dir, home), folder)), None)
             if same is not None:
                 account_id, folder = same.id, _resolve(same.config_dir, home)
-    account_id = account_id or _next_id(tool_id, settings, home)
+    account_id = account_id or _next_id(tool_id, settings)
     folder = folder or _managed_folder(account_id, home)
     existing = next((agent for agent in settings.agents if agent.id == account_id), None)
     if existing is not None:
         if existing.tool != tool_id or existing.provider is not None or not _same_folder(_resolve(existing.config_dir, home), folder):
             raise SetupError(f"account '{account_id}' already exists with other values")
     else:
-        _accounts.check_new_id(settings, account_id, home)
+        _accounts.check_new_id(settings, account_id)
     agent = existing or Agent.model_construct(id=account_id, tool=tool_id, config_dir=str(folder))
     return _row(agent, tools[tool_id], home, requested=True, new=existing is None, adopted=config_dir is not None)
 
@@ -285,7 +285,7 @@ def plan_lines(plan: Plan) -> list[str]:
     for folder in sorted(permissions, key=str.lower):
         lines.append(f"  permission allow {', '.join(permissions[folder].missing_allow_rules)} in {folder}/settings.json")
     if plan.command_missing:
-        lines.append("  command  install the legion command with uv and put it on your PATH")
+        lines.append("  command  install the legion command with uv, then run uv tool update-shell, which puts it on your PATH (your shell profile or user PATH)")
     if not lines:
         return [NOTHING_TO_DO]
     return ["Plan (nothing changed yet):", *lines, RUN_AGAIN]
@@ -414,7 +414,7 @@ def write_commands(plan: Plan, say: Callable[[str], None]) -> None:
     if plan.uv_missing:
         say("uv is missing. Ask the owner before installing it.")
         return
-    for line in _refresh.refresh(plan.home):
+    for line in _refresh.refresh(plan.home, update_shell=True):
         say(line)
 
 

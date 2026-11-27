@@ -32,7 +32,7 @@ from legion.services.status import status
 from legion import cli
 from legion.services.repository import _footprints
 from legion.services.installation import _user_path
-from legion.core._home import bin_folder, footprint_index, settings_path
+from legion.core._home import footprint_index, settings_path
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import RunResult
 from legion.core._settings_models import ToolDescriptor
@@ -651,7 +651,6 @@ def test_a_custom_command_account_stays_usable_when_the_stock_cli_cannot_install
         bench.tool_installs.clear()
         output = text(bench.apply("codex" if add_stock else None))
         assert f"target needed: {account}" not in output
-        assert not any(bin_folder(bench.home).glob(f"{account}*"))
         assert len(bench.tool_installs) == int(add_stock)
         fake_cli(bench.tools, "codex", "CODEX_HOME")
 
@@ -810,11 +809,14 @@ def test_a_cli_found_only_on_the_saved_path_counts_as_installed(bench: Bench) ->
 
 
 def test_setup_installs_the_legion_command_through_uv_and_a_repeat_skips(bench: Bench) -> None:
-    assert "  command  install the legion command with uv and put it on your PATH" in text(bench.preview("codex"))
+    # The plan names update-shell, so the owner's yes covers it; nothing runs before that yes.
+    assert "  command  install the legion command with uv, then run uv tool update-shell, which puts it on your PATH (your shell profile or user PATH)" in text(bench.preview("codex"))
+    assert bench.uv.installs() == []
+    assert ["tool", "update-shell"] not in bench.uv.calls
     first = bench.apply("codex")
     assert bench.uv.installed == VERSION
     assert f"legion command {VERSION} installed" in first
-    assert not bin_folder(bench.home).exists()
+    assert ["tool", "update-shell"] in bench.uv.calls
     assert not any(line.startswith("  command ") for line in bench.preview())
     assert f"skip: legion command {VERSION} (already done)" in bench.apply()
     assert len(bench.uv.installs()) == 1

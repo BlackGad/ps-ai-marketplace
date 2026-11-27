@@ -25,7 +25,7 @@ from legion.core._settings_models import (
     Text,
 )
 
-FootprintKind = Literal["file", "folder", "path-entry", "app-version"]
+FootprintKind = Literal["file", "folder", "path-entry"]
 
 
 class Footprint(SettingsModel):

@@ -1,8 +1,11 @@
+import _thread
+import contextlib
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import (
     Annotated,
@@ -22,6 +25,8 @@ from pydantic import (
     TypeAdapter,
 )
 
+from legion.core import _stop_event
+from legion.core._home import legion_home
 from legion.core._run import DRAIN_SECONDS
 from legion.services.limits import AccountLimits
 from legion.services.status import StatusReport
@@ -33,6 +38,8 @@ PROBE_RESERVE = 2 * DRAIN_SECONDS + 2.0
 PROBE_BUDGET = CALL_BUDGET - PROBE_RESERVE
 # How long a terminated process may take to exit before it is killed.
 STOP_SECONDS = 3.0
+# How long the server gets to end on its own after the stop event, before the process is ended.
+STOP_GRACE_SECONDS = 2.0
 
 
 # Each tool call runs the matching CLI as one child process, so cancelling a call means ending that process tree.
@@ -146,6 +153,15 @@ def build(home: Optional[Path] = None) -> FastMCP:
     return server
 
 
+# The stop event interrupts the server. A blocked read of stdin cannot be cancelled, so the process ends after a short grace.
+def _stop_serving() -> None:
+    _thread.interrupt_main()
+    time.sleep(STOP_GRACE_SECONDS)
+    os._exit(0)
+
+
+# While it serves, this process is registered for the stop event; an update makes it exit.
 def main(home: Optional[Path] = None) -> int:
-    build(home).run(transport="stdio")
+    with _stop_event.registered(legion_home(home), _stop_serving), contextlib.suppress(KeyboardInterrupt):
+        build(home).run(transport="stdio")
     return 0

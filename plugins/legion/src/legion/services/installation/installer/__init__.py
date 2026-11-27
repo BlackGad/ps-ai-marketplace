@@ -467,7 +467,7 @@ def _install_tool(home: Path, roots: list[tuple[str, Path]], lines: list[str], r
     root = max(roots, key=cmp_to_key(lambda left, right: compare_versions(left[0], right[0])))[1]
     try:
         if dry_run:
-            lines.extend(_uv_tool.install(root, dry_run=True))
+            lines.extend(_uv_tool.install(root, home, dry_run=True))
         else:
             lines.extend(_refresh.refresh(home, source=root, detached=True))
     except Exception as error:
@@ -514,7 +514,7 @@ def install(
             lines.extend([f"skip: {entry.id} (not installed)", entry.install_hint])
         if not dry_run and not (yes or _confirm("Install the legion command with uv and add it to your PATH? [y/N]", lines)):
             return [*lines, "Nothing changed. Run again with --yes to apply."]
-        lines.extend(_uv_tool.install(PLUGIN_ROOT, dry_run=True) if dry_run else _refresh.refresh(home, source=PLUGIN_ROOT))
+        lines.extend(_uv_tool.install(PLUGIN_ROOT, home, dry_run=True, update_shell=True) if dry_run else _refresh.refresh(home, source=PLUGIN_ROOT, update_shell=True))
         if manage_knowledge:
             reconcile_knowledge(home, catalog, dry_run, lines)
         return lines
@@ -539,6 +539,8 @@ def install(
             root = _plugin_root(entry, folder)
             version = _manifest(root).version if root else "not installed"
             lines.append(f"Update legion for {entry.id} in {folder} ({version})")
+        if targets:
+            lines.append("Running legion sessions (MCP servers and legion runs) end when the legion command is replaced.")
         if (targets or manage_knowledge) and not dry_run and not (yes or _confirm("Update legion? [y/N]", lines)):
             return [*lines, "Nothing changed. Run again with --yes to apply."]
         rows: list[tuple[str, str, str]] = []
@@ -605,7 +607,7 @@ def install(
                     root = None
                 if root:
                     try:
-                        lines.extend(_refresh.refresh(home, source=root))
+                        lines.extend(_refresh.refresh(home, source=root, update_shell=True))
                         installed_version = _manifest(root).version
                         rows.append((tool_id, str(folder), f"installed legion {installed_version}"))
                     except Exception as error:
@@ -617,7 +619,7 @@ def install(
         if entry.hooks.hint:
             lines.append(entry.hooks.hint)
     if dry_run:
-        lines.extend(_uv_tool.install(PLUGIN_ROOT, dry_run=True))
+        lines.extend(_uv_tool.install(PLUGIN_ROOT, home, dry_run=True, update_shell=True))
     else:
         lines.extend(_results_table(rows))
     if installed_version and not dry_run:
@@ -674,15 +676,13 @@ def _uninstall(
     folders = _legion_folders(home, purge, with_knowledge=False) if everything else []
     lines.extend(f"Remove folder: {folder}" for folder in folders)
     path_lines = _user_path.remove(home, purge, dry_run=True) if everything else []
-    tool_lines = _uv_tool.uninstall(dry_run=True) if everything else []
+    tool_lines = _uv_tool.uninstall(home, dry_run=True) if everything else []
     hub = everything and purge and os.path.lexists(home / ".legion/knowledge")
     if everything:
         lines.extend(path_lines or ["skip: path (already done)"])
         lines.extend(tool_lines)
         if hub:
             lines.append("Asked separately: the knowledge hub in ~/.legion/knowledge")
-        if not purge and is_reparse(home / ".legion"):
-            lines.append("skip: ~/.legion is a link; left alone")
     if not (steps or folders or path_lines or tool_lines or hub):
         lines.append("skip: uninstall (already done)")
         return
@@ -706,18 +706,18 @@ def _uninstall(
         with_knowledge = hub and _confirm("Also delete the knowledge hub in ~/.legion/knowledge? [y/N]", lines)
         if with_knowledge:
             _knowledge_hub.purge(home, lines)
-        _handover.start(_legion_folders(home, purge, with_knowledge))
-        lines.extend(_uv_tool.uninstall())
-        lines.append("done: legion folders are removed when this command ends")
+        # The stop event ends every running legion first; if one stays, nothing is deleted.
+        lines.extend(_uv_tool.uninstall(home))
+        remaining = _legion_folders(home, purge, with_knowledge)
+        _handover.start(remaining)
+        lines.append("done: legion folders are removed when this command ends" if remaining else "done: legion is uninstalled")
 
 
 # Deleting never follows a link: a linked folder is removed as the link only.
 def _legion_folders(home: Path, purge: bool, with_knowledge: bool) -> list[Path]:
-    legion = home / ".legion"
     if not purge:
-        if is_reparse(legion):
-            return []
-        return [folder for folder in (legion / "app", legion / "bin", legion / "python") if os.path.lexists(folder)]
+        return []
+    legion = home / ".legion"
     knowledge = legion / "knowledge"
     if is_reparse(legion) or with_knowledge or not os.path.lexists(knowledge):
         return [legion] if os.path.lexists(legion) else []

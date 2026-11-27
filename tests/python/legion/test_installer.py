@@ -455,10 +455,13 @@ def test_install_and_uninstall_target_use_fake_cli_and_refresh(tmp_path: Path, m
     monkeypatch.setenv("PATH", "fixture-only")
     (tmp_path / "saved-path.txt").write_text("", encoding="utf-8")
     refreshed: list[Path] = []
-    monkeypatch.setattr(_installer._refresh, "refresh", lambda _home, source, **_options: refreshed.append(source) or [])
+    options_seen: list[dict[str, object]] = []
+    monkeypatch.setattr(_installer._refresh, "refresh", lambda _home, source, **options: refreshed.append(source) or options_seen.append(options) or [])
     first = _installer.install(tmp_path, [tool_id], source=tmp_path, config_dir=folder, yes=True, catalog=catalog())
     assert installed == {"marketplace": True, "plugin": True}
     assert refreshed == [root]
+    # The owner's yes to the install also covers uv tool update-shell.
+    assert options_seen == [{"update_shell": True}]
     assert "installed: legion 1.2.3 (release)" in first
     assert any(arguments[:3] == ["plugin", "marketplace", "add"] for arguments in calls)
     assert entry.plugin.install in calls
@@ -530,6 +533,16 @@ def test_update_hands_one_uv_install_to_the_helper_for_the_highest_plugin_versio
     lines, installs = _update_two_targets(tmp_path, monkeypatch, versions={"claude": "1.2.3", "codex": "1.10.0"})
     assert installs == [(tmp_path / "plugin-codex", True)]
     assert lines.count("legion command is installed when this command ends") == 1
+
+
+def test_update_never_runs_uv_tool_update_shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[dict[str, object]] = []
+    monkeypatch.setattr(_installer._refresh, "refresh", lambda _home, **options: seen.append({name: value for name, value in options.items() if name != "source"}) or [])
+    monkeypatch.setattr(_installer, "_step", lambda *_args: None)
+    monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: tmp_path / "plugin")
+    monkeypatch.setattr(_installer, "_manifest", lambda _root: SimpleNamespace(version="1.2.3"))
+    _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
+    assert seen == [{"detached": True}]
 
 
 def test_update_reports_a_failed_uv_install_once_with_a_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

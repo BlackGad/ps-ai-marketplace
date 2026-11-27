@@ -8,7 +8,6 @@ from legion.services.repository import _lease
 from legion.services.installation import _knowledge_hub
 from legion.services.status import _status
 from legion.core._home import (
-    bin_folder,
     home_path,
     legion_home,
     settings_path,
@@ -63,8 +62,6 @@ class StatusReport(BaseModel):
 
     settings: SettingsState
     accounts: list[AccountStatus]
-    on_path: bool
-    commands: Literal["yes", "blocked", "missing", "not executable"]
     channels: list[ChannelStatus]
     repository: RepositoryStatus
     knowledge: KnowledgeStatus
@@ -121,12 +118,9 @@ def status(repo: Path, home: Optional[Path] = None) -> StatusReport:
             if knowledge and (tool is None or _status.installed_version(config, tool, "wiki") is None):
                 missing_wiki.append(agent.id)
             accounts.append(AccountStatus(id=agent.id, tool=agent.tool, config_dir=agent.config_dir, legion_version=version))
-    folder = bin_folder(home)
     return StatusReport(
         settings=SettingsState(state=state, path=str(file)),
         accounts=accounts,
-        on_path=_status.on_path(folder),
-        commands=_status.command_status(folder),
         channels=[ChannelStatus(id=channel.id, kind=channel.kind, accounts=channel.accounts) for channel in settings.channels] if settings else [],
         repository=repository_status(repo),
         knowledge=KnowledgeStatus(

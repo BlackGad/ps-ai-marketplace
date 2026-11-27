@@ -46,20 +46,18 @@ def _find(settings: PersonalisationSettings, account: str) -> Optional[Agent]:
     return matches[0] if matches else None
 
 
-def check_new_id(settings: PersonalisationSettings, account: str, home: Path) -> None:
+def check_new_id(settings: PersonalisationSettings, account: str) -> None:
     _check_id(account)
     if account == "legion":
         raise AccountError(f"'{account}' is reserved for an owner command")
     if _find(settings, account) is not None:
         raise AccountError(f"account '{account}' already exists")
-    if _launchers.find_command(account, home) is not None:
+    if _launchers.find_command(account) is not None:
         raise AccountError(f"'{account}' is already a command")
 
 
-# A bare name that spells the account's old launcher would recurse; the owner names a file, or a command on PATH.
+# The owner names a file, or a command on PATH.
 def _resolve_command(text: str, account: str, home: Path) -> Path:
-    if text in (account, f"{account}.cmd"):
-        raise _launchers.LauncherError("the command is this account's own old launcher")
     expanded = home_path(text, home)
     if full_path(expanded).is_file():
         command = full_path(expanded)
@@ -68,8 +66,6 @@ def _resolve_command(text: str, account: str, home: Path) -> Path:
         if found is None:
             raise AccountError(f"target needed: {account}; ask the owner for an existing executable")
         command = full_path(Path(found))
-    if any(same_path(command, path) for path in _launchers.launcher_paths(account, home)):
-        raise _launchers.LauncherError("the command is this account's own old launcher")
     if POSIX and command.suffix.lower() != ".ps1" and not os.access(command, os.X_OK):
         raise AccountError(f"target is not executable: {command}")
     return command
@@ -85,8 +81,8 @@ def _config_folder(account: str, config_dir: Optional[str], home: Path) -> Path:
 
 
 # The command is stored only when it is not the tool's stock command, which a launch finds on its own.
-def _stored_command(command: Optional[Path], tool: ToolDescriptor, home: Path) -> Optional[str]:
-    if command is None or _launchers.is_stock(command, tool, home):
+def _stored_command(command: Optional[Path], tool: ToolDescriptor) -> Optional[str]:
+    if command is None or _launchers.is_stock(command, tool):
         return None
     return str(command)
 
@@ -112,7 +108,7 @@ def _ensure_config_folder(folder: Path) -> list[str]:
 def _repair(settings: PersonalisationSettings, existing: Agent, tool: ToolDescriptor, command: Optional[Path], folder: Path, home: Path) -> list[str]:
     settings_changed = False
     if command is not None:
-        wanted = _stored_command(command, tool, home)
+        wanted = _stored_command(command, tool)
         settings_changed = existing.command != wanted
         existing.command = wanted
     _launchers.target(existing, tool, home)
@@ -134,15 +130,15 @@ def add_subscription(home: Path, account: str, tool_id: str, command: Optional[s
         existing = _find(settings, account)
         if existing is not None and existing.provider is None and existing.tool == tool_id and same_path(full_path(home_path(existing.config_dir, home)), folder):
             return _repair(settings, existing, tool, real, folder, home)
-        check_new_id(settings, account, home)
-        agent = Agent.model_construct(id=account, tool=tool_id, config_dir=str(folder), command=_stored_command(real, tool, home))
+        check_new_id(settings, account)
+        agent = Agent.model_construct(id=account, tool=tool_id, config_dir=str(folder), command=_stored_command(real, tool))
         _launchers.target(agent, tool, home)
         settings.agents.append(agent)
         _settings_io.save_locked(home, settings)
         folder.mkdir(parents=True, exist_ok=True)
     if config_dir is not None:
         return [f"Existing account folder kept at {config_dir}; open it with 'legion --account {account}'."]
-    return [f"Log in once: {login_command(tool, folder, _stored_command(real, tool, home), home)}"]
+    return [f"Log in once: {login_command(tool, folder, _stored_command(real, tool), home)}"]
 
 
 def add_foundry(home: Path, account: str, tool_id: str, endpoint: str, names: list[str], default: Optional[str], aliases: Optional[list[str]], use_standard: bool, list_only: bool) -> list[str]:
@@ -156,14 +152,14 @@ def add_foundry(home: Path, account: str, tool_id: str, endpoint: str, names: li
     if not list_only and existing and existing.tool == tool_id and existing.provider and existing.provider.kind == "foundry" and existing.provider.endpoint == endpoint:
         return [f"skip: account {account} (already done)"]
     if not list_only:
-        check_new_id(before, account, home)
+        check_new_id(before, account)
     discovery = _discovery.discover(endpoint, tool)
     if list_only:
         return [_discovery.listing(discovery, []).model_dump_json(indent=2)]
     provider = _discovery.provider_block(endpoint, tool, names, default, aliases, discovery, use_standard=use_standard)
     with _settings_io.writer(home, require_existing=False):
         settings = _settings_io.load_or_empty(home)
-        check_new_id(settings, account, home)
+        check_new_id(settings, account)
         agent = Agent.model_validate({"id": account, "tool": tool_id, "configDir": str(home / ".legion" / "agents" / account), "provider": provider.model_dump(by_alias=True, exclude_none=True)})
         settings.agents.append(agent)
         _save_foundry_locked(home, settings, agent)
@@ -231,7 +227,7 @@ def rename(home: Path, account: str, new_id: str) -> list[str]:
         old = _find(settings, account)
         if old is None and _find(settings, new_id) is not None:
             return [f"skip: account rename {account} to {new_id} (already done)"]
-        check_new_id(settings, new_id, home)
+        check_new_id(settings, new_id)
         if old is None:
             raise AccountError(f"unknown account '{account}'")
         _rebind(settings, account, new_id)
