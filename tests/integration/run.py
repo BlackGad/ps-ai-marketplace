@@ -1171,7 +1171,7 @@ asyncio.run(main())
         require(json.loads(pointer.read_text(encoding="utf-8"))["hub_path"] == "~/.legion/knowledge", "wrong wiki hub pointer")
         require((hub / "topics").is_dir() and all((hub / name).is_file() for name in ("wikis.json", "_index.md", "log.md")), "wiki hub files missing")
         status = json.loads(self.legion("status", "--json"))["knowledge"]
-        require(status == {"state": "on", "hub": "ready", "missing_accounts": []}, f"unexpected wiki status: {status}")
+        require(status == {"state": "on", "hub": "ready", "hub_repository": True, "missing_accounts": []}, f"unexpected wiki status: {status}")
         return output
 
     def check_wiki_removed(self) -> None:

@@ -55,6 +55,7 @@ class KnowledgeStatus(BaseModel):
 
     state: Literal["on", "off", "declined"]
     hub: Optional[Literal["ready", "missing", "invalid"]] = None
+    hub_repository: Optional[bool] = None
     missing_accounts: list[str]
 
 
@@ -132,6 +133,7 @@ def status(repo: Path, home: Optional[Path] = None) -> StatusReport:
         knowledge=KnowledgeStatus(
             state="on" if knowledge else "declined" if knowledge is False else "off",
             hub=_knowledge_hub.hub_status(home) if knowledge else None,
+            hub_repository=_knowledge_hub.is_repository(home) if knowledge else None,
             missing_accounts=missing_wiki,
         ),
         warnings=_status.channel_warnings(settings, home, tools) if settings else [],
