@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.19.0...v0.20.0) (2026-11-27)
+
+
+### Features
+
+* **limits:** check several accounts in one call, in parallel ([#125](https://github.com/BlackGad/ps-legion-marketplace/issues/125)) ([6f206a0](https://github.com/BlackGad/ps-legion-marketplace/commit/6f206a05152db46428de067c405d89539514ea3f))
+
 ## [0.19.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.18.0...v0.19.0) (2026-11-27)
 
 
