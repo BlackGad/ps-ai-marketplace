@@ -143,6 +143,9 @@
         "$ref": "#/$defs/Channel"
       },
       "type": "array"
+    },
+    "knowledgeEnabled": {
+      "type": "boolean"
     }
   },
   "required": [

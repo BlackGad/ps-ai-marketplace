@@ -18,6 +18,13 @@ from legion.core._settings_models import (
 from legion.core._validate import read_text
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1] / "plugins" / "legion"
+WIKI = {
+    "marketplace": "llm-wiki",
+    "pluginId": "wiki@llm-wiki",
+    "source": "nvk/llm-wiki",
+    "tag": "v1.0.0",
+    "commit": "35d37c5591c7585643196333edd83922e7bbc757",
+}
 
 
 def _check_skill(path: Path, kind: str, skill_id: str) -> None:
@@ -95,7 +102,7 @@ def render_tools_index(skills: Path) -> str:
     _check_channels(skills, set(tools))
     _check_helpers(skills.parent / "helpers.json", tools)
 
-    data = {"schemaVersion": 1, "tools": [entries[tool_id] for tool_id in sorted(entries)]}
+    data = {"schemaVersion": 1, "wiki": WIKI, "tools": [entries[tool_id] for tool_id in sorted(entries)]}
     ToolsCatalog.model_validate(data)
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
 

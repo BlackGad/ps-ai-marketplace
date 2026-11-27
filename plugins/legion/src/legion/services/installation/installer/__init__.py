@@ -6,6 +6,7 @@ import re
 import shutil
 import sys
 import tempfile
+import tomllib
 from functools import cmp_to_key
 from pathlib import Path
 from typing import Optional
@@ -18,6 +19,7 @@ from legion.services.accounts._launchers import command_prefix, registered_comma
 from legion.services.installation import _user_path
 from legion.services.installation import _installed_runtime
 from legion.services.installation import _handover
+from legion.services.installation import _knowledge_hub
 from legion.services.installation import _refresh
 from legion.services.installation._update import compare_versions
 from legion.core import _settings_io
@@ -38,12 +40,17 @@ from legion.core._settings_models import (
     Agent,
     CatalogTool,
     JsonListing,
+    PersonalisationSettings,
+    Plugin,
     PluginManifest,
+    PluginPin,
     ToolsCatalog,
 )
 
 
 DEFAULT_SOURCE = "BlackGad/ps-legion-marketplace"
+LEGION_MARKETPLACE = "ps-legion-marketplace"
+LEGION_PLUGIN = "legion@ps-legion-marketplace"
 
 
 class InstallerError(ValueError):
@@ -87,18 +94,18 @@ def _config_path(home: Path, value: str) -> Path:
     return full_path(Path(value))
 
 
-def _agents(home: Path, skip_lines: Optional[list[str]] = None) -> list[Agent]:
+def _personalisation(home: Path, skip_lines: Optional[list[str]] = None) -> PersonalisationSettings | None:
     path = settings_path(home)
     if not path.exists():
-        return []
+        return None
     try:
-        return _settings_io.load_unchecked(home).agents
+        return _settings_io.load_unchecked(home)
     except _settings_io.SettingsError as error:
         if skip_lines is None:
             raise InstallerError(f"Fix invalid settings in {path}: {error}") from error
         reason = " ".join(str(error).split()).split("; ", 1)[0]
         skip_lines.append(f"skip: account folders (settings invalid: {reason})")
-        return []
+        return None
 
 
 def _target_tool(home: Path, entry: CatalogTool, agents: list[Agent], folder: Optional[Path] = None) -> Optional[CatalogTool]:
@@ -122,7 +129,7 @@ def _folders(home: Path, entry: CatalogTool, selected: Path | None, agents: list
     for agent in agents:
         if agent.tool == entry.id:
             folder = _config_path(home, agent.config_dir)
-            if not any(same_path(folder, previous) for previous in folders):
+            if not any(same_path(resolve_directory(folder), resolve_directory(previous)) for previous in folders):
                 folders.append(folder)
     override = os.getenv(entry.config_env)
     if override and not same_path(home, Path.home()) and not is_under(_config_path(home, override), home, allow_equal=True):
@@ -130,7 +137,7 @@ def _folders(home: Path, entry: CatalogTool, selected: Path | None, agents: list
     value = override or entry.plugin.default_config_dir
     if value:
         default = _config_path(home, value)
-        if not any(same_path(default, previous) for previous in folders):
+        if not any(same_path(resolve_directory(default), resolve_directory(previous)) for previous in folders):
             folders.insert(0, default)
     return folders
 
@@ -170,24 +177,30 @@ def _listing(entry: CatalogTool, folder: Path, kind: str) -> str:
     return _execute(entry, arguments, folder, listing=True)
 
 
-def _marketplace(entry: CatalogTool, folder: Path, require_root: bool = False) -> bool:
+def _marketplace_item(entry: CatalogTool, folder: Path, name: str) -> dict[str, object]:
     output = _listing(entry, folder, "marketplace")
     if not output:
-        return False
+        return {}
     try:
         data = json.loads(output)
         listing = entry.plugin.marketplace_listing
         if listing.collection_field is not None:
             data = data[listing.collection_field]
         for item in data:
-            if item.get(listing.name_field) == "ps-legion-marketplace":
-                if require_root and listing.root_field is not None:
-                    root = item.get(listing.root_field)
-                    return isinstance(root, str) and bool(root) and Path(root).is_dir()
-                return True
-        return False
+            if isinstance(item, dict) and item.get(listing.name_field) == name:
+                return item
+        return {}
     except (ValueError, TypeError, KeyError) as error:
         raise InstallerError(f"{entry.id} marketplace listing returned invalid JSON") from error
+
+
+def _marketplace(entry: CatalogTool, folder: Path, require_root: bool = False) -> bool:
+    item = _marketplace_item(entry, folder, LEGION_MARKETPLACE)
+    field = entry.plugin.marketplace_listing.root_field
+    if require_root and field is not None:
+        root = item.get(field)
+        return isinstance(root, str) and bool(root) and Path(root).is_dir()
+    return bool(item)
 
 
 # The id is the first word of a listing row, or the second after a bullet in any spelling (the Windows console may print it as other
@@ -202,7 +215,7 @@ def _row_id(line: str) -> Optional[str]:
 
 
 # Hand-built, reason: the three CLIs expose different listing formats described by tools.json.
-def _plugin_state(entry: CatalogTool, folder: Path) -> tuple[bool, bool, list[Path], str]:
+def _plugin_state(entry: CatalogTool, folder: Path, plugin_id: str = LEGION_PLUGIN) -> tuple[bool, bool, list[Path], str]:
     output = _listing(entry, folder, "plugin")
     if not output:
         return False, False, [], ""
@@ -214,13 +227,15 @@ def _plugin_state(entry: CatalogTool, folder: Path) -> tuple[bool, bool, list[Pa
             items = json.loads(output)
         except ValueError as error:
             raise InstallerError(f"{entry.id} plugin listing returned invalid JSON") from error
-        matches = [item for item in items if item.get(listing.id_field) == "legion@ps-legion-marketplace" and isinstance(item.get(listing.enabled_field), bool)]
+        if not isinstance(items, list):
+            raise InstallerError(f"{entry.id} plugin listing returned invalid JSON")
+        matches = [item for item in items if isinstance(item, dict) and item.get(listing.id_field) == plugin_id and isinstance(item.get(listing.enabled_field), bool)]
         for item in matches:
             if item.get("installPath"):
                 paths.append(Path(item["installPath"]))
             version = item.get("version") or version
         return bool(matches), any(item[listing.enabled_field] for item in matches), paths, version
-    lines = [line for line in output.splitlines() if _row_id(line) == "legion@ps-legion-marketplace" and "not installed" not in line]
+    lines = [line for line in output.splitlines() if _row_id(line) == plugin_id and "not installed" not in line]
     for line in lines:
         match = re.search(r"\b(v?\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b", line)
         if match:
@@ -309,25 +324,112 @@ def _step(entry: CatalogTool, arguments: list[str], folder: Path, dry_run: bool,
         lines.extend(output.splitlines())
 
 
-def _install_steps(entry: CatalogTool, folder: Path, source: str | Path, ref: str, dry_run: bool, lines: list[str]) -> None:
-    plugin = entry.plugin
-    branch = "main" if ref == "main" else "stable"
+def _install_steps(entry: CatalogTool, folder: Path, source: str | Path, ref: str, dry_run: bool, lines: list[str], plugin: Plugin | None = None, pin: PluginPin | None = None) -> None:
+    plugin = plugin or entry.plugin
+    branch = pin.tag if pin else "main" if ref == "main" else "stable"
     local = Path(source).is_dir()
     if local:
         source = Path(source).resolve().as_posix()
     template = plugin.marketplace_add if local else plugin.marketplace_add_ref
     marketplace_add = [word.replace("{source}", str(source)).replace("{ref}", branch) for word in template]
-    installed = _marketplace(entry, folder)
-    listed, enabled, _, _ = _plugin_state(entry, folder)
-    if installed and enabled and _marketplace(entry, folder, require_root=True):
+    if pin is None:
+        installed = _marketplace(entry, folder)
+        listed, enabled, _, _ = _plugin_state(entry, folder)
+        ready = installed and _marketplace(entry, folder, require_root=True) if enabled else False
+    else:
+        item = _marketplace_item(entry, folder, pin.marketplace)
+        installed = bool(item)
+        listed, enabled, _, _ = _plugin_state(entry, folder, pin.plugin_id)
+        ready = installed and _pinned_marketplace(entry, folder, item, pin)
+        if not ready:
+            for arguments in _removal_steps(plugin, listed, installed):
+                _step(entry, arguments, folder, dry_run, lines)
+            installed = False
+    if ready and enabled:
         lines.extend(f"skip: {display_command([entry.command, *arguments])} (already done)" for arguments in (marketplace_add, plugin.install))
         return
     if not installed:
         _step(entry, marketplace_add, folder, dry_run, lines)
+        if pin is not None and not dry_run and not _pinned_marketplace(entry, folder, _marketplace_item(entry, folder, pin.marketplace), pin):
+            raise InstallerError(f"llm-wiki marketplace could not be verified at {pin.tag}")
     if plugin.marketplace_update:
         _step(entry, plugin.marketplace_update, folder, dry_run, lines)
     if not installed or not listed or not enabled:
         _step(entry, plugin.install, folder, dry_run, lines)
+
+
+def _wiki_recipe(plugin: Plugin, pin: PluginPin) -> Plugin:
+    names = {LEGION_MARKETPLACE: pin.marketplace, LEGION_PLUGIN: pin.plugin_id}
+    return plugin.model_copy(
+        update={
+            "install": [names.get(word, word) for word in plugin.install],
+            "uninstall": [names.get(word, word) for word in plugin.uninstall],
+            "marketplace_remove": [names.get(word, word) for word in plugin.marketplace_remove],
+            "marketplace_update": [],
+        }
+    )
+
+
+def _pinned_marketplace(entry: CatalogTool, folder: Path, item: dict[str, object], pin: PluginPin) -> bool:
+    nested = item.get("marketplaceSource") or item.get("source")
+    details = nested if isinstance(nested, dict) else item
+    source = details.get("repo") or details.get("url") or details.get("source")
+    if not isinstance(source, str):
+        return False
+    source, _, source_ref = source.partition("#")
+    if source.removeprefix("GitHub: ").removesuffix(".git").removeprefix("https://github.com/").removeprefix("git@github.com:") != pin.source:
+        return False
+    ref = details.get("ref") or item.get("ref") or source_ref
+    if not ref:
+        # Codex and Copilot can omit the ref from their marketplace listings.
+        try:
+            if entry.id == "codex":
+                ref = tomllib.loads((folder / "config.toml").read_text(encoding="utf-8-sig"))["marketplaces"][pin.marketplace]["ref"]
+            elif entry.id == "copilot":
+                ref = json.loads((folder / "settings.json").read_text(encoding="utf-8-sig"))["extraKnownMarketplaces"][pin.marketplace]["source"]["ref"]
+        except (OSError, ValueError, TypeError, KeyError):
+            return False
+    return ref == pin.tag
+
+
+def _removal_steps(plugin: Plugin, listed: bool, registered: bool) -> list[list[str]]:
+    return [arguments for present, arguments in ((listed, plugin.uninstall), (registered, plugin.marketplace_remove)) if present]
+
+
+def _account_target(home: Path, catalog: ToolsCatalog, agent: Agent) -> tuple[CatalogTool, Path]:
+    entry = _tool(catalog, agent.tool)
+    command = registered_command(agent, home) if agent.command is not None else shutil.which(entry.command)
+    if command is None:
+        raise InstallerError(f"{agent.tool} command is missing")
+    return entry.model_copy(update={"command": str(command)}), _config_path(home, agent.config_dir)
+
+
+def reconcile_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent], dry_run: bool, lines: list[str]) -> None:
+    pin = catalog.wiki
+    if pin is None:
+        return
+    if not dry_run:
+        try:
+            _knowledge_hub.initialize(home, lines)
+        except (OSError, ValueError, TypeError, RuntimeError) as error:
+            lines.append(f"knowledge: hub setup failed: {error}")
+    results: dict[tuple[str, str], str | None] = {}
+    for agent in agents:
+        try:
+            entry, folder = _account_target(home, catalog, agent)
+            key = entry.id, os.path.normcase(str(resolve_directory(folder)))
+            if key not in results:
+                try:
+                    if not dry_run:
+                        folder.mkdir(parents=True, exist_ok=True)
+                    _install_steps(entry, folder, pin.source, pin.tag, dry_run, lines, _wiki_recipe(entry.plugin, pin), pin)
+                    results[key] = None
+                except (OSError, ValueError, TypeError, RuntimeError) as error:
+                    results[key] = str(error)
+            if results[key] is not None:
+                lines.append(f"knowledge: {agent.id}: {results[key]}")
+        except (OSError, ValueError, RuntimeError) as error:
+            lines.append(f"knowledge: {agent.id}: {error}")
 
 
 # One row per tool and folder, so a long install ends with what happened where.
@@ -362,6 +464,7 @@ def install(
     uninstall: bool = False,
     purge: bool = False,
     catalog: ToolsCatalog | None = None,
+    with_knowledge: bool = True,
 ) -> list[str]:
     if update and uninstall:
         raise InstallerError("Choose either --update or --uninstall.")
@@ -370,15 +473,18 @@ def install(
     home = full_path(home)
     catalog = _catalog(source, ref, catalog)
     lines: list[str] = []
-    agents = _agents(home, lines if uninstall else None)
+    settings = _personalisation(home, lines if uninstall else None)
+    agents = settings.agents if settings else []
     selected = list(dict.fromkeys(part for word in (tools or []) for part in word.split(",") if part))
     if not selected:
         selected = [entry.id for entry in catalog.tools if uninstall or _target_tool(home, entry, agents) is not None]
     for tool_id in selected:
         _tool(catalog, tool_id)
+    knowledge_enabled = settings is not None and settings.knowledge_enabled is True
     if uninstall:
-        _uninstall(home, catalog, selected, config_dir, purge, dry_run, yes, lines, agents)
+        _uninstall(home, catalog, selected, config_dir, purge, dry_run, yes, lines, agents, catalog.wiki if knowledge_enabled else None)
         return lines
+    manage_knowledge = update and with_knowledge and knowledge_enabled
     if not selected:
         lines.append("No coding CLI is installed. Run legion setup to install one.")
         for entry in catalog.tools:
@@ -388,6 +494,8 @@ def install(
         ensure_path(home, dry_run, lines)
         if not dry_run:
             lines.extend(_refresh.refresh(home, source=PLUGIN_ROOT))
+        if manage_knowledge:
+            reconcile_knowledge(home, catalog, agents, dry_run, lines)
         return lines
     if update:
         targets: list[tuple[CatalogTool, Path]] = []
@@ -401,12 +509,16 @@ def install(
                 if target is None:
                     lines.append(f"skip: {tool_id} in {folder} (no command for this folder)")
                     continue
+                if knowledge_enabled and target.id == "codex" and target.plugin.marketplace_update == ["plugin", "marketplace", "upgrade"]:
+                    # Codex's unqualified upgrade would also refresh the pinned wiki and could block Legion on a wiki error.
+                    plugin = target.plugin.model_copy(update={"marketplace_update": [*target.plugin.marketplace_update, LEGION_MARKETPLACE]})
+                    target = target.model_copy(update={"plugin": plugin})
                 targets.append((target, folder))
         for entry, folder in targets:
             root = _plugin_root(entry, folder)
             version = _manifest(root).version if root else "not installed"
             lines.append(f"Update legion for {entry.id} in {folder} ({version})")
-        if targets and not dry_run and not (yes or _confirm("Update legion? [y/N]", lines)):
+        if (targets or manage_knowledge) and not dry_run and not (yes or _confirm("Update legion? [y/N]", lines)):
             return [*lines, "Nothing changed. Run again with --yes to apply."]
         rows: list[tuple[str, str, str]] = []
         confirmed: list[str] = []
@@ -443,6 +555,8 @@ def install(
                 click.echo(line, err=True)
             raise
         _hand_over(home, confirmed, lines, rows)
+        if manage_knowledge:
+            reconcile_knowledge(home, catalog, agents, dry_run, lines)
         if targets and not dry_run:
             lines.extend(_results_table(rows))
             lines.append("done: restart your sessions; run legion in the repository")
@@ -504,9 +618,11 @@ def _confirm(question: str, lines: list[str]) -> bool:
         return False
 
 
-def _uninstall(home: Path, catalog: ToolsCatalog, selected: list[str], config_dir: Optional[Path], purge: bool, dry_run: bool, yes: bool, lines: list[str], agents: list[Agent]) -> None:
+def _uninstall(
+    home: Path, catalog: ToolsCatalog, selected: list[str], config_dir: Optional[Path], purge: bool, dry_run: bool, yes: bool, lines: list[str], agents: list[Agent], pin: PluginPin | None
+) -> None:
     # The tools' own commands remove the plugin and marketplace; nothing in a tool's files is edited here.
-    steps: list[tuple[CatalogTool, Path, list[str]]] = []
+    steps: list[tuple[CatalogTool, Path, list[str], bool]] = []
     for tool_id in selected:
         entry = _tool(catalog, tool_id)
         if _target_tool(home, entry, agents) is None:
@@ -522,10 +638,18 @@ def _uninstall(home: Path, catalog: ToolsCatalog, selected: list[str], config_di
                 ("marketplace", folder.is_dir() and _marketplace(target, folder), entry.plugin.marketplace_remove),
             ):
                 if listed:
-                    steps.append((target, folder, arguments))
+                    steps.append((target, folder, arguments, False))
                     lines.append(_command_line(target, arguments, folder))
                 else:
                     lines.append(f"skip: {tool_id} {what} in {folder} (not installed)")
+            if pin is not None:
+                try:
+                    recipe = _wiki_recipe(target.plugin, pin)
+                    for arguments in _removal_steps(recipe, _plugin_state(target, folder, pin.plugin_id)[0], bool(_marketplace_item(target, folder, pin.marketplace))):
+                        steps.append((target, folder, arguments, True))
+                        lines.append(_command_line(target, arguments, folder))
+                except (OSError, ValueError) as error:
+                    lines.append(f"knowledge: {tool_id} in {folder}: {error}")
     # Only an uninstall of every tool, without --config-dir, removes legion's own folders.
     everything = config_dir is None and {entry.id for entry in catalog.tools} <= set(selected)
     if purge and not everything:
@@ -533,7 +657,7 @@ def _uninstall(home: Path, catalog: ToolsCatalog, selected: list[str], config_di
     folders = _legion_folders(home, purge, with_knowledge=False) if everything else []
     lines.extend(f"Remove folder: {folder}" for folder in folders)
     path_lines = _user_path.remove(home, purge, dry_run=True) if everything else []
-    hub = everything and purge and (home / ".legion/knowledge").exists()
+    hub = everything and purge and os.path.lexists(home / ".legion/knowledge")
     if everything:
         lines.extend(path_lines or ["skip: path (already done)"])
         if hub:
@@ -548,11 +672,21 @@ def _uninstall(home: Path, catalog: ToolsCatalog, selected: list[str], config_di
     if not (yes or _confirm("Purge legion and all its data now? [y/N]" if purge else "Uninstall legion now? [y/N]", lines)):
         lines.append("Uninstall cancelled.")
         return
-    for entry, folder, arguments in steps:
-        _step(entry, arguments, folder, False, lines)
+    failed_wiki: set[tuple[str, Path]] = set()
+    for entry, folder, arguments, wiki in steps:
+        if not wiki:
+            _step(entry, arguments, folder, False, lines)
+        elif (entry.id, folder) not in failed_wiki:
+            try:
+                _step(entry, arguments, folder, False, lines)
+            except (OSError, ValueError) as error:
+                failed_wiki.add((entry.id, folder))
+                lines.append(f"knowledge: {entry.id} in {folder}: {error}")
     if everything:
         lines.extend(_user_path.remove(home, purge))
         with_knowledge = hub and _confirm("Also delete the knowledge hub in ~/.legion/knowledge? [y/N]", lines)
+        if with_knowledge:
+            _knowledge_hub.purge(home, lines)
         _handover.start(_legion_folders(home, purge, with_knowledge))
         lines.append("done: legion folders are removed when this command ends")
 
@@ -565,6 +699,6 @@ def _legion_folders(home: Path, purge: bool, with_knowledge: bool) -> list[Path]
             return []
         return [folder for folder in (legion / "app", legion / "bin", legion / "python") if os.path.lexists(folder)]
     knowledge = legion / "knowledge"
-    if is_reparse(legion) or with_knowledge or not knowledge.exists():
+    if is_reparse(legion) or with_knowledge or not os.path.lexists(knowledge):
         return [legion] if os.path.lexists(legion) else []
     return [child for child in legion.iterdir() if child != knowledge]

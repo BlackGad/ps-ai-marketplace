@@ -119,6 +119,8 @@ Uninstall then install is an upgrade: your settings, notes and account folders s
 
 Uninstall shows the commands it will run and the folders it will delete, then asks. Use `-Yes` to skip the prompt, `-DryRun` to preview, or `-Tools` and `-ConfigDir` to narrow targets (the selected installed CLIs' defaults and recorded account folders, or only `-ConfigDir` when supplied). It runs each CLI's own plugin uninstall and marketplace remove commands, skips what is already gone, and edits none of the CLI's settings, caches or data. With every CLI selected (no `-ConfigDir`) it also removes the legion entry from your PATH (on Windows, the user PATH entry legion added; on macOS and Linux, the `# Added by legion` block in the shell profile), then deletes `~/.legion/app`, `~/.legion/bin` and `~/.legion/python`. Your settings, notes, account folders, logins, repositories and the CLIs themselves stay. Removing an account keeps its config folder.
 
+When knowledge is enabled, uninstall also removes the llm-wiki plugin and marketplace from the selected accounts and keeps the hub and its pointer.
+
 Legion cannot delete the files it is running from, so a detached system shell (`cmd` with `rmdir /s /q` on Windows, `sh` with `rm -rf` elsewhere) deletes the folders just after legion exits; on Windows it retries for a short while until the files are free. It never follows a link: a linked folder is removed as the link only.
 
 For a full removal, run `legion uninstall --purge` or the bootstrap with `-Uninstall -Purge` (`--uninstall --purge`). Purge runs uninstall first, then deletes all of `~/.legion`: settings, notes, account folders, legion-made logins, commands and the footprint index. If a knowledge hub exists in `~/.legion/knowledge`, purge asks about it in its own question, and `-Yes` does not answer it; without a yes the hub stays. Purge always covers every CLI: it is refused with `-ConfigDir` or a `-Tools` list that leaves out any catalog tool. `-Yes` answers the first question; `-DryRun` lists the plan and removes nothing. The CLIs' own files, repositories (including their `.legion` folders) and other tool settings stay.
@@ -172,6 +174,7 @@ These are the main commands; `legion help` lists all of them:
 | Command | What it does |
 | --- | --- |
 | `legion setup [--yes]` | Finish setup: settings, commands, legion in every account |
+| `legion setup --knowledge/--no-knowledge` | Save the llm-wiki choice. Add `--yes` to also apply the Legion setup plan. |
 | `legion add <tool> [<folder>] [--yes]` | Add a claude, codex or copilot account, using a new or existing folder |
 | `legion remove --id <id>` | Remove an account; keep its folder |
 | `legion status` | Show accounts, commands, channels and this repository |

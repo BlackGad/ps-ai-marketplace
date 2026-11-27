@@ -13,6 +13,7 @@ from cli_runner import run
 from legion.core._run import RunResult
 
 from legion.services.repository import _lease
+from legion.services.installation import installer
 from legion.services.status import _status
 from legion.core import _process, _validate
 from legion.core._settings_models import ChannelDescriptor, PersonalisationSettings, ToolDescriptor
@@ -38,6 +39,7 @@ def test_status_report_matches_status_lines(parity_home: tuple[Path, Path]) -> N
         "path ~/.legion/bin on PATH: no",
         "commands: missing legion",
         "channels main (telegram) -> claude-a",
+        "knowledge: off (not asked)",
         "repo Shared   lease: free   handoff: yes",
     ]
     assert report.repository.mode == "Shared"
@@ -101,7 +103,7 @@ def test_status_without_settings_is_native_and_exits_zero(tmp_path: Path, monkey
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     assert run(["--home", str(tmp_path / "home"), "status"]) == 0
-    assert capsys.readouterr().out.splitlines() == ["no legion settings yet", "path ~/.legion/bin on PATH: no", "commands: missing legion", "repo none"]
+    assert capsys.readouterr().out.splitlines() == ["no legion settings yet", "path ~/.legion/bin on PATH: no", "commands: missing legion", "knowledge: off (not asked)", "repo none"]
 
 
 @pytest.mark.parametrize("broken", ["invalid", "extra", "unreadable"])
@@ -120,7 +122,7 @@ def test_status_tells_broken_settings_from_missing_ones(tmp_path: Path, monkeypa
     output = capsys.readouterr()
     problem = "cannot be read" if broken == "unreadable" else "are not valid"
     expected = f"legion settings {problem}: {file}; run legion setup"
-    assert output.out.splitlines() == [expected, "path ~/.legion/bin on PATH: no", "commands: missing legion", "repo none"]
+    assert output.out.splitlines() == [expected, "path ~/.legion/bin on PATH: no", "commands: missing legion", "knowledge: off (not asked)", "repo none"]
     assert "private-sentinel" not in output.out + output.err
 
 
@@ -130,9 +132,12 @@ def snapshot(home: Path) -> dict[Path, tuple[bytes, int]]:
 
 def test_configured_status_preserves_home_and_never_launches_a_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     home = tmp_path / "home"
-    settings(home)
+    configured = settings(home)
+    configured.knowledge_enabled = True
+    write(home / ".legion/configuration/personalisation.json", configured.model_dump_json(by_alias=True, exclude_none=True))
     folder = commands(home)
     write(home / ".claude/plugins/cache/ps-legion-marketplace/legion/0.6.0/plugin.json", '{"name":"legion","version":"0.6.0"}')
+    write(home / ".claude/plugins/cache/llm-wiki/wiki/1.0.0/.claude-plugin/plugin.json", '{"name":"wiki","version":"1.0.0"}')
     monkeypatch.setenv("PATH", str(folder))
     monkeypatch.chdir(tmp_path)
 
@@ -140,6 +145,7 @@ def test_configured_status_preserves_home_and_never_launches_a_cli(tmp_path: Pat
         pytest.fail("status started a process without a tracked repository")
 
     monkeypatch.setattr(status_service, "run_command", refuse)
+    monkeypatch.setattr(installer, "_account_target", refuse)
     before = snapshot(home)
     assert run(["--home", str(home), "status"]) == 0
     assert capsys.readouterr().out.splitlines() == [
@@ -149,6 +155,9 @@ def test_configured_status_preserves_home_and_never_launches_a_cli(tmp_path: Pat
         "path ~/.legion/bin on PATH: yes",
         "commands: yes",
         "channels my-telegram (telegram) -> claude-a",
+        "knowledge: on",
+        "  knowledge hub missing: ~/.legion/knowledge",
+        "  wiki plugin missing in: codex-a",
         "repo none",
     ]
     assert snapshot(home) == before

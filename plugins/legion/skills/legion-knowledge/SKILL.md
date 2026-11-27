@@ -9,7 +9,7 @@ description: Use when overseer research begins, two attempts fail, a failure loo
 
 For any agent tool operation, read the selected account's tool skill using [consult.md](references/consult.md). Stop if that tool skill is missing; do not guess commands or capabilities.
 
-Use this planner to decide when to consult or file durable, cross-project lessons. Load `legion-personalisation` and its notes first. Read owner notes for knowledge enablement and location, and repository workflow for the neutral label using [consult.md](references/consult.md); when knowledge is disabled, skip silently. Speak to the owner in plain words; show commands only when asked or when they must run them themselves.
+Use this planner to decide when to consult or file durable, cross-project lessons. Load `legion-personalisation` and its notes first. Read `knowledgeEnabled` in personalisation and the neutral label in the repository workflow using [consult.md](references/consult.md). Speak to the owner in plain words. Show commands only when asked or when they must run them themselves.
 
 - Consult at research before planning, after two failed attempts at one problem, or when a failure looks familiar.
 - File at milestone close-out and immediately after a hard problem is solved.
@@ -19,14 +19,14 @@ Use this planner to decide when to consult or file durable, cross-project lesson
 
 ## Consult or file
 
-1. Confirm the hub exists. If it does not, offer the setup steps in [llm-wiki-setup.md](references/llm-wiki-setup.md) and stop.
+1. If `knowledgeEnabled` is missing or false, stop. If enabled, confirm the configured hub exists. Report a missing hub and refer to [setup](references/llm-wiki-setup.md).
 2. For a lookup, follow [consult.md](references/consult.md). Cite the exact note path and say how the earlier lesson applies to the present issue.
 3. For a new lesson, follow [file.md](references/file.md). Use the installed wiki skill if available; otherwise use the fallback in [no-plugin.md](references/no-plugin.md).
 4. Re-read the stored note after filing and check the sanitising list. If it fails, fix or remove the unsafe entry before reporting completion.
 
 ## Stop conditions
 
-If the hub is missing, offer setup and wait; never install it. If the lesson cannot be expressed without client details, do not file it. If knowledge is disabled, exit quietly.
+If the hub is missing, stop after reporting it. If the lesson cannot be expressed without client details, do not file it.
 
 ## Verification
 

@@ -27,8 +27,14 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> Recorder:
     for entry in CATALOG.tools:
         monkeypatch.delenv(entry.config_env, raising=False)
     monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
-    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (True, True, [], ""))
+
+    def plugin_state(_entry: CatalogTool, _folder: Path, plugin_id: str = _installer.LEGION_PLUGIN) -> tuple[bool, bool, list[Path], str]:
+        installed = plugin_id == _installer.LEGION_PLUGIN
+        return installed, installed, [], ""
+
+    monkeypatch.setattr(_installer, "_plugin_state", plugin_state)
     monkeypatch.setattr(_installer, "_marketplace", lambda *_args: True)
+    monkeypatch.setattr(_installer, "_marketplace_item", lambda *_args: {})
 
     def step(entry: CatalogTool, arguments: list[str], _folder: Path, _dry_run: bool, _lines: list[str]) -> None:
         recorder.steps.append((entry.id, arguments))
@@ -77,6 +83,14 @@ def test_uninstall_runs_each_tools_own_commands_and_writes_no_tool_file(home: Pa
     run(home, yes=True)
     assert recorder.steps == [(entry.id, arguments) for entry in CATALOG.tools for arguments in (entry.plugin.uninstall, entry.plugin.marketplace_remove)]
     assert tool_files(home) == before
+
+
+def test_declined_knowledge_keeps_a_listed_manual_wiki(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
+    (home / ".legion/configuration/personalisation.json").write_text('{"schemaVersion":1,"agents":[],"channels":[],"knowledgeEnabled":false}', encoding="utf-8")
+    monkeypatch.setattr(_installer, "_plugin_state", lambda *_: (True, True, [], ""))
+    monkeypatch.setattr(_installer, "_marketplace_item", lambda *_: {"name": "llm-wiki"})
+    run(home, yes=True)
+    assert recorder.steps == [(entry.id, arguments) for entry in CATALOG.tools for arguments in (entry.plugin.uninstall, entry.plugin.marketplace_remove)]
 
 
 def test_uninstall_hands_over_app_bin_and_python_and_keeps_the_owners_data(home: Path, recorder: Recorder) -> None:
@@ -147,6 +161,22 @@ def test_purge_deletes_the_knowledge_hub_only_on_its_own_yes(home: Path, recorde
     answers.append(True)
     run(home, yes=True, purge=True)
     assert recorder.questions == ["Also delete the knowledge hub in ~/.legion/knowledge? [y/N]"]
+    assert recorder.handed == [[home / ".legion"]]
+
+
+@pytest.mark.parametrize("external", [False, True])
+def test_purge_of_linked_hub_clears_only_the_pointer_to_the_hub_link(home: Path, recorder: Recorder, answers: list[bool], external: bool) -> None:
+    outside = home / "outside"
+    outside.mkdir()
+    make_link(home / ".legion/knowledge", outside)
+    pointer = home / ".config/llm-wiki/config.json"
+    pointer.parent.mkdir(parents=True)
+    value = outside.as_posix() if external else "~/.legion/knowledge"
+    pointer.write_text(f'{{"hub_path":"{value}"}}', encoding="utf-8")
+    answers.append(True)
+    run(home, yes=True, purge=True)
+    assert pointer.exists() is external
+    assert outside.is_dir()
     assert recorder.handed == [[home / ".legion"]]
 
 

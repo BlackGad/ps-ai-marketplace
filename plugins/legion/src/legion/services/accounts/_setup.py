@@ -310,11 +310,13 @@ def preview(home: Path, tool_id: Optional[str], config_dir: Optional[str], accou
 # --- doing it ---
 
 
-def initialize_files(plan: Plan, say: Callable[[str], None]) -> None:
+def initialize_files(plan: Plan, say: Callable[[str], None], knowledge: Optional[bool] = None, explicit: bool = False) -> None:
     if plan.settings_file.exists():
         say("skip: settings (already done)")
-    else:
+    elif knowledge is None:
         _generated.write_generated(plan.settings_file, _settings_io.EMPTY + "\n", executable=False)
+    if knowledge is not None:
+        _save_knowledge_locked(plan.home, knowledge, explicit)
     if plan.notes.exists():
         say("skip: notes (already done)")
     else:
@@ -399,7 +401,7 @@ def set_path(plan: Plan, say: Callable[[str], None]) -> None:
 # Returns 0 when it finished, 1 when it failed.
 def install_plugin(tool_id: str, folder: Path, home: Path, source: Optional[str]) -> int:
     try:
-        output = "\n".join(_installer.install(home, tools=[tool_id], config_dir=folder, update=True, yes=True, source=source or _installer.DEFAULT_SOURCE))
+        output = "\n".join(_installer.install(home, tools=[tool_id], config_dir=folder, update=True, yes=True, source=source or _installer.DEFAULT_SOURCE, with_knowledge=False))
         code = 0
     except (_installer.InstallerError, _footprints.FootprintError, _launchers.LauncherError, _settings_io.SettingsError, OSError, ValueError) as error:
         output, code = str(error), 1
@@ -449,13 +451,41 @@ def write_table(plan: Plan, say: Callable[[str], None]) -> None:
         say(f"Blocked commands: {', '.join(dict.fromkeys(blocked))}")
 
 
-def apply(home: Path, tool_id: Optional[str], config_dir: Optional[str], account_id: Optional[str], source: Optional[str], say: Callable[[str], None]) -> None:
+def _save_knowledge_locked(home: Path, choice: bool, explicit: bool) -> None:
+    settings = _settings_io.load_or_empty(home)
+    if settings.knowledge_enabled != choice and (explicit or settings.knowledge_enabled is None):
+        settings.knowledge_enabled = choice
+        _settings_io.save_locked(home, settings)
+
+
+def _install_knowledge(home: Path, say: Callable[[str], None]) -> None:
+    if not settings_path(home).is_file():
+        return
+    settings = _settings_io.load_unchecked(home)
+    if settings.knowledge_enabled:
+        lines: list[str] = []
+        catalog = _installer._catalog(_installer.DEFAULT_SOURCE, "release", None)
+        _installer.reconcile_knowledge(home, catalog, settings.agents, False, lines)
+        for line in lines:
+            say(line)
+
+
+def apply(
+    home: Path,
+    tool_id: Optional[str],
+    config_dir: Optional[str],
+    account_id: Optional[str],
+    source: Optional[str],
+    say: Callable[[str], None],
+    knowledge: Optional[bool],
+    explicit: bool,
+) -> None:
     # A fresh home can reject bad input without creating a lock file or settings folder.
     if not settings_path(home).exists():
         build_plan(home, tool_id, config_dir, account_id)
     with _settings_io.writer(home, require_existing=False):
         plan = build_plan(home, tool_id, config_dir, account_id)
-        initialize_files(plan, say)
+        initialize_files(plan, say, knowledge, explicit)
     with saved_path():
         install_tools(plan)
         add_accounts(plan, say)
@@ -477,21 +507,36 @@ def ask() -> str:
     return click.prompt("Apply? [Y/n]", default="", show_default=False, prompt_suffix=" ")
 
 
-# Without --yes: the plan, then (only when someone can answer) Apply? Otherwise the plan alone, with its hint.
-def run(home: Path, tool_id: Optional[str], config_dir: Optional[str], account_id: Optional[str], source: Optional[str], yes: bool, say: Callable[[str], None]) -> None:
-    if yes:
-        apply(home, tool_id, config_dir, account_id, source, say)
-        return
-    lines = preview(home, tool_id, config_dir, account_id)
-    if lines[-1] == NOTHING_TO_DO or not interactive():
+# The setup plan needs consent. Knowledge follows the saved choice after the plan.
+def run(
+    home: Path,
+    tool_id: Optional[str],
+    config_dir: Optional[str],
+    account_id: Optional[str],
+    source: Optional[str],
+    yes: bool,
+    say: Callable[[str], None],
+    knowledge: Optional[bool] = None,
+) -> None:
+    can_ask = interactive()
+    explicit = knowledge is not None
+    if not yes and knowledge is None:
+        lines = preview(home, tool_id, config_dir, account_id)
+        prompt = can_ask and lines[-1] != NOTHING_TO_DO
         for line in lines:
-            say(line)
-        return
-    # The prompt replaces the plan's own hint to run again with --yes.
-    for line in lines:
-        if line != RUN_AGAIN:
-            say(line)
-    if ask().strip().lower() in ("", "y", "yes"):
-        apply(home, tool_id, config_dir, account_id, source, say)
-    else:
-        say("Nothing changed.")
+            if not prompt or line != RUN_AGAIN:
+                say(line)
+        if prompt:
+            yes = ask().strip().lower() in ("", "y", "yes")
+            if not yes:
+                say("Setup plan declined.")
+                return
+    if not explicit and tool_id is None and can_ask and _settings_io.load_or_empty(home).knowledge_enabled is None:
+        knowledge = click.confirm("Install the llm-wiki knowledge base in every account? [y/N]", default=False, show_default=False, prompt_suffix=" ")
+    if yes:
+        apply(home, tool_id, config_dir, account_id, source, say, knowledge, explicit)
+    elif knowledge is not None:
+        with _settings_io.writer(home, require_existing=False):
+            _save_knowledge_locked(home, knowledge, explicit)
+    with saved_path():
+        _install_knowledge(home, say)

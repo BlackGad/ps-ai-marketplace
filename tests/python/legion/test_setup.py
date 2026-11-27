@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 import pytest
 from app_fakes import FakeUv, make_source
+from click.testing import CliRunner
 from cli_runner import run
 from filelock import FileLock, Timeout
 from launcher_fakes import (
@@ -27,10 +28,13 @@ from legion.services.installation import (
     _tool_install,
 )
 from legion.services.status import _status
+from legion.services.status import status
+from legion import cli
 from legion.services.repository import _footprints
 from legion.services.installation import _user_path
 from legion.core._home import bin_folder, footprint_index, settings_path
 from legion.core._plugin import PLUGIN_ROOT
+from legion.core._run import RunResult
 from legion.core._settings_models import ToolDescriptor
 from legion.core._validate import load_descriptors
 
@@ -104,7 +108,7 @@ class Bench:
 
     def apply(self, tool: Optional[str] = None, folder: Optional[Path] = None, account_id: Optional[str] = None) -> list[str]:
         lines: list[str] = []
-        _setup.apply(self.home, tool, str(folder) if folder is not None else None, account_id, None, lines.append)
+        _setup.run(self.home, tool, str(folder) if folder is not None else None, account_id, None, True, lines.append)
         return lines
 
     def settings(self) -> dict[str, Any]:
@@ -138,6 +142,219 @@ def bench(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Bench:
 
 def text(lines: list[str]) -> str:
     return "\n".join(lines)
+
+
+@pytest.mark.parametrize(("answer", "saved"), [("y\n", True), ("\n", False), (None, None)])
+def test_setup_remembers_the_knowledge_answer(bench: Bench, monkeypatch: pytest.MonkeyPatch, answer: Optional[str], saved: Optional[bool]) -> None:
+    monkeypatch.setattr(_setup, "interactive", lambda: answer is not None)
+    args = ["--home", str(bench.home), "setup", "--yes"]
+    first = CliRunner().invoke(cli.main, args, input=answer)
+    assert first.exit_code == 0, first.output
+    question = "Install the llm-wiki knowledge base in every account? [y/N]"
+    assert (question in first.output) == (answer is not None)
+    assert bench.settings().get("knowledgeEnabled") is saved
+    assert "skip: settings (already done)" not in first.output
+    assert (bench.home / ".legion/knowledge/wikis.json").exists() is (saved is True)
+    report = status(bench.base, bench.home)
+    state = {True: "on", False: "declined", None: "off"}[saved]
+    assert report.knowledge.state == state
+    assert f"knowledge: {state}" in text(_status.status_lines(report))
+    if saved is not None:
+        repeat = CliRunner().invoke(cli.main, args)
+        assert repeat.exit_code == 0, repeat.output
+        assert question not in repeat.output
+
+
+def test_knowledge_question_does_not_hold_the_settings_lock(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
+    bench.apply()
+    monkeypatch.setattr(_setup, "interactive", lambda: True)
+
+    def answer(*_args: object, **_options: object) -> bool:
+        with FileLock(str(settings_path(bench.home)) + ".lock", timeout=0):
+            return False
+
+    monkeypatch.setattr(_setup.click, "confirm", answer)
+    result = CliRunner().invoke(cli.main, ["--home", str(bench.home), "setup"])
+    assert result.exit_code == 0, result.exception
+    assert bench.settings()["knowledgeEnabled"] is False
+
+
+def test_invalid_setup_leaves_no_settings_even_with_a_knowledge_choice(bench: Bench) -> None:
+    with pytest.raises(_setup.SetupError, match="unknown tool"):
+        _setup.run(bench.home, "unknown", None, None, None, True, lambda _: None, knowledge=True)
+    assert not settings_path(bench.home).exists()
+
+
+def test_unattended_setup_prints_the_plan_and_repairs_the_hub(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_setup, "interactive", lambda: False)
+    args = ["--home", str(bench.home), "setup"]
+    assert CliRunner().invoke(cli.main, [*args, "--yes", "--knowledge"]).exit_code == 0
+    log = bench.home / ".legion/knowledge/log.md"
+    log.unlink()
+    first = CliRunner().invoke(cli.main, args)
+    assert first.exit_code == 0, first.output
+    assert "Nothing to do." in first.output
+    assert log.is_file()
+    assert "done: knowledge hub" in first.output
+    repeat = CliRunner().invoke(cli.main, args)
+    assert "skip: knowledge hub (already done)" in repeat.output
+    assert "skip: llm-wiki hub pointer (already done)" in repeat.output
+
+
+@pytest.mark.parametrize("tool", ["claude", "codex", "copilot"])
+def test_knowledge_adopts_the_plugin_and_follows_later_accounts(bench: Bench, monkeypatch: pytest.MonkeyPatch, tool: str) -> None:
+    wiki = "wiki@llm-wiki"
+    first_id, later_id = f"wiki-{tool}-a", f"wiki-{tool}-b"
+    bench.apply(tool, account_id=first_id)
+    first, later = bench.folder(first_id), bench.folder(later_id)
+    markets = {(first, "llm-wiki"): ("example/wiki-fork", "main")}
+    plugins = {(first, wiki)}
+    calls: list[tuple[Path, list[str]]] = []
+    entry = descriptor(tool)
+    hub = bench.home / ".legion/knowledge"
+    pointer = bench.home / ".config/llm-wiki/config.json"
+    fail_later = False
+
+    def fake_run(_program: str, args: list[str], *, env: dict[str, str], **_options: object) -> RunResult:
+        folder = Path(env[entry.config_env])
+        calls.append((folder, args))
+        output = ""
+        legion = folder / (entry.plugin.installed_root or "") / VERSION
+        if args == entry.plugin.marketplace_list:
+            market_rows: list[dict[str, object]] = []
+            for (account, name), (source, ref) in markets.items():
+                if account != folder:
+                    continue
+                url = f"https://github.com/{source}.git"
+                if tool == "codex":
+                    market_rows.append({"name": name, "root": str(folder), "marketplaceSource": {"sourceType": "git", "source": url}})
+                    (folder / "config.toml").write_text(f'[marketplaces.{name}]\nsource = "{url}"\nref = "{ref}"\n', encoding="utf-8")
+                elif tool == "claude":
+                    market_rows.append({"name": name, "source": "github", "repo": source, "ref": ref, "installLocation": str(folder)})
+                else:
+                    market_rows.append({"name": name, "source": f"GitHub: {source}", "isDefault": False})
+                    data = {"extraKnownMarketplaces": {name: {"source": {"source": "github", "repo": source, "ref": ref}}}}
+                    (folder / "settings.json").write_text(json.dumps(data), encoding="utf-8")
+            output = json.dumps({"marketplaces": market_rows} if tool == "codex" else market_rows)
+        elif args == entry.plugin.list_command:
+            ids = [plugin for account, plugin in plugins if account == folder]
+            rows = [{"id": plugin, "enabled": True} for plugin in ids]
+            if (legion / "plugin.json").is_file():
+                rows.append({"id": "legion@ps-legion-marketplace", "enabled": True, "installPath": str(legion)})
+            output = json.dumps(rows) if tool == "claude" else "\n".join(f"{row['id']} {VERSION} {row.get('installPath', '')}".rstrip() for row in rows)
+        elif tool == "codex" and args[:3] == ["plugin", "marketplace", "upgrade"]:
+            assert args[3:] == ["ps-legion-marketplace"]
+        elif args in (entry.plugin.marketplace_update, entry.plugin.update, entry.plugin.uninstall):
+            pass
+        elif args[:3] == ["plugin", "marketplace", "add"]:
+            assert all((hub / name).is_file() for name in ("wikis.json", "log.md", "_index.md"))
+            assert (hub / "topics").is_dir()
+            assert json.loads(pointer.read_bytes()) == {"hub_path": "~/.legion/knowledge"}
+            pin = ["nvk/llm-wiki", "--ref", "v1.0.0"] if tool == "codex" else ["nvk/llm-wiki#v1.0.0"]
+            assert args[3:] == pin
+            markets[folder, "llm-wiki"] = ("nvk/llm-wiki", "v1.0.0")
+        elif args[:3] == ["plugin", "marketplace", "remove"]:
+            assert (folder, wiki) not in plugins
+            markets.pop((folder, args[3]))
+        elif args[1] in ("remove", "uninstall"):
+            plugins.remove((folder, args[2]))
+        else:
+            assert args == ["plugin", "add" if tool == "codex" else "install", wiki]
+            if fail_later and folder == later:
+                return RunResult(exit_code=1, output="", error="fixture plugin failure", timed_out=False)
+            plugins.add((folder, wiki))
+            cache = "installed-plugins" if tool == "copilot" else "plugins/cache"
+            manifest = folder / cache / "llm-wiki/wiki" / VERSION / "plugin.json"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(json.dumps({"name": "wiki", "version": VERSION}), encoding="utf-8")
+        return RunResult(exit_code=0, output=output, error="", timed_out=False)
+
+    monkeypatch.setattr(_installer, "run_command", fake_run)
+    args = ["--home", str(bench.home), "setup", "--knowledge"]
+    result = CliRunner().invoke(cli.main, args)
+    assert result.exit_code == 0, result.output
+    assert markets[first, "llm-wiki"] == ("nvk/llm-wiki", "v1.0.0"), result.output
+    assert (first, wiki) in plugins
+    assert any(command[1] in ("uninstall", "remove") for _, command in calls)
+    assert bench.settings()["knowledgeEnabled"] is True
+    calls.clear()
+    fail_later = True
+    lines = bench.apply(tool, account_id=later_id)
+    assert plugins == {(first, wiki)}
+    assert f"knowledge: {later_id}:" in text(lines)
+    assert "fixture plugin failure" in text(lines)
+    assert _status.installed_version(later, entry) == VERSION
+    assert all(folder != first or args in (entry.plugin.list_command, entry.plugin.marketplace_list) for folder, args in calls)
+    (hub / "log.md").unlink()
+    report = status(bench.base, bench.home)
+    assert report.knowledge.missing_accounts == [later_id]
+    assert report.knowledge.hub == "invalid"
+    monkeypatch.setattr(_installer, "_hand_over", lambda *_: None)
+    fail_later = False
+    _installer.install(bench.home, [tool], config_dir=later, update=True, yes=True)
+    assert (later, wiki) in plugins
+    _installer.install(bench.home, [tool], config_dir=first, uninstall=True, yes=True)
+    assert (first, wiki) not in plugins
+    assert (first, "llm-wiki") not in markets
+    assert hub.is_dir()
+    assert pointer.is_file()
+
+
+@pytest.mark.parametrize("external", [False, True])
+def test_knowledge_preserves_settings_and_purge_asks(bench: Bench, monkeypatch: pytest.MonkeyPatch, external: bool) -> None:
+    hub = bench.home / ".legion/knowledge"
+    pointer = bench.home / ".config/llm-wiki/config.json"
+    pointer.parent.mkdir(parents=True)
+    existing: dict[str, str | bool] = {"other": True}
+    if external:
+        existing["hub_path"] = "~/other-wiki"
+    pointer.write_text(json.dumps(existing), encoding="utf-8")
+    result = CliRunner().invoke(cli.main, ["--home", str(bench.home), "setup", "--knowledge", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert ("other-wiki" in result.output) is external
+    expected = existing if external else {**existing, "hub_path": "~/.legion/knowledge"}
+    assert json.loads(pointer.read_bytes()) == expected
+    assert hub.is_dir()
+    monkeypatch.setattr(_installer, "_listing", lambda *_: "")
+    handed: list[list[Path]] = []
+    monkeypatch.setattr(_installer._handover, "start", handed.append)
+    answers = iter((False, True))
+
+    def confirm(question: str, **_options: object) -> bool:
+        assert question == "Also delete the knowledge hub in ~/.legion/knowledge? [y/N]"
+        return next(answers)
+
+    monkeypatch.setattr(_installer.click, "confirm", confirm)
+    _installer.install(bench.home, uninstall=True, purge=True, yes=True)
+    assert hub.is_dir()
+    assert pointer.is_file()
+    _installer.install(bench.home, uninstall=True, purge=True, yes=True)
+    assert hub.is_dir()
+    assert handed[-1] == [hub.parent]
+    assert json.loads(pointer.read_bytes()) == existing
+
+
+def test_knowledge_reports_a_missing_account_command(bench: Bench) -> None:
+    bench.seed("wiki-account", "codex", command=bench.base / "missing.exe")
+    result = CliRunner().invoke(cli.main, ["--home", str(bench.home), "setup", "--knowledge"])
+    assert result.exit_code == 0, result.output
+    assert "knowledge: wiki-account: codex command is missing" in result.output
+    assert status(bench.base, bench.home).knowledge.missing_accounts == ["wiki-account"]
+
+
+def test_invalid_pointer_is_reported_once_and_the_wikis_still_install(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
+    bench.apply("claude")
+    bench.apply("codex")
+    pointer = bench.home / ".config/llm-wiki/config.json"
+    pointer.parent.mkdir(parents=True)
+    pointer.write_bytes(b"invalid JSON")
+    installed: list[str] = []
+    monkeypatch.setattr(_installer, "_install_steps", lambda entry, *_: installed.append(entry.id))
+    result = CliRunner().invoke(cli.main, ["--home", str(bench.home), "setup", "--knowledge"])
+    assert result.exit_code == 0, result.output
+    assert result.output.count("knowledge: hub setup failed:") == 1
+    assert installed == ["claude", "codex"]
+    assert pointer.read_bytes() == b"invalid JSON"
 
 
 # --- the plan and a plain apply ---
@@ -655,7 +872,7 @@ def test_the_plugin_installer_gets_its_options_and_a_log(bench: Bench) -> None:
     calls = installer_calls(bench, ["inert installer output", "second line"])
     folder = bench.base / "target folder"
     assert REAL_INSTALL_PLUGIN("codex", folder, bench.home, None) == 0
-    assert calls == [(bench.home, {"tools": ["codex"], "config_dir": folder, "update": True, "yes": True, "source": _setup._installer.DEFAULT_SOURCE})]
+    assert calls == [(bench.home, {"tools": ["codex"], "config_dir": folder, "update": True, "yes": True, "source": _setup._installer.DEFAULT_SOURCE, "with_knowledge": False})]
     assert (bench.home / ".legion" / "temp" / "setup-install-codex.log").read_text(encoding="utf-8") == "inert installer output\nsecond line"
 
 
@@ -728,8 +945,18 @@ def test_an_owner_who_says_no_changes_nothing(bench: Bench, monkeypatch: pytest.
     Talk(monkeypatch, True, ["n"])
     lines: list[str] = []
     _setup.run(bench.home, "codex", None, None, None, False, lines.append)
-    assert lines[-1] == "Nothing changed."
+    assert lines[-1] == "Setup plan declined."
     assert not (bench.home / ".legion").exists()
+
+
+def test_declining_setup_does_not_reconcile_a_saved_knowledge_opt_in(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup.run(bench.home, None, None, None, None, True, lambda _: None, knowledge=True)
+    log = bench.home / ".legion/knowledge/log.md"
+    log.unlink()
+    Talk(monkeypatch, True, ["n"])
+    _setup.run(bench.home, "codex", None, None, None, False, lambda _: None)
+    assert not log.exists()
+    assert bench.ids() == []
 
 
 def test_a_script_gets_the_plan_and_the_run_again_hint_and_no_prompt(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -741,8 +968,8 @@ def test_a_script_gets_the_plan_and_the_run_again_hint_and_no_prompt(bench: Benc
     assert not (bench.home / ".legion").exists()
 
 
-def test_nothing_to_do_asks_nothing(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
-    bench.apply()
+def test_nothing_to_do_asks_nothing_after_knowledge_is_declined(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup.run(bench.home, None, None, None, None, True, lambda _: None, knowledge=False)
     talk = Talk(monkeypatch, True, [])
     lines: list[str] = []
     _setup.run(bench.home, None, None, None, None, False, lines.append)

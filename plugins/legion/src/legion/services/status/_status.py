@@ -70,16 +70,19 @@ def _copilot_manifest(folder: Path) -> Optional[Path]:
     return None
 
 
-def installed_version(folder: Path, tool: ToolDescriptor) -> Optional[str]:
-    files = list((folder / tool.plugin.installed_root).rglob("plugin.json")) if tool.plugin.installed_root else []
-    local = _copilot_manifest(folder) if tool.id == "copilot" else None
+def installed_version(folder: Path, tool: ToolDescriptor, name: str = "legion") -> Optional[str]:
+    root = tool.plugin.installed_root
+    if name == "wiki":
+        root = "installed-plugins/llm-wiki/wiki" if tool.id == "copilot" else "plugins/cache/llm-wiki/wiki"
+    files = list((folder / root).rglob("plugin.json")) if root else []
+    local = _copilot_manifest(folder) if name == "legion" and tool.id == "copilot" else None
     if local is not None:
         files = [local]
     highest = None
     for file in files:
         try:
             manifest = PluginManifest.model_validate_json(read_text(file))
-            if manifest.name != "legion":
+            if manifest.name != name:
                 continue
             newer = compare_versions(manifest.version, highest or manifest.version) > 0
             if highest is None or newer:
@@ -193,5 +196,11 @@ def status_lines(report: StatusReport) -> list[str]:
     commands = "yes" if report.commands == "yes" else f"{report.commands} legion"
     lines.extend([f"path ~/.legion/bin on PATH: {'yes' if report.on_path else 'no'}", f"commands: {commands}"])
     lines.extend(f"channels {channel.id} ({channel.kind}) -> {', '.join(channel.accounts)}" for channel in report.channels)
+    knowledge = report.knowledge
+    lines.append(f"knowledge: {'off (not asked)' if knowledge.state == 'off' else knowledge.state}")
+    if knowledge.hub in ("missing", "invalid"):
+        lines.append(f"  knowledge hub {knowledge.hub}: ~/.legion/knowledge")
+    if knowledge.missing_accounts:
+        lines.append(f"  wiki plugin missing in: {', '.join(knowledge.missing_accounts)}")
     lines.extend([repository_line(report.repository), *report.warnings])
     return lines
