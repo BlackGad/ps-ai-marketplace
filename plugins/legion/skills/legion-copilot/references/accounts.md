@@ -1,15 +1,12 @@
 # Copilot CLI accounts
 
-Follow [owner notes](../../legion-personalisation/references/fields.md) before account, model or channel choices.
-Add and adopt through `legion add`, as [create.md](../../legion-personalisation/references/create.md) describes. It suggests `copilot<n>`, accepts a valid custom lowercase hyphenated id that is not a command on PATH, installs a missing `copilot` CLI, creates the config folder, and installs legion, all before login. For a new folder only, the owner logs in once by starting `copilot` itself with `COPILOT_HOME` set to the account's folder, outside legion; setup's `log in:` column shows that command. `legion` and `legion pick` start only the overseer. Never handle tokens or credential files. Follow the [shared account rules](../../legion-personalisation/references/fields.md#account-setup).
-
-[install.md](install.md) covers a CLI-only install the owner asks for. Register an existing account's program with `legion account add --id <id> --tool copilot --command <path> --config-dir <dir>`; rename with `legion account rename --id <old> --new-id <new>`; remove with `legion remove --id <id>`. They update channel bindings, keep the config folder and print its location. Ask before changing or deleting that folder.
+Add and adopt through `legion add`, as [create.md](../../legion-personalisation/references/create.md) describes, and follow the [shared account rules](../../legion-personalisation/references/fields.md#account-setup). For a new folder the owner logs in once by starting `copilot` with `COPILOT_HOME` set to the account's folder; setup's `log in:` column shows the command. Never handle tokens or credential files.
 
 ## Foundry agent
 
 Use this flow instead of the subscription login flow above. One agent uses one endpoint. Copilot Foundry agents support **Claude deployments only**. GPT deployments are out of scope. Use `legion --home <home>` for an alternate home.
 
-Use these commands for a Foundry provider configuration request. Ordinary setup can adopt an existing folder and keep its provider settings. For Foundry only, ask “Standard mapping or choose deployments yourself?” Reuse choices already supplied. Follow [Foundry model mapping](../../legion-personalisation/references/foundry-models.md) for discovery, `--standard` and unresolved aliases. These examples show explicit choices:
+Use these commands for a Foundry provider configuration request; ordinary setup can adopt an existing folder and keep its provider settings. Ask the model question and discover deployments as [Foundry model mapping](../../legion-personalisation/references/foundry-models.md) says. These examples show explicit choices:
 
 ```powershell
 legion account add --id <id> --tool copilot --provider foundry --endpoint https://<resource>.cognitiveservices.azure.com --deployment claude-opus-x --deployment claude-sonnet-x --default claude-opus-x
@@ -23,12 +20,12 @@ For a requested provider configuration change, reuse the supplied settings and a
 legion account models --id <id> --deployment claude-opus-x --deployment claude-sonnet-x --default claude-opus-x
 ```
 
-An identical result prints `skip: models <id> (no changes)` and writes nothing. Then run `legion setup` and show the owner its plan. It covers every known account, not only this one, so ask for the owner's one yes and run it again with `--yes` to install legion wherever it is missing.
+An identical result prints `skip: models <id> (no changes)` and writes nothing. Then finish with `legion setup`, as the model mapping guide describes.
 
 Start it with `legion --account <id>` or `legion pick`. Legion sets `COPILOT_HOME` and points `COPILOT_PROVIDERS_CONFIG` to a per-launch file under `~/.legion/temp/`. This is the approved exception to the no-token-storage rule: Copilot's provider file holds a **fixed bearer token**. The runner creates it with the user profile's Windows permissions, or mode `0600` on other platforms, before writing the token. It deletes the file in `finally` when Copilot exits, including an error exit. Never read or log it.
 
-Each Copilot Foundry launch also removes expired legion provider files left by interrupted runs, using the exact token expiry recorded in their filenames. Fresh and unrelated files are preserved. No fixed token lifetime is assumed.
+Each Copilot Foundry launch also removes expired legion provider files left by interrupted runs, using the token expiry recorded in their filenames.
 
 The runner prints `token valid until HH:mm; after that restart with: legion run --account <id> -- --resume` in local time. The token does not refresh during that run. After expiry, exit and restart with `legion run --account <id> -- --resume` in the same folder to obtain a fresh token. A missing CLI stops with `copilot is not installed; run legion tool install --tool copilot`.
 
-Account selection and launch-field examples are in [launcher.md](launcher.md). The base `copilot` executable may be the `command` for a separately named account such as `agent-a`; account ids must not shadow commands on PATH.
+Account selection and launch-field examples are in the [launcher guide](../../legion-personalisation/references/launcher.md). The base `copilot` executable may be the `command` for a separately named account such as `agent-a`; account ids must not shadow commands on PATH.

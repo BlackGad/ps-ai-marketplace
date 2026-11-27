@@ -20,7 +20,7 @@ Each repository's overseer has its own bot. For a second bot, tell the owner in 
 3. In that session, the owner runs `/telegram:configure`, pastes the token, then pairs with `/telegram:access`.
 4. From then on that overseer starts its own bot.
 
-A bot set up before this change lives in the account's default folder. The owner moves it by running `/telegram:configure` again in the new session; there is no migration. Launch details are in [bot folder](references/bot-folder.md). One session uses one Telegram channel, and accounts on third-party providers (Foundry) cannot use channels.
+Launch details are in [bot folder](references/bot-folder.md). One session uses one Telegram channel, and accounts on third-party providers (Foundry) cannot use channels.
 
 Check each account and destination. Record only verified bindings. Keep unfinished work in the notes. Do not claim a failed connection is ready.
 

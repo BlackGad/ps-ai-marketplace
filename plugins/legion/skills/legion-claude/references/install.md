@@ -6,10 +6,8 @@ If installation reports a new terminal is needed for PATH, ask the owner to open
 
 ## Platform methods and integrity
 
-On Windows, Node is not required. The default/`--method winget` uses `Anthropic.ClaudeCode`. Explicit `--method msi` and `--method zip` both run the official [install.ps1](https://claude.ai/install.ps1); these method names do not imply a legion MSI or ZIP extraction. The vendor manages installation and `~/.local/bin/claude.exe`; no administrator is required for this path.
+On Windows, Node is not required. The default and `--method winget` use `Anthropic.ClaudeCode`; `--method msi` and `--method zip` both run the official [install.ps1](https://claude.ai/install.ps1). The vendor manages installation and `~/.local/bin/claude.exe`; no administrator is required.
 
-The official script checks `https://downloads.claude.ai/claude-code-releases/<v>/manifest.json`, `platforms.win32-x64.checksum`. The bootstrap script has no separate vendor hash: the installer runs the script without a hash. Payload SHA-256 verification belongs to the vendor script; see [integrity docs](https://code.claude.com/docs/en/setup#binary-integrity-and-code-signing).
+Payload SHA-256 verification belongs to the vendor script, which checks `https://downloads.claude.ai/claude-code-releases/<v>/manifest.json`, `platforms.win32-x64.checksum`; see [integrity docs](https://code.claude.com/docs/en/setup#binary-integrity-and-code-signing).
 
-On macOS and Linux the recipe runs `bash -c "curl -fsSL https://claude.ai/install.sh | bash"` after approval. Native Windows installation does not need Node.
-
-If winget is unavailable or fails, the installer exits 2 and presents explicit `msi`/`zip` choices. Ask for the owner's choice and approval before adding `--method` and `--yes`. Never install a package manager implicitly. Previews make no downloads. Existing CLI detection and approved retries preserve PATH placeholders and registry type.
+On macOS and Linux the recipe runs `bash -c "curl -fsSL https://claude.ai/install.sh | bash"` after approval.

@@ -7,8 +7,6 @@ description: Use when the session-start hook declares member mode or the environ
 
 ## Identity and hard rules
 
-For any agent tool operation, read the selected account's tool skill using [task.md](references/task.md). Stop if that tool skill is missing; do not guess commands or capabilities.
-
 You are one working agent for one task. Activate only when the hook declares member mode or the environment identifies a legion task, as described in [task.md](references/task.md). Read `legion-personalisation` and the user's notes first, then the task prompt, repo rules, cited plan and spec, and relevant code. If the environment has no task prompt, do not infer member mode.
 
 - Work only in the task file's assigned scope. Never use Legion's MCP tools. A tempting adjacent cleanup is a question, not permission to edit it.

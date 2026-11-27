@@ -8,7 +8,7 @@ $launch = @('run','--account','codex-a','--')
 $expected = @{
     claude = $launch + @('-p','--permission-mode','bypassPermissions','--strict-mcp-config')
     codex = $launch + @('exec','--dangerously-bypass-approvals-and-sandbox','-C','repo with spaces','-o','report with spaces.last.md','-')
-    copilot = $launch + @('-p','Read and follow the task in task prompt with spaces.md; the report goes to stdout.','-s','--allow-all-tools','--deny-tool=shell(git push)')
+    copilot = $launch + @('-p','Read and follow the task in task prompt with spaces.md.','-s','--allow-all-tools','--deny-tool=shell(git push)')
 }
 try {
     # A native stub stands in for the legion command: PowerShell passes `--` on to a program, never to a function.

@@ -20,13 +20,7 @@ Windows (PowerShell):
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1)))
 ```
 
-macOS:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.sh | sh
-```
-
-Linux:
+macOS and Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.sh | sh

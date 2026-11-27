@@ -18,16 +18,10 @@ For an agent CLI, use the selected tool skill's `references/install.md` for meth
 
 ## Official Windows sources
 
-Checked 2026-11-18; these downloads target Windows x64. `msi` selects the vendor's MSI or EXE; MSIs require an administrator session. Git's EXE uses `/CURRENTUSER`. No unverified MSI per-user properties are supplied. `zip` extracts into `~/.legion/tools/<tool>/` and adds the executable folder to the user PATH once; open a new terminal afterwards.
+These downloads target Windows x64. `msi` selects the vendor's MSI or EXE; MSIs require an administrator session. Git's EXE uses `/CURRENTUSER`. `zip` extracts into `~/.legion/tools/<tool>/` and adds the executable folder to the user PATH once; open a new terminal afterwards.
 
 GitHub release metadata comes from `https://api.github.com/repos/<repo>/releases/latest`; the asset's `browser_download_url` supplies the download URL and its `digest` supplies `sha256:<hex>`. A missing hash stops the install. Node uses its vendor checksum file. A mismatch deletes the download before extraction or execution.
 
-The root bootstrap installs only uv, through uv's own installer after the owner's yes; helper installs run in Python (`legion tool install`).
-
-| Tool | Latest release and URL pattern | SHA-256 source | Executable folder in ZIP / installer arguments |
-| --- | --- | --- | --- |
-| Git | [git-for-windows/git releases](https://github.com/git-for-windows/git/releases): `.../download/v<v>.windows.<revision>/Git-<v>-64-bit.exe` or `MinGit-<v>-64-bit.zip` | GitHub asset `digest` | `cmd` (`git.exe`); EXE `/VERYSILENT /NORESTART /SP- /CURRENTUSER`. MinGit is the official ZIP alternative to PortableGit's self-extracting EXE. [Installer source](https://github.com/git-for-windows/build-extra/blob/main/installer/install.iss) |
-| Node | [dist/index.json](https://nodejs.org/dist/index.json), first entry with `lts`: `https://nodejs.org/dist/<v>/node-<v>-x64.msi` or `node-<v>-win-x64.zip` (`<v>` includes `v`) | `https://nodejs.org/dist/<v>/SHASUMS256.txt`, matching exact filename | `node-<v>-win-x64` (`node.exe`); MSI `/qn /norestart` |
-| Azure CLI | [Azure/azure-cli releases](https://github.com/Azure/azure-cli/releases): `.../download/azure-cli-<v>/azure-cli-<v>-x64.msi` or `.zip` | GitHub asset `digest` | `bin` (`az.cmd`); MSI `/qn /norestart`. [Windows ZIP instructions](https://learn.microsoft.com/cli/azure/install-azure-cli-windows) |
+`plugins/legion/helpers.json` holds each helper's download URL pattern, checksum source, executable folder in the ZIP and installer arguments.
 
 Agent installation exceptions belong in the selected tool skill. The shared installer verifies archives and installers before extraction or execution.
