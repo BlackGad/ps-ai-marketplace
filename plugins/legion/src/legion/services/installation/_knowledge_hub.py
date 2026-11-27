@@ -1,5 +1,4 @@
 import json
-import shutil
 from pathlib import Path
 from typing import Literal
 
@@ -57,36 +56,33 @@ def _write_pointer(path: Path, data: dict[str, object], previous: dict[str, obje
 
 def initialize(home: Path, lines: list[str]) -> None:
     hub = home_path(HUB_PATH, home)
+    changed = not (hub / "topics").is_dir()
     (hub / "topics").mkdir(parents=True, exist_ok=True)
     for name, content in HUB_FILES.items():
         try:
             with (hub / name).open("x", encoding="utf-8") as stream:
                 stream.write(content)
+            changed = True
         except FileExistsError:
             pass
+    lines.append("done: knowledge hub" if changed else "skip: knowledge hub (already done)")
 
     path = home / ".config/llm-wiki/config.json"
     data = _pointer(path)
     value = _hub_value(data)
     if not value:
         _write_pointer(path, {**data, "hub_path": HUB_PATH}, data)
-    elif not _matches(value, home):
+        lines.append("done: llm-wiki hub pointer")
+    elif _matches(value, home):
+        lines.append("skip: llm-wiki hub pointer (already done)")
+    else:
         lines.append(f"knowledge: keeping the existing llm-wiki hub pointer to {value}")
 
 
 def purge(home: Path, lines: list[str]) -> None:
     hub = home_path(HUB_PATH, home)
-    if is_reparse(hub.parent):
-        return  # The handover removes only the .legion link.
-    if hub.is_symlink():
-        hub.unlink()
-    elif is_reparse(hub):
-        hub.rmdir()
-    elif hub.is_dir():
-        shutil.rmtree(hub)
-    else:
-        hub.unlink(missing_ok=True)
-
+    if is_reparse(hub.parent) or is_reparse(hub):
+        return  # Handover removes the link, leaving its target in place.
     path = home / ".config/llm-wiki/config.json"
     try:
         data = _pointer(path)

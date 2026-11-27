@@ -351,7 +351,7 @@ def _install_steps(entry: CatalogTool, folder: Path, source: str | Path, ref: st
     if not installed:
         _step(entry, marketplace_add, folder, dry_run, lines)
         if pin is not None and not dry_run and not _pinned_marketplace(entry, folder, _marketplace_item(entry, folder, pin.marketplace), pin):
-            raise InstallerError(f"llm-wiki marketplace could not be verified at {pin.tag} ({pin.commit})")
+            raise InstallerError(f"llm-wiki marketplace could not be verified at {pin.tag}")
     if plugin.marketplace_update:
         _step(entry, plugin.marketplace_update, folder, dry_run, lines)
     if not installed or not listed or not enabled:
@@ -371,39 +371,22 @@ def _wiki_recipe(plugin: Plugin, pin: PluginPin) -> Plugin:
 
 
 def _pinned_marketplace(entry: CatalogTool, folder: Path, item: dict[str, object], pin: PluginPin) -> bool:
-    if not item:
+    nested = item.get("marketplaceSource") or item.get("source")
+    details = nested if isinstance(nested, dict) else item
+    source = details.get("repo") or details.get("url") or details.get("source")
+    if not isinstance(source, str):
         return False
-    source = item.get("source")
-    ref = item.get("ref")
-    repo = item.get("repo") or item.get("url")
-    root = item.get("root") or item.get("installLocation")
-    try:
-        if entry.id == "codex" and ref is None:
-            data = tomllib.loads((folder / "config.toml").read_text(encoding="utf-8-sig"))["marketplaces"][pin.marketplace]
-            source, ref = data.get("source"), data.get("ref")
-        elif entry.id == "claude" and not isinstance(source, dict) and ref is None:
-            data = json.loads((folder / "plugins/known_marketplaces.json").read_text(encoding="utf-8-sig"))[pin.marketplace]
-            source, root = data["source"], data.get("installLocation")
-        elif entry.id == "copilot" and not isinstance(source, dict) and ref is None:
-            source = json.loads((folder / "settings.json").read_text(encoding="utf-8-sig"))["extraKnownMarketplaces"][pin.marketplace]["source"]
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+    source, _, source_ref = source.partition("#")
+    if source.removesuffix(".git").removeprefix("https://github.com/").removeprefix("git@github.com:") != pin.source:
         return False
-    if isinstance(source, dict):
-        ref = source.get("ref")
-        repo = source.get("repo") or source.get("url")
-    source = repo or source
-    urls = (pin.source, f"https://github.com/{pin.source}", f"git@github.com:{pin.source}")
-    if not isinstance(source, str) or source.removesuffix(".git") not in urls or ref != pin.tag:
-        return False
-    commit = item.get("commit")
-    if isinstance(root, str) and (Path(root) / ".git").exists():
-        git = shutil.which("git")
-        if git:
-            result = run_command(git, ["rev-parse", "HEAD"], cwd=Path(root), timeout=5)
-            if result.exit_code:
-                return False
-            commit = result.output.strip()
-    return commit is None or commit == pin.commit
+    ref = details.get("ref") or item.get("ref") or source_ref
+    if not ref and entry.id == "codex":
+        # Codex lists the configured source but omits its ref from the JSON result.
+        try:
+            ref = tomllib.loads((folder / "config.toml").read_text(encoding="utf-8-sig"))["marketplaces"][pin.marketplace]["ref"]
+        except (OSError, ValueError, TypeError, KeyError):
+            return False
+    return ref == pin.tag
 
 
 def _removal_steps(plugin: Plugin, listed: bool, registered: bool) -> list[list[str]]:
@@ -418,20 +401,6 @@ def _account_target(home: Path, catalog: ToolsCatalog, agent: Agent) -> tuple[Ca
     return entry.model_copy(update={"command": str(command)}), _config_path(home, agent.config_dir)
 
 
-def missing_wiki_accounts(home: Path, agents: list[Agent]) -> list[str]:
-    catalog = _catalog(DEFAULT_SOURCE, "release", None)
-    missing: list[str] = []
-    for agent in agents:
-        try:
-            target, folder = _account_target(home, catalog, agent)
-            if catalog.wiki and _plugin_state(target, folder, catalog.wiki.plugin_id)[1]:
-                continue
-        except (OSError, ValueError, TypeError, RuntimeError):
-            pass
-        missing.append(agent.id)
-    return missing
-
-
 def reconcile_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent], dry_run: bool, lines: list[str]) -> None:
     pin = catalog.wiki
     if pin is None:
@@ -440,10 +409,7 @@ def reconcile_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent], 
         try:
             _knowledge_hub.initialize(home, lines)
         except (OSError, ValueError, TypeError, RuntimeError) as error:
-            lines.extend(f"knowledge: {agent.id}: hub setup failed: {error}" for agent in agents)
-            if not agents:
-                lines.append(f"knowledge: hub setup failed: {error}")
-            return
+            lines.append(f"knowledge: hub setup failed: {error}")
     results: dict[tuple[str, str], str | None] = {}
     for agent in agents:
         try:
@@ -511,10 +477,10 @@ def install(
         selected = [entry.id for entry in catalog.tools if uninstall or _target_tool(home, entry, agents) is not None]
     for tool_id in selected:
         _tool(catalog, tool_id)
-    if uninstall:
-        _uninstall(home, catalog, selected, config_dir, purge, dry_run, yes, lines, agents)
-        return lines
     knowledge_enabled = settings is not None and settings.knowledge_enabled is True
+    if uninstall:
+        _uninstall(home, catalog, selected, config_dir, purge, dry_run, yes, lines, agents, catalog.wiki if knowledge_enabled else None)
+        return lines
     manage_knowledge = update and with_knowledge and knowledge_enabled
     if not selected:
         lines.append("No coding CLI is installed. Run legion setup to install one.")
@@ -649,7 +615,9 @@ def _confirm(question: str, lines: list[str]) -> bool:
         return False
 
 
-def _uninstall(home: Path, catalog: ToolsCatalog, selected: list[str], config_dir: Optional[Path], purge: bool, dry_run: bool, yes: bool, lines: list[str], agents: list[Agent]) -> None:
+def _uninstall(
+    home: Path, catalog: ToolsCatalog, selected: list[str], config_dir: Optional[Path], purge: bool, dry_run: bool, yes: bool, lines: list[str], agents: list[Agent], pin: PluginPin | None
+) -> None:
     # The tools' own commands remove the plugin and marketplace; nothing in a tool's files is edited here.
     steps: list[tuple[CatalogTool, Path, list[str], bool]] = []
     for tool_id in selected:
@@ -671,8 +639,7 @@ def _uninstall(home: Path, catalog: ToolsCatalog, selected: list[str], config_di
                     lines.append(_command_line(target, arguments, folder))
                 else:
                     lines.append(f"skip: {tool_id} {what} in {folder} (not installed)")
-            if catalog.wiki is not None:
-                pin = catalog.wiki
+            if pin is not None:
                 try:
                     recipe = _wiki_recipe(target.plugin, pin)
                     for arguments in _removal_steps(recipe, _plugin_state(target, folder, pin.plugin_id)[0], bool(_marketplace_item(target, folder, pin.marketplace))):

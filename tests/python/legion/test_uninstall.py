@@ -85,6 +85,14 @@ def test_uninstall_runs_each_tools_own_commands_and_writes_no_tool_file(home: Pa
     assert tool_files(home) == before
 
 
+def test_declined_knowledge_keeps_a_listed_manual_wiki(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
+    (home / ".legion/configuration/personalisation.json").write_text('{"schemaVersion":1,"agents":[],"channels":[],"knowledgeEnabled":false}', encoding="utf-8")
+    monkeypatch.setattr(_installer, "_plugin_state", lambda *_: (True, True, [], ""))
+    monkeypatch.setattr(_installer, "_marketplace_item", lambda *_: {"name": "llm-wiki"})
+    run(home, yes=True)
+    assert recorder.steps == [(entry.id, arguments) for entry in CATALOG.tools for arguments in (entry.plugin.uninstall, entry.plugin.marketplace_remove)]
+
+
 def test_uninstall_hands_over_app_bin_and_python_and_keeps_the_owners_data(home: Path, recorder: Recorder) -> None:
     lines = run(home, yes=True)
     assert recorder.handed == [[home / ".legion" / name for name in ("app", "bin", "python")]]

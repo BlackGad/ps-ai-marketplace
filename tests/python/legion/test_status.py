@@ -13,6 +13,7 @@ from cli_runner import run
 from legion.core._run import RunResult
 
 from legion.services.repository import _lease
+from legion.services.installation import installer
 from legion.services.status import _status
 from legion.core import _process, _validate
 from legion.core._settings_models import ChannelDescriptor, PersonalisationSettings, ToolDescriptor
@@ -131,9 +132,12 @@ def snapshot(home: Path) -> dict[Path, tuple[bytes, int]]:
 
 def test_configured_status_preserves_home_and_never_launches_a_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     home = tmp_path / "home"
-    settings(home)
+    configured = settings(home)
+    configured.knowledge_enabled = True
+    write(home / ".legion/configuration/personalisation.json", configured.model_dump_json(by_alias=True, exclude_none=True))
     folder = commands(home)
     write(home / ".claude/plugins/cache/ps-legion-marketplace/legion/0.6.0/plugin.json", '{"name":"legion","version":"0.6.0"}')
+    write(home / ".claude/plugins/cache/llm-wiki/wiki/1.0.0/.claude-plugin/plugin.json", '{"name":"wiki","version":"1.0.0"}')
     monkeypatch.setenv("PATH", str(folder))
     monkeypatch.chdir(tmp_path)
 
@@ -141,6 +145,7 @@ def test_configured_status_preserves_home_and_never_launches_a_cli(tmp_path: Pat
         pytest.fail("status started a process without a tracked repository")
 
     monkeypatch.setattr(status_service, "run_command", refuse)
+    monkeypatch.setattr(installer, "_account_target", refuse)
     before = snapshot(home)
     assert run(["--home", str(home), "status"]) == 0
     assert capsys.readouterr().out.splitlines() == [
@@ -150,7 +155,9 @@ def test_configured_status_preserves_home_and_never_launches_a_cli(tmp_path: Pat
         "path ~/.legion/bin on PATH: yes",
         "commands: yes",
         "channels my-telegram (telegram) -> claude-a",
-        "knowledge: off (not asked)",
+        "knowledge: on",
+        "  knowledge hub missing: ~/.legion/knowledge",
+        "  wiki plugin missing in: codex-a",
         "repo none",
     ]
     assert snapshot(home) == before

@@ -5,7 +5,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict
 
 from legion.services.repository import _lease
-from legion.services.installation import _knowledge_hub, installer
+from legion.services.installation import _knowledge_hub
 from legion.services.status import _status
 from legion.core._home import (
     bin_folder,
@@ -110,10 +110,16 @@ def status(repo: Path, home: Optional[Path] = None) -> StatusReport:
     except (OSError, ValueError):
         tools = []
     accounts = []
+    missing_wiki = []
+    knowledge = settings.knowledge_enabled if settings else None
     if settings is not None:
         for agent in settings.agents:
             matches = [tool for tool in tools if tool.id == agent.tool]
-            version = _status.installed_version(home_path(agent.config_dir, home), matches[0]) if len(matches) == 1 else None
+            tool = matches[0] if len(matches) == 1 else None
+            config = home_path(agent.config_dir, home)
+            version = _status.installed_version(config, tool) if tool else None
+            if knowledge and (tool is None or _status.installed_version(config, tool, "wiki") is None):
+                missing_wiki.append(agent.id)
             accounts.append(AccountStatus(id=agent.id, tool=agent.tool, config_dir=agent.config_dir, legion_version=version))
     folder = bin_folder(home)
     return StatusReport(
@@ -123,12 +129,10 @@ def status(repo: Path, home: Optional[Path] = None) -> StatusReport:
         commands=_status.command_status(folder),
         channels=[ChannelStatus(id=channel.id, kind=channel.kind, accounts=channel.accounts) for channel in settings.channels] if settings else [],
         repository=repository_status(repo),
-        knowledge=_knowledge_status(home, settings),
+        knowledge=KnowledgeStatus(
+            state="on" if knowledge else "declined" if knowledge is False else "off",
+            hub=_knowledge_hub.hub_status(home) if knowledge else None,
+            missing_accounts=missing_wiki,
+        ),
         warnings=_status.channel_warnings(settings, home, tools) if settings else [],
     )
-
-
-def _knowledge_status(home: Path, settings: Optional[PersonalisationSettings]) -> KnowledgeStatus:
-    if settings and settings.knowledge_enabled is True:
-        return KnowledgeStatus(state="on", hub=_knowledge_hub.hub_status(home), missing_accounts=installer.missing_wiki_accounts(home, settings.agents))
-    return KnowledgeStatus(state="declined" if settings and settings.knowledge_enabled is False else "off", missing_accounts=[])
