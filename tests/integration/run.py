@@ -1094,12 +1094,13 @@ asyncio.run(main())
 
         wiki = Runner(self.checkout, self.work / "knowledge" / "home", self.out, False)
         wiki.log = self.log
-        wiki.env["PATH"] = self.env["PATH"]
+        wiki.env["PATH"] = os.pathsep.join((str(wiki.owned_uv.parent), self.env["PATH"]))
         wiki.runner_uv = self.runner_uv
         wiki.owned_uv.parent.mkdir(parents=True)
         shutil.copy2(wiki.runner_uv, wiki.owned_uv)
         for tool in TOOLS:
-            wiki.legion("add", tool, "--id", f"wiki-{tool}", "--source", str(self.checkout), "--yes")
+            output = wiki.legion("add", tool, "--id", f"wiki-{tool}", "--source", str(self.checkout), "--yes")
+            require("uv is missing" not in output, f"uv is missing while adding wiki-{tool} in the knowledge home")
         require({agent["tool"] for agent in wiki.settings()["agents"]} == set(TOOLS), "knowledge must test every CLI")
         rewrite = f"url.{source.resolve().as_uri()}.insteadOf"
         wiki.env.update(
@@ -1245,7 +1246,6 @@ asyncio.run(main())
             self.state["knowledge"] = self.knowledge_runner()
         wiki: Runner = self.state["knowledge"]
         wiki.log = self.log
-        wiki.env["PATH"] = self.env["PATH"]
         return getattr(wiki, f"knowledge_{action}")(repeat)
 
     def steps(self) -> list[tuple[str, Any]]:
