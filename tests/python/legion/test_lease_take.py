@@ -38,7 +38,7 @@ def chain(monkeypatch: pytest.MonkeyPatch, name: str, command_line: object) -> N
         1: ProcessInfo(1, 0, "init", BASE),
     }
     monkeypatch.setattr(_lease_take, "owner_process", lambda: owner_process(10, processes.get))
-    monkeypatch.setattr(_lease_take, "process_lookup", lambda: processes.get)
+    monkeypatch.setattr(_lease_take, "process_info", processes.get)
     monkeypatch.setattr(psutil, "Process", lambda _: FakeProcess(command_line))
     # The fake chain is not a real process, so the lease cannot be written for it.
     monkeypatch.setattr(_lease_take, "take", Mock(return_value="lease taken"))

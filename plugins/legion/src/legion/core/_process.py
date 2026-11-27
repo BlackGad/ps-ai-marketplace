@@ -37,13 +37,13 @@ def same_start_time(first: datetime, second: datetime) -> bool:
 
 
 def process_started_at(pid: int) -> Optional[datetime]:
-    process = process_lookup()(pid)
+    process = process_info(pid)
     return process.started_at if process else None
 
 
 # Return live parents, nearest first.
 def ancestors(pid: int, lookup: Optional[Lookup] = None) -> list[ProcessInfo]:
-    lookup = lookup or process_lookup()
+    lookup = lookup or process_info
     chain: list[ProcessInfo] = []
     child = lookup(pid)
     seen = {pid}
@@ -62,7 +62,7 @@ def ancestors(pid: int, lookup: Optional[Lookup] = None) -> list[ProcessInfo]:
 # The nearest ancestor that is not a shell or launcher; a chain of only shells is refused, since a shell may be short-lived.
 # Git Bash on Windows cuts the chain at the shim's sh.exe, so the shim hands over its own and its parent shell's Windows pids.
 def owner_process(pid: Optional[int] = None, lookup: Optional[Lookup] = None) -> ProcessInfo:
-    lookup = lookup or process_lookup()
+    lookup = lookup or process_info
     chain = ancestors(os.getpid() if pid is None else pid, lookup)
     owner = _first_session(chain)
     if owner is None and chain:
@@ -93,11 +93,7 @@ def is_skipped(name: str) -> bool:
     return name in SKIPPED_NAMES or PYTHON_NAME.fullmatch(name) is not None
 
 
-def process_lookup() -> Lookup:
-    return _process_info
-
-
-def _process_info(pid: int) -> Optional[ProcessInfo]:
+def process_info(pid: int) -> Optional[ProcessInfo]:
     try:
         if pid <= 0 or not psutil.pid_exists(pid):
             return None

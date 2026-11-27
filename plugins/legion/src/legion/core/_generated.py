@@ -38,7 +38,3 @@ def write_generated(path: Path, text: str | bytes, executable: bool) -> bool:
 
 def shell_literal(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
-
-
-def cmd_escape(value: str) -> str:
-    return value.replace("%", "%%")

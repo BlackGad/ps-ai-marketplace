@@ -80,20 +80,14 @@ async def _run_child(arguments: list[str], home: Optional[Path], cwd: Optional[P
 
 # Starting is short; shielding it means a started child is always known to the cleanup of its caller.
 async def _start(command: list[str], cwd: Optional[Path], environment: dict[str, str]) -> tuple[Process, Optional[psutil.Process]]:
-    process = await _open(command, cwd, environment)
-    # Keep the identity from spawn: psutil checks it before signalling, so a reused pid is never hit.
-    try:
-        return process, psutil.Process(process.pid)
-    except psutil.NoSuchProcess:
-        return process, None
-
-
-async def _open(command: list[str], cwd: Optional[Path], environment: dict[str, str]) -> Process:
-    process: Optional[Process] = None
     with anyio.CancelScope(shield=True):
         process = await anyio.open_process(command, stdin=subprocess.DEVNULL, cwd=cwd, env=environment)
-    assert process is not None
-    return process
+        # Keep the identity from spawn: psutil checks it before signalling, so a reused pid is never hit.
+        try:
+            return process, psutil.Process(process.pid)
+        except psutil.NoSuchProcess:
+            return process, None
+    raise RuntimeError("process start was cancelled")
 
 
 # Go on past a process that cannot be stopped, then report the first such failure.

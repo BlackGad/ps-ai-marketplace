@@ -69,7 +69,6 @@ class Row:
     next_step: str = "ready"
     usable: bool = True
     command: Optional[str] = None
-    provider: bool = False
     missing_allow_rules: list[str] = field(default_factory=list[str])
 
     # The account's own program is gone and only the owner can name it again.
@@ -195,75 +194,61 @@ def _row(agent: Agent, tool: ToolDescriptor, home: Path, requested: bool = False
         next_step=next_step,
         usable=not next_step.startswith("target needed:"),
         command=agent.command,
-        provider=agent.provider is not None,
         missing_allow_rules=_missing_allow_rules(tool, folder),
     )
 
 
-def _next_id(tool_id: str, planned: PersonalisationSettings, home: Path) -> str:
+def _next_id(tool_id: str, settings: PersonalisationSettings, home: Path) -> str:
     number = 1
     while True:
         candidate = f"{tool_id}{number}"
-        if all(agent.id != candidate for agent in planned.agents) and _launchers.find_command(candidate, home) is None:
+        if all(agent.id != candidate for agent in settings.agents) and _launchers.find_command(candidate, home) is None:
             return candidate
         number += 1
 
 
-# One `tool` or `tool:folder` item. The folder follows the first colon, so it may hold colons itself.
-def _added_account(item: str, account_id: Optional[str], planned: PersonalisationSettings, tools: dict[str, ToolDescriptor], home: Path) -> Row:
-    tool_id, colon, text = item.partition(":")
+def _added_account(tool_id: str, config_dir: Optional[str], account_id: Optional[str], settings: PersonalisationSettings, tools: dict[str, ToolDescriptor], home: Path) -> Row:
     if tool_id not in tools:
         raise SetupError(f"unknown tool '{tool_id}'")
     folder: Optional[Path] = None
-    if colon:
-        folder = _resolve(text, home) if text else None
+    if config_dir is not None:
+        folder = _resolve(config_dir, home) if config_dir else None
         if folder is None or not folder.is_dir():
             raise SetupError(NO_FOLDER)
         if account_id is None:
-            same = next((agent for agent in planned.agents if agent.tool == tool_id and agent.provider is None and _same_folder(_resolve(agent.config_dir, home), folder)), None)
+            same = next((agent for agent in settings.agents if agent.tool == tool_id and agent.provider is None and _same_folder(_resolve(agent.config_dir, home), folder)), None)
             if same is not None:
                 account_id, folder = same.id, _resolve(same.config_dir, home)
-    account_id = account_id or _next_id(tool_id, planned, home)
+    account_id = account_id or _next_id(tool_id, settings, home)
     folder = folder or _managed_folder(account_id, home)
-    existing = next((agent for agent in planned.agents if agent.id == account_id), None)
+    existing = next((agent for agent in settings.agents if agent.id == account_id), None)
     if existing is not None:
         if existing.tool != tool_id or existing.provider is not None or not _same_folder(_resolve(existing.config_dir, home), folder):
             raise SetupError(f"account '{account_id}' already exists with other values")
     else:
-        _accounts.check_new_id(planned, account_id, home)
+        _accounts.check_new_id(settings, account_id, home)
     agent = existing or Agent.model_construct(id=account_id, tool=tool_id, config_dir=str(folder))
-    return _row(agent, tools[tool_id], home, requested=True, new=existing is None, adopted=bool(colon))
+    return _row(agent, tools[tool_id], home, requested=True, new=existing is None, adopted=config_dir is not None)
 
 
-def _accounts_plan(adds: list[str], account_id: Optional[str], settings: PersonalisationSettings, tools: dict[str, ToolDescriptor], home: Path) -> list[Row]:
-    if account_id and len(adds) != 1:
-        raise SetupError("--id requires exactly one add")
+def _accounts_plan(tool_id: Optional[str], config_dir: Optional[str], account_id: Optional[str], settings: PersonalisationSettings, tools: dict[str, ToolDescriptor], home: Path) -> list[Row]:
     rows: list[Row] = []
     for agent in settings.agents:
         if agent.tool not in tools:
             raise SetupError(f"account '{agent.id}' uses unknown tool '{agent.tool}'")
         rows.append(_row(agent, tools[agent.tool], home))
-    # Reserve planned ids in memory, so two adds for one tool get distinct ids without writing settings.
-    planned = settings.model_copy(update={"agents": list(settings.agents)})
-    for item in adds:
-        row = _added_account(item, account_id, planned, tools, home)
-        previous = next((other for other in rows if other.id == row.id), None)
-        if previous is not None:
-            row.new = previous.new
-            if row.new:
-                row.usable, row.next_step = True, previous.next_step
-            rows.remove(previous)
+    if tool_id is not None:
+        row = _added_account(tool_id, config_dir, account_id, settings, tools, home)
+        rows = [other for other in rows if other.id != row.id]
         rows.append(row)
-        if row.new and previous is None:
-            planned.agents.append(Agent.model_construct(id=row.id, tool=row.tool.id, config_dir=str(row.folder)))
     return rows
 
 
-def build_plan(home: Path, adds: list[str], account_id: Optional[str]) -> Plan:
+def build_plan(home: Path, tool_id: Optional[str], config_dir: Optional[str], account_id: Optional[str]) -> Plan:
     file = settings_path(home)
     settings = _settings_io.load_unchecked(home) if file.exists() else PersonalisationSettings.model_validate_json(_settings_io.EMPTY)
     tools = {tool.id: tool for tool in _tool_install.load_tools()}
-    accounts = _accounts_plan(adds, account_id, settings, tools, home)
+    accounts = _accounts_plan(tool_id, config_dir, account_id, settings, tools, home)
     # Without uv no Python work can run: an account that needs some waits, and the owner is told as its next step.
     uv_missing = _installed_runtime.find_uv() is None
     if uv_missing:
@@ -317,9 +302,9 @@ def plan_lines(plan: Plan) -> list[str]:
 
 
 # The preview looks for commands where the apply will, so the hint it shows is the command that runs.
-def preview(home: Path, adds: list[str], account_id: Optional[str]) -> list[str]:
+def preview(home: Path, tool_id: Optional[str], config_dir: Optional[str], account_id: Optional[str]) -> list[str]:
     with saved_path():
-        return plan_lines(build_plan(home, adds, account_id))
+        return plan_lines(build_plan(home, tool_id, config_dir, account_id))
 
 
 # --- doing it ---
@@ -377,8 +362,6 @@ def add_accounts(plan: Plan, say: Callable[[str], None]) -> None:
                     say(line)
         else:
             say(f"skip: account {row.id} (already done)")
-        if row.new and not row.adopted:
-            row.next_step = f"log in: {_accounts.login_command(row.tool, row.folder, row.command, plan.home)}"
 
 
 def add_allow_rules(plan: Plan, say: Callable[[str], None]) -> None:
@@ -466,12 +449,12 @@ def write_table(plan: Plan, say: Callable[[str], None]) -> None:
         say(f"Blocked commands: {', '.join(dict.fromkeys(blocked))}")
 
 
-def apply(home: Path, adds: list[str], account_id: Optional[str], source: Optional[str], say: Callable[[str], None]) -> None:
+def apply(home: Path, tool_id: Optional[str], config_dir: Optional[str], account_id: Optional[str], source: Optional[str], say: Callable[[str], None]) -> None:
     # A fresh home can reject bad input without creating a lock file or settings folder.
     if not settings_path(home).exists():
-        build_plan(home, adds, account_id)
+        build_plan(home, tool_id, config_dir, account_id)
     with _settings_io.writer(home, require_existing=False):
-        plan = build_plan(home, adds, account_id)
+        plan = build_plan(home, tool_id, config_dir, account_id)
         initialize_files(plan, say)
     with saved_path():
         install_tools(plan)
@@ -495,11 +478,11 @@ def ask() -> str:
 
 
 # Without --yes: the plan, then (only when someone can answer) Apply? Otherwise the plan alone, with its hint.
-def run(home: Path, adds: list[str], account_id: Optional[str], source: Optional[str], yes: bool, say: Callable[[str], None]) -> None:
+def run(home: Path, tool_id: Optional[str], config_dir: Optional[str], account_id: Optional[str], source: Optional[str], yes: bool, say: Callable[[str], None]) -> None:
     if yes:
-        apply(home, adds, account_id, source, say)
+        apply(home, tool_id, config_dir, account_id, source, say)
         return
-    lines = preview(home, adds, account_id)
+    lines = preview(home, tool_id, config_dir, account_id)
     if lines[-1] == NOTHING_TO_DO or not interactive():
         for line in lines:
             say(line)
@@ -509,6 +492,6 @@ def run(home: Path, adds: list[str], account_id: Optional[str], source: Optional
         if line != RUN_AGAIN:
             say(line)
     if ask().strip().lower() in ("", "y", "yes"):
-        apply(home, adds, account_id, source, say)
+        apply(home, tool_id, config_dir, account_id, source, say)
     else:
         say("Nothing changed.")

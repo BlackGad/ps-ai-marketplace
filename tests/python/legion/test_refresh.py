@@ -15,6 +15,7 @@ from app_fakes import (
 )
 from filelock import FileLock
 from launcher_fakes import fake_cli, ready_app
+from settings_fakes import save_settings
 
 from legion.services.installation import _installed_runtime, _refresh
 from legion.services.accounts import _launchers
@@ -227,7 +228,7 @@ def test_refresh_keeps_the_old_launcher_of_an_account_without_a_program(tmp_path
     account_settings(tmp_path, ["codex-a"])
     settings = _settings_io.load(tmp_path)
     settings.agents[0].command = str(tmp_path / "gone-codex")
-    _settings_io.save(tmp_path, settings)
+    save_settings(tmp_path, settings)
     launchers = old_launchers(tmp_path, "codex-a")
     lines = run(tmp_path)
     for path in launchers:
@@ -295,7 +296,7 @@ def test_refresh_keeps_an_old_launcher_that_an_account_runs(tmp_path: Path, thro
         folder = tmp_path / "linked bin"
     settings = _settings_io.load(tmp_path)
     settings.agents[1].command = str(folder / launchers[-1].name)
-    _settings_io.save(tmp_path, settings)
+    save_settings(tmp_path, settings)
     lines = run(tmp_path)
     assert f"skip: {launchers[-1]} (account codex-b runs it)" in lines
     assert launchers[-1].is_file()
@@ -332,7 +333,7 @@ def test_a_registration_during_the_sync_keeps_the_launcher_it_names(tmp_path: Pa
     def register(app: Path, home: Path) -> list[Path]:
         settings = _settings_io.load(home)
         settings.agents[1].command = str(launchers[-1])
-        _settings_io.save(home, settings)
+        save_settings(home, settings)
         return real(app, home)
 
     monkeypatch.setattr(_refresh._installed_runtime, "write_owner_commands", register)
@@ -371,7 +372,7 @@ def test_older_apps_stay_through_two_upgrades_while_an_old_foundry_launcher_stay
     launchers = old_launchers(tmp_path, "claude-a")
     settings = _settings_io.load(tmp_path)
     settings.agents[1].command = str(launchers[-1])
-    _settings_io.save(tmp_path, settings)
+    save_settings(tmp_path, settings)
     for version in ("1.0.0", "2.0.0"):
         lines = run(tmp_path, source=make_source(tmp_path / f"source {version}", version))
         assert f"legion app {version} ready" in lines

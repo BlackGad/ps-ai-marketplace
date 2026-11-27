@@ -126,12 +126,18 @@ def _report_installer(context: click.Context, change: Callable[[], list[str]]) -
     from legion.services.accounts._launchers import LauncherError
     from legion.core._settings_io import SettingsError
 
+    _report_lines(context, change, (InstallerError, FootprintError, LauncherError, SettingsError, OSError, ValueError), multiline=True)
+
+
+def _report_lines(context: click.Context, change: Callable[[], list[str]], errors: tuple[type[Exception], ...], *, multiline: bool = False) -> None:
     try:
-        for line in change():
-            click.echo(line)
-    except (InstallerError, FootprintError, LauncherError, SettingsError, OSError, ValueError) as error:
-        click.echo(str(error), err=True)
+        lines = change()
+    except errors as error:
+        message = str(error)
+        click.echo(message if multiline else " ".join(message.split()), err=True)
         context.exit(1)
+    for line in lines:
+        click.echo(line)
 
 
 @main.command("install", help="Install legion for one or more coding CLIs")
@@ -370,13 +376,7 @@ def repository() -> None:
 def repository_setup(context: click.Context, repo: Optional[Path], mode: Literal["private", "shared"], gate: Optional[str], rules_file: Optional[str]) -> None:
     from legion.services.repository import _repository
 
-    try:
-        lines = _repository.setup(repo or Path.cwd(), mode, gate, rules_file)
-    except _repository.RepositoryError as error:
-        click.echo(" ".join(str(error).split()), err=True)
-        context.exit(1)
-    for line in lines:
-        click.echo(line)
+    _report_lines(context, lambda: _repository.setup(repo or Path.cwd(), mode, gate, rules_file), (_repository.RepositoryError,))
 
 
 @main.group(help="Add, remove or check the owner's channel bindings")
@@ -384,18 +384,11 @@ def channel() -> None:
     pass
 
 
-# Runs one channel change and prints its line, or its refusal on stderr with exit code 1.
 def _report_channel(context: click.Context, change: Callable[[], list[str]]) -> None:
     from legion.services.channels._channel import ChannelError
     from legion.core._settings_io import SettingsError
 
-    try:
-        lines = change()
-    except (ChannelError, SettingsError) as error:
-        click.echo(" ".join(str(error).split()), err=True)
-        context.exit(1)
-    for line in lines:
-        click.echo(line)
+    _report_lines(context, change, (ChannelError, SettingsError))
 
 
 _channel_kind_option = click.option("--kind", required=True, help="the channel kind, such as telegram")
@@ -438,21 +431,13 @@ def account() -> None:
     pass
 
 
-# Runs one account change and prints its lines, or its refusal on stderr with exit code 1.
 def _report_account(context: click.Context, change: Callable[[], list[str]]) -> None:
     from legion.services.accounts._accounts import AccountError
     from legion.services.repository._footprints import FootprintError
     from legion.services.accounts._launchers import LauncherError
     from legion.core._settings_io import SettingsError
-    from pydantic import ValidationError
 
-    try:
-        lines = change()
-    except (AccountError, FootprintError, LauncherError, SettingsError, ValidationError, ValueError, OSError) as error:
-        click.echo(" ".join(str(error).split()), err=True)
-        context.exit(1)
-    for line in lines:
-        click.echo(line)
+    _report_lines(context, change, (AccountError, FootprintError, LauncherError, SettingsError, ValueError, OSError))
 
 
 _account_id_option = click.option("--id", "account_id", required=True, help="the account id")
@@ -520,11 +505,11 @@ def account_models(context: click.Context, account_id: str, deployments: tuple[s
 
 
 # Runs setup (or add) and prints its lines, or its refusal on stderr with exit code 1.
-def _run_setup(context: click.Context, adds: list[str], account_id: Optional[str], source: Optional[str], yes: bool) -> None:
+def _run_setup(context: click.Context, tool_id: Optional[str], folder: Optional[str], account_id: Optional[str], source: Optional[str], yes: bool) -> None:
     from legion.services.accounts import _setup
 
     try:
-        _setup.run(_home.legion_home(context.obj), adds, account_id, source, yes, click.echo)
+        _setup.run(_home.legion_home(context.obj), tool_id, folder, account_id, source, yes, click.echo)
     except _setup.ERRORS as error:
         click.echo(" ".join(str(error).split()), err=True)
         context.exit(1)
@@ -534,7 +519,7 @@ def _run_setup(context: click.Context, adds: list[str], account_id: Optional[str
 @click.option("--yes", is_flag=True, help="Apply without asking.")
 @click.pass_context
 def setup(context: click.Context, yes: bool) -> None:
-    _run_setup(context, [], None, None, yes)
+    _run_setup(context, None, None, None, None, yes)
 
 
 @main.command("add", help="Add a claude, codex or copilot account")
@@ -545,8 +530,10 @@ def setup(context: click.Context, yes: bool) -> None:
 @click.option("--source", hidden=True, help="where the plugin installer takes legion from")
 @click.pass_context
 def add(context: click.Context, tool: str, folder: Optional[str], yes: bool, account_id: Optional[str], source: Optional[str]) -> None:
-    # The setup code splits the item on its first colon, so a folder may contain colons.
-    _run_setup(context, [f"{tool}:{folder}" if folder is not None else tool], account_id, source, yes)
+    tool_id, separator, inline_folder = tool.partition(":")
+    if separator:
+        folder = inline_folder if folder is None else f"{inline_folder}:{folder}"
+    _run_setup(context, tool_id, folder, account_id, source, yes)
 
 
 @main.group(help="Check and install the CLI tools legion needs")

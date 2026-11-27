@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
-from legion.core._run import run_command
+from legion.core._run import RunResult, run_command
 from legion.services.accounts._launch import AccountCommand
 
 
@@ -33,13 +33,7 @@ class LimitRow(BaseModel):
 
 
 # A finished ping. folder is the resolved ping folder, which a Codex session names as its working folder.
-class Ping(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    exit_code: int
-    output: str
-    error: str
-    timed_out: bool
+class Ping(RunResult):
     folder: Path
 
 
@@ -77,7 +71,7 @@ def ping(command: AccountCommand, arguments: Sequence[str], timeout: float, *, g
                 raise RuntimeError(f"git init failed (exit code {initialised.exit_code})")
         words = command.words(arguments)
         result = run_command(words[0], words[1:], timeout=max(0.0, deadline - time.monotonic()), env=command.environment(), cwd=work)
-        return Ping(exit_code=result.exit_code, output=result.output, error=result.error, timed_out=result.timed_out, folder=work.resolve())
+        return Ping(**result.model_dump(), folder=work.resolve())
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

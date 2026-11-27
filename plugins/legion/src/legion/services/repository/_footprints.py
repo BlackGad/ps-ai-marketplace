@@ -1,7 +1,6 @@
 import json
 import re
 import shutil
-import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -17,7 +16,6 @@ from legion.core._home import (
     home_path,
     is_under,
     owner_path_safe,
-    resolve_directory,
     same_path,
     tree_has_reparse,
 )
@@ -25,7 +23,6 @@ from legion.core._settings_models import (
     SchemaVersion,
     SettingsModel,
     Text,
-    ToolDescriptor,
 )
 
 FootprintKind = Literal["file", "folder", "path-entry", "app-version"]
@@ -46,32 +43,6 @@ class FootprintIndex(SettingsModel):
 
 class FootprintError(Exception):
     pass
-
-
-def target_owner(tool: ToolDescriptor | str, folder: Path | str | None, home: Path | None = None) -> str:
-    if isinstance(tool, ToolDescriptor):
-        if home is None:
-            raise ValueError("home is required for a tool descriptor")
-        folder = folder or tool.plugin.default_config_dir or ""
-        path = home_path(str(folder), home)
-        tool_id = tool.id
-    else:
-        if folder is None:
-            raise ValueError("folder is required for a tool id")
-        path = Path(folder)
-        tool_id = tool
-    owner = f"{tool_id}:{str(resolve_directory(path)).rstrip('/\\')}"
-    return owner.lower() if sys.platform == "win32" else owner
-
-
-def same_owner(left: str, right: str) -> bool:
-    def spelling(value: str) -> str:
-        tool_id, separator, folder = value.partition(":")
-        if separator and tool_id in ("claude", "codex", "copilot") and Path(folder).is_absolute():
-            return target_owner(tool_id, Path(folder))
-        return value
-
-    return spelling(left) == spelling(right)
 
 
 @contextmanager
@@ -128,7 +99,7 @@ def add(home: Path, kind: FootprintKind, path: Path | str, owner: str, key: str 
         data = read(home)
         for entry in data.entries:
             if entry.kind == kind and same_path(Path(entry.path), Path(stored)) and entry.key == key and entry.value == value:
-                if not any(same_owner(owner, existing) for existing in entry.owners):
+                if owner not in entry.owners:
                     entry.owners.append(owner)
                     _write(home, data)
                 return
@@ -170,7 +141,7 @@ def is_safe(entry: Footprint, home: Path) -> bool:
     return not tree_has_reparse(path)
 
 
-def remove_owner(home: Path, owners: list[str]) -> list[str]:
+def remove_owner(home: Path, owner: str) -> list[str]:
     index = footprint_index(home)
     if not index.exists():
         return []
@@ -180,13 +151,12 @@ def remove_owner(home: Path, owners: list[str]) -> list[str]:
         kept: list[Footprint] = []
         changed = False
         for entry in data.entries:
-            remaining = [owner for owner in entry.owners if not any(same_owner(owner, selected) for selected in owners)]
-            if len(remaining) == len(entry.owners):
+            if owner not in entry.owners:
                 kept.append(entry)
                 continue
             changed = True
-            entry.owners = remaining
-            if remaining or entry.kind not in ("file", "folder"):
+            entry.owners = [existing for existing in entry.owners if existing != owner]
+            if entry.owners or entry.kind not in ("file", "folder"):
                 kept.append(entry)
                 continue
             path = home_path(entry.path, home)

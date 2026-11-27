@@ -166,12 +166,16 @@ def add_foundry(home: Path, account: str, tool_id: str, endpoint: str, names: li
         check_new_id(settings, account, home)
         agent = Agent.model_validate({"id": account, "tool": tool_id, "configDir": str(home / ".legion" / "agents" / account), "provider": provider.model_dump(by_alias=True, exclude_none=True)})
         settings.agents.append(agent)
-        issues = settings_issues(settings)
-        if issues:
-            raise _settings_io.SettingsError("; ".join(issues))
-        recipe(agent).configure(agent, home)
-        _settings_io.save_locked(home, settings)
+        _save_foundry_locked(home, settings, agent)
     return [f"Start it with 'legion --account {account}'; it signs in to Azure through az when needed."]
+
+
+def _save_foundry_locked(home: Path, settings: PersonalisationSettings, agent: Agent) -> None:
+    issues = settings_issues(settings)
+    if issues:
+        raise _settings_io.SettingsError("; ".join(issues))
+    recipe(agent).configure(agent, home)
+    _settings_io.save_locked(home, settings)
 
 
 def models(home: Path, account: str, names: list[str], default: Optional[str], aliases: Optional[list[str]], use_standard: bool, list_only: bool) -> list[str]:
@@ -198,11 +202,7 @@ def models(home: Path, account: str, names: list[str], default: Optional[str], a
         if agent.provider == provider:
             return [f"skip: models {account} (no changes)"]
         agent.provider = provider
-        issues = settings_issues(settings)
-        if issues:
-            raise _settings_io.SettingsError("; ".join(issues))
-        recipe(agent).configure(agent, home)
-        _settings_io.save_locked(home, settings)
+        _save_foundry_locked(home, settings, agent)
     return []
 
 
@@ -222,7 +222,7 @@ def _move_footprints(home: Path, account: str, new_id: str) -> list[str]:
     for entry in _footprints.read(home).entries:
         if entry.kind == "folder" and f"account:{account}" in entry.owners:
             _footprints.add(home, "folder", entry.path, f"account:{new_id}")
-    return _footprints.remove_owner(home, [f"account:{account}"])
+    return _footprints.remove_owner(home, f"account:{account}")
 
 
 def rename(home: Path, account: str, new_id: str) -> list[str]:
@@ -250,12 +250,9 @@ def remove(home: Path, account: str) -> list[str]:
         original = settings.model_copy(deep=True)
         _rebind(settings, account, None)
         settings.agents = [other for other in settings.agents if other.id != account]
-        issues = settings_issues(settings)
-        if issues:
-            raise _settings_io.SettingsError("; ".join(issues))
         _settings_io.save_locked(home, settings)
         try:
-            lines = _footprints.remove_owner(home, [f"account:{account}"])
+            lines = _footprints.remove_owner(home, f"account:{account}")
         except Exception:
             _settings_io.save_locked(home, original)
             raise

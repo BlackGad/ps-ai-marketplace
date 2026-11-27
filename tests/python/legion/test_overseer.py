@@ -15,6 +15,7 @@ from typing import Any, cast
 
 import pytest
 from cli_runner import run
+from settings_fakes import save_settings
 
 from legion.services.channels import _bridge, _channel, _overseer
 from legion.services.accounts import _launch
@@ -33,7 +34,7 @@ from legion.services import limits as limits_service
 @pytest.fixture
 def home(tmp_path: Path) -> Path:
     home = tmp_path / "home"
-    _settings_io.save(
+    save_settings(
         home,
         PersonalisationSettings.model_validate(
             {
@@ -231,7 +232,7 @@ def test_explicit_selection_errors(home: Path, repo: Path, launched: list, accou
 
 
 def test_empty_accounts(home: Path, repo: Path, launched: list) -> None:
-    _settings_io.save(home, PersonalisationSettings.model_validate_json(_settings_io.EMPTY))
+    save_settings(home, PersonalisationSettings.model_validate_json(_settings_io.EMPTY))
     with pytest.raises(_overseer.OverseerError, match="No accounts yet"):
         _overseer.run(repo, home)
     assert not launched
@@ -405,7 +406,7 @@ def test_channel_intersection_binding_state_and_unique_kind(home: Path, repo: Pa
     settings = _settings_io.load(home)
     main = settings.channels[0]
     settings.channels.append(main.model_copy(update={"id": "alerts", "accounts": ["claude-a"]}))
-    _settings_io.save(home, settings)
+    save_settings(home, settings)
     with pytest.raises(_overseer.OverseerError, match="one bot folder"):
         _overseer.run(repo, home, account="claude-a", channels=("main", "alerts"))
     assert _overseer.run(repo, home, account="claude-a", channels=("main", "main")) == 0
@@ -433,7 +434,7 @@ def test_descriptor_argument_order_and_multiple_kinds(home: Path, repo: Path, la
     settings = _settings_io.load(home)
     settings.agents.append(settings.agents[0].model_copy(update={"id": "fourth-a", "tool": "fourth"}))
     settings.channels.append(settings.channels[0].model_copy(update={"id": "extra", "kind": "fixture", "accounts": ["claude-a"]}))
-    _settings_io.save(home, settings)
+    save_settings(home, settings)
     assert _overseer.run(repo, home, account="fourth-a", arguments=("--account", "account value", "", "2026-11-19")) == 0
     assert launched[-1][1].arguments == ["--account", "account value", "", "2026-11-19", "--interactive", "space value", "continue as the overseer"]
     assert _overseer.run(repo, home, account="claude-a", channels=("main", "extra", "extra")) == 0

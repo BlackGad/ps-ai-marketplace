@@ -181,11 +181,8 @@ class NodeVersion(BaseModel):
 
 
 def _file_hash(path: Path) -> str:
-    digest = hashlib.sha256()
     with path.open("rb") as file:
-        for block in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+        return hashlib.file_digest(file, "sha256").hexdigest()
 
 
 class ToolInstaller:

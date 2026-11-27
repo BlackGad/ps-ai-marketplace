@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 import pytest
+from filelock import FileLock, Timeout
 
 from legion.services.repository import _lease
 from legion.services.repository._lease import (
@@ -233,10 +234,9 @@ def test_only_one_concurrent_take_wins(tmp_path: Path, stale: bool) -> None:
 
 
 def hold_guard(repo: str, held: Event) -> None:
-    guard = _lease._open_guard(lease_path(Path(repo)))
-    assert guard is not None
-    held.set()
-    time.sleep(120)  # Paused while changing the lease; the test ends it without any cleanup.
+    with FileLock(f"{lease_path(Path(repo))}.takeover", timeout=0):
+        held.set()
+        time.sleep(120)  # The test ends the paused holder without cleanup.
 
 
 # A paused holder keeps the guard however old the file is; the OS frees it when the holder exits.
@@ -352,12 +352,8 @@ def test_takeover_of_a_lock_in_use_asks_to_retry(tmp_path: Path, lease_in_use: P
     with pytest.raises(LeaseError, match="takeover in progress in another session; retry"):
         take(tmp_path, "codex", "owner", process_id=os.getpid())
     assert json.loads(lease_in_use.read_text(encoding="utf-8"))["pid"] == DEAD_PID
-    guard = _lease._open_guard(lease_in_use)
-    try:
-        assert guard is not None
-    finally:
-        if guard is not None:
-            _lease._close_guard(guard)
+    with FileLock(f"{lease_in_use}.takeover", timeout=0):
+        pass
 
 
 def test_release_of_a_lock_in_use_asks_to_retry(tmp_path: Path, lease_in_use: Path) -> None:
@@ -365,6 +361,17 @@ def test_release_of_a_lock_in_use_asks_to_retry(tmp_path: Path, lease_in_use: Pa
     with pytest.raises(LeaseError, match="change in progress in another session; retry"):
         release(tmp_path, process_id=os.getpid())
     assert lease_in_use.exists()
+
+
+def test_take_keeps_an_os_error_from_inside_the_guard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(_repo: Path) -> _lease.LeaseState:
+        raise OSError("fixture read failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(_lease, "state", fail)
+        with pytest.raises(OSError, match="fixture read failure"):
+            take(tmp_path, "codex", "owner", process_id=os.getpid())
+    assert take(tmp_path, "codex", "owner", process_id=os.getpid()) == "lease taken"
 
 
 # Release boundary races
@@ -378,15 +385,12 @@ class Contender:
         self.events: list[str] = []
 
     def attempt(self, boundary: str) -> None:
-        handle = _lease._open_guard(self.path)
-        if handle is None:
-            self.events.append(f"{boundary}:blocked")
-            return
         try:
-            self.path.write_text('{"account":"successor","pid":99999999,"host":"fixture","startedAt":"replacement"}', encoding="utf-8")
-            self.events.append(f"{boundary}:admitted")
-        finally:
-            _lease._close_guard(handle)
+            with FileLock(f"{self.path}.takeover", timeout=0):
+                self.path.write_text('{"account":"successor","pid":99999999,"host":"fixture","startedAt":"replacement"}', encoding="utf-8")
+                self.events.append(f"{boundary}:admitted")
+        except Timeout:
+            self.events.append(f"{boundary}:blocked")
 
 
 @pytest.fixture
@@ -418,13 +422,8 @@ def test_release_guards_its_read_and_removal(tmp_path: Path, contender: Contende
 
 def test_release_retries_while_another_session_holds_the_guard(tmp_path: Path, contender: Contender) -> None:
     write_lease(tmp_path)
-    held = _lease._open_guard(contender.path)
-    assert held is not None
-    try:
-        with pytest.raises(LeaseError, match="change in progress"):
-            release(tmp_path, process_id=os.getpid())
-    finally:
-        _lease._close_guard(held)
+    with FileLock(f"{contender.path}.takeover", timeout=0), pytest.raises(LeaseError, match="change in progress"):
+        release(tmp_path, process_id=os.getpid())
     assert json.loads(contender.path.read_text(encoding="utf-8"))["account"] == "owner"
     assert contender.events == []
 

@@ -14,8 +14,8 @@ from launcher_fakes import (
     only_on_path,
     python_cli,
 )
+from settings_fakes import save_settings
 
-from legion.core import _settings_io
 from legion.core._settings_models import Agent, PersonalisationSettings
 from legion.services.accounts._launch import account_command, run_account
 from legion.services.accounts._launchers import LauncherError
@@ -28,7 +28,7 @@ ENDPOINT = "https://res-a.cognitiveservices.azure.com"
 
 
 def save_agents(home: Path, *agents: Agent) -> None:
-    _settings_io.save(home, PersonalisationSettings.model_validate({"schemaVersion": 1, "agents": [item.model_dump(by_alias=True, exclude_none=True) for item in agents], "channels": []}))
+    save_settings(home, PersonalisationSettings.model_validate({"schemaVersion": 1, "agents": [item.model_dump(by_alias=True, exclude_none=True) for item in agents], "channels": []}))
 
 
 # The fake CLI prints var=<config folder> and arg=<word> lines; cmd.exe keeps the quotes of echo.

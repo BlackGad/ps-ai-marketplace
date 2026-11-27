@@ -193,6 +193,13 @@ def test_reports_invalid_neighbors_in_folder_order(generator: ModuleType, plugin
         generator.render_tools_index(plugin / "skills")
 
 
+def test_duplicate_tool_id_takes_precedence_over_a_skill_error(generator: ModuleType, plugin: Path) -> None:
+    edit_json(plugin / "skills" / "legion-claude" / "tool.json", "id", "zzz")
+    edit_json(plugin / "skills" / "legion-codex" / "tool.json", "id", "zzz")
+    with pytest.raises(ValueError, match="duplicate tool id 'zzz'"):
+        generator.render_tools_index(plugin / "skills")
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
