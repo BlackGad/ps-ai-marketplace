@@ -5,6 +5,7 @@ import stat
 import sys
 import tempfile
 import time
+from threading import Barrier
 from datetime import UTC, datetime
 from pathlib import Path
 from collections.abc import Mapping, Sequence
@@ -21,6 +22,7 @@ from legion.core._home import home_path
 from legion.core._process import process_started_at
 from legion.core._run import RunResult
 from legion.core._settings_models import Agent
+from legion.services import limits as limits_service
 from legion.services.limits.limit_probes import (
     LimitsError,
     LimitRow,
@@ -143,6 +145,21 @@ def test_limits_returns_rows_per_account_in_requested_order(bench: Bench) -> Non
     assert [(item.account, item.tool) for item in reports] == [("copilot-a", "copilot"), ("claude-a", "claude")]
     assert reports[0].rows == [LimitRow(status="answers; no limit readout")]
     assert [len(bench.calls(name)) for name in ("claude", "codex", "copilot", "az")] == [1, 0, 1, 0]
+
+
+def test_limits_probes_concurrently_in_requested_order(bench: Bench) -> None:
+    write_settings(bench.home, ACCOUNTS)
+    started = Barrier(2, timeout=2)
+
+    def probe(agent: Agent, home: Path, timeout: float) -> list[LimitRow]:
+        assert home == bench.home
+        assert timeout == 7
+        started.wait()
+        return [LimitRow(status=agent.id)]
+
+    bench.monkeypatch.setattr(limits_service, "account_rows", probe)
+    reports = limits(bench.home, ["copilot-a", "claude-a"], timeout=7)
+    assert [(report.account, report.rows[0].status) for report in reports] == [("copilot-a", "copilot-a"), ("claude-a", "claude-a")]
 
 
 @pytest.mark.parametrize(

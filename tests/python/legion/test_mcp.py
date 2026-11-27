@@ -158,7 +158,6 @@ def test_stdio_limits_equals_cli_explicit_accounts(bench: Bench, capsys: pytest.
         ({"accounts": [42]}, "string"),
         ({"accounts": ["claude-a"], "timeout": "1"}, "number"),
         ({"accounts": ["claude-a"], "timeout": True}, "number"),
-        ({"accounts": ["claude-a", "copilot-a"]}, "call limits once per account"),
         ({"accounts": ["claude-a"], "timeout": 0}, "minimum"),
         ({"accounts": ["claude-a"], "timeout": -1}, "minimum"),
         ({"accounts": ["claude-a"], "timeout": None}, "number"),
@@ -179,6 +178,45 @@ def test_default_single_account_is_usable(connection: Connection, bench: Bench) 
     assert not result.get("isError", False)
     assert result["structuredContent"]["result"][0]["account"] == "copilot-a"
     assert len(bench.calls("copilot")) == 1
+
+
+def test_default_multi_account_call_returns_results_in_selection_order(connection: Connection, bench: Bench) -> None:
+    connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["copilot-a", "claude-a"]}}, 3)
+    result = connection.receive(3)["result"]
+    assert not result.get("isError", False), result
+    assert [entry["account"] for entry in result["structuredContent"]["result"]] == ["copilot-a", "claude-a"]
+    assert len(bench.calls("copilot")) == len(bench.calls("claude")) == 1
+
+
+@pytest.mark.parametrize("stop", ["eof", "cancel"])
+def test_interrupting_multi_account_call_cleans_all_probes(connection: Connection, bench: Bench, stop: str) -> None:
+    tools = ("claude", "copilot")
+    for tool in tools:
+        log = bench.logs / tool
+        log.mkdir()
+        write_executable(bench.path, tool, {"LEGION_FAKE_LOG": str(log), f"LEGION_FAKE_{tool.upper()}_SLEEP": "60"})
+
+    connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["claude-a", "copilot-a"]}}, 3)
+    probes = []
+    for tool in tools:
+        log = bench.logs / tool
+        grandchild = int(wait_file(log / "grandchild.pid"))
+        call = json.loads((log / f"{tool}.jsonl").read_text(encoding="utf-8"))
+        probes.append((grandchild, call["pid"], Path(call["folder"])))
+
+    if stop == "eof":
+        connection.eof()
+        assert connection.process.wait(timeout=5) == 0
+    else:
+        connection.send("notifications/cancelled", {"requestId": 3})
+
+    for grandchild, pid, ping_folder in probes:
+        assert_dead(grandchild)
+        assert_dead(pid)
+        deadline = time.monotonic() + 5
+        while ping_folder.exists():
+            assert time.monotonic() < deadline, "ping folder survived interruption"
+            time.sleep(0.01)
 
 
 @pytest.mark.parametrize("stop", ["eof", "cancel"])

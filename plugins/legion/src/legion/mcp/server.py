@@ -134,8 +134,6 @@ def build(home: Optional[Path] = None) -> FastMCP:
     )
     async def limits(accounts: list[str], timeout: Annotated[float, Field(gt=0, allow_inf_nan=False)] = 120) -> list[AccountLimits]:
         effective_timeout = min(timeout, CALL_BUDGET)
-        if len(accounts) * effective_timeout > CALL_BUDGET:
-            raise ValueError("call limits once per account")
         arguments = ["limits", "--json", "--timeout", str(effective_timeout)]
         for account in accounts:
             arguments += ["--id", account]
