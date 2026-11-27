@@ -6,6 +6,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
+from conftest import Fence
 
 from legion.services.installation import _installed_runtime
 from legion.services.repository import _footprints
@@ -19,6 +20,28 @@ from legion.core._home import (
 
 if sys.platform == "win32":
     import _winapi
+
+
+def test_resolved_containment_follows_links_and_respects_directory_boundaries(fence: Fence) -> None:
+    scratch = fence.temp / "paths"
+    scratch.mkdir()
+    physical = resolve_directory(scratch)
+    root = resolve_directory(fence.temp)
+    assert is_under(physical, root)
+    assert same_path(resolve_directory(scratch), physical)
+    assert is_under(resolve_directory(scratch), physical, allow_equal=True)
+    assert not is_under(resolve_directory(scratch), physical)
+    assert is_under(resolve_directory(scratch / "missing/leaf"), physical)
+    assert not is_under(resolve_directory(scratch.with_name("paths-sibling")), physical)
+    uppercase = Path(str(scratch).upper())
+    same_directory = os.name == "nt" or (uppercase.is_dir() and str(resolve_directory(uppercase)) == str(physical))
+    assert same_path(resolve_directory(uppercase), physical) == same_directory
+    escape = scratch / "escape"
+    if sys.platform == "win32":
+        _winapi.CreateJunction(str(fence.outside), str(escape))
+    else:
+        escape.symlink_to(fence.outside, target_is_directory=True)
+    assert not is_under(resolve_directory(escape), physical)
 
 
 def test_lexical_path_checks_keep_links_visible(tmp_path: Path) -> None:
