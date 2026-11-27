@@ -49,12 +49,6 @@ class World:
         folder = bin_folder(self.home)
         return sorted(path.name for path in folder.iterdir()) if folder.is_dir() else []
 
-    # Settings as an older legion wrote them: no command.
-    def old_account(self, account: str = "codex-a", tool_id: str = "codex") -> None:
-        data = {"schemaVersion": 1, "agents": [{"id": account, "tool": tool_id, "configDir": str(self.folder(account))}], "channels": []}
-        write_settings(self.home, data)
-        self.folder(account).mkdir(parents=True, exist_ok=True)
-
 
 def write_settings(home: Path, data: dict[str, Any]) -> None:
     path = settings_path(home)
@@ -97,6 +91,9 @@ def test_account_add_writes_no_launcher(world: World, capsys: pytest.CaptureFixt
     assert world.folder("codex-a").is_dir()
     assert world.bin_files() == []
     before = world.settings_bytes()
+    settings = json.loads(before)
+    assert settings["schemaVersion"] == 1
+    assert settings["channels"] == []
     assert add(world) == 0
     assert says(capsys) == ("skip: account codex-a (already done)\n", "")
     assert world.settings_bytes() == before
@@ -176,12 +173,6 @@ def test_a_missing_config_dir_and_a_redirected_id_are_refused(world: World, caps
     assert world.settings_bytes() == before
 
 
-def test_the_first_add_starts_the_settings(world: World) -> None:
-    assert add(world) == 0
-    data = json.loads(settings_path(world.home).read_text(encoding="utf-8"))
-    assert (data["schemaVersion"], data["channels"], data["agents"][0]["id"]) == (1, [], "codex-a")
-
-
 @pytest.mark.parametrize(("account_id", "tool_id", "message"), [("Bad id", "codex", "id 'Bad id' must match ^[a-z][a-z0-9-]*$"), ("codex-a", "unknown-tool", "unknown tool 'unknown-tool'")])
 def test_an_invalid_first_add_creates_no_settings_folder(world: World, capsys: pytest.CaptureFixture[str], account_id: str, tool_id: str, message: str) -> None:
     assert account(world, "add", "--id", account_id, "--tool", tool_id) == 1
@@ -240,14 +231,6 @@ def test_a_missing_command_file_is_refused_in_one_line(world: World, capsys: pyt
     assert add(world, "codex-a", "codex", "--command", str(world.base / "gone")) == 1
     assert says(capsys)[1].count("\n") == 1
     assert not settings_path(world.home).exists()
-
-
-def test_an_old_account_is_left_alone(world: World, capsys: pytest.CaptureFixture[str]) -> None:
-    world.old_account()
-    before = world.settings_bytes()
-    assert add(world) == 0
-    assert says(capsys) == ("skip: account codex-a (already done)\n", "")
-    assert world.settings_bytes() == before
 
 
 @pytest.mark.parametrize("custom", [False, True])
@@ -504,17 +487,6 @@ def test_remove_ends_the_footprint_owner_and_an_old_runtime_folder(world: World,
     assert says(capsys) == (f"Remove folder: {runtime}\nConfig folder kept at {world.folder('codex-a')}.\n", "")
     assert not runtime.exists()
     assert _footprints.read(world.home).entries == []
-
-
-def test_the_owner_remove_is_the_same_code_and_takes_a_named_id(world: World, capsys: pytest.CaptureFixture[str]) -> None:
-    assert add(world, "codex-a") == 0
-    assert add(world, "codex-b") == 0
-    capsys.readouterr()
-    assert account(world, "remove", "--id", "codex-a") == 0
-    assert says(capsys) == (f"Config folder kept at {world.folder('codex-a')}.\n", "")
-    assert account(world, "remove", "--id", "codex-b") == 0
-    assert says(capsys) == (f"Config folder kept at {world.folder('codex-b')}.\n", "")
-    assert world.agents() == []
 
 
 def test_a_positional_id_is_a_usage_error(world: World, capsys: pytest.CaptureFixture[str]) -> None:

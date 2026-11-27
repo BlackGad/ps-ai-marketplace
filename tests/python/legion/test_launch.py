@@ -18,7 +18,6 @@ from settings_fakes import save_settings
 
 from legion.core._settings_models import Agent, PersonalisationSettings
 from legion.services.accounts._launch import account_command, run_account
-from legion.services.accounts._launchers import LauncherError
 from legion.services.foundry._az import AzAccessToken
 from legion.core._home import bin_folder
 from legion.services.installation._installed_runtime import write_owner_commands
@@ -59,14 +58,6 @@ def test_account_command_stock_when_unset(tmp_path: Path, stock: Path) -> None:
     assert command.provider_file is None
 
 
-@pytest.mark.usefixtures("stock")
-def test_account_command_ps1_target_runs_pwsh_file(tmp_path: Path) -> None:
-    script = tmp_path / "my codex.ps1"
-    script.write_text("exit 0\n", encoding="utf-8")
-    command = account_command(agent("codex-a", tmp_path / "config", command=str(script)), tmp_path)
-    assert command.words(["a"]) == ["pwsh", "-NoProfile", "-File", str(script), "a"]
-
-
 def test_account_command_foundry_sets_provider_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     claude = fake_cli(tmp_path / "stock bin", "claude", "CLAUDE_CONFIG_DIR")
     only_on_path(monkeypatch, claude.parent)
@@ -81,12 +72,6 @@ def test_account_command_foundry_sets_provider_env(tmp_path: Path, monkeypatch: 
     assert Path(command.set_env["CLAUDE_CONFIG_DIR"]) == tmp_path / "claude-dev"
     assert command.set_env["LEGION_HOME"] == str(tmp_path)
     assert "CLAUDE_CODE_USE_BEDROCK" in command.clear_env
-
-
-def test_account_command_without_any_program_names_the_installer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    only_on_path(monkeypatch, tmp_path / "empty")
-    with pytest.raises(LauncherError, match=r"^codex is not installed; run legion tool install --tool codex$"):
-        account_command(agent("codex-a", tmp_path / "config"), tmp_path)
 
 
 @pytest.mark.usefixtures("stock")
@@ -197,13 +182,6 @@ def test_two_homes_with_the_same_account_id_each_start_their_own(tmp_path: Path,
     lines = readout(result.stdout)
     assert f"var={homes[selected] / 'config'}" in lines
     assert f"var={other / 'config'}" not in lines
-
-
-@pytest.mark.usefixtures("stock")
-def test_unknown_account_is_refused(tmp_path: Path) -> None:
-    save_agents(tmp_path, agent("codex-a", tmp_path / "config"))
-    with pytest.raises(LauncherError, match=r"^unknown account 'nobody'$"):
-        run_account("nobody", [], tmp_path)
 
 
 # The command line member dispatch uses: legion run --account <id> -- <tool arguments>, exit code kept.

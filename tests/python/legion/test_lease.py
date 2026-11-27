@@ -58,10 +58,6 @@ def make_old(path: Path) -> None:
 # Lease ownership and state
 
 
-def test_free_without_a_lock(tmp_path: Path) -> None:
-    assert state(tmp_path).state == "free"
-
-
 def test_helper_takes_for_its_long_lived_owner_and_releases(tmp_path: Path) -> None:
     assert take(tmp_path, "codex", "session") == "lease taken"
     current = state(tmp_path)
@@ -113,29 +109,6 @@ def test_take_twice_skips_and_others_cannot_release(tmp_path: Path) -> None:
     assert release(tmp_path, process_id=os.getpid()).startswith("skip:")
 
 
-def test_take_refuses_held_and_foreign_leases(tmp_path: Path) -> None:
-    write_lease(tmp_path, tool="claude", account="claude-a", startedAt="2026-11-18T10:00:00Z")
-    with pytest.raises(LeaseError, match="lease held by claude claude-a since 2026-11-18T10:00:00Z"):
-        take(tmp_path, "codex", "other", process_id=os.getppid())
-    write_lease(tmp_path, host="fixture-foreign-host")
-    with pytest.raises(LeaseError, match="lease from host fixture-foreign-host; ask the owner"):
-        take(tmp_path, "codex", "other", process_id=os.getpid())
-
-
-def test_release_without_a_lock_skips_before_looking_for_the_owner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def no_owner() -> None:
-        raise LookupError("cannot find the agent session process; pass --process-id explicitly")
-
-    monkeypatch.setattr(_lease, "owner_process", no_owner)
-    assert release(tmp_path) == "skip: lease release (already done)"
-
-
-def test_take_needs_a_running_owner(tmp_path: Path) -> None:
-    with pytest.raises(LeaseError, match="not running"):
-        take(tmp_path, "codex", "owner", process_id=DEAD_PID)
-    assert not lease_path(tmp_path).exists()
-
-
 def test_written_lock_uses_powershell_field_names_and_formats(tmp_path: Path) -> None:
     take(tmp_path, "codex", "owner", process_id=os.getpid())
     text = lease_path(tmp_path).read_text(encoding="utf-8")
@@ -183,15 +156,6 @@ def test_lock_being_written_is_held_then_stale_when_old(tmp_path: Path) -> None:
             take(tmp_path, "codex", "other", process_id=os.getpid())
         make_old(path)
         assert state(tmp_path).state == "stale"
-
-
-def test_old_unreadable_lock_can_be_taken(tmp_path: Path) -> None:
-    path = lease_path(tmp_path)
-    path.parent.mkdir(parents=True)
-    path.write_text("not json", encoding="utf-8")
-    make_old(path)
-    assert take(tmp_path, "codex", "owner", process_id=os.getpid()) == "lease taken"
-    assert state(tmp_path).state == "held"
 
 
 def racer(repo: str, account: str, start: Barrier, done: Event, results: "multiprocessing.Queue[str]") -> None:

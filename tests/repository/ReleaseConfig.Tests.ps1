@@ -7,6 +7,7 @@ Assert-True (Test-Path -LiteralPath $manifestPath) '.release-please-manifest.jso
 $config = Get-Content -Raw $configPath | ConvertFrom-Json
 $manifest = Get-Content -Raw $manifestPath | ConvertFrom-Json
 $package = $config.packages.'.'
+Assert-True ($manifest.'.' -match '^\d+\.\d+\.\d+$') 'Release version uses semantic version syntax'
 Assert-Equal 'simple' $package.'release-type' 'Release type'
 Assert-Equal $false $package.'include-component-in-tag' 'Tag has no component'
 

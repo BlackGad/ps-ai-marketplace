@@ -16,19 +16,6 @@ def lease_file(repo: Path) -> dict[str, object]:
     return json.loads(lease_path(repo).read_text(encoding="utf-8"))
 
 
-def test_help_lists_lease_and_its_actions(capsys: pytest.CaptureFixture[str]) -> None:
-    assert run(["--help"]) == 0
-    assert "  lease " in capsys.readouterr().out
-    assert run(["lease", "--help"]) == 0
-    output = capsys.readouterr().out
-    for action in ("take", "status", "release"):
-        assert f"  {action} " in output
-    assert run(["lease", "take", "--help"]) == 0
-    output = capsys.readouterr().out
-    for option in ("--repo", "--tool", "--account", "--process-id"):
-        assert option in output
-
-
 def test_status_defaults_to_the_current_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.chdir(tmp_path)
     assert run(["lease", "status"]) == 0

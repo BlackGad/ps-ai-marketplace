@@ -32,7 +32,6 @@ function New-UvRelease {
     Compress-Archive -Path (Join-Path $folder 'uv.exe') -DestinationPath $uvZip -Force
 }
 
-$realInvokeUv = ${function:Invoke-InstallUv}
 $realDownload = ${function:Invoke-InstallDownload}
 function Invoke-InstallDownload {
     param([string]$Url, [string]$OutFile)
@@ -50,17 +49,23 @@ function Invoke-InstallDownload {
         Copy-Item -LiteralPath $uvZip -Destination $OutFile
     } else { throw "unexpected download $Url" }
 }
-# The extracted uv is a placeholder file, so the hand-over runs the fake uv instead.
-function Invoke-InstallUv {
-    param([string]$Uv, [string[]]$Arguments)
+# The downloaded and cleanup executables are placeholders. Alias their exact paths to the fake.
+function Invoke-FakeUv {
     $script:uvUsed = $Uv
     $script:pathHead = ($env:PATH -split [regex]::Escape([string][IO.Path]::PathSeparator))[0]
-    & (Join-Path (Join-Path $Scratch 'fake-uv-source') $uvName) @Arguments
-    return $LASTEXITCODE
+    & (Join-Path (Join-Path $Scratch 'fake-uv-source') $uvName) @args
 }
 # The extracted uv is a placeholder, so "runs" is decided by the mode.
 function Test-InstallUv { param([string]$Uv) return $script:Mode -ne 'uv-broken' }
-function Test-InstallPython { param([string]$Uv) return -not $script:Mode.StartsWith('no-python') }
+function Test-InstallPython {
+    param([string]$Uv)
+    if ($temporaryUv) {
+        Set-Alias -Name $temporaryUv -Value Invoke-FakeUv -Scope Script
+    } elseif ($Uv -eq (Join-Path $Scratch '.legion/bin/uv.exe')) {
+        Set-Alias -Name $Uv -Value Invoke-FakeUv -Scope Script
+    }
+    return -not $script:Mode.StartsWith('no-python')
+}
 function Read-Host { param($Prompt) $script:prompts++; return $script:answer }
 $script:prompts = 0
 $script:answer = 'n'
@@ -128,12 +133,11 @@ switch ($Mode) {
     'no-python-declined' { $parameters.Remove('Yes'); Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
     'no-python-yes' { Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
     'uv-call' {
-        # The real hand-over function: uv's output goes to the owner, the result is only the exit code.
+        # Exercise the real hand-over with the executable fake on PATH.
         $env:FAKE_UV_SAY = '1'
         $env:FAKE_UV_EXIT = '3'
-        $result = & $realInvokeUv -Uv (Join-Path (Join-Path $Scratch 'fake-uv-source') $uvName) -Arguments @('run')
-        Write-Output "result=$(@($result) -join ',')"
-        return
+        $result = @(Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout'))
+        Write-Output "resultCount=$($result.Count)"
     }
     'http-refused' {
         # The real download refuses a plain HTTP address before it connects.

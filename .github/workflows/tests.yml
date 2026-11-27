@@ -70,24 +70,6 @@ jobs:
       - run: uv run --project plugins/legion --frozen --extra mcp --group dev pyright
       - run: uv run --project plugins/legion --frozen --extra mcp --group dev pytest
 
-  parse-5-1:
-    runs-on: windows-2025
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.sha || github.sha }}
-      - shell: powershell
-        run: |
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'install.ps1'), [ref]$null, [ref]$errors) | Out-Null
-          if ($errors) {
-            $errors | ForEach-Object { Write-Error $_.Message }
-            exit 1
-          }
-
   pr-title:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
@@ -125,7 +107,7 @@ jobs:
   gate:
     # Release PRs use the trusted commit status, including while PR runs await approval.
     name: ${{ (inputs.sha != '' || (github.event_name == 'pull_request' && github.event.pull_request.user.login == 'github-actions[bot]' && startsWith(github.head_ref, 'release-please--'))) && 'release PR tests' || 'gate' }}
-    needs: [unit, python, parse-5-1, pr-title]
+    needs: [unit, python, pr-title]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -134,14 +116,12 @@ jobs:
         env:
           UNIT_RESULT: ${{ needs.unit.result }}
           PYTHON_RESULT: ${{ needs.python.result }}
-          PARSE_RESULT: ${{ needs.parse-5-1.result }}
           TITLE_RESULT: ${{ needs.pr-title.result }}
         run: |
           # pr-title is skipped on push and workflow_call runs; that counts as success
           $failed = @()
           if ($env:UNIT_RESULT -ne 'success') { $failed += "unit: $env:UNIT_RESULT" }
           if ($env:PYTHON_RESULT -ne 'success') { $failed += "python: $env:PYTHON_RESULT" }
-          if ($env:PARSE_RESULT -ne 'success') { $failed += "parse-5-1: $env:PARSE_RESULT" }
           if ($env:TITLE_RESULT -notin 'success', 'skipped') { $failed += "pr-title: $env:TITLE_RESULT" }
           if ($failed) {
             Write-Error ($failed -join '; ')

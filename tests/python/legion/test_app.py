@@ -20,9 +20,6 @@ from app_fakes import (
     old_app,
 )
 
-if sys.platform == "win32":
-    pass
-
 MISSING = "uv is missing. Ask the owner before installing it, then run the legion installer again."
 
 

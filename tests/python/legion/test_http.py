@@ -1,3 +1,4 @@
+import socket
 from pathlib import Path
 
 import httpx
@@ -56,6 +57,15 @@ def test_a_failed_status_raises_for_text_and_downloads(monkeypatch: pytest.Monke
         _http.download("https://vendor.test/missing", tmp_path / "file", 5)
 
 
-def test_the_socket_fence_blocks_a_real_request() -> None:
-    with pytest.raises(httpx.TransportError):
-        _http.get_bytes("https://network-fence.invalid/", 1)
+def test_the_socket_fence_blocks_address_resolution() -> None:
+    with pytest.raises(OSError, match="test socket fence denied a connection"):
+        socket.getaddrinfo("127.0.0.1", 443, flags=socket.AI_NUMERICHOST)
+
+
+def test_the_socket_fence_blocks_direct_connections() -> None:
+    # An out-of-range port also prevents a connection if the fence is missing.
+    with socket.socket() as sock:
+        with pytest.raises(OSError, match="test socket fence denied a connection"):
+            sock.connect(("127.0.0.1", 65536))
+        with pytest.raises(OSError, match="test socket fence denied a connection"):
+            sock.connect_ex(("127.0.0.1", 65536))

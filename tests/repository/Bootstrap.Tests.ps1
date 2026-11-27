@@ -142,7 +142,8 @@ Invoke-InstallTestCase 'BootstrapUvOutputAndExitCode' {
             $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'uv-call' -Scratch $scratch
             $text = $result.Lines -join "`n"
             Assert-True ($result.Lines -contains 'fake uv output') "uv's output reaches the owner: $text"
-            Assert-True ($result.Lines -contains 'result=3') "The hand-over returns only the exit code: $text"
+            Assert-True ($result.Lines -contains 'exit=3') "The hand-over preserves the exit code: $text"
+            Assert-True ($result.Lines -contains 'resultCount=0') "uv output does not enter the output pipeline: $text"
         }
     } finally { Remove-InstallTestFolder $scratch }
 }

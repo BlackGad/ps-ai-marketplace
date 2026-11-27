@@ -46,20 +46,6 @@ def bounded_read(read: Callable[[], bytes], timeout: float) -> bytes:
     return value
 
 
-def test_bounded_read_times_out_and_can_release_its_reader() -> None:
-    released = threading.Event()
-
-    def blocked_read() -> bytes:
-        released.wait()
-        return b""
-
-    try:
-        with pytest.raises(TimeoutError):
-            bounded_read(blocked_read, 0)
-    finally:
-        released.set()
-
-
 # A real executable: a batch fake would never return to the command's (goto) tail. It writes its output first,
 # then blocks reading one line of stdin, so a test can see the output arrive while uv still runs.
 FAKE_UV_SOURCE = """

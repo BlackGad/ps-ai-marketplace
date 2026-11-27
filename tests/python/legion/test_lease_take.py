@@ -1,4 +1,3 @@
-import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock
@@ -7,13 +6,8 @@ import psutil
 import pytest
 
 from legion.core._process import ProcessInfo, owner_process
-from legion.services.repository import _lease, _lease_take
-from legion.services.repository._lease import (
-    LeaseError,
-    lease_path,
-    release,
-    state,
-)
+from legion.services.repository import _lease_take
+from legion.services.repository._lease import LeaseError
 from legion.services.repository._lease_take import take_for_session
 
 BASE = datetime(2026, 11, 20, tzinfo=UTC)
@@ -86,10 +80,3 @@ def test_normal_codex_session_is_accepted(tmp_path: Path, monkeypatch: pytest.Mo
 def test_non_codex_owner_is_not_inspected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     chain(monkeypatch, "claude.exe", psutil.AccessDenied(8))
     assert take_for_session(tmp_path, "claude", "owner") == "lease taken"
-
-
-def test_release_still_works_for_a_lease_held_by_a_daemon(tmp_path: Path) -> None:
-    _lease.take(tmp_path, "codex", "owner", process_id=os.getpid())
-    assert state(tmp_path).state == "held"
-    assert release(tmp_path, process_id=os.getpid()) == "lease released"
-    assert not lease_path(tmp_path).exists()

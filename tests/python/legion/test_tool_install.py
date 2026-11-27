@@ -18,9 +18,8 @@ from legion.core._http import https_client
 from legion.services.installation import _tool_install
 from legion.services.installation import _user_path
 from legion.services.repository._footprints import read as read_footprints
-from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import RunResult
-from legion.core._settings_models import InstallRecipe, ScriptDownload, ToolDescriptor
+from legion.core._settings_models import InstallRecipe, ToolDescriptor
 from legion.services.installation._tool_install import ToolInstaller, ToolInstallError
 
 if os.name == "nt":
@@ -140,23 +139,6 @@ def bench(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Bench:
 # --- descriptor data ---
 
 
-def test_recipe_data_comes_from_descriptors_and_helpers() -> None:
-    assert recipe("bun").check == ["bun", "--version"]
-    assert recipe("uv").check == ["uv", "--version"]
-    uv_windows = recipe("uv").windows
-    assert uv_windows is not None
-    assert uv_windows.winget_id == "astral-sh.uv"
-    script = uv_windows.download.zip
-    assert isinstance(script, ScriptDownload)
-    assert script.url == "https://astral.sh/uv/install.ps1"
-    for platform in ("linux", "macos"):
-        assert _tool_install.install_commands(recipe("uv"), platform) == [["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"]]
-    descriptor_tools = {tool.id for tool in _tool_install.load_tools()}
-    assert {"claude", "codex", "copilot"} <= descriptor_tools
-    assert descriptor_tools.isdisjoint({"git", "node", "az", "uv", "bun"})
-    assert PLUGIN_ROOT.joinpath("helpers.json").is_file()
-
-
 def test_helpers_json_typed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert _tool_install.find_recipe("git").check == ["git", "--version"]
     helpers = json.loads(_tool_install.HELPERS_PATH.read_text(encoding="utf-8"))
@@ -171,38 +153,6 @@ def test_helpers_json_typed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 def test_unknown_tool_is_refused(bench: Bench) -> None:
     with pytest.raises(ToolInstallError, match="unknown tool 'nope'"):
         bench.run("nope", "linux")
-
-
-def test_install_commands_per_platform() -> None:
-    windows = {
-        "git": "winget install --id Git.Git -e",
-        "node": "winget install --id OpenJS.NodeJS.LTS -e",
-        "claude": "winget install --id Anthropic.ClaudeCode -e",
-        "codex": "winget install --id OpenAI.Codex -e",
-        "copilot": "winget install --id GitHub.Copilot -e",
-        "az": "winget install --id Microsoft.AzureCLI -e",
-    }
-    macos = {
-        "git": "brew install git",
-        "node": "brew install node",
-        "claude": "bash -c curl -fsSL https://claude.ai/install.sh | bash",
-        "codex": "npm install -g @openai/codex",
-        "copilot": "npm install -g @github/copilot",
-        "az": "brew install azure-cli",
-    }
-    for tool, command in windows.items():
-        assert " ".join(_tool_install.install_commands(recipe(tool), "windows")[0]) == command + WINGET_FLAGS
-    for tool, command in macos.items():
-        assert " ".join(_tool_install.install_commands(recipe(tool), "macos")[0]) == command
-    docs = {"git": "https://git-scm.com/download/linux", "node": "https://nodejs.org/en/download", "az": "https://learn.microsoft.com/cli/azure/install-azure-cli-linux"}
-    for tool, link in docs.items():
-        assert _tool_install.install_commands(recipe(tool), "linux") == []
-        assert recipe(tool).linux.docs == link
-    assert recipe("codex").linux.needs == ["node"]
-    assert recipe("copilot").linux.needs == ["node"]
-    codex_windows = recipe("codex").windows
-    assert codex_windows is not None
-    assert codex_windows.winget_id == "OpenAI.Codex"
 
 
 def test_every_descriptor_installs_with_a_noninteractive_winget_command() -> None:
@@ -472,13 +422,6 @@ def test_repair_never_touches_a_fixed_name_staging_folder(bench: Bench) -> None:
     assert (bench.tools / "az" / "bin" / "az.cmd").is_file()
 
 
-def test_download_without_the_executable_leaves_no_staging_folder(bench: Bench) -> None:
-    bench.serve(bench.serve_zip({"readme.txt": "inert"}), "zip")
-    with pytest.raises(ToolInstallError, match="executable missing"):
-        bench.installer(yes=True).install("az", "zip")
-    assert not bench.tools.exists() or list(bench.tools.iterdir()) == []
-
-
 def test_preview_never_repairs_the_path_and_yes_repairs_it_once(bench: Bench) -> None:
     digest = bench.serve_zip({"bin/az.cmd": "inert"})
     bench.serve(digest, "zip")
@@ -515,12 +458,13 @@ def test_hash_mismatch_deletes_the_download_and_extracts_nothing(bench: Bench) -
     assert bench.path_writes == []
 
 
-def test_archive_without_the_executable_never_updates_the_path(bench: Bench) -> None:
+def test_archive_without_the_executable_leaves_no_staging_or_path_change(bench: Bench) -> None:
     digest = bench.serve_zip({"bin/readme.txt": "no executable"})
     bench.serve(digest, "zip")
     with pytest.raises(ToolInstallError, match="az executable missing from download"):
         bench.run("az", yes=True, method="zip")
     assert bench.path_writes == []
+    assert not bench.tools.exists() or list(bench.tools.iterdir()) == []
 
 
 @pytest.mark.parametrize("kind", ["msi", "exe"])

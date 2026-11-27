@@ -24,12 +24,10 @@ function Invoke-InstallTestCase {
     # One named section of a test file. It runs in its own scope, so functions a section
     # defines are gone afterwards, and it puts back every process setting the installer reads.
     param([string]$Name, [scriptblock]$Body)
-    $variables = @('HOME', 'USERPROFILE', 'PATH', 'OS', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'COPILOT_HOME')
+    $variables = @('HOME', 'USERPROFILE', 'PATH', 'OS')
     $saved = @{}
     foreach ($variable in $variables) { $saved[$variable] = [Environment]::GetEnvironmentVariable($variable, 'Process') }
     $savedLocation = Get-Location
-    # Each section loads its own catalog.
-    $script:installCatalog = $null
     try {
         & $Body
         "PASS $Name"

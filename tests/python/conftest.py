@@ -2,11 +2,13 @@ import hashlib
 import json
 import os
 import shutil
+import socket
 import sys
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Buffer, Iterator
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Optional
+from typing import NoReturn, Optional
 
 import pytest
 
@@ -90,6 +92,33 @@ def fence_git(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 
+def fence_sockets(monkeypatch: pytest.MonkeyPatch) -> None:
+    connect = socket.socket.connect
+    socketpair = socket.socketpair
+    in_socketpair: ContextVar[bool] = ContextVar("in_socketpair", default=False)
+
+    def deny(*_args: object, **_kwargs: object) -> NoReturn:
+        raise OSError("test socket fence denied a connection")
+
+    # Windows asyncio uses the stdlib's loopback socketpair for its wakeup pipe.
+    def local_pair(*args: int, **kwargs: int) -> tuple[socket.socket, socket.socket]:
+        token = in_socketpair.set(True)
+        try:
+            return socketpair(*args, **kwargs)
+        finally:
+            in_socketpair.reset(token)
+
+    def guarded_connect(sock: socket.socket, address: tuple[object, ...] | str | Buffer) -> None:
+        if not (in_socketpair.get() and isinstance(address, tuple) and address[0] in ("127.0.0.1", "::1")):
+            deny()
+        connect(sock, address)
+
+    monkeypatch.setattr(socket, "socketpair", local_pair)
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", deny)
+    monkeypatch.setattr(socket, "getaddrinfo", deny)
+
+
 @pytest.fixture
 def pwsh_path() -> Path:
     value = os.environ.get("LEGION_TEST_PWSH")
@@ -113,6 +142,7 @@ def fence(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPa
         folder = fence.home / name
         folder.mkdir()
         monkeypatch.setenv(name, str(folder))
+    fence_sockets(monkeypatch)
     # Children cannot inherit Python mocks. Standard proxy settings reject requests locally,
     # including on hosts with a proxy bypass list or lowercase proxy variables.
     for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):

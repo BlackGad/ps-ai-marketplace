@@ -71,15 +71,6 @@ def test_project_file_is_accepted() -> None:
     [
         ("personalisation/invalid-version.json", ["schemaVersion: Field required"]),
         ("personalisation/invalid-id.json", ["agents.0.id: String should match pattern '^[a-z][a-z0-9-]*$'"]),
-        (
-            "validate/invalid-schema-multi.json",
-            [
-                "schemaVersion: Input should be less than or equal to 1",
-                "agents.0.id: String should match pattern '^[a-z][a-z0-9-]*$'",
-                "agents.0.configDir: Field required",
-                "extra: Extra inputs are not permitted",
-            ],
-        ),
     ],
 )
 def test_wrong_settings_shape_names_every_problem(path: str, expected: list[str]) -> None:

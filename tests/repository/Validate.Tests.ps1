@@ -1,8 +1,5 @@
 $testBase = Split-Path $PSScriptRoot -Parent
 $root = Split-Path $testBase -Parent
-$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('legion-tests/' + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
-
 # A tool case is the real descriptor with one edit: the value at a JSON pointer path, or no property there.
 function Get-EditedDescriptor {
     param($Case)
@@ -20,13 +17,9 @@ function Get-EditedDescriptor {
     return $data
 }
 
-try {
-    $recorded = Get-Content (Join-Path $testBase 'fixtures/validate/old-behaviour.json') -Raw | ConvertFrom-Json
-    foreach ($case in $recorded.tool) {
-        $json = Get-EditedDescriptor $case | ConvertTo-Json -Depth 100
-        $valid = [bool](Test-Json -Json $json -SchemaFile (Join-Path $root 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)
-        Assert-Equal $case.valid $valid "Tool schema case $($case.name) matches the recorded run"
-    }
-} finally {
-    Remove-Item -LiteralPath $tempRoot -Recurse -Force
+$recorded = Get-Content (Join-Path $testBase 'fixtures/validate/old-behaviour.json') -Raw | ConvertFrom-Json
+foreach ($case in $recorded.tool) {
+    $json = Get-EditedDescriptor $case | ConvertTo-Json -Depth 100
+    $valid = [bool](Test-Json -Json $json -SchemaFile (Join-Path $root 'plugins/legion/schemas/tool.schema.json') -ErrorAction SilentlyContinue)
+    Assert-Equal $case.valid $valid "Tool schema case $($case.name) matches the recorded run"
 }
