@@ -1,7 +1,5 @@
 # Claude plugins
 
-After updating legion, tell the owner to run `legion` in the repository to load the new skills.
-
 After the owner logs in to the selected account, use the account-specific [installer flow](accounts.md). For a manual install in that account's environment:
 
 ```text

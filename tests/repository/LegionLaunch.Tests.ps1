@@ -8,7 +8,7 @@ $launch = @('run','--account','codex-a','--')
 $expected = @{
     claude = $launch + @('-p','--permission-mode','bypassPermissions','--strict-mcp-config')
     codex = $launch + @('exec','--dangerously-bypass-approvals-and-sandbox','-C','repo with spaces','-o','report with spaces.last.md','-')
-    copilot = $launch + @('-p','Read and follow the task in task prompt with spaces.md; the report goes to stdout.','-s','--allow-all-tools','--deny-tool=shell(git push)')
+    copilot = $launch + @('-p','Read and follow the task in task prompt with spaces.md.','-s','--allow-all-tools','--deny-tool=shell(git push)')
 }
 try {
     # A native stub stands in for the legion command: PowerShell passes `--` on to a program, never to a function.
@@ -22,8 +22,10 @@ try {
         $legion = New-TestCommandStub -Folder $scratch -Name legion -Script $record
         $account = 'codex-a'; $repoPath='repo with spaces'; $report='report with spaces'; $promptText="task`nwith lines"
         $promptPath = 'task prompt with spaces.md'
-        & ([scriptblock]::Create($example.Groups[1].Value)) | Out-Null
+        Push-Location $scratch
+        try { & ([scriptblock]::Create($example.Groups[1].Value)) | Out-Null } finally { Pop-Location }
         Assert-Equal ($expected[$id] | ConvertTo-Json -Compress) (Get-Content -LiteralPath $env:LEGION_TEST_ARGS -Raw).Trim() "$id documented worker preserves complete argv"
+        if ($id -ne 'codex') { Assert-True (Test-Path -LiteralPath (Join-Path $scratch 'report with spaces.stdout.md')) "$id documented worker captures stdout in the report's .stdout.md" }
     }
 }
 finally {

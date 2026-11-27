@@ -4,12 +4,12 @@ When `codex` is missing, run `legion tool install --tool codex` to inspect statu
 
 If installation reports a new terminal is needed for PATH, ask the owner to open one and recheck status. Then repeat the setup step in [accounts.md](accounts.md): setup installs legion before login, and the owner logs in themselves when its table says `log in`. Never read credentials or tokens.
 
+If winget is unavailable or fails, follow the [method choice](../../legion-repository/references/tools.md).
+
 ## Platform methods and integrity
 
-On Windows, Node is not required. The default/`--method winget` uses `OpenAI.Codex`. Explicit `--method msi` and `--method zip` both run the official [install.ps1](https://chatgpt.com/codex/install.ps1), which redirects to `https://releases.openai.com/codex/install.ps1`. The vendor manages `%LOCALAPPDATA%/Programs/OpenAI/Codex/bin` and its PATH entry; no administrator or legion ZIP folder is needed.
+On Windows, Node is not required. The default/`--method winget` uses `OpenAI.Codex`. Explicit `--method msi` and `--method zip` both run the official [install.ps1](https://chatgpt.com/codex/install.ps1), which redirects to `https://releases.openai.com/codex/install.ps1`. The vendor manages `%LOCALAPPDATA%/Programs/OpenAI/Codex/bin` and its PATH entry; no administrator is needed.
 
-The official script verifies payload SHA-256 using release metadata asset `digest` and package checksums. The bootstrap script has no separate vendor hash: the installer runs the script without a hash.
+The official script verifies payload SHA-256 using release metadata asset `digest` and package checksums.
 
-On macOS and Linux, the recipe needs Node.js and runs `npm install -g @openai/codex`. Show the prerequisite hint and ask before installing it; a failed prerequisite stops the approved install. Native Windows paths do not require Node.js.
-
-If winget is unavailable or fails, the installer exits 2 and presents explicit `msi`/`zip` choices. Ask for the owner's choice and approval before adding `--method` and `--yes`. Never install a package manager implicitly. Previews make no downloads. Existing CLI detection and approved retries preserve PATH placeholders and registry type.
+On macOS and Linux, the recipe needs Node.js and runs `npm install -g @openai/codex`. Show the prerequisite hint and ask before installing it; a failed prerequisite stops the approved install.

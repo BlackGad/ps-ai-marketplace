@@ -16,4 +16,4 @@ After the owner's yes, run `legion update --yes`; the owner has already agreed, 
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Update
 ```
 
-Do not infer success from starting the installer; inspect its result. Afterwards the owner runs `legion` in the repository to load the new skills.
+Do not infer success from starting the installer; inspect its result.

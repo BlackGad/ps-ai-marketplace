@@ -19,7 +19,7 @@ For each `Legion running` row, check in this order:
 | Evidence | Action |
 | --- | --- |
 | Process alive | Wait for completion; do not duplicate the run. |
-| Report present | Immediately write `State: reviewing task N report` and `Next action: review report, then indexed gates` before running the gate or another task action. Read `legion-member/references/report-format.md`, review the report, commit, scope, checks, and questions. Record result; remove the running row. |
+| Report present (check `<report>`, then the fallback its run recipe names: `<report>.stdout.md`, or `<report>.last.md` for Codex) | Immediately write `State: reviewing task N report` and `Next action: review report, then indexed gates` before running the gate or another task action. Read `legion-member/references/report-format.md`, review the report, commit, scope, checks, and questions. Record result; remove the running row. |
 | Task commit present, report absent | Review from the commit and plan or scoped ad hoc brief; record the missing report and result. |
 | No report or task commit | Save staged and unstaged tracked work with `git diff --binary HEAD` into a patch under `.legion/temp/`. List untracked files with `git ls-files --others --exclude-standard` and copy them separately under `.legion/temp/`, preserving their relative paths. Record the patch and copy paths in the handoff. Relaunch through the matching tool skill, same account for resume or another routed account with patch and a fresh prompt. In a dry-run scenario, describe the proposed relaunch without executing it; show commands only when requested or when the owner must run them themselves. |
 

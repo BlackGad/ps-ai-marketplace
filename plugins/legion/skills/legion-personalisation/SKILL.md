@@ -26,7 +26,7 @@ This context provider grounds every legion mode. Read both the owner's settings 
 
 1. Read and validate existing settings, then read notes. If settings are missing, use [create.md](references/create.md); if invalid, explain the validation issues and make only owner-requested corrections. During setup, create missing notes from [notes-template.md](references/notes-template.md).
 2. Read repository workflow for repository choices. Keep repository facts there.
-3. Follow account preferences in notes. Leave model flags out so each CLI uses that account's default. Pass a model only when notes name one or allow a tier; follow [model tiers](../legion-overseer/references/task-loop.md#model-tiers). Discover models only for Foundry agents through the tool account guide. Save new owner preferences using the shared memory rule above. Follow exclusions and careful-use choices. Ask before paid use. Use the selected tool skill.
+3. Follow account preferences in notes. Pass a model only as [model tiers](../legion-overseer/references/task-loop.md#model-tiers) allow. Save new owner preferences using the shared memory rule above. Follow exclusions and careful-use choices. Ask before paid use. Use the selected tool skill.
 4. Set up channels only when the owner asks. Route them through their kind skill. Learn knowledge and other preferences from the owner's words after setup. Use the [launcher guide](references/launcher.md) for commands; follow its launch flow only when a launch is requested. Pass explicit choices derived from the owner's words.
 5. Re-read changed settings and notes. Check that no secret or client detail entered them.
 

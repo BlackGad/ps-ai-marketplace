@@ -1,5 +1,5 @@
 # Copilot CLI limits
 
-Use the `limits` tool on the plugin's `legion` MCP server for one explicit account at a time. It pings each named account, consumes quota and may be billable. Read the [selection, side effects, timeout and fallback guide](../../legion-overseer/references/read-tools.md). If the server fails to start, use `legion limits --id <id> --timeout 20 --json`. Members never call these tools. The table shows how much of each window is left (`Left`); JSON also carries `used`. Keep unknown readouts unknown; only this account's quota or window result can justify calling it exhausted.
+Check one explicit account at a time as the [read tools guide](../../legion-overseer/references/read-tools.md) describes; it pings the account and may be billable.
 
 Copilot has no limit readout. A normal answer proves only that it can answer now. A network or authentication failure is `ping failed`, not exhaustion. Foundry's Azure token check does not prove deployment access or capacity and does not refresh a running agent's fixed token. Follow its expiry notice and restart with `legion run --account <id> -- --resume`. Never use one account's result for another.
