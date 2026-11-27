@@ -1171,15 +1171,39 @@ asyncio.run(main())
         require(status == {"state": "on", "hub": "ready", "missing_accounts": []}, f"unexpected wiki status: {status}")
         return output
 
+    def check_wiki_removed(self) -> None:
+        for tool, folder in self.wiki_accounts():
+            require(not self.listing(tool, folder, include_disabled=True, wanted=WIKI_PLUGIN), f"{tool} still lists the wiki plugin")
+            require(not self.listing(tool, folder, "marketplace", wanted=WIKI_MARKETPLACE), f"{tool} still lists the wiki marketplace")
+
+    def knowledge_off(self, repeat: bool) -> str:
+        if not repeat:
+            self.legion("setup", "--knowledge")
+            self.check_wiki(WIKI_TAG)
+        hub = self.home / ".legion/knowledge"
+        pointer = self.home / ".config/llm-wiki/config.json"
+        before = self.home_snapshot() if repeat else snapshot(hub)
+        pointer_before = pointer.read_bytes()
+        output = self.legion("setup", "--no-knowledge")
+        if repeat:
+            contains(output, "skip: knowledge declined (already done)")
+            unchanged(before, self.home_snapshot())
+        else:
+            unchanged(before, snapshot(hub))
+        require(hub.is_dir(), "disabling knowledge removed the wiki hub")
+        require(pointer.read_bytes() == pointer_before, "disabling knowledge changed the wiki pointer")
+        self.check_wiki_removed()
+        status = json.loads(self.legion("status", "--json"))["knowledge"]
+        require(status["state"] == "declined", f"wiki choice was not declined: {status}")
+        return output
+
     def knowledge_uninstall(self, repeat: bool) -> str:
         hub = self.home / ".legion/knowledge"
         before = snapshot(hub)
         output = self.legion("uninstall", "--yes")
         if repeat:
             contains(output, "skip: uninstall (already done)")
-        for tool, folder in self.wiki_accounts():
-            require(not self.listing(tool, folder, include_disabled=True, wanted=WIKI_PLUGIN), f"{tool} still lists the wiki plugin")
-            require(not self.listing(tool, folder, "marketplace", wanted=WIKI_MARKETPLACE), f"{tool} still lists the wiki marketplace")
+        self.check_wiki_removed()
         wait_gone(*(self.home / ".legion" / name for name in ("app", "bin", "python")))
         require(hub.is_dir(), "uninstall removed the wiki hub")
         unchanged(before, snapshot(hub))
@@ -1246,7 +1270,7 @@ asyncio.run(main())
             ("update-from-latest-release", self.update_from_release),
             ("purge", self.purge),
         ]
-        steps += [(f"knowledge-{action}", lambda repeat, action=action: self.knowledge_step(action, repeat)) for action in ("setup", "adopt", "uninstall", "declined", "purge")]
+        steps += [(f"knowledge-{action}", lambda repeat, action=action: self.knowledge_step(action, repeat)) for action in ("setup", "adopt", "uninstall", "declined", "off", "purge")]
         return steps
 
     def execute(self) -> list[Case]:

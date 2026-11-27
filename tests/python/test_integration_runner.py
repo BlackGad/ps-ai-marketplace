@@ -180,6 +180,7 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "knowledge-adopt",
         "knowledge-uninstall",
         "knowledge-declined",
+        "knowledge-off",
         "knowledge-purge",
     ]
 
