@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.19.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.18.0...v0.19.0) (2026-11-27)
+
+
+### Features
+
+* **accounts:** launch accounts through legion without per-account shortcuts ([#110](https://github.com/BlackGad/ps-legion-marketplace/issues/110)) ([3716e2d](https://github.com/BlackGad/ps-legion-marketplace/commit/3716e2dd22e0cf01a74a41a7e7be1720f56d80c5))
+* **limits:** show how much of each window is left ([#112](https://github.com/BlackGad/ps-legion-marketplace/issues/112)) ([3ebacb1](https://github.com/BlackGad/ps-legion-marketplace/commit/3ebacb1fb206caf7fc067a2f41426494678b131f))
+
+
+### Fixes
+
+* drop an unreachable raise and two stale doc lines ([#124](https://github.com/BlackGad/ps-legion-marketplace/issues/124)) ([fbc5e14](https://github.com/BlackGad/ps-legion-marketplace/commit/fbc5e1453bb5f169aa6a3ede4e02e76db693bdfc))
+* **lease:** find the agent session from Git Bash on Windows ([#107](https://github.com/BlackGad/ps-legion-marketplace/issues/107)) ([3cd257e](https://github.com/BlackGad/ps-legion-marketplace/commit/3cd257ec963841a73dcfc9ca8cae93cfb229ecae))
+* **update:** write generated files with the new version ([#108](https://github.com/BlackGad/ps-legion-marketplace/issues/108)) ([a3660da](https://github.com/BlackGad/ps-legion-marketplace/commit/a3660da063effdbc2ed0ccb07cb846364f3f8356))
+
+
+### Documentation
+
+* describe the bootstrap, update and catalog; drop duplicate account verbs ([#120](https://github.com/BlackGad/ps-legion-marketplace/issues/120)) ([326e974](https://github.com/BlackGad/ps-legion-marketplace/commit/326e9742137e7ca441f6877bba2e13dd13c5e90e))
+* one home per rule in the skills; trim the reference to what is true now ([#122](https://github.com/BlackGad/ps-legion-marketplace/issues/122)) ([3f7897d](https://github.com/BlackGad/ps-legion-marketplace/commit/3f7897d87407791fc3def00aed96ddcf63b5cc2d))
+* **overseer:** read the owner notes again before each launch and review ([#111](https://github.com/BlackGad/ps-legion-marketplace/issues/111)) ([75473de](https://github.com/BlackGad/ps-legion-marketplace/commit/75473de8f90678d184ea261ee4e4a4712064c47e))
+
+
+### Refactoring
+
+* **installer:** typed tools catalog; honour registered account commands ([#114](https://github.com/BlackGad/ps-legion-marketplace/issues/114)) ([35d07a8](https://github.com/BlackGad/ps-legion-marketplace/commit/35d07a89cbf4db2610949db55036b6538ec52524))
+* **install:** uninstall through the tools' own commands and a system shell delete ([#118](https://github.com/BlackGad/ps-legion-marketplace/issues/118)) ([a3853a1](https://github.com/BlackGad/ps-legion-marketplace/commit/a3853a19d0b86d0fa12c71ba3f6d02aa4d1e00bf))
+* **python:** one persisted-file lifecycle; fix installer findings ([#113](https://github.com/BlackGad/ps-legion-marketplace/issues/113)) ([19538b0](https://github.com/BlackGad/ps-legion-marketplace/commit/19538b0341f629f598a3c3750893baa22c64ec98))
+* **python:** purification fixes from the milestone 5 review ([#121](https://github.com/BlackGad/ps-legion-marketplace/issues/121)) ([244226a](https://github.com/BlackGad/ps-legion-marketplace/commit/244226a64dec842eb2461741761ade14a38d2a31))
+* **python:** trim overseer sessions, dry runs and unread settings ([#119](https://github.com/BlackGad/ps-legion-marketplace/issues/119)) ([d6f5883](https://github.com/BlackGad/ps-legion-marketplace/commit/d6f5883222301d9967ff256a95b6b17cb55a65b9))
+
+
+### Tests
+
+* drop dead fixtures and duplicate tests; fence sockets in pytest ([#123](https://github.com/BlackGad/ps-legion-marketplace/issues/123)) ([27dca5b](https://github.com/BlackGad/ps-legion-marketplace/commit/27dca5b695fb503e4c2da3a07964748e33b07543))
+* **install:** cover the dry-run overseer and the remote bootstrap ([#117](https://github.com/BlackGad/ps-legion-marketplace/issues/117)) ([8277be1](https://github.com/BlackGad/ps-legion-marketplace/commit/8277be156cdf81ed6fa359cb2285d7425c72d544))
+* **python:** audit what the plugin and the app copy ship ([#116](https://github.com/BlackGad/ps-legion-marketplace/issues/116)) ([ce75789](https://github.com/BlackGad/ps-legion-marketplace/commit/ce757891069b3ea838ac73a47c247a89d57c13f5))
+
 ## [0.18.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.17.0...v0.18.0) (2026-11-26)
 
 
