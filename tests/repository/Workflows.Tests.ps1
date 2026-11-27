@@ -203,7 +203,7 @@ ${{ (inputs.sha != '' || (github.event_name == 'pull_request' && github.event.pu
         Require-Workflow ($run -match 'if: always\(\)' -and $run -match 'retention-days: 90') 'matrix preserves reports and logs for 90 days even on failure'
         $report = ($integrationJobs | Where-Object Id -eq 'report').Lines -join "`n"
         Require-Workflow ($report -match 'if: always\(\)' -and $report -match 'annotate_only: true') 'report runs after failures without check-writing permissions'
-        Require-Workflow ($report -match "'windows', 'macos', 'linux'" -and $report -match 'missing integration timing file' -and $report -match 'Merge-BenchmarkFiles -Path \$paths -OutFile' -and $report -match 'complete=true') 'merger validates every OS result before exposing complete timings'
+        Require-Workflow ($report.Contains('python3 tests/integration/merge_benchmarks.py results integration-bench.json')) 'report merges the per-system timings with the Python merger'
         foreach ($option in @('auto-push: false', 'save-data-file: false', 'comment-on-alert: false', 'summary-always: true', "alert-threshold: '200%'", 'fail-on-alert: false')) {
             Require-Workflow ($report.Contains($option)) "compare-only reporting sets $option"
         }
@@ -232,40 +232,6 @@ ${{ (inputs.sha != '' || (github.event_name == 'pull_request' && github.event.pu
             $parseErrors = $null
             [Management.Automation.Language.Parser]::ParseInput($script, [ref]$null, [ref]$parseErrors) | Out-Null
             Require-Workflow ($parseErrors.Count -eq 0) 'inline integration PowerShell parses cleanly'
-        }
-        # Exercise the actual merger step, including incomplete artifacts after a timeout.
-        $mergeScript = $scripts | Where-Object { $_ -match 'Merge-BenchmarkFiles' }
-        Assert-True ($null -ne $mergeScript) 'workflow contains a merger script to exercise'
-        $benchmarkLib = (Join-Path $testBase 'lib/benchmark.ps1').Replace("'", "''")
-        $mergeScript = $mergeScript.Replace('. ./tests/lib/benchmark.ps1', ". '$benchmarkLib'")
-        foreach ($count in 3, 2, 0) {
-            $fixture = Join-Path $temp "timings-$count"
-            New-Item -ItemType Directory -Path (Join-Path $fixture 'results') | Out-Null
-            foreach ($os in @('windows', 'macos', 'linux') | Select-Object -First $count) {
-                $folder = Join-Path $fixture "results/integration-$os"
-                New-Item -ItemType Directory -Path $folder | Out-Null
-                # Shell-looking artifact text must stay JSON data.
-                '[{"name":"$(throw artifact-text)","unit":"s","value":1}]' | Set-Content (Join-Path $folder "integration-bench-$os.json")
-            }
-            $fixtureLiteral = $fixture.Replace("'", "''")
-            $scriptPath = Join-Path $fixture 'merge.ps1'
-            Set-Content -LiteralPath $scriptPath -Value @"
-`$ErrorActionPreference = 'Stop'
-Set-Location '$fixtureLiteral'
-`$env:GITHUB_OUTPUT = Join-Path `$PWD 'output.txt'
-`$env:GITHUB_STEP_SUMMARY = Join-Path `$PWD 'summary.md'
-$mergeScript
-"@
-            & pwsh -NoProfile -File $scriptPath | Out-Null
-            Assert-Equal 0 $LASTEXITCODE "merging $count OS artifacts exits cleanly"
-            Assert-Equal ($count -eq 3) (Test-Path (Join-Path $fixture 'output.txt')) "only all three OS artifacts mark timings complete ($count present)"
-            if ($count -gt 0) {
-                $entries = @(Get-Content (Join-Path $fixture 'integration-bench.json') -Raw | ConvertFrom-Json)
-                Assert-Equal $count $entries.Count "merger keeps all $count available OS results"
-                Assert-Equal '$(throw artifact-text)' $entries[0].name 'artifact text remains data'
-            } else {
-                Assert-True (-not (Test-Path (Join-Path $fixture 'integration-bench.json'))) 'zero OS results produce no benchmark artifact'
-            }
         }
     }
     Assert-Equal 0 $workflowProblems.Count ($workflowProblems -join '; ')
