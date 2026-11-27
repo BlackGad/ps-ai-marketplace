@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795802671245,
+  "lastUpdate": 1795803396240,
   "repoUrl": "https://github.com/BlackGad/ps-legion-marketplace",
   "entries": {
     "integration timings": [
@@ -58148,6 +58148,822 @@ window.BENCHMARK_DATA = {
           {
             "name": "linux / knowledge-purge (repeat)",
             "value": 0.18483459399999447,
+            "unit": "s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "41898282+github-actions[bot]@users.noreply.github.com",
+            "name": "github-actions[bot]",
+            "username": "github-actions[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad1155f05f6f376779a2a22d3dcfe9697c5d9af1",
+          "message": "chore(main): release 0.21.0 (#128)\n\nCo-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-27T20:05:59+02:00",
+          "tree_id": "c7e818aade0db8499c7d06b2d2cd84f6b70d6619",
+          "url": "https://github.com/BlackGad/ps-legion-marketplace/commit/ad1155f05f6f376779a2a22d3dcfe9697c5d9af1"
+        },
+        "date": 1795803395369,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "windows / bootstrap",
+            "value": 2.75,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / bootstrap (repeat)",
+            "value": 1.75,
+            "unit": "s"
+          },
+          {
+            "name": "windows / install-cli-claude",
+            "value": 14.015999999999963,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / install-cli-claude (repeat)",
+            "value": 0.5930000000000177,
+            "unit": "s"
+          },
+          {
+            "name": "windows / install-cli-codex",
+            "value": 15.531999999999982,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / install-cli-codex (repeat)",
+            "value": 0.45299999999997453,
+            "unit": "s"
+          },
+          {
+            "name": "windows / install-cli-copilot",
+            "value": 17.360000000000014,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / install-cli-copilot (repeat)",
+            "value": 0.8899999999999864,
+            "unit": "s"
+          },
+          {
+            "name": "windows / install-legion",
+            "value": 23.281999999999982,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / install-legion (repeat)",
+            "value": 7.578000000000031,
+            "unit": "s"
+          },
+          {
+            "name": "windows / update-legion",
+            "value": 13.812000000000012,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / update-legion (repeat)",
+            "value": 10.562999999999988,
+            "unit": "s"
+          },
+          {
+            "name": "windows / setup",
+            "value": 17.75,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / setup (repeat)",
+            "value": 3.812000000000012,
+            "unit": "s"
+          },
+          {
+            "name": "windows / add",
+            "value": 5.437999999999988,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / add (repeat)",
+            "value": 1.093999999999994,
+            "unit": "s"
+          },
+          {
+            "name": "windows / remove",
+            "value": 0.4370000000000118,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / remove (repeat)",
+            "value": 0.4219999999999686,
+            "unit": "s"
+          },
+          {
+            "name": "windows / repo-private",
+            "value": 1.7030000000000314,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / repo-private (repeat)",
+            "value": 1.5,
+            "unit": "s"
+          },
+          {
+            "name": "windows / repo-shared",
+            "value": 2.3909999999999627,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / repo-shared (repeat)",
+            "value": 1.7030000000000314,
+            "unit": "s"
+          },
+          {
+            "name": "windows / channel",
+            "value": 1.218999999999994,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / channel (repeat)",
+            "value": 2.0149999999999864,
+            "unit": "s"
+          },
+          {
+            "name": "windows / foundry-launch",
+            "value": 1.343999999999994,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / foundry-launch (repeat)",
+            "value": 1.531000000000006,
+            "unit": "s"
+          },
+          {
+            "name": "windows / no-pwsh",
+            "value": 6.0160000000000196,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / no-pwsh (repeat)",
+            "value": 6.514999999999986,
+            "unit": "s"
+          },
+          {
+            "name": "windows / uninstall",
+            "value": 16.781999999999982,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / uninstall (repeat)",
+            "value": 5.281000000000006,
+            "unit": "s"
+          },
+          {
+            "name": "windows / reinstall",
+            "value": 22.51600000000002,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / reinstall (repeat)",
+            "value": 13.312000000000012,
+            "unit": "s"
+          },
+          {
+            "name": "windows / remove-old-launchers",
+            "value": 15.906000000000006,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / remove-old-launchers (repeat)",
+            "value": 13.921999999999969,
+            "unit": "s"
+          },
+          {
+            "name": "windows / update-from-latest-release",
+            "value": 56.40600000000006,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / update-from-latest-release (repeat)",
+            "value": 50.04699999999991,
+            "unit": "s"
+          },
+          {
+            "name": "windows / purge",
+            "value": 18.187999999999988,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / purge (repeat)",
+            "value": 10.047000000000025,
+            "unit": "s"
+          },
+          {
+            "name": "windows / knowledge-setup",
+            "value": 55.343000000000075,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / knowledge-setup (repeat)",
+            "value": 9.20399999999995,
+            "unit": "s"
+          },
+          {
+            "name": "windows / knowledge-uninstall",
+            "value": 14.702999999999975,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / knowledge-uninstall (repeat)",
+            "value": 7.891000000000076,
+            "unit": "s"
+          },
+          {
+            "name": "windows / knowledge-declined",
+            "value": 35.14099999999996,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / knowledge-declined (repeat)",
+            "value": 8.312000000000012,
+            "unit": "s"
+          },
+          {
+            "name": "windows / knowledge-off",
+            "value": 26.390999999999963,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / knowledge-off (repeat)",
+            "value": 3.7340000000000373,
+            "unit": "s"
+          },
+          {
+            "name": "windows / knowledge-purge",
+            "value": 4.468999999999937,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "windows / knowledge-purge (repeat)",
+            "value": 0.42200000000002547,
+            "unit": "s"
+          },
+          {
+            "name": "macos / bootstrap",
+            "value": 2.9721733340000043,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / bootstrap (repeat)",
+            "value": 2.2153139999999922,
+            "unit": "s"
+          },
+          {
+            "name": "macos / install-cli-claude",
+            "value": 11.292089083000008,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / install-cli-claude (repeat)",
+            "value": 0.7652501249999943,
+            "unit": "s"
+          },
+          {
+            "name": "macos / install-cli-codex",
+            "value": 5.983652625000005,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / install-cli-codex (repeat)",
+            "value": 0.4518825419999928,
+            "unit": "s"
+          },
+          {
+            "name": "macos / install-cli-copilot",
+            "value": 5.252509875000001,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / install-cli-copilot (repeat)",
+            "value": 0.47216262499999573,
+            "unit": "s"
+          },
+          {
+            "name": "macos / install-legion",
+            "value": 13.05706233299999,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / install-legion (repeat)",
+            "value": 7.147639459000004,
+            "unit": "s"
+          },
+          {
+            "name": "macos / update-legion",
+            "value": 12.608655208999991,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / update-legion (repeat)",
+            "value": 8.679862332999988,
+            "unit": "s"
+          },
+          {
+            "name": "macos / setup",
+            "value": 10.616764875000001,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / setup (repeat)",
+            "value": 1.3226881669999955,
+            "unit": "s"
+          },
+          {
+            "name": "macos / add",
+            "value": 4.003256499999992,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / add (repeat)",
+            "value": 0.3463066660000038,
+            "unit": "s"
+          },
+          {
+            "name": "macos / remove",
+            "value": 0.3323356250000131,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / remove (repeat)",
+            "value": 0.2952669579999849,
+            "unit": "s"
+          },
+          {
+            "name": "macos / repo-private",
+            "value": 0.7768482500000005,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / repo-private (repeat)",
+            "value": 0.6406488750000108,
+            "unit": "s"
+          },
+          {
+            "name": "macos / repo-shared",
+            "value": 0.9733746249999911,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / repo-shared (repeat)",
+            "value": 0.6688451670000006,
+            "unit": "s"
+          },
+          {
+            "name": "macos / channel",
+            "value": 0.47965483400000153,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / channel (repeat)",
+            "value": 0.9444168750000017,
+            "unit": "s"
+          },
+          {
+            "name": "macos / foundry-launch",
+            "value": 0.5678007090000108,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / foundry-launch (repeat)",
+            "value": 0.6173371250000059,
+            "unit": "s"
+          },
+          {
+            "name": "macos / no-pwsh",
+            "value": 2.4010191249999764,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / no-pwsh (repeat)",
+            "value": 2.7751544159999924,
+            "unit": "s"
+          },
+          {
+            "name": "macos / uninstall",
+            "value": 11.280418583,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / uninstall (repeat)",
+            "value": 3.6416805839999995,
+            "unit": "s"
+          },
+          {
+            "name": "macos / reinstall",
+            "value": 17.649856375000013,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / reinstall (repeat)",
+            "value": 12.281305709000009,
+            "unit": "s"
+          },
+          {
+            "name": "macos / remove-old-launchers",
+            "value": 11.994958791999977,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / remove-old-launchers (repeat)",
+            "value": 10.363623208000007,
+            "unit": "s"
+          },
+          {
+            "name": "macos / update-from-latest-release",
+            "value": 37.64416508399998,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / update-from-latest-release (repeat)",
+            "value": 36.903997833999995,
+            "unit": "s"
+          },
+          {
+            "name": "macos / purge",
+            "value": 12.821686166000006,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / purge (repeat)",
+            "value": 7.185550541999987,
+            "unit": "s"
+          },
+          {
+            "name": "macos / knowledge-setup",
+            "value": 34.675196959000004,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / knowledge-setup (repeat)",
+            "value": 6.581946374999973,
+            "unit": "s"
+          },
+          {
+            "name": "macos / knowledge-uninstall",
+            "value": 11.263174375000006,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / knowledge-uninstall (repeat)",
+            "value": 5.39108166699998,
+            "unit": "s"
+          },
+          {
+            "name": "macos / knowledge-declined",
+            "value": 26.895871375000013,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / knowledge-declined (repeat)",
+            "value": 6.523504000000003,
+            "unit": "s"
+          },
+          {
+            "name": "macos / knowledge-off",
+            "value": 19.414746791000027,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / knowledge-off (repeat)",
+            "value": 2.851506332999975,
+            "unit": "s"
+          },
+          {
+            "name": "macos / knowledge-purge",
+            "value": 2.838059833999978,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "macos / knowledge-purge (repeat)",
+            "value": 0.3574761670000157,
+            "unit": "s"
+          },
+          {
+            "name": "linux / bootstrap",
+            "value": 1.2039658650000007,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / bootstrap (repeat)",
+            "value": 0.5719877870000012,
+            "unit": "s"
+          },
+          {
+            "name": "linux / install-cli-claude",
+            "value": 7.237197295000001,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / install-cli-claude (repeat)",
+            "value": 0.3006393249999988,
+            "unit": "s"
+          },
+          {
+            "name": "linux / install-cli-codex",
+            "value": 5.614670027999999,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / install-cli-codex (repeat)",
+            "value": 0.31878341600000226,
+            "unit": "s"
+          },
+          {
+            "name": "linux / install-cli-copilot",
+            "value": 4.366823445999998,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / install-cli-copilot (repeat)",
+            "value": 0.4691414500000022,
+            "unit": "s"
+          },
+          {
+            "name": "linux / install-legion",
+            "value": 10.274167284,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / install-legion (repeat)",
+            "value": 4.675062777999997,
+            "unit": "s"
+          },
+          {
+            "name": "linux / update-legion",
+            "value": 7.838989564000002,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / update-legion (repeat)",
+            "value": 6.616978931999995,
+            "unit": "s"
+          },
+          {
+            "name": "linux / setup",
+            "value": 9.848858506,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / setup (repeat)",
+            "value": 1.3966060479999953,
+            "unit": "s"
+          },
+          {
+            "name": "linux / add",
+            "value": 2.2682141859999945,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / add (repeat)",
+            "value": 0.31746222400001045,
+            "unit": "s"
+          },
+          {
+            "name": "linux / remove",
+            "value": 0.2283974389999912,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / remove (repeat)",
+            "value": 0.22246241199999872,
+            "unit": "s"
+          },
+          {
+            "name": "linux / repo-private",
+            "value": 0.44281650899999647,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / repo-private (repeat)",
+            "value": 0.42213779099999726,
+            "unit": "s"
+          },
+          {
+            "name": "linux / repo-shared",
+            "value": 0.4832354189999961,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / repo-shared (repeat)",
+            "value": 0.4322773760000018,
+            "unit": "s"
+          },
+          {
+            "name": "linux / channel",
+            "value": 0.6283480019999956,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / channel (repeat)",
+            "value": 1.0400818410000028,
+            "unit": "s"
+          },
+          {
+            "name": "linux / foundry-launch",
+            "value": 0.5845767319999879,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / foundry-launch (repeat)",
+            "value": 0.8097421490000016,
+            "unit": "s"
+          },
+          {
+            "name": "linux / no-pwsh",
+            "value": 2.609412295999988,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / no-pwsh (repeat)",
+            "value": 3.033833229999999,
+            "unit": "s"
+          },
+          {
+            "name": "linux / uninstall",
+            "value": 10.266647841000008,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / uninstall (repeat)",
+            "value": 3.2605050920000025,
+            "unit": "s"
+          },
+          {
+            "name": "linux / reinstall",
+            "value": 14.086463112999994,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / reinstall (repeat)",
+            "value": 8.41914113300001,
+            "unit": "s"
+          },
+          {
+            "name": "linux / remove-old-launchers",
+            "value": 9.344998715000003,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / remove-old-launchers (repeat)",
+            "value": 8.446811389000004,
+            "unit": "s"
+          },
+          {
+            "name": "linux / update-from-latest-release",
+            "value": 28.847890535000005,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / update-from-latest-release (repeat)",
+            "value": 28.67665058999998,
+            "unit": "s"
+          },
+          {
+            "name": "linux / purge",
+            "value": 10.147186427999998,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / purge (repeat)",
+            "value": 5.584611375000009,
+            "unit": "s"
+          },
+          {
+            "name": "linux / knowledge-setup",
+            "value": 26.010837470999974,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / knowledge-setup (repeat)",
+            "value": 5.861356273000013,
+            "unit": "s"
+          },
+          {
+            "name": "linux / knowledge-uninstall",
+            "value": 9.099804716999984,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / knowledge-uninstall (repeat)",
+            "value": 4.798552233999999,
+            "unit": "s"
+          },
+          {
+            "name": "linux / knowledge-declined",
+            "value": 20.433585172999983,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / knowledge-declined (repeat)",
+            "value": 5.077352850000011,
+            "unit": "s"
+          },
+          {
+            "name": "linux / knowledge-off",
+            "value": 14.53397938500001,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / knowledge-off (repeat)",
+            "value": 2.234456104000003,
+            "unit": "s"
+          },
+          {
+            "name": "linux / knowledge-purge",
+            "value": 2.2963892409999858,
+            "unit": "s",
+            "extra": "claude 2.1.332, codex 0.172.0, copilot 1.0.117"
+          },
+          {
+            "name": "linux / knowledge-purge (repeat)",
+            "value": 0.24110963399999719,
             "unit": "s"
           }
         ]
