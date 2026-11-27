@@ -7,7 +7,8 @@ PACKAGE = ROOT / "plugins/legion/src/legion"
 
 
 def test_runtime_modules_live_in_packages() -> None:
-    assert sorted(path.name for path in PACKAGE.glob("_*.py")) == ["__init__.py"]
+    # The uninstall forwarder lives at the path invoked by 0.18.x owner commands.
+    assert sorted(path.name for path in PACKAGE.glob("_*.py")) == ["__init__.py", "_self_uninstall.py"]
     assert (PACKAGE / "cli/__init__.py").is_file()
     assert (PACKAGE / "hook/__init__.py").is_file()
     assert (PACKAGE / "services/installation/installer/__init__.py").is_file()
