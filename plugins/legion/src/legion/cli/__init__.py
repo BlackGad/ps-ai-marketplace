@@ -505,21 +505,22 @@ def account_models(context: click.Context, account_id: str, deployments: tuple[s
 
 
 # Runs setup (or add) and prints its lines, or its refusal on stderr with exit code 1.
-def _run_setup(context: click.Context, tool_id: Optional[str], folder: Optional[str], account_id: Optional[str], source: Optional[str], yes: bool) -> None:
+def _run_setup(context: click.Context, tool_id: Optional[str], folder: Optional[str], account_id: Optional[str], source: Optional[str], yes: bool, knowledge: Optional[bool] = None) -> None:
     from legion.services.accounts import _setup
 
     try:
-        _setup.run(_home.legion_home(context.obj), tool_id, folder, account_id, source, yes, click.echo)
+        _setup.run(_home.legion_home(context.obj), tool_id, folder, account_id, source, yes, click.echo, knowledge)
     except _setup.ERRORS as error:
         click.echo(" ".join(str(error).split()), err=True)
         context.exit(1)
 
 
 @main.command("setup", help="Finish setup: settings, commands, legion in every account")
-@click.option("--yes", is_flag=True, help="Apply without asking.")
+@click.option("--yes", is_flag=True, help="Confirm the Legion setup plan.")
+@click.option("--knowledge/--no-knowledge", default=None, help="Save the llm-wiki choice. Use --yes to also apply the Legion setup plan.")
 @click.pass_context
-def setup(context: click.Context, yes: bool) -> None:
-    _run_setup(context, None, None, None, None, yes)
+def setup(context: click.Context, yes: bool, knowledge: Optional[bool]) -> None:
+    _run_setup(context, None, None, None, None, yes, knowledge)
 
 
 @main.command("add", help="Add a claude, codex or copilot account")

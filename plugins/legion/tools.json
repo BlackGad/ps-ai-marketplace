@@ -1,5 +1,12 @@
 {
   "schemaVersion": 1,
+  "wiki": {
+    "marketplace": "llm-wiki",
+    "pluginId": "wiki@llm-wiki",
+    "source": "nvk/llm-wiki",
+    "tag": "v1.0.0",
+    "commit": "35d37c5591c7585643196333edd83922e7bbc757"
+  },
   "tools": [
     {
       "id": "claude",

@@ -1,6 +1,6 @@
 # Consult the knowledge hub
 
-For tool operations, read `skills/legion-<agent.tool>/SKILL.md` using the selected account's `agent.tool`; stop if missing. Follow [owner notes](../../legion-personalisation/references/fields.md) for knowledge enablement and hub location, and repository workflow for its neutral label. If disabled or deferred, exit silently. Invent no enablement or hub default.
+For tool operations, read `skills/legion-<agent.tool>/SKILL.md` using the selected account's `agent.tool`. Stop if missing. Read the repository workflow for its neutral label. Use the hub in `~/.config/llm-wiki/config.json` (`hub_path`, then legacy `resolved_path`), or `~/.legion/knowledge` when no pointer is saved.
 
 1. Start at the hub's `_index.md`, then any relevant topic `_index.md`. Search Markdown for the symptom and related terms (for example timeout, readiness, flaky); use `rg` when available.
 2. Open the candidate note, verify the context and date if present, and cite the exact path. Do not treat a search snippet as the lesson.

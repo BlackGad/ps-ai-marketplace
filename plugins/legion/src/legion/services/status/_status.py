@@ -193,5 +193,11 @@ def status_lines(report: StatusReport) -> list[str]:
     commands = "yes" if report.commands == "yes" else f"{report.commands} legion"
     lines.extend([f"path ~/.legion/bin on PATH: {'yes' if report.on_path else 'no'}", f"commands: {commands}"])
     lines.extend(f"channels {channel.id} ({channel.kind}) -> {', '.join(channel.accounts)}" for channel in report.channels)
+    knowledge = report.knowledge
+    lines.append(f"knowledge: {'off (not asked)' if knowledge.state == 'off' else knowledge.state}")
+    if knowledge.hub in ("missing", "invalid"):
+        lines.append(f"  knowledge hub {knowledge.hub}: ~/.legion/knowledge")
+    if knowledge.missing_accounts:
+        lines.append(f"  wiki plugin missing in: {', '.join(knowledge.missing_accounts)}")
     lines.extend([repository_line(report.repository), *report.warnings])
     return lines

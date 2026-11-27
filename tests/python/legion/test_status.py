@@ -38,6 +38,7 @@ def test_status_report_matches_status_lines(parity_home: tuple[Path, Path]) -> N
         "path ~/.legion/bin on PATH: no",
         "commands: missing legion",
         "channels main (telegram) -> claude-a",
+        "knowledge: off (not asked)",
         "repo Shared   lease: free   handoff: yes",
     ]
     assert report.repository.mode == "Shared"
@@ -101,7 +102,7 @@ def test_status_without_settings_is_native_and_exits_zero(tmp_path: Path, monkey
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     assert run(["--home", str(tmp_path / "home"), "status"]) == 0
-    assert capsys.readouterr().out.splitlines() == ["no legion settings yet", "path ~/.legion/bin on PATH: no", "commands: missing legion", "repo none"]
+    assert capsys.readouterr().out.splitlines() == ["no legion settings yet", "path ~/.legion/bin on PATH: no", "commands: missing legion", "knowledge: off (not asked)", "repo none"]
 
 
 @pytest.mark.parametrize("broken", ["invalid", "extra", "unreadable"])
@@ -120,7 +121,7 @@ def test_status_tells_broken_settings_from_missing_ones(tmp_path: Path, monkeypa
     output = capsys.readouterr()
     problem = "cannot be read" if broken == "unreadable" else "are not valid"
     expected = f"legion settings {problem}: {file}; run legion setup"
-    assert output.out.splitlines() == [expected, "path ~/.legion/bin on PATH: no", "commands: missing legion", "repo none"]
+    assert output.out.splitlines() == [expected, "path ~/.legion/bin on PATH: no", "commands: missing legion", "knowledge: off (not asked)", "repo none"]
     assert "private-sentinel" not in output.out + output.err
 
 
@@ -149,6 +150,7 @@ def test_configured_status_preserves_home_and_never_launches_a_cli(tmp_path: Pat
         "path ~/.legion/bin on PATH: yes",
         "commands: yes",
         "channels my-telegram (telegram) -> claude-a",
+        "knowledge: off (not asked)",
         "repo none",
     ]
     assert snapshot(home) == before

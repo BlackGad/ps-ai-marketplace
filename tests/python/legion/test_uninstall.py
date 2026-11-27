@@ -27,8 +27,14 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> Recorder:
     for entry in CATALOG.tools:
         monkeypatch.delenv(entry.config_env, raising=False)
     monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
-    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (True, True, [], ""))
+
+    def plugin_state(_entry: CatalogTool, _folder: Path, plugin_id: str = _installer.LEGION_PLUGIN) -> tuple[bool, bool, list[Path], str]:
+        installed = plugin_id == _installer.LEGION_PLUGIN
+        return installed, installed, [], ""
+
+    monkeypatch.setattr(_installer, "_plugin_state", plugin_state)
     monkeypatch.setattr(_installer, "_marketplace", lambda *_args: True)
+    monkeypatch.setattr(_installer, "_marketplace_item", lambda *_args: {})
 
     def step(entry: CatalogTool, arguments: list[str], _folder: Path, _dry_run: bool, _lines: list[str]) -> None:
         recorder.steps.append((entry.id, arguments))

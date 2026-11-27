@@ -142,6 +142,7 @@ class PersonalisationSettings(SettingsModel):
     schema_version: SchemaVersion
     agents: list[Agent]
     channels: list[Channel]
+    knowledge_enabled: Optional[bool] = None
 
 
 class ProjectSettings(SettingsModel):
@@ -361,9 +362,18 @@ class CatalogTool(ToolModel):
     install_hint: str
 
 
+class PluginPin(ToolModel):
+    marketplace: Name
+    plugin_id: Text
+    source: Text
+    tag: Text
+    commit: Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
+
+
 class ToolsCatalog(ToolModel):
     schema_version: SchemaVersion
     tools: list[CatalogTool]
+    wiki: Optional[PluginPin] = None
 
 
 class HelpersCatalog(RootModel[dict[Name, InstallRecipe]]):

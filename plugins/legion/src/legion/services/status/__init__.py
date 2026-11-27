@@ -5,6 +5,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict
 
 from legion.services.repository import _lease
+from legion.services.installation import _knowledge_hub, installer
 from legion.services.status import _status
 from legion.core._home import (
     bin_folder,
@@ -49,6 +50,14 @@ class RepositoryStatus(BaseModel):
     handoff: Optional[bool] = None
 
 
+class KnowledgeStatus(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    state: Literal["on", "off", "declined"]
+    hub: Optional[Literal["ready", "missing", "invalid"]] = None
+    missing_accounts: list[str]
+
+
 class StatusReport(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -58,6 +67,7 @@ class StatusReport(BaseModel):
     commands: Literal["yes", "blocked", "missing", "not executable"]
     channels: list[ChannelStatus]
     repository: RepositoryStatus
+    knowledge: KnowledgeStatus
     warnings: list[str]
 
 
@@ -113,5 +123,12 @@ def status(repo: Path, home: Optional[Path] = None) -> StatusReport:
         commands=_status.command_status(folder),
         channels=[ChannelStatus(id=channel.id, kind=channel.kind, accounts=channel.accounts) for channel in settings.channels] if settings else [],
         repository=repository_status(repo),
+        knowledge=_knowledge_status(home, settings),
         warnings=_status.channel_warnings(settings, home, tools) if settings else [],
     )
+
+
+def _knowledge_status(home: Path, settings: Optional[PersonalisationSettings]) -> KnowledgeStatus:
+    if settings and settings.knowledge_enabled is True:
+        return KnowledgeStatus(state="on", hub=_knowledge_hub.hub_status(home), missing_accounts=installer.missing_wiki_accounts(home, settings.agents))
+    return KnowledgeStatus(state="declined" if settings and settings.knowledge_enabled is False else "off", missing_accounts=[])
