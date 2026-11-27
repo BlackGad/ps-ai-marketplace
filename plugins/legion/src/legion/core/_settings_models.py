@@ -228,7 +228,6 @@ class Plugin(ToolModel):
 
 
 class Hooks(ToolModel):
-    status: str
     hint: str
 
 
@@ -241,7 +240,6 @@ class Platform(ToolModel):
 class ScriptDownload(ToolModel):
     kind: Literal["script"]
     url: Text
-    verification: Literal["vendor"]
 
 
 # Per resolver: the properties it needs, the ones it does not allow, and its verification.

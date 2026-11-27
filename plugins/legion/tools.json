@@ -72,7 +72,6 @@
         }
       },
       "hooks": {
-        "status": "active",
         "hint": ""
       },
       "installHint": "irm https://claude.ai/install.ps1 | iex"
@@ -146,7 +145,6 @@
         }
       },
       "hooks": {
-        "status": "trust once with /hooks",
         "hint": "Codex: approve the legion hooks once with /hooks in a Codex session."
       },
       "installHint": "npm install -g @openai/codex"
@@ -218,7 +216,6 @@
         }
       },
       "hooks": {
-        "status": "loaded with plugin",
         "hint": ""
       },
       "installHint": "npm install -g @github/copilot"

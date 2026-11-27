@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Optional
 
 import click
-from filelock import FileLock
 from pydantic import BaseModel, Field, TypeAdapter
 
 from legion.services.channels import _bridge, _channel
@@ -24,9 +23,8 @@ from legion.core import (
     _validate,
 )
 from legion.core._atomic_write import atomic_write_bytes
-from legion.services.accounts._accounts import AccountError, get_tool
+from legion.services.accounts._accounts import get_tool
 from legion.services.accounts._launch import run_account
-from legion.services.accounts._launchers import LauncherError
 from legion.core._settings_models import Agent, PersonalisationSettings
 
 WINDOWS = sys.platform == "win32"
@@ -43,6 +41,7 @@ class LastLaunch(BaseModel):
     channels: list[str] = Field(default_factory=list)
     arguments: list[str] = Field(default_factory=list)
     session: str = ""
+    previous_sessions: dict[str, str] = Field(default_factory=dict)
 
 
 # The account starts through legion's own account launch, in this terminal or in a new Terminal tab.
@@ -81,12 +80,9 @@ def load_last(repo: Path, home: Path) -> Optional[LastLaunch]:
 
 
 def save_last(repo: Path, home: Path, last: LastLaunch) -> None:
-    path = _history_file(home)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with FileLock(str(path) + ".lock", timeout=30):
-        saved = _history(home)
-        saved[repo_key(repo)] = last
-        atomic_write_bytes(path, _HISTORY.dump_json(saved, indent=2) + b"\n", keep_mode=False)
+    saved = _history(home)
+    saved[repo_key(repo)] = last
+    atomic_write_bytes(_history_file(home), _HISTORY.dump_json(saved, indent=2) + b"\n", keep_mode=False)
 
 
 def _select(settings: PersonalisationSettings, account: Optional[str], tool: Optional[str], channels: tuple[str, ...], last: Optional[str]) -> Agent:
@@ -126,16 +122,15 @@ def _default_channel(settings: PersonalisationSettings, agent: Agent) -> tuple[s
     return (fitting[0],) if len(fitting) == 1 else ()
 
 
-def _session(last: Optional[LastLaunch], agent: Agent, home: Path) -> tuple[str, bool]:
-    same_account = last is not None and bool(last.session) and last.account == agent.id
+def _session(saved_session: str, agent: Agent, home: Path) -> tuple[str, bool]:
     if agent.tool == "codex":
-        return "last", same_account
+        return "last", bool(saved_session)
     if agent.tool != "claude":
         return "", False
     projects = _home.home_path(agent.config_dir, home) / "projects"
     # Compare names rather than interpolating the session into a wildcard pattern.
-    if same_account and last is not None and projects.is_dir() and any((folder / f"{last.session}.jsonl").is_file() for folder in projects.iterdir()):
-        return last.session, True
+    if saved_session and projects.is_dir() and any((folder / f"{saved_session}.jsonl").is_file() for folder in projects.iterdir()):
+        return saved_session, True
     return str(uuid.uuid4()), False
 
 
@@ -214,22 +209,12 @@ def stop_bridge(process: Optional[subprocess.Popen[bytes]], folder: Path) -> Non
         pid_file.unlink(missing_ok=True)
 
 
-def start_launch(repo: Path, launch: Launch, *, dry_run: bool = False, in_place: bool = False) -> int:
+def start_launch(repo: Path, launch: Launch, *, in_place: bool = False) -> int:
     # Hand-built, reason: Terminal rejoins arguments without escaping embedded quotes. URL-safe base64
     # carries the JSON as one word; literal semicolons still use the current terminal.
     terminal = None
     if WINDOWS and not in_place and ";" not in str(repo) + launch.model_dump_json():
         terminal = shutil.which("wt")
-    if dry_run:
-        for name, value in launch.environment.items():
-            click.echo(f"env {name}={value}")
-        for word in [str(repo), f"account {launch.account}", *launch.arguments]:
-            click.echo(word)
-        if launch.bridge:
-            click.echo("bridge: " + _run.display_command(launch.bridge))
-        if terminal:
-            click.echo("wt")
-        return 0
     if terminal:
         payload = base64.urlsafe_b64encode(launch.model_dump_json().encode("utf-8")).decode("ascii")
         return subprocess.run([terminal, "new-tab", "-d", str(repo), sys.executable, "-m", "legion.services.channels._overseer", str(repo), payload], check=False).returncode
@@ -241,7 +226,7 @@ def start_launch(repo: Path, launch: Launch, *, dry_run: bool = False, in_place:
             stop_bridge(process, Path(launch.bot_folder))
 
 
-def _prepare_repository(repo: Path, home: Path, dry_run: bool) -> Optional[Path]:
+def _prepare_repository(repo: Path, home: Path) -> Optional[Path]:
     try:
         repo = _repository._code_root(repo)
     except _repository.RepositoryError:
@@ -250,9 +235,6 @@ def _prepare_repository(repo: Path, home: Path, dry_run: bool) -> Optional[Path]
         raise OverseerError("No accounts yet. Add one: legion add claude")
     project = repo / ".legion/configuration/project.json"
     if not project.exists():
-        if dry_run:
-            click.echo(SETUP_QUESTION)
-            return None
         if not interactive():
             raise OverseerError(SETUP_QUESTION)
         answer = click.prompt(SETUP_QUESTION, default="", show_default=False).strip().lower()
@@ -273,10 +255,9 @@ def run(
     channels: tuple[str, ...] = (),
     arguments: tuple[str, ...] = (),
     no_channel: bool = False,
-    dry_run: bool = False,
     pick: bool = False,
 ) -> int:
-    prepared = _prepare_repository(repo, home, dry_run)
+    prepared = _prepare_repository(repo, home)
     if prepared is None:
         return 0
     repo = prepared
@@ -303,26 +284,22 @@ def run(
         no_channel = not channels
     if not channels and not no_channel:
         channels = _default_channel(settings, selected)
-    session, resume = _session(last, selected, home)
+    sessions = dict(last.previous_sessions) if last is not None else {}
+    if last is not None and last.session:
+        sessions[last.account] = last.session
+    session, resume = _session(sessions.pop(selected.id, ""), selected, home)
     launch = _launch(settings, selected, channels, arguments, session, resume, repo, home)
-    saved = LastLaunch(account=selected.id, channels=list(channels), arguments=list(arguments), session=session)
-    if not dry_run:
-        save_last(repo, home, saved)
-        for folder in launch.environment.values():
-            Path(folder).mkdir(parents=True, exist_ok=True)
+    for folder in launch.environment.values():
+        Path(folder).mkdir(parents=True, exist_ok=True)
+    saved = LastLaunch(account=selected.id, channels=list(channels), arguments=list(arguments), session=session, previous_sessions=sessions)
+    save_last(repo, home, saved)
     click.echo(f"{'resuming' if resume else 'starting'} overseer: {selected.id}, channel {', '.join(channels) or 'none'}")
-    try:
-        code = start_launch(repo, launch, dry_run=dry_run, in_place=owner_launch)
-    except (AccountError, LauncherError, _settings_io.SettingsError, OSError, ValueError, KeyboardInterrupt):
-        if not dry_run:
-            save_last(repo, home, saved.model_copy(update={"session": ""}))
-        raise
-    if not dry_run:
-        if code:
-            save_last(repo, home, saved.model_copy(update={"session": ""}))
-            click.echo(f"the launch failed with exit code {code}", err=True)
-        else:
-            click.echo(f"launched {selected.id} ({selected.tool}) in {repo}" + "".join(f" channel {channel}" for channel in channels))
+    code = start_launch(repo, launch, in_place=owner_launch)
+    if code:
+        save_last(repo, home, saved.model_copy(update={"session": ""}))
+        click.echo(f"the launch failed with exit code {code}", err=True)
+    else:
+        click.echo(f"launched {selected.id} ({selected.tool}) in {repo}" + "".join(f" channel {channel}" for channel in channels))
     return code
 
 

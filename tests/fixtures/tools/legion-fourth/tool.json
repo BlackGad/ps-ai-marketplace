@@ -46,7 +46,6 @@
     }
   },
   "hooks": {
-    "status": "unknown",
     "hint": ""
   },
   "install": {

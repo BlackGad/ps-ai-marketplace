@@ -9,11 +9,9 @@ import shutil
 import subprocess
 import sys
 import sysconfig
-import threading
-import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 import pytest
 from cli_runner import run
@@ -49,12 +47,10 @@ def home(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def repo(tmp_path: Path) -> Path:
+def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     repo = tmp_path / "my project"
     repo.mkdir()
-    git = shutil.which("git")
-    assert git is not None
-    subprocess.run([git, "init", "--quiet", str(repo)], check=True)
+    monkeypatch.setattr(_repository, "_code_root", lambda _path: repo.resolve())
     project = repo / ".legion/configuration/project.json"
     project.parent.mkdir(parents=True)
     project.write_text('{"schemaVersion":1}', encoding="utf-8")
@@ -62,11 +58,11 @@ def repo(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def launched(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Path, _overseer.Launch, bool, bool]]:
-    calls: list[tuple[Path, _overseer.Launch, bool, bool]] = []
+def launched(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Path, _overseer.Launch, bool]]:
+    calls: list[tuple[Path, _overseer.Launch, bool]] = []
 
-    def start(repo: Path, launch: _overseer.Launch, *, dry_run: bool, in_place: bool) -> int:
-        calls.append((repo, launch, dry_run, in_place))
+    def start(repo: Path, launch: _overseer.Launch, *, in_place: bool) -> int:
+        calls.append((repo, launch, in_place))
         return 0
 
     monkeypatch.setattr(_overseer, "start_launch", start)
@@ -103,7 +99,7 @@ def saved_launch(repo: Path, home: Path) -> _overseer.LastLaunch:
     return saved
 
 
-@pytest.mark.parametrize("words", [[], ["--no-channel"], ["pick"], ["pick", "--no-channel"], ["--dry-run"]])
+@pytest.mark.parametrize("words", [[], ["--no-channel"], ["pick"], ["pick", "--no-channel"]])
 def test_public_routes_use_python(home: Path, repo: Path, launched: list, monkeypatch: pytest.MonkeyPatch, words: list[str]) -> None:
     monkeypatch.chdir(repo)
     monkeypatch.setattr(_overseer, "interactive", lambda: True)
@@ -111,10 +107,10 @@ def test_public_routes_use_python(home: Path, repo: Path, launched: list, monkey
     assert run(["--home", str(home), *words]) == 0
     assert len(launched) == 1
     assert launched[0][1].account == "codex-a"
-    assert launched[0][3]
+    assert launched[0][2]
 
 
-@pytest.mark.parametrize("words", [["--unknown"], ["pick", "extra"], ["pick", "--unknown"]])
+@pytest.mark.parametrize("words", [["--unknown"], ["--dry-run"], ["pick", "extra"], ["pick", "--unknown"], ["pick", "--dry-run"]])
 def test_public_usage_errors_never_launch(home: Path, launched: list, words: list[str]) -> None:
     assert run(["--home", str(home), *words]) == 2
     assert not launched
@@ -125,7 +121,7 @@ def test_public_explicit_options_and_literal_arguments(home: Path, repo: Path, l
     words = ["--account", "copilot-a", "--tool", "copilot", "--repo", str(repo), "--no-channel", *[f"--argument={value}" for value in literals]]
     assert run(["--home", str(home), *words]) == 0
     assert launched[0][1].arguments == [*literals, "-i", "continue as the overseer"]
-    assert not launched[0][3]
+    assert not launched[0][2]
 
 
 def test_fresh_home_stops_before_setup(repo: Path, tmp_path: Path, launched: list) -> None:
@@ -137,7 +133,10 @@ def test_fresh_home_stops_before_setup(repo: Path, tmp_path: Path, launched: lis
 
 
 def test_not_git_writes_nothing(home: Path, tmp_path: Path, launched: list, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    def no_root(_path: Path) -> Path:
+        raise _repository.RepositoryError("fixture has no repository")
+
+    monkeypatch.setattr(_repository, "_code_root", no_root)
     with pytest.raises(_overseer.OverseerError, match="not a git repository"):
         _overseer.run(tmp_path, home)
     assert not history(home).exists()
@@ -165,16 +164,11 @@ def test_repository_setup_consent(home: Path, repo: Path, launched: list, monkey
     assert ("prepared:" if accepted else "Nothing changed.") in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("dry_run", [False, True])
-def test_unconfigured_repo_never_prompts_without_console(home: Path, repo: Path, launched: list, dry_run: bool, capsys: pytest.CaptureFixture[str]) -> None:
+def test_unconfigured_repo_never_prompts_without_console(home: Path, repo: Path, launched: list) -> None:
     project = repo / ".legion/configuration/project.json"
     project.unlink()
-    if dry_run:
-        assert _overseer.run(repo, home, dry_run=True) == 0
-        assert "Set it up (private)? [Y/n]" in capsys.readouterr().out
-    else:
-        with pytest.raises(_overseer.OverseerError, match="Set it up"):
-            _overseer.run(repo, home)
+    with pytest.raises(_overseer.OverseerError, match="Set it up"):
+        _overseer.run(repo, home)
     assert not project.exists()
     assert not launched
 
@@ -206,12 +200,12 @@ def test_validation_refuses_before_history_or_launch(home: Path, repo: Path, lau
 @pytest.mark.parametrize(("tool", "channel", "expected"), [(None, (), None), ("copilot", (), "copilot-a"), (None, ("main",), None), ("claude", ("main",), "claude-a"), ("copilot", ("main",), None)])
 def test_account_eligibility(home: Path, repo: Path, launched: list, tool: str | None, channel: tuple[str, ...], expected: str | None) -> None:
     if expected:
-        assert _overseer.run(repo, home, tool=tool, channels=channel, dry_run=True) == 0
+        assert _overseer.run(repo, home, tool=tool, channels=channel) == 0
         assert launched[0][1].account == expected
     else:
         with pytest.raises(_overseer.OverseerError, match=r"Choose an account|no account fits"):
             _overseer.run(repo, home, tool=tool, channels=channel)
-    assert not history(home).exists()
+        assert not history(home).exists()
 
 
 def test_interactive_choices_show_bindings_last_and_retry(home: Path, repo: Path, launched: list, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -219,7 +213,7 @@ def test_interactive_choices_show_bindings_last_and_retry(home: Path, repo: Path
     answers = iter([0, 99, 1])
     monkeypatch.setattr(_overseer, "interactive", lambda: True)
     monkeypatch.setattr(_cli.click, "prompt", lambda *_args, **_kwargs: next(answers))
-    assert _overseer.run(repo, home, pick=True, dry_run=True) == 0
+    assert _overseer.run(repo, home, pick=True) == 0
     output = capsys.readouterr().out
     assert "1) claude-a (claude) channels: main" in output
     assert "2) codex-a (codex) channels: main (last)" in output
@@ -269,10 +263,9 @@ def test_lease_fallback_uses_lease_module(home: Path, repo: Path, launched: list
         return original(repo)
 
     monkeypatch.setattr(_lease, "state", read)
-    assert _overseer.run(repo, home, dry_run=True) == 0
+    assert _overseer.run(repo, home) == 0
     assert seen == [repo.resolve()]
     assert launched[0][1].account == "codex-a"
-    assert not history(home).exists()
 
 
 @pytest.mark.parametrize("state", ["missing", "removed", "malformed", "unreadable"])
@@ -298,7 +291,7 @@ def test_bare_restores_arguments_channels_and_resume(home: Path, repo: Path, lau
     assert launch.environment["LEGION_HOME"] == str(home)
     assert bool(launch.bot_folder) != no_channel
     assert saved_launch(repo, home).channels == ([] if no_channel else ["main"])
-    assert launched[0][3]
+    assert launched[0][2]
 
 
 def test_explicit_filters_bypass_history_and_subfolder_uses_root(home: Path, repo: Path, launched: list) -> None:
@@ -335,8 +328,24 @@ def test_resume_rules(home: Path, repo: Path, launched: list, tool: str, session
         assert saved_launch(repo, home).session == ""
 
 
+def test_switching_accounts_keeps_the_repositorys_saved_sessions(home: Path, repo: Path, launched: list) -> None:
+    def start(account: str) -> None:
+        assert run(["--home", str(home), "--repo", str(repo), "--account", account, "--no-channel"]) == 0
+
+    start("claude-a")
+    session = launched[-1][1].arguments[1]
+    transcript = home / "claude" / "projects" / "project" / f"{session}.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.touch()
+    start("codex-a")
+    start("claude-a")
+    assert launched[-1][1].arguments[:2] == ["--resume", session]
+    start("codex-a")
+    assert launched[-1][1].arguments[:2] == ["resume", "--last"]
+
+
 @pytest.mark.parametrize("code", [0, 3, 5])
-def test_child_exit_is_preserved_and_failure_clears_resume(home: Path, repo: Path, launched: list, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], code: int) -> None:
+def test_child_exit_is_preserved(home: Path, repo: Path, launched: list, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], code: int) -> None:
     monkeypatch.chdir(repo)
     _overseer.save_last(repo, home, _overseer.LastLaunch(account="codex-a", session="last"))
     calls = []
@@ -349,33 +358,34 @@ def test_child_exit_is_preserved_and_failure_clears_resume(home: Path, repo: Pat
     assert run(["--home", str(home)]) == code
     assert calls == [1]
     assert not launched
-    assert saved_launch(repo, home).session == ("" if code else "last")
-    assert ("launched " in capsys.readouterr().out) == (code == 0)
+    captured = capsys.readouterr()
+    assert ("launched " in captured.out) == (code == 0)
+    if code:
+        assert f"the launch failed with exit code {code}" in captured.err
 
 
-def test_launch_exception_clears_resume(home: Path, repo: Path, launched: list, monkeypatch: pytest.MonkeyPatch) -> None:
-    _overseer.save_last(repo, home, _overseer.LastLaunch(account="codex-a", session="last"))
+def test_failed_launch_starts_fresh_next_time(home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    codes = iter([5, 0])
+    arguments: list[list[str]] = []
 
-    def start(*_args: object, **_kwargs: object) -> int:
-        raise OSError("terminal failed")
+    def start(_repo: Path, launch: _overseer.Launch, **_options: object) -> int:
+        arguments.append(launch.arguments)
+        return next(codes)
 
+    monkeypatch.chdir(repo)
     monkeypatch.setattr(_overseer, "start_launch", start)
-    with pytest.raises(OSError, match="terminal failed"):
-        _overseer.run(repo, home)
-    assert not launched
+    assert run(["--home", str(home), "--account", "codex-a", "--no-channel"]) == 5
     assert saved_launch(repo, home).session == ""
+    assert run(["--home", str(home)]) == 0
+    assert arguments == [["continue as the overseer"], ["continue as the overseer"]]
 
 
 @pytest.mark.parametrize("tool", ["claude", "codex"])
-def test_bot_readiness_and_dry_run_never_read_token(home: Path, repo: Path, launched: list, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tool: str) -> None:
-    before = sorted(str(p) for p in home.rglob("*"))
-    assert _overseer.run(repo, home, account=f"{tool}-a", dry_run=True) == 0
-    assert "missing token" in capsys.readouterr().err
-    assert sorted(str(p) for p in home.rglob("*")) == before
+def test_bot_readiness_never_reads_token(home: Path, repo: Path, launched: list, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tool: str) -> None:
     assert _overseer.run(repo, home, account=f"{tool}-a") == 0
+    assert "missing token" in capsys.readouterr().err
     folder = home / ".legion/channels/telegram/main"
     assert list(folder.iterdir()) == []
-    capsys.readouterr()
     token = folder / ".env"
     token.touch()
     original = Path.read_bytes
@@ -385,7 +395,7 @@ def test_bot_readiness_and_dry_run_never_read_token(home: Path, repo: Path, laun
         return original(path)
 
     monkeypatch.setattr(Path, "read_bytes", guarded)
-    assert _overseer.run(repo, home, account=f"{tool}-a", dry_run=True) == 0
+    assert _overseer.run(repo, home, account=f"{tool}-a") == 0
     assert "missing token" not in capsys.readouterr().err
     assert token.stat().st_size == 0
     assert launched
@@ -398,7 +408,7 @@ def test_channel_intersection_binding_state_and_unique_kind(home: Path, repo: Pa
     _settings_io.save(home, settings)
     with pytest.raises(_overseer.OverseerError, match="one bot folder"):
         _overseer.run(repo, home, account="claude-a", channels=("main", "alerts"))
-    assert _overseer.run(repo, home, account="claude-a", channels=("main", "main"), dry_run=True) == 0
+    assert _overseer.run(repo, home, account="claude-a", channels=("main", "main")) == 0
     assert launched[0][1].arguments.count("--channels") == 1
     settings.channels[1].accounts = ["copilot-a"]
     # Invalid settings are refused by the settings reader before launch assembly.
@@ -424,9 +434,9 @@ def test_descriptor_argument_order_and_multiple_kinds(home: Path, repo: Path, la
     settings.agents.append(settings.agents[0].model_copy(update={"id": "fourth-a", "tool": "fourth"}))
     settings.channels.append(settings.channels[0].model_copy(update={"id": "extra", "kind": "fixture", "accounts": ["claude-a"]}))
     _settings_io.save(home, settings)
-    assert _overseer.run(repo, home, account="fourth-a", arguments=("--account", "account value", "", "2026-11-19"), dry_run=True) == 0
+    assert _overseer.run(repo, home, account="fourth-a", arguments=("--account", "account value", "", "2026-11-19")) == 0
     assert launched[-1][1].arguments == ["--account", "account value", "", "2026-11-19", "--interactive", "space value", "continue as the overseer"]
-    assert _overseer.run(repo, home, account="claude-a", channels=("main", "extra", "extra"), dry_run=True) == 0
+    assert _overseer.run(repo, home, account="claude-a", channels=("main", "extra", "extra")) == 0
     args = launched[-1][1].arguments
     assert args[2:] == ["--channels", "plugin:telegram@claude-plugins-official", *literals, "--", "continue as the overseer"]
 
@@ -444,7 +454,7 @@ def test_terminal_selection_and_literal_transport(repo: Path, monkeypatch: pytes
     monkeypatch.setattr(_overseer.shutil, "which", lambda _name: "wt.exe" if terminal else None)
     monkeypatch.setattr(_overseer.subprocess, "run", child)
     accounts = fake_account(monkeypatch, 5)
-    assert _overseer.start_launch(repo, launch, in_place=in_place, dry_run=False) == 5
+    assert _overseer.start_launch(repo, launch, in_place=in_place) == 5
     if use_tab:
         [(command, _kwargs)] = calls
         assert command[0] == "wt.exe"
@@ -480,7 +490,7 @@ def test_in_place_inherits_console_and_cleans_environment(repo: Path, monkeypatc
     before = dict(os.environ)
     cwd = Path.cwd()
     accounts = fake_account(monkeypatch, 7)
-    assert _overseer.start_launch(repo, launch, in_place=True, dry_run=False) == 7
+    assert _overseer.start_launch(repo, launch, in_place=True) == 7
     [(_account, _arguments, home, child_cwd, environment)] = accounts
     assert not any(name in environment for name in markers)
     assert environment["PATH"] == owner_bin
@@ -602,9 +612,9 @@ def test_bridge_surrounds_child_even_on_failure(repo: Path, home: Path, monkeypa
     monkeypatch.setattr(_overseer, "run_account", child)
     if fails:
         with pytest.raises(OSError, match="fixture failed"):
-            _overseer.start_launch(repo, launch, in_place=True, dry_run=False)
+            _overseer.start_launch(repo, launch, in_place=True)
     else:
-        assert _overseer.start_launch(repo, launch, in_place=True, dry_run=False) == 5
+        assert _overseer.start_launch(repo, launch, in_place=True) == 5
     assert events == ["start", "session", "stop"]
 
 
@@ -642,47 +652,13 @@ def test_bridge_start_uses_direct_python_logs_and_repo(home: Path, repo: Path, m
     assert (home / "bridge.err").exists()
 
 
-@pytest.mark.parametrize("windows_terminal", [False, True])
-def test_dry_run_overseer_starts_nothing(home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], windows_terminal: bool) -> None:
-    repo = tmp_path / "repo"
-    project = repo / ".legion/configuration/project.json"
-    project.parent.mkdir(parents=True)
-    project.write_text('{"schemaVersion":1}', encoding="utf-8")
-    if not windows_terminal:
-        (home / ".legion/channels/telegram/main").mkdir(parents=True)
-
-    def snapshot() -> dict[Path, Optional[bytes]]:
-        return {path.relative_to(tmp_path): path.read_bytes() if path.is_file() else None for path in tmp_path.rglob("*")}
-
-    def refuse_process(*_args: object, **_kwargs: object) -> None:
-        pytest.fail("Dry-run overseer tried to start a process")
-
-    # Supply the result of read-only Git discovery so any child process is an unexpected launch.
-    monkeypatch.setattr(_repository, "_code_root", lambda path: path)
-    monkeypatch.setattr(_overseer, "WINDOWS", windows_terminal)
-    monkeypatch.setattr(shutil, "which", lambda command: "fake-wt" if command == "wt" and windows_terminal else None)
-    monkeypatch.setattr(subprocess, "Popen", refuse_process)
-    monkeypatch.setenv("PATH", "")
-
-    before = snapshot()
-    assert run(["--home", str(home), "--repo", str(repo), "--account", "codex-a", "--dry-run"]) == 0
-    output = capsys.readouterr().out
-    assert "bridge:" in output
-    assert "telegram bridge --channel main --repo" in output
-    assert ("wt" in output.splitlines()) == windows_terminal
-    assert snapshot() == before
-
-
 # The overseer names the account and its home; no per-account launcher path is part of the launch.
-def test_overseer_launch_has_no_wrapper_path(home: Path, repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_overseer_launch_has_no_wrapper_path(home: Path, repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     settings = _settings_io.load(home)
     launch = _overseer._launch(settings, settings.agents[1], (), (), "", False, repo, home)
-    assert "command" not in _overseer.Launch.model_fields
-    assert (launch.account, launch.home) == ("codex-a", str(_home.full_path(home)))
-    assert _overseer.start_launch(repo, launch, dry_run=True) == 0
-    output = capsys.readouterr().out
-    assert "account codex-a" in output.splitlines()
-    assert str(Path(".legion") / "bin") not in output
+    calls = fake_account(monkeypatch, code=0)
+    assert _overseer.start_launch(repo, launch, in_place=True) == 0
+    assert calls[0][:4] == ("codex-a", ["continue as the overseer"], home, repo)
 
 
 def test_python_module_bridge_needs_no_uv(home: Path, repo: Path) -> None:
@@ -696,21 +672,3 @@ def test_python_module_bridge_needs_no_uv(home: Path, repo: Path) -> None:
     assert result.returncode == 1
     assert "no bot token for channel 'main'" in result.stderr
     assert not (home / ".legion/channels").exists()
-
-
-def test_overseer_save_last_concurrent_keeps_both_repos(home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    read = _overseer._history
-
-    def slow_read(home: Path) -> dict[str, _overseer.LastLaunch]:
-        saved = read(home)
-        time.sleep(0.2)
-        return saved
-
-    monkeypatch.setattr(_overseer, "_history", slow_read)
-    repos = [tmp_path / "repo-a", tmp_path / "repo-b"]
-    threads = [threading.Thread(target=_overseer.save_last, args=(repo, home, _overseer.LastLaunch(account="claude-a"))) for repo in repos]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    assert all(_overseer.load_last(repo, home) is not None for repo in repos)

@@ -117,7 +117,7 @@ def test_fourth_tool_projects_literal_arguments(generator: ModuleType, plugin: P
     skill = shutil.copytree(FOURTH, skills / FOURTH.name)
     for field in PLUGIN_ARGUMENTS:
         edit_json(skill / "tool.json", f"plugin.{field}", arguments)
-    edit_json(skill / "tool.json", "hooks.status", "")
+    edit_json(skill / "tool.json", "hooks.hint", "")
     edit_json(skill / "tool.json", "id", "aaa")
     skill.rename(skills / "legion-aaa")
     channel = REPO / "tests" / "fixtures" / "channels" / "legion-fixture-channel"
@@ -127,7 +127,7 @@ def test_fourth_tool_projects_literal_arguments(generator: ModuleType, plugin: P
     assert [tool.id for tool in catalog.tools] == ["aaa", "claude", "codex", "copilot"]
     tool = catalog.tools[0]
     assert tool.command == "fourth-cli"
-    assert tool.hooks.status == ""
+    assert tool.hooks.hint == ""
     projected = tool.plugin.model_dump(by_alias=True)
     assert all(projected[field] == arguments for field in PLUGIN_ARGUMENTS)
     assert all(key not in content for key in ("foundry", "overseerArgs", "SkillRoot", "legacyHookTrust"))
@@ -157,7 +157,7 @@ def test_rejects_tool_argument_type(generator: ModuleType, plugin: Path, field: 
         ("plugin.listing.rejectPattern", "[", "regular expression"),
         ("install.windows.portableCommand", "../outside.exe", "portableCommand"),
         ("overseerArgs", ["--flag", 42], "overseerArgs"),
-        *[("hooks.status", value, "hooks.status") for value in (None, 42, ["status"])],
+        *[("hooks.hint", value, "hooks.hint") for value in (None, 42, ["status"])],
     ],
 )
 def test_rejects_invalid_tool(generator: ModuleType, plugin: Path, field: str, value: Any, message: str) -> None:

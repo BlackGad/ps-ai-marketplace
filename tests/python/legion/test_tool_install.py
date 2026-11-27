@@ -670,7 +670,7 @@ def test_lts_resolver_keeps_the_leading_v_and_matches_the_file_name(bench: Bench
 
 def test_vendor_script_alone_has_no_hash_and_bypasses_extraction(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
     def script(data: dict[str, Any]) -> None:
-        data["windows"]["download"]["zip"] = {"kind": "script", "url": "https://fixture.test/install.ps1", "verification": "vendor"}
+        data["windows"]["download"]["zip"] = {"kind": "script", "url": "https://fixture.test/install.ps1"}
 
     monkeypatch.setattr(_tool_install, "find_recipe", lambda _tool: fourth(script))
     assert bench.installer().resolve_download("fourth", "zip").sha256 is None
