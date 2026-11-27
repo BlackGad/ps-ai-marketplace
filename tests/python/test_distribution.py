@@ -38,6 +38,8 @@ def test_repo_tool_config_stays_outside_the_client_project() -> None:
     assert "project" not in root
     assert tools <= root["tool"].keys()
     assert not tools & client["tool"].keys()
+    standalone = ["ruff.toml", ".ruff.toml", "pyrightconfig.json", "pytest.ini", ".coveragerc", "setup.cfg", "tox.ini"]
+    assert [name for name in standalone if (PLUGIN / name).exists()] == []
 
 
 def console_command() -> Group:
@@ -110,7 +112,7 @@ def test_cli_lists_every_command_from_cli_package() -> None:
     assert {line.split()[0] for line in result.output.split("Commands:")[1].splitlines() if line.strip()} == names
 
 
-# Manifests.Tests.ps1 asserts each full command line and its event; here only the exact script path must exist.
+# repository/test_manifests.py::test_hook_commands_use_the_required_root_and_format asserts each full command line and its event; here only the exact script path must exist.
 def test_fixed_entry_points_exist() -> None:
     scripts = []
     for name in ("hooks.json", "copilot-hooks.json"):
