@@ -113,25 +113,7 @@ jobs:
           check_name: integration results
           annotate_only: true
       - id: merge
-        shell: pwsh
-        run: |
-          . ./tests/lib/benchmark.ps1
-          $paths = @()
-          $complete = $true
-          foreach ($os in 'windows', 'macos', 'linux') {
-            $files = @(Get-ChildItem results -Recurse -Filter "integration-bench-$os.json")
-            if ($files.Count -ne 1) {
-              Write-Warning "missing integration timing file or duplicate for $os"
-              $complete = $false
-            }
-            foreach ($file in $files) { $paths += $file.FullName }
-          }
-          if ($paths.Count -eq 0) {
-            'No integration timings were produced.' >> $env:GITHUB_STEP_SUMMARY
-            exit 0
-          }
-          Merge-BenchmarkFiles -Path $paths -OutFile integration-bench.json
-          if ($complete) { 'complete=true' >> $env:GITHUB_OUTPUT }
+        run: python3 tests/integration/merge_benchmarks.py results integration-bench.json
       - if: hashFiles('integration-bench.json') != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
