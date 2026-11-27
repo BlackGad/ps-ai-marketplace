@@ -8,10 +8,10 @@ Pass a model (`-m <named-model>`) only as [model tiers](../../legion-overseer/re
 LEGION_ROLE=member LEGION_TASK="<prompt>" <command> exec --dangerously-bypass-approvals-and-sandbox -C "<repo>" -o "<report>.last.md" - < "<prompt>"
 ```
 
-PowerShell 7: set `$legion` (that home's `legion.cmd`), `$account`, `$promptText`, `$repoPath` and `$report` from the assigned task. Keep the same process environment.
+PowerShell 7: set `$legionHome` (the overseer's legion home), `$account`, `$promptText`, `$repoPath` and `$report` from the assigned task. Keep the same process environment.
 
 ```powershell
-$promptText | & $legion run --account $account -- exec --dangerously-bypass-approvals-and-sandbox -C $repoPath -o "${report}.last.md" -
+$promptText | & legion --home $legionHome run --account $account -- exec --dangerously-bypass-approvals-and-sandbox -C $repoPath -o "${report}.last.md" -
 ```
 
 Legion always uses this unsandboxed profile so it can edit, run checks, and commit using the real machine setup. Stop if it cannot be applied; do not fall back to a sandbox or provision tools. The legion writes `<report>`; the overseer reads `<report>` and falls back to `<report>.last.md` (the last response saved by `-o`) only when `<report>` is missing. For a background process, redirect stdin from the prompt file and close it after sending, keep stderr in a task log, and wait for process completion, not log polls.

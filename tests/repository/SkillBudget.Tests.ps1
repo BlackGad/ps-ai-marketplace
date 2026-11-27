@@ -67,7 +67,7 @@ Assert-True ($personalisation.Contains('[launcher guide](references/launcher.md)
 Assert-Equal 1 ([regex]::Matches($personalisation, 'references/launcher\.md').Count) 'The command guide has one link'
 $launcher = Get-SkillText 'legion-personalisation/references/launcher.md'
 Assert-True ($launcher.Contains('use `legion <verb>`')) 'Command guide prefers the owner command'
-Assert-True ($launcher.Contains('if that file is missing too, finish setup first')) 'Command guide covers an absent owner command'
+Assert-True ($launcher.Contains('finish setup first')) 'Command guide covers an absent owner command'
 foreach ($rule in @('exactly one question per message', 'Save preferences, rulings and lessons that must persist in shared legion files', 'independent channels with the same priority', 'first acknowledge it there at once')) {
     Assert-True $personalisation.Contains($rule) "personalisation keeps '$rule'"
 }

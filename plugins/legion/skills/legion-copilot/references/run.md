@@ -8,11 +8,11 @@ Pass a model (`--model <named-model>`) only as [model tiers](../../legion-overse
 <command> -p "Read and follow the task in <prompt path>." -s --allow-all-tools --deny-tool='shell(git push)' > "<report>.stdout.md"
 ```
 
-PowerShell 7: set `$legion` (that home's `legion.cmd`), `$account`, `$promptPath`, `$repoPath` and `$report` from the assigned task. Keep the same process environment and capture stdout in `<report>.stdout.md`.
+PowerShell 7: set `$legionHome` (the overseer's legion home), `$account`, `$promptPath`, `$repoPath` and `$report` from the assigned task. Keep the same process environment and capture stdout in `<report>.stdout.md`.
 
 ```powershell
 $promptText = "Read and follow the task in $promptPath."
-& $legion run --account $account -- -p $promptText -s --allow-all-tools '--deny-tool=shell(git push)' > "${report}.stdout.md"
+& legion --home $legionHome run --account $account -- -p $promptText -s --allow-all-tools '--deny-tool=shell(git push)' > "${report}.stdout.md"
 ```
 
 For implementation legion work, set `LEGION_ROLE=member` and `LEGION_TASK=<prompt path>` on this process only. `-p` is non-interactive and `--allow-all-tools` permits tools to run automatically without confirmation, including editing, checks, and local commits. Legion uses this profile without a CLI sandbox to see the real machine setup; stop if it cannot be applied and do not provision tools. `--deny-tool='shell(git push)'` takes precedence and blocks that push command, using the exact quoted syntax in help; the legion contract forbids all pushing. `-s` keeps stdout to the final response. The member writes `<report>`; the overseer reads `<report>.stdout.md` only when `<report>` is missing. Pass a one-line prompt naming the prompt file, with the whole argument quoted so paths with spaces stay intact; a `.cmd` command such as `legion.cmd` cuts a multi-line argument at the first line break. The agent reads every line from the named file. From a script, close stdin; a process left waiting on stdin may hang. For long work, launch in the background, capture stdout/stderr separately, and wait for completion.
