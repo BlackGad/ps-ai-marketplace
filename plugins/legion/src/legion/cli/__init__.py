@@ -131,12 +131,13 @@ def _report_installer(context: click.Context, change: Callable[[], list[str]]) -
 
 def _report_lines(context: click.Context, change: Callable[[], list[str]], errors: tuple[type[Exception], ...], *, multiline: bool = False) -> None:
     try:
-        for line in change():
-            click.echo(line)
+        lines = change()
     except errors as error:
         message = str(error)
         click.echo(message if multiline else " ".join(message.split()), err=True)
         context.exit(1)
+    for line in lines:
+        click.echo(line)
 
 
 @main.command("install", help="Install legion for one or more coding CLIs")
