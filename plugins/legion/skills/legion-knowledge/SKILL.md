@@ -11,6 +11,7 @@ For any agent tool operation, read the selected account's tool skill using [cons
 
 Use this planner to decide when to consult or file durable, cross-project lessons. Load `legion-personalisation` and its notes first. Read `knowledgeEnabled` in personalisation and the neutral label in the repository workflow using [consult.md](references/consult.md). Speak to the owner in plain words. Show commands only when asked or when they must run them themselves.
 
+- The session start lists the hub (topics and note titles) when knowledge is on; consult from that list. Members open only the notes whose titles match their task.
 - Consult at research before planning, after two failed attempts at one problem, or when a failure looks familiar.
 - File at milestone close-out and immediately after a hard problem is solved.
 - Before filing, generalise and remove client names, source code, hosts, addresses, and secrets. Tag the entry with the project's neutral label. Rewrite an unsafe example or drop it.
@@ -20,7 +21,7 @@ Use this planner to decide when to consult or file durable, cross-project lesson
 ## Consult or file
 
 1. If `knowledgeEnabled` is missing or false, stop. If enabled, confirm the configured hub exists. Report a missing hub and refer to [setup](references/llm-wiki-setup.md).
-2. For a lookup, follow [consult.md](references/consult.md). Cite the exact note path and say how the earlier lesson applies to the present issue.
+2. For a lookup, pick the matching titles from the session-start list and follow [consult.md](references/consult.md). Cite the exact note path and say how the earlier lesson applies to the present issue.
 3. For a new lesson, follow [file.md](references/file.md). Use the installed wiki skill if available; otherwise use the fallback in [no-plugin.md](references/no-plugin.md).
 4. Re-read the stored note after filing and check the sanitising list. If it fails, fix or remove the unsafe entry before reporting completion.
 

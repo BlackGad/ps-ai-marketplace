@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, TextIO
 
+from legion.core._home import home_path, settings_path
 from legion.core._lease_record import LeaseUnreadableError, read_lease, same_host
 from legion.services.installation import _update
 from legion.core._plugin import PLUGIN_ROOT
@@ -25,6 +26,10 @@ LEASE_NOTES = {
     "unreadable": " Overseer lease file unreadable.",
     "foreign": " An overseer lease from another host exists; ask the owner before taking over.",
 }
+MAX_TOPIC_LINES = 40
+MAX_BLOCK_CHARS = 4000
+MEMBER_KNOWLEDGE = "Before you start, open only the notes whose titles match your task; do not read the whole hub."
+OVERSEER_KNOWLEDGE = "Read the matching notes before research, after two failed attempts, and when a failure looks familiar; cite the note."
 FAILURE = "legion: mode detection failed; continuing without mode context."
 
 
@@ -50,28 +55,38 @@ def main(argv: list[str]) -> int:
     except Exception:
         text = FAILURE  # Mode detection must never stop a session from starting.
     if as_json:
-        print(json.dumps({"additionalContext": text}, separators=(",", ":")) if text else "{}")
+        write_line(json.dumps({"additionalContext": text}, separators=(",", ":")) if text else "{}")
     elif text:
-        print(text)
+        write_line(text)
     return 0
 
 
+# A title or path outside the console code page becomes "?" instead of stopping the hook.
+def write_line(text: str) -> None:
+    encoding = sys.stdout.encoding or "utf-8"
+    sys.stdout.write((text + "\n").encode(encoding, errors="replace").decode(encoding))
+
+
 def mode_text(folder: Path, environment: Mapping[str, str]) -> str:
+    configured_home = environment.get("LEGION_HOME")
     if environment.get("LEGION_ROLE", "").lower() == "member":
-        return MEMBER if environment.get("LEGION_TASK") else MEMBER_WITHOUT_TASK
+        if not environment.get("LEGION_TASK"):
+            return MEMBER_WITHOUT_TASK
+        hub = knowledge_hub(configured_home)
+        return MEMBER if hub is None else f"{MEMBER}\nKnowledge hub index: {hub / '_index.md'}\n{MEMBER_KNOWLEDGE}"
     repo = find_repo_root(folder)
     if not (repo / ".legion" / "state" / "handoff.md").exists():
         return ""
     lines = [ORCHESTRATED + lease_note(repo)]
-    configured_home = environment.get("LEGION_HOME")
-    home = Path(configured_home) if configured_home else None
     try:
-        update = _update.get_update(PLUGIN_ROOT, home, cache_only=True)
+        update = _update.get_update(PLUGIN_ROOT, Path(configured_home) if configured_home else None, cache_only=True)
         if update is not None and update.newer:
             lines.append(f'legion {update.available} is available (installed {update.installed}); say "update legion" to update.')
     except Exception:
         pass  # An update check failure keeps the mode guidance.
-    return " ".join(lines)
+    text = " ".join(lines)
+    hub = knowledge_hub(configured_home)
+    return text if hub is None else f"{text}\n{hub_block(hub)}"
 
 
 def lease_note(repo: Path) -> str:
@@ -107,3 +122,96 @@ def session_folder(stdin: Optional[TextIO]) -> Path:
         if cwd and Path(cwd).exists():
             return Path(cwd)
     return Path.cwd()
+
+
+# The hub path when the owner turned knowledge on and the hub folder exists; anything unreadable counts as off.
+def knowledge_hub(configured_home: Optional[str]) -> Optional[Path]:
+    try:
+        home = Path(configured_home) if configured_home else Path.home()
+        if read_json(settings_path(home)).get("knowledgeEnabled") is not True:
+            return None
+        pointer = read_json(home / ".config" / "llm-wiki" / "config.json")
+        value = pointer.get("hub_path") or pointer.get("resolved_path") or "~/.legion/knowledge"
+        hub = home_path(str(value), home)
+        return hub if hub.is_dir() else None
+    except (OSError, RuntimeError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def read_json(path: Path) -> dict[str, object]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        return {}
+    if not isinstance(data, dict):
+        raise TypeError("not a JSON object")
+    return data
+
+
+# The whole block is bounded: at most MAX_TOPIC_LINES topics and MAX_BLOCK_CHARS characters of topic lines.
+def hub_block(hub: Path) -> str:
+    folders = topic_folders(hub)
+    names_only = len(folders) > MAX_TOPIC_LINES
+    left_out = names_only
+    lines = [f"Knowledge hub: {hub}"]
+    room = MAX_BLOCK_CHARS
+    for folder in folders[:MAX_TOPIC_LINES]:
+        line = f"- {topic_title(folder)}"
+        if room < len(line) + 1:
+            left_out = True
+            break
+        titles = [] if names_only else topic_articles(folder)
+        shown = []
+        for title in titles:
+            if len(line) + 1 + len("; ".join([*shown, title])) + 1 > room:
+                left_out = True
+                break
+            shown.append(title)
+        if shown:
+            line += ": " + "; ".join(shown)
+        room -= len(line) + 1
+        lines.append(line)
+    if left_out:
+        lines.append(f"more in {hub / '_index.md'}")
+    lines.append(OVERSEER_KNOWLEDGE)
+    return "\n".join(lines)
+
+
+# Each topic folder is a wiki: its title is the first heading of its _index.md, its articles are the table rows of two indexes.
+def topic_folders(hub: Path) -> list[Path]:
+    try:
+        return sorted(path for path in (hub / "topics").iterdir() if path.is_dir() and not path.name.startswith("."))
+    except OSError:
+        return []
+
+
+def topic_articles(folder: Path) -> list[str]:
+    return [title for index in ("topics", "concepts") for title in article_titles(folder / "wiki" / index / "_index.md")]
+
+
+def topic_title(folder: Path) -> str:
+    for line in read_lines(folder / "_index.md"):
+        if line.startswith("# ") and line[2:].strip():
+            return clean(line[2:])
+    return clean(folder.name)
+
+
+def article_titles(index: Path) -> list[str]:
+    titles = []
+    for line in read_lines(index):
+        match = re.match(r"\|\s*\[([^\]]+)\]\([^)]*\)\s*\|", line)
+        if match:
+            titles.append(clean(match.group(1)))
+    return titles
+
+
+def read_lines(path: Path) -> list[str]:
+    try:
+        return path.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, ValueError):
+        return []
+
+
+# Titles come from files; keep each to one short plain line.
+def clean(text: str) -> str:
+    return " ".join(text.split())[:80]
