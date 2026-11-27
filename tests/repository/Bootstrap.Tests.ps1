@@ -109,6 +109,32 @@ Invoke-InstallTestCase 'BootstrapDownloadsTheRightBranch' {
     } finally { Remove-InstallTestFolder $scratch }
 }
 
+Invoke-InstallTestCase 'RemoteBootstrapDryRun' {
+    $scratch = New-BootstrapScratch
+    try {
+        $runtimes = @(Get-InstallTestPwsh)
+        $legacy = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($legacy) { $runtimes += $legacy.Source }
+        foreach ($runtime in $runtimes) {
+            $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'remote-dry-run' -Scratch $scratch -UvOnPath $false
+            $text = $result.Lines -join "`n"
+            Assert-Equal 0 $result.ExitCode "Remote dry run in ${runtime}: $text"
+            Assert-True ($result.Lines -contains 'exit=0') "The handoff succeeds: $text"
+            Assert-True ($result.Lines -contains 'downloads=https://github.com/BlackGad/ps-legion-marketplace/archive/refs/heads/main.zip') "Only the source archive is downloaded: $text"
+            Assert-True ($result.Lines -contains 'prompts=0') 'A dry run never asks'
+            $words = @($result.Lines | Where-Object { $_ -like 'uv:*' } | ForEach-Object { $_.Substring(3) })
+            Assert-True ($words[2] -like (Join-Path $scratch 'tmp/*/expanded/*/plugins/legion')) "uv runs the downloaded project: $text"
+            $config = Join-Path $scratch 'config folder'
+            Assert-Equal "run|--project|$($words[2])|--frozen|--quiet|legion|--home|$scratch|install|--tool|claude|--config-dir|$config|--ref|main|--dry-run|--yes|--update" ($words[0..($words.Count - 2)] -join '|') "uv gets the complete dry-run command: $text"
+            $project = [IO.DirectoryInfo]$words[2]
+            $temporary = $project.Parent.Parent.Parent.Parent
+            Assert-Equal "env=$(Join-Path $temporary.FullName 'env')" $words[-1] 'uv uses a disposable project environment'
+            Assert-True ($result.Lines -contains 'tempLeft=0') 'Temporary files are removed'
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path $scratch '.legion'))) 'The dry run leaves the Legion home absent'
+        }
+    } finally { Remove-InstallTestFolder $scratch }
+}
+
 Invoke-InstallTestCase 'BootstrapUvOutputAndExitCode' {
     $scratch = New-BootstrapScratch
     try {
@@ -173,11 +199,14 @@ Invoke-InstallTestCase 'BootstrapObtainsUvFirst' {
         $runtime = Get-InstallTestPwsh
         $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'uv-missing-dry' -Scratch $scratch -UvOnPath $false
         $text = $result.Lines -join "`n"
+        Assert-Equal 0 $result.ExitCode "Remote dry run without uv: $text"
         Assert-True ($result.Lines -contains 'uv is missing.') "Missing uv is reported: $text"
         Assert-True ($result.Lines -contains 'downloads=') 'A dry run downloads nothing'
         Assert-True ($result.Lines -contains 'uvInstalled=False') 'A dry run installs no uv'
         Assert-True ($result.Lines -contains 'prompts=0') 'A dry run never asks'
         Assert-True (-not ($result.Lines -contains 'uv:run')) 'A dry run never reaches legion'
+        Assert-True ($result.Lines -contains 'tempLeft=0') 'The dry run leaves no temporary files'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $scratch '.legion'))) 'The dry run leaves the Legion home absent'
 
         $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'uv-missing-declined' -Scratch $scratch -UvOnPath $false
         Assert-True ($result.Lines -contains 'prompts=1') 'Without -Yes it asks once'
@@ -252,7 +281,7 @@ Invoke-InstallTestCase 'ShellBootstrap' {
         $log = Join-Path $scratch 'uv-log.txt'
         $uvLines = @('#!/bin/sh', '[ "$1" != python ] || exit "${FAKE_UV_PYTHON:-0}"', ': > "$FAKE_UV_LOG"', 'for word in "$@"; do echo "$word" >> "$FAKE_UV_LOG"; done', 'echo "env=$UV_PROJECT_ENVIRONMENT" >> "$FAKE_UV_LOG"', 'echo "path=$PATH" >> "$FAKE_UV_LOG"', 'exit "${FAKE_UV_EXIT:-0}"')
         Set-Content -LiteralPath (Join-Path $fakeBin 'uv') -Value $uvLines
-        # A fake curl serves a source archive and a uv installer stand-in, and logs the URLs.
+        # A fake curl serves the source archive, uv release and checksum, and logs the URLs.
         $archiveSource = Join-Path $scratch 'archive/legion-stable/plugins/legion'
         New-Item -ItemType Directory -Path $archiveSource -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $archiveSource 'pyproject.toml') -Value '[project]'
@@ -267,6 +296,7 @@ Invoke-InstallTestCase 'ShellBootstrap' {
             ('  */archive/*) [ -z "$FAKE_CURL_FAIL" ] || exit 22; cp "' + $scratch + '/plugin.tar.gz" "$out" ;;')
             '  */releases/latest/download/*.sha256) printf ''%s  %s\n'' "$FAKE_UV_DIGEST" "$FAKE_UV_ASSET" > "$out" ;;'
             ('  */releases/latest/download/*) cp "' + $scratch + '/uv-release.tar.gz" "$out" ;;')
+            '  *) exit 22 ;;'
             'esac'
         )
         Set-Content -LiteralPath (Join-Path $fakeBin 'curl') -Value $curlLines
@@ -282,6 +312,14 @@ Invoke-InstallTestCase 'ShellBootstrap' {
         $env:FAKE_UV_DIGEST = (Get-FileHash -LiteralPath (Join-Path $scratch 'uv-release.tar.gz') -Algorithm SHA256).Hash
         foreach ($tool in @('uv', 'curl')) { Set-TestExecutable (Join-Path $fakeBin $tool) }
         $shell = (Get-Command sh -CommandType Application | Select-Object -First 1).Source
+        $setsid = Get-Command setsid -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        # Only the fake tools and required system utilities go on the bootstrap's PATH.
+        $systemBin = Join-Path $scratch 'systembin'
+        New-Item -ItemType Directory -Path $systemBin -Force | Out-Null
+        foreach ($utility in @('uname', 'mktemp', 'tar', 'gzip', 'rm', 'mkdir', 'cp', 'mv', 'dirname', 'tr', 'head', 'sed', 'sha256sum', 'shasum')) {
+            $found = Get-Command $utility -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { New-Item -ItemType SymbolicLink -Path (Join-Path $systemBin $utility) -Target $found.Source | Out-Null }
+        }
         $env:FAKE_UV_LOG = $log
         $env:FAKE_CURL_LOG = Join-Path $scratch 'curl-log.txt'
         $env:FAKE_CURL_ARGS = Join-Path $scratch 'curl-args.txt'
@@ -299,7 +337,7 @@ Invoke-InstallTestCase 'ShellBootstrap' {
         try {
             # A checkout run with uv on PATH downloads nothing and passes the options through.
             Copy-Item -LiteralPath (Join-Path $repo 'install.sh') -Destination (Join-Path $fakeHome 'checkout/install.sh')
-            $env:PATH = $fakeBin + [IO.Path]::PathSeparator + $savedPath
+            $env:PATH = $fakeBin + [IO.Path]::PathSeparator + $systemBin
             $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --yes --tools claude --config-dir '/some folder' --main --dry-run 2>&1) -join "`n"
             Assert-Equal 0 $LASTEXITCODE "Shell checkout run: $text"
             $logged = (Get-Content -LiteralPath $log) -join '|'
@@ -320,8 +358,19 @@ Invoke-InstallTestCase 'ShellBootstrap' {
             Assert-True ((Get-Content -LiteralPath $env:FAKE_CURL_LOG) -contains 'https://github.com/BlackGad/ps-legion-marketplace/archive/refs/heads/stable.tar.gz') 'The stable archive is downloaded'
             Assert-True (((Get-Content -LiteralPath $log) -join '|') -like 'run|--project|*/source/plugins/legion|*') 'uv runs the downloaded project'
             Remove-Item $env:FAKE_CURL_LOG
-            $null = @($script | & $shell -s -- --yes --main 2>&1)
-            Assert-True ((Get-Content -LiteralPath $env:FAKE_CURL_LOG) -contains 'https://github.com/BlackGad/ps-legion-marketplace/archive/refs/heads/main.tar.gz') '--main downloads the main archive'
+            Remove-Item -LiteralPath $log
+            $config = Join-Path $fakeHome 'config folder'
+            $text = @($script | & $shell -s -- --tools claude --config-dir $config --main --dry-run --yes --update 2>&1) -join "`n"
+            Assert-Equal 0 $LASTEXITCODE "Shell remote dry run: $text"
+            Assert-Equal 'https://github.com/BlackGad/ps-legion-marketplace/archive/refs/heads/main.tar.gz' ((Get-Content -LiteralPath $env:FAKE_CURL_LOG) -join '|') 'Only the source archive is downloaded'
+            $words = @(Get-Content -LiteralPath $log)
+            Assert-True ($words[2] -like "$systemTemp/*/source/plugins/legion") "uv runs the downloaded project: $($words -join '|')"
+            Assert-Equal "run|--project|$($words[2])|--frozen|--quiet|legion|--home|$fakeHome|install|--tool|claude|--config-dir|$config|--ref|main|--dry-run|--yes|--update" ($words[0..($words.Count - 3)] -join '|') 'uv gets the complete dry-run command'
+            $project = [IO.DirectoryInfo]$words[2]
+            $temporary = $project.Parent.Parent.Parent
+            Assert-Equal "env=$($temporary.FullName)/env" $words[-2] 'uv uses a disposable project environment'
+            Assert-Equal 0 @(Get-ChildItem -LiteralPath $systemTemp -Force).Count 'Temporary files are removed'
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path $fakeHome '.legion'))) 'The dry run leaves the Legion home absent'
 
             # A failed release download says what to do and never runs uv.
             Remove-Item $log
@@ -348,7 +397,6 @@ Invoke-InstallTestCase 'ShellBootstrap' {
             Remove-Item $log -ErrorAction SilentlyContinue
             $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --dry-run 2>&1) -join "`n"
             Assert-True ($text.Contains('Python 3.12 is missing') -and -not (Test-Path $log)) "A preview reports Python and never runs uv: $text"
-            $setsid = Get-Command setsid -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($setsid) {
                 # No controlling terminal, so the question cannot be answered.
                 $text = @('' | & $setsid.Source -w $shell (Join-Path $fakeHome 'checkout/install.sh') 2>&1) -join "`n"
@@ -363,23 +411,20 @@ Invoke-InstallTestCase 'ShellBootstrap' {
             $envLine = @(Get-Content -LiteralPath $log | Where-Object { $_ -like 'env=*' })[0]
             Assert-True (-not $envLine.Contains('.legion') -and $envLine.Contains($systemTemp)) "Purge runs outside .legion: $envLine"
 
-            # Without uv: a dry run changes nothing; --yes installs it with uv's own script, then hands over.
+            # Without uv: a remote dry run changes nothing; --yes obtains uv, then hands over.
             $noUv = Join-Path $scratch 'nouv'
             New-Item -ItemType Directory -Path $noUv -Force | Out-Null
             Copy-Item -LiteralPath (Join-Path $fakeBin 'curl') -Destination (Join-Path $noUv 'curl')
             Set-TestExecutable (Join-Path $noUv 'curl')
-            # Only the fake curl and the system tools the script needs; the host's own uv must never be reachable.
-            $systemBin = Join-Path $scratch 'systembin'
-            New-Item -ItemType Directory -Path $systemBin -Force | Out-Null
-            foreach ($utility in @('uname', 'mktemp', 'tar', 'gzip', 'rm', 'mkdir', 'cp', 'mv', 'dirname', 'tr', 'head', 'sed', 'sha256sum', 'shasum')) {
-                $found = Get-Command $utility -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($found) { New-Item -ItemType SymbolicLink -Path (Join-Path $systemBin $utility) -Target $found.Source | Out-Null }
-            }
             $env:PATH = $noUv + [IO.Path]::PathSeparator + $systemBin
             Remove-Item $env:FAKE_CURL_LOG -ErrorAction SilentlyContinue
-            $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --dry-run 2>&1) -join "`n"
+            Remove-Item -LiteralPath $log
+            $text = @($script | & $shell -s -- --dry-run --yes 2>&1) -join "`n"
+            Assert-Equal 0 $LASTEXITCODE "Shell remote dry run without uv: $text"
             Assert-True ($text.Contains('uv is missing.')) 'A missing uv is reported'
             Assert-True (-not (Test-Path $env:FAKE_CURL_LOG)) 'A dry run downloads nothing'
+            Assert-True (-not (Test-Path -LiteralPath $log)) 'A dry run without uv does not reach legion install'
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path $fakeHome '.legion'))) 'The dry run leaves the Legion home absent'
             if ($setsid) {
                 # Launched without a controlling terminal, so the question cannot reach a person.
                 $text = @('' | & $setsid.Source -w $shell (Join-Path $fakeHome 'checkout/install.sh') 2>&1) -join "`n"

@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Stop'
 $script:installHomeRoot = $Scratch
 $script:downloads = [Collections.Generic.List[string]]::new()
 $uvLog = Join-Path $Scratch 'uv-log.txt'
+Remove-Item -LiteralPath $uvLog -ErrorAction SilentlyContinue
 $env:FAKE_UV_LOG = $uvLog
 $env:FAKE_UV_EXIT = '0'
 # The bootstrap's temporary folders go to the system temp folder; keep that inside the scratch folder.
@@ -81,6 +82,15 @@ switch ($Mode) {
     'checkout' { Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
     'remote' { Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot '' }
     'remote-main' { $parameters.Ref = 'main'; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot '' }
+    'remote-dry-run' {
+        Set-NoUvPath
+        $env:PATH = (Join-Path $Scratch 'bin') + [IO.Path]::PathSeparator + $env:PATH
+        $parameters.ConfigDir = Join-Path $Scratch 'config folder'
+        $parameters.Ref = 'main'
+        $parameters.DryRun = [switch]$true
+        $parameters.Update = [switch]$true
+        Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot ''
+    }
     'no-release' { Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot '' }
     'exit-code' { $env:FAKE_UV_EXIT = '3'; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
     { $_ -in 'uv-missing-yes', 'uv-missing-uninstall', 'uv-missing-purge', 'uv-bad-digest', 'uv-no-digest', 'uv-broken' } {
@@ -95,7 +105,7 @@ switch ($Mode) {
         $env:OS = 'Windows_NT'
         Set-NoUvPath
         $parameters.DryRun = [switch]$true
-        Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
+        Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot ''
     }
     'uv-missing-declined' {
         $env:OS = 'Windows_NT'
