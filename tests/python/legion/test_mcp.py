@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 import anyio
 import pytest
+from click.testing import CliRunner
 from cli_runner import run
 from launcher_fakes import only_on_path
 from mcp import ClientSession, StdioServerParameters
@@ -25,10 +26,13 @@ from test_limits import (
     write_settings,
 )
 
+from legion import cli
 from legion.core._process import process_started_at
+from legion.core._run import RunResult
 from legion.mcp import server as mcp_server
 from legion.mcp.server import build
 from legion.services.installation import _installed_runtime
+from legion.services.limits.limit_probes import _ping
 
 pytest_plugins = ["status_parity"]
 
@@ -50,12 +54,14 @@ def connection(bench: Bench) -> Iterator[Connection]:
         result.close()
 
 
-def wait_file(path: Path) -> str:
+def wait_pid(path: Path) -> int:
+    # The writer signals after closing the PID file, so Windows can open it for reading.
+    ready = path.with_suffix(".ready")
     deadline = time.monotonic() + 30
-    while not path.is_file():
-        assert time.monotonic() < deadline, f"no readiness file: {path}"
+    while not ready.is_file():
+        assert time.monotonic() < deadline, f"no readiness file: {ready}"
         time.sleep(0.01)
-    return path.read_text(encoding="utf-8")
+    return int(path.read_text(encoding="utf-8"))
 
 
 def assert_dead(pid: int) -> None:
@@ -201,7 +207,7 @@ def test_interrupting_multi_account_call_cleans_all_probes(connection: Connectio
     probes = []
     for tool in tools:
         log = bench.logs / tool
-        grandchild = int(wait_file(log / "grandchild.pid"))
+        grandchild = wait_pid(log / "grandchild.pid")
         call = json.loads((log / f"{tool}.jsonl").read_text(encoding="utf-8"))
         probes.append((grandchild, call["pid"], Path(call["folder"])))
 
@@ -227,7 +233,7 @@ def test_interrupted_limits_kills_tree_and_removes_folder(connection: Connection
     account = "foundry-a" if target == "az" else "codex-a" if target == "git" else f"{target}-a"
     write_executable(bench.path, target, {f"LEGION_FAKE_{target.upper()}_SLEEP": "60"})
     connection.send("tools/call", {"name": "limits", "arguments": {"accounts": [account]}}, 3)
-    pid = int(wait_file(bench.logs / "grandchild.pid"))
+    pid = wait_pid(bench.logs / "grandchild.pid")
     call = bench.calls(target)[0]
     ping_folder = Path(call["arguments"][1] if target == "git" else call["folder"])
     if stop == "eof":
@@ -253,7 +259,7 @@ def test_detached_descendant_is_stopped(connection: Connection, bench: Bench, st
     account = "foundry-a" if target == "az" else "codex-a" if target == "git" else f"{target}-a"
     write_executable(bench.path, target, {f"LEGION_FAKE_{target.upper()}_SLEEP": "60", f"LEGION_FAKE_{target.upper()}_DETACH": "1"})
     connection.send("tools/call", {"name": "limits", "arguments": {"accounts": [account]}}, 3)
-    pid = int(wait_file(bench.logs / "grandchild.pid"))
+    pid = wait_pid(bench.logs / "grandchild.pid")
     call = bench.calls(target)[0]
     # Establish that the fixture really left the probe's process group and session.
     if sys.platform != "win32":
@@ -305,7 +311,7 @@ def test_limits_bounds_single_account_default(bench: Bench, monkeypatch: pytest.
 def test_probe_timeout_cleans_tree_and_allows_next_call(connection: Connection, bench: Bench) -> None:
     write_executable(bench.path, "claude", {"LEGION_FAKE_CLAUDE_SLEEP": "60"})
     connection.send("tools/call", {"name": "limits", "arguments": {"accounts": ["claude-a"], "timeout": 5}}, 3)
-    pid = int(wait_file(bench.logs / "grandchild.pid"))
+    pid = wait_pid(bench.logs / "grandchild.pid")
     assert "ping timed out" in str(connection.receive(3))
     assert_dead(pid)
     assert not Path(bench.calls("claude")[0]["folder"]).exists()
@@ -314,9 +320,22 @@ def test_probe_timeout_cleans_tree_and_allows_next_call(connection: Connection, 
 
 
 def test_limits_returns_timeout_and_fast_rows_in_one_call(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
-    bench.fake(COPILOT_SLEEP="60", CLAUDE_STDOUT=str(FIXTURES / "claude-stream.jsonl"))
-    monkeypatch.setattr(mcp_server, "CALL_BUDGET", 7.0)
-    monkeypatch.setattr(mcp_server, "PROBE_BUDGET", 3.0)
+    # Keep the CLI's probe handling and JSON output while controlling the process results.
+    results = {
+        "copilot": RunResult(exit_code=-1, output="", error="", timed_out=True),
+        "claude": RunResult(exit_code=0, output=(FIXTURES / "claude-stream.jsonl").read_text(encoding="utf-8"), error="", timed_out=False),
+    }
+
+    def run_probe(command: str, *_args: object, **_kwargs: object) -> RunResult:
+        return results[Path(command).stem]
+
+    async def run_cli(arguments: list[str], home: Optional[Path]) -> bytes:
+        result = CliRunner().invoke(cli.main, ["--home", str(home), *arguments], catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        return result.stdout_bytes
+
+    monkeypatch.setattr(_ping, "run_command", run_probe)
+    monkeypatch.setattr(mcp_server, "_run_cli", run_cli)
 
     async def check() -> None:
         async with create_connected_server_and_client_session(build(bench.home)) as session:
@@ -373,7 +392,7 @@ def test_cancelling_one_request_leaves_the_other_probe_alive(connection: Connect
         log.mkdir()
         write_executable(bench.path, tool, {"LEGION_FAKE_LOG": str(log), f"LEGION_FAKE_{tool.upper()}_SLEEP": "60"})
         connection.send("tools/call", {"name": "limits", "arguments": {"accounts": [f"{tool}-a"]}}, request)
-        probes.append(int(wait_file(log / "grandchild.pid")))
+        probes.append(wait_pid(log / "grandchild.pid"))
     connection.send("notifications/cancelled", {"requestId": 3})
     assert_dead(probes[0])
     assert process_started_at(probes[1]) is not None
@@ -391,7 +410,7 @@ def test_eof_during_status_cleans_git_probe(connection: Connection, bench: Bench
         path.write_text("fixture", encoding="utf-8")
     write_executable(bench.path, "git", {"LEGION_FAKE_GIT_SLEEP": "60"})
     connection.send("tools/call", {"name": "status", "arguments": {"repo": str(repo)}}, 3)
-    pid = int(wait_file(bench.logs / "grandchild.pid"))
+    pid = wait_pid(bench.logs / "grandchild.pid")
     parent = bench.calls("git")[0]["pid"]
     connection.eof()
     assert connection.process.wait(timeout=5) == 0
@@ -404,8 +423,8 @@ def test_abrupt_host_loss_cleans_probe_and_reconnects(bench: Bench) -> None:
     marker = bench.logs / "server.pid"
     host = subprocess.Popen([sys.executable, str(Path(__file__).with_name("mcp_protocol_fake.py")), str(bench.home), str(marker)], stdin=subprocess.PIPE)
     try:
-        server_pid = int(wait_file(marker))
-        probe_pid = int(wait_file(bench.logs / "grandchild.pid"))
+        server_pid = wait_pid(marker)
+        probe_pid = wait_pid(bench.logs / "grandchild.pid")
         host.kill()
         host.wait(timeout=5)
         assert_dead(probe_pid)
