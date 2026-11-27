@@ -319,6 +319,42 @@ def test_first_uninstall_runs_installed_owner_command(tmp_path: Path) -> None:
     assert seen == [True]
 
 
+def test_repeat_uninstall_uses_runner_uv_and_reinstall_restores_owned_uv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    instance = make_runner(tmp_path)
+    bin_dir = instance.launcher("legion").parent
+    bin_dir.mkdir(parents=True)
+    uv = bin_dir / ("uv.exe" if os.name == "nt" else "uv")
+    uv.write_bytes(b"bootstrapped uv")
+    instance.env["PATH"] = str(bin_dir)
+    monkeypatch.setattr(runner, "windows_saved_path_folders", list)
+    instance.run = lambda *_args, **_kwargs: "skip: uv (already done)"
+    instance.bootstrap(False)
+    shutil.rmtree(bin_dir)
+
+    def run(argv: list[str], *, env: dict[str, str]) -> str:
+        executable = Path(argv[0])
+        assert executable.is_relative_to(instance.work)
+        assert executable.read_bytes() == b"bootstrapped uv"
+        assert str(executable.parent) not in env["PATH"].split(os.pathsep)
+        assert argv[-2:] == ["uninstall", "--yes"]
+        return "skip: uninstall (already done)"
+
+    instance.run = run
+    instance.uninstall(True)
+    assert not bin_dir.exists()
+
+    def install(_tool: str) -> str:
+        assert uv.read_bytes() == b"bootstrapped uv"
+        assert str(uv.parent) in instance.env["PATH"].split(os.pathsep)
+        return "installed"
+
+    instance.install_legion = install
+    instance.active = lambda: ["claude"]
+    instance.targets_for_uninstall = list
+    instance.check_account_launch = lambda **_kwargs: None
+    assert instance.reinstall(False) == "installed"
+
+
 @pytest.mark.parametrize("text", ["codex exited 1\nlocal directory source is not supported", "claude exited 1\nlocal directory source is not supported"])
 def test_local_refusal_only_skips_its_cli(tmp_path: Path, text: str) -> None:
     instance = make_runner(tmp_path)
