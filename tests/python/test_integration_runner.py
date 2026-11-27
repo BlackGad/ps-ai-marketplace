@@ -7,6 +7,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock, call
 
 import pytest
 
@@ -35,28 +36,8 @@ def test_listing_compares_the_whole_plugin_id_on_text_rows() -> None:
     assert runner.listed(entry, "  • legion@ps-legion-marketplace (v1.0.0) (enabled)\n      from /x/checkout")
 
 
-def test_latest_release_chooses_the_highest_numeric_tag(tmp_path: Path) -> None:
-    instance = make_runner(tmp_path)
-    remote = "https://example.invalid/marketplace"
-
-    def run(argv: list[str]) -> str:
-        assert argv == ["git", "ls-remote", "--tags", "--refs", remote, "v*"]
-        return "abc\trefs/tags/v0.9.0\nabc\trefs/tags/v0.17.1\nabc\trefs/tags/v0.17.0\nabc\trefs/tags/v1.0.0-rc.1\nabc\trefs/tags/v2.0.0+build\nabc\trefs/tags/v3.0"
-
-    instance.run = run
-    assert instance.latest_release(remote) == (0, 17, 1)
-
-
-@pytest.mark.parametrize("output", ["", "abc\trefs/tags/v1.0.0-rc.1\nabc\trefs/tags/v2.0"])
-def test_latest_release_fails_clearly_without_a_release_tag(tmp_path: Path, output: str) -> None:
-    instance = make_runner(tmp_path)
-    instance.run = lambda _argv: output
-    with pytest.raises(AssertionError, match="No published release tags"):
-        instance.latest_release("https://example.invalid/marketplace")
-
-
-@pytest.mark.parametrize(("release_version", "expected"), [((0, 16, 0), "0.17.1"), ((0, 17, 1), "0.17.2")])
-def test_stage_candidate_commits_distinct_versions_only_in_the_fixture(tmp_path: Path, release_version: tuple[int, int, int], expected: str) -> None:
+@pytest.mark.parametrize(("current", "expected"), [("0.17.0", "0.17.1"), ("0.17.1-rc.1+build", "0.17.2")])
+def test_stage_candidate_commits_distinct_versions_only_in_the_fixture(tmp_path: Path, current: str, expected: str) -> None:
     instance = make_runner(tmp_path)
     source = instance.new_repo("source")
     instance.checkout = source
@@ -64,18 +45,37 @@ def test_stage_candidate_commits_distinct_versions_only_in_the_fixture(tmp_path:
     for name in manifests:
         path = source / "plugins/legion" / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text('{"name":"legion","version":"0.17.0"}', encoding="utf-8")
+        path.write_text(json.dumps({"name": "legion", "version": current}), encoding="utf-8")
+    lockfile = "plugins/legion/uv.lock"
+    (source / lockfile).write_text("original lock\n", encoding="utf-8")
     instance.run(["git", "-C", str(source), "add", "."])
     instance.run(["git", "-C", str(source), "commit", "--quiet", "-m", "add manifests"])
 
-    candidate = instance.new_repo("candidate")
+    source_head = instance.run(["git", "-C", str(source), "rev-parse", "HEAD"])
+    candidate = instance.work / "candidate"
+    instance.run(["git", "clone", "--quiet", str(source), str(candidate)])
     release = instance.run(["git", "-C", str(candidate), "rev-parse", "HEAD"])
-    assert instance.stage_candidate(candidate, release_version) == expected
+    run_git = instance.run
+    lock_calls = []
+
+    def run(argv: list[str]) -> str:
+        if argv[0] == "git":
+            return run_git(argv)
+        lock_calls.append(argv)
+        (candidate / lockfile).write_text("candidate lock\n", encoding="utf-8")
+        return ""
+
+    instance.run = run
+    assert instance.stage_candidate(candidate, current, "8.2.1") == expected
+    assert lock_calls == [[str(instance.uv), "lock", "--project", str(candidate / "plugins/legion"), "--upgrade-package", "click<8.2.1"]]
     assert instance.run(["git", "-C", str(candidate), "rev-parse", "HEAD^"]) == release
     for name in manifests:
         relative = f"plugins/legion/{name}"
         assert json.loads(instance.run(["git", "-C", str(candidate), "show", f"HEAD:{relative}"]))["version"] == expected
-        assert json.loads((source / relative).read_text(encoding="utf-8"))["version"] == "0.17.0"
+        assert json.loads((source / relative).read_text(encoding="utf-8"))["version"] == current
+    assert instance.run(["git", "-C", str(candidate), "show", f"HEAD:{lockfile}"]) == "candidate lock"
+    assert (source / lockfile).read_text(encoding="utf-8") == "original lock\n"
+    assert instance.run(["git", "-C", str(source), "rev-parse", "HEAD"]) == source_head
     assert not instance.run(["git", "-C", str(source), "status", "--porcelain"])
 
 
@@ -89,15 +89,42 @@ def test_report_writes_all_evidence_and_omits_failed_benchmark(tmp_path: Path) -
 
 
 def test_pwsh_trap_records_an_attempt(tmp_path: Path) -> None:
-    checkout = Path(__file__).resolve().parents[2]
-    instance = runner.Runner(checkout, tmp_path / "home", tmp_path / "results", False)
+    instance = make_runner(tmp_path)
     with pytest.raises(AssertionError, match="a command called pwsh"), instance.without_pwsh():
         subprocess.run([sys.executable, "-c", "import shutil, subprocess; subprocess.run([shutil.which('pwsh')], check=False)"], env=instance.env, capture_output=True, check=False)
     assert (instance.work / "pwsh-trap/called").exists()
 
 
 def make_runner(tmp_path: Path) -> Any:
-    return runner.Runner(Path(__file__).resolve().parents[2], tmp_path / "home", tmp_path / "results", False)
+    uv = tmp_path / "fixture-uv"
+    uv.write_bytes(b"fixture uv")
+    return runner.Runner(Path(__file__).resolve().parents[2], tmp_path / "home", tmp_path / "results", False, uv=str(uv))
+
+
+def test_nested_runners_isolate_uv_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    inherited = tmp_path / "inherited"
+    uv_folders = {"UV_TOOL_DIR": "uv-tools", "UV_TOOL_BIN_DIR": ".local/bin", "UV_CACHE_DIR": "uv-cache"}
+    for variable in (*uv_folders, "UV_INSTALL_DIR", "XDG_BIN_HOME"):
+        monkeypatch.setenv(variable, str(inherited))
+    parent = make_runner(tmp_path)
+    children = [parent.nested(parent.checkout, parent.work / name / "home") for name in ("update", "knowledge")]
+
+    for instance in [parent, *children]:
+        for variable, relative in uv_folders.items():
+            assert instance.env[variable] == str(instance.home / relative)
+        assert instance.uv.parent == instance.home / ".local/bin"
+        assert instance.tool_dir == instance.home / "uv-tools"
+        assert Path(instance.command("uv")) == instance.uv
+        assert instance.env["UV_PYTHON_DOWNLOADS"] == "never"
+        assert "UV_INSTALL_DIR" not in instance.env
+        assert "XDG_BIN_HOME" not in instance.env
+        assert instance.uv.read_bytes() == b"fixture uv"
+
+    for child in children:
+        assert child.env["PATH"].split(os.pathsep) == [str(child.uv.parent), *parent.client_path.split(os.pathsep)]
+    children[0].uv.write_bytes(b"changed copy")
+    assert parent.uv.read_bytes() == children[1].uv.read_bytes() == b"fixture uv"
+    assert not inherited.exists()
 
 
 def test_report_accepts_empty_and_control_character_messages(tmp_path: Path) -> None:
@@ -111,8 +138,7 @@ def test_report_accepts_empty_and_control_character_messages(tmp_path: Path) -> 
 
 def test_command_path_survives_trap(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
-    folder = instance.home / ".local/bin"
-    folder.mkdir(parents=True)
+    folder = instance.uv.parent
     (folder / ("vendor.cmd" if os.name == "nt" else "vendor")).write_text("@echo off\n" if os.name == "nt" else "#!/bin/sh\n", encoding="utf-8")
     if os.name != "nt":
         (folder / "vendor").chmod(0o755)
@@ -171,10 +197,10 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "channel",
         "foundry-launch",
         "no-pwsh",
+        "uninstall-scoped",
         "uninstall",
         "reinstall",
-        "remove-old-launchers",
-        "update-from-latest-release",
+        "update-uv-tool",
         "purge",
         "knowledge-setup",
         "knowledge-uninstall",
@@ -204,11 +230,14 @@ def test_update_first_reinstalls_a_tool_then_repeat_is_stable(tmp_path: Path) ->
     instance.legion = legion
     instance.version = lambda _tool, _folder: expected
     instance.installed_source_matches = lambda _tool, _folder: True
-    instance.home_snapshot = dict
+    instance.home_snapshot = Mock(return_value={"settings": "same"})
+    instance.check_tool = Mock()
     instance.update(False)
     instance.update(True)
     assert calls[:2] == [("codex", tuple(instance.catalog["codex"]["plugin"][name])) for name in ("uninstall", "marketplaceRemove")]
     assert calls[2:] == [(("install", "--update", "--source", str(instance.checkout), "--yes"), {"owner": True}), (("update", "--yes"), {"owner": True})]
+    assert instance.home_snapshot.call_args_list == [call(update=True), call(update=True)]
+    assert instance.check_tool.call_args_list == [call(expected), call(expected)]
 
 
 def test_update_rejects_a_release_instead_of_the_checkout(tmp_path: Path) -> None:
@@ -230,7 +259,7 @@ def test_published_source_repeat_uses_documented_owner_command(tmp_path: Path) -
     expected = json.loads((instance.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
     instance.active = lambda: ["claude"]
     instance.targets["claude"] = (runner.MARKETPLACE, "main")
-    instance.cli = lambda *_args, **_kwargs: ""
+    instance.cli = Mock(return_value="")
     instance.listing = lambda *_args, **_kwargs: False
     calls = []
     instance.legion = lambda *args, **kwargs: (
@@ -239,10 +268,86 @@ def test_published_source_repeat_uses_documented_owner_command(tmp_path: Path) -
     )
     instance.version = lambda _tool, _folder: expected
     instance.installed_source_matches = lambda _tool, _folder: True
-    instance.home_snapshot = dict
+    instance.home_snapshot = Mock(return_value={"settings": "same"})
+    instance.check_tool = Mock()
     instance.update(False)
     instance.update(True)
     assert calls == [(("install", "--update", "--source", runner.MARKETPLACE, "--ref", "main", "--yes"), {"owner": True}), (("update", "--yes"), {"owner": True})]
+    assert instance.cli.call_args_list == [call("claude", instance.catalog["claude"]["plugin"][name]) for name in ("uninstall", "marketplaceRemove")]
+    assert instance.home_snapshot.call_args_list == [call(update=True), call(update=True)]
+    assert instance.check_tool.call_args_list == [call(expected), call(expected)]
+
+
+@pytest.mark.parametrize(("repeat", "fixture"), [(False, "p3"), (True, "p3-repeat")])
+def test_update_uv_tool_checks_the_reinstalled_tool_and_plugins(tmp_path: Path, repeat: bool, fixture: str) -> None:
+    instance = make_runner(tmp_path)
+    root = instance.work / fixture
+    release = root / "release"
+    plugin = release / "plugins/legion"
+    current, candidate = "1.2.3", "1.2.4"
+    initial_pin, candidate_pin = "8.2.1", "8.2.0"
+    status = {"settings": {"path": str(root / "home/.legion/configuration/personalisation.json")}}
+    clone = ["git", "clone", "--quiet", "--no-local", "--depth", "1", "--config", "core.longpaths=true", str(instance.checkout), str(release)]
+    branch = ["git", "-C", str(release), "switch", "--quiet", "-C", "stable"]
+
+    def run_git(argv: list[str]) -> str:
+        if argv == clone:
+            plugin.mkdir(parents=True)
+            (plugin / "plugin.json").write_text(json.dumps({"version": current}), encoding="utf-8")
+            shutil.copyfile(instance.checkout / "plugins/legion/tools.json", plugin / "tools.json")
+        else:
+            assert argv == branch
+        return ""
+
+    instance.run = Mock(side_effect=run_git)
+    nested = instance.nested
+    children = []
+
+    def manifests(tool: str, _folder: Path) -> list[Path]:
+        manifest = root / tool / "plugin.json"
+        manifest.parent.mkdir()
+        manifest.write_text(json.dumps({"version": candidate}), encoding="utf-8")
+        return [manifest]
+
+    def prepare_child(checkout: Path, home: Path) -> Any:
+        child = nested(checkout, home)
+        child.click_pin = Mock(side_effect=[initial_pin, candidate_pin])
+        child.installed_click = Mock(side_effect=[initial_pin, candidate_pin])
+        child.install_legion = Mock()
+        child.version = Mock(side_effect=[current] * len(runner.TOOLS) + [candidate] * len(runner.TOOLS))
+        child.stage_candidate = Mock(return_value=candidate)
+        child.legion = Mock(side_effect=[f"legion {current} -> {candidate}", json.dumps(status), "removed"])
+        child.check_tool = Mock()
+        child.wait_tool_version = Mock()
+        child.legion_executable = Mock(return_value=child.uv.with_name("legion.exe" if runner.WINDOWS else "legion"))
+        child.plugin_manifests = Mock(side_effect=manifests)
+        child.run = Mock(side_effect=[json.dumps(status)] + [json.dumps({"additionalContext": "you are a legion member"})] * len(runner.TOOLS))
+        child.check_codex_mcp = Mock()
+        child.check_tool_removed = Mock()
+        child.check_uninstalled = Mock()
+        child.listing = Mock(return_value=False)
+        children.append(child)
+        return child
+
+    instance.nested = Mock(side_effect=prepare_child)
+    instance.update_uv_tool(repeat)
+
+    [child] = children
+    assert instance.run.call_args_list == [call(clone), call(branch)]
+    instance.nested.assert_called_once_with(release, root / "home")
+    assert child.targets == {tool: (str(release) if tool == "copilot" else runner.MARKETPLACE, "release") for tool in runner.TOOLS}
+    assert child.install_legion.call_args_list == [call(tool) for tool in runner.TOOLS]
+    assert child.version.call_args_list == [call(tool, child.folder(tool)) for tool in runner.TOOLS] * 2
+    child.stage_candidate.assert_called_once_with(release, current, initial_pin)
+    assert child.check_tool.call_args_list == [call(current), call(candidate)]
+    child.wait_tool_version.assert_called_once_with(candidate)
+    assert child.installed_click.call_count == 2
+    assert child.legion.call_args_list == [call("update", "--yes", owner=True), call("status", "--json", owner=True), call("uninstall", "--purge", "--yes", owner=True)]
+    assert child.run.call_args_list[0].args[0][-1] == str(child.legion_executable.return_value)
+    assert [entry.args[0][-3] for entry in child.run.call_args_list[1:]] == [str(root / tool / "hooks/session_start.py") for tool in runner.TOOLS]
+    child.check_codex_mcp.assert_called_once_with()
+    child.check_tool_removed.assert_called_once_with()
+    assert child.check_uninstalled.call_args_list == [call(tool, child.folder(tool)) for tool in runner.TOOLS]
 
 
 def test_installed_source_check_rejects_different_plugin_bytes(tmp_path: Path) -> None:
@@ -259,17 +364,6 @@ def test_installed_source_check_rejects_different_plugin_bytes(tmp_path: Path) -
     assert instance.installed_source_matches("codex", instance.folder("codex"))
     source.write_text("release copy", encoding="utf-8")
     assert not instance.installed_source_matches("codex", instance.folder("codex"))
-
-
-def test_first_purge_uses_owner_command_repeat_uses_bootstrap(tmp_path: Path) -> None:
-    instance = make_runner(tmp_path)
-    instance.targets_for_uninstall = lambda **_kwargs: []
-    instance.legion = lambda *args, **kwargs: "done: purge" if args == ("uninstall", "--purge", "--yes") and kwargs == {"owner": True} else pytest.fail("wrong first purge")
-    instance.run = lambda argv, **_kwargs: "skip: uninstall (already done)" if "--purge" in argv or "-Purge" in argv else pytest.fail("wrong repeat purge")
-    instance.profile_count = lambda: 0
-    instance.cli = lambda *_args, **_kwargs: ""
-    instance.purge(False)
-    instance.purge(True)
 
 
 def test_no_ci_writes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -311,54 +405,103 @@ def test_snapshot_excludes_account_runtime_but_detects_account_changes(tmp_path:
         runner.unchanged(first, instance.home_snapshot())
 
 
-def test_first_uninstall_runs_installed_owner_command(tmp_path: Path) -> None:
+@pytest.mark.parametrize("purge", [False, True], ids=["uninstall", "purge"])
+def test_full_uninstall_uses_owner_then_project_command_and_keeps_uv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, purge: bool) -> None:
     instance = make_runner(tmp_path)
+    legion_home = instance.home / ".legion"
     for name in ("configuration", "agents"):
-        (instance.home / ".legion" / name).mkdir(parents=True)
-    seen: list[bool] = []
-    instance.targets_for_uninstall = list
+        (legion_home / name).mkdir(parents=True)
+    executable = instance.uv.with_name("legion.exe" if runner.WINDOWS else "legion")
+    executable.touch()
+    environment = instance.tool_dir / "legion"
+    environment.mkdir(parents=True)
+    instance.targets_for_uninstall = Mock(return_value=[])
     instance.active = list
-    instance.check_account_launch = lambda: None
-    instance.legion = lambda *_args, owner=False: seen.append(owner) or "removed"
-    instance.uninstall(False)
-    assert seen == [True]
+    instance.cli = Mock(return_value="")
+    args = ["uninstall", *(["--purge"] if purge else []), "--yes"]
+    uv = str(instance.uv)
+    owner_command = [str(executable), *args]
+    project_command = [uv, "run", "--project", str(instance.checkout / "plugins/legion"), "--frozen", "--quiet", "legion", "--home", str(instance.home), *args]
 
-
-def test_repeat_uninstall_uses_runner_uv_and_reinstall_restores_owned_uv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    instance = make_runner(tmp_path)
-    bin_dir = instance.launcher("legion").parent
-    bin_dir.mkdir(parents=True)
-    uv = bin_dir / ("uv.exe" if os.name == "nt" else "uv")
-    uv.write_bytes(b"bootstrapped uv")
-    instance.env["PATH"] = str(bin_dir)
-    monkeypatch.setattr(runner, "windows_saved_path_folders", list)
-    instance.run = lambda *_args, **_kwargs: "skip: uv (already done)"
-    instance.bootstrap(False)
-    shutil.rmtree(bin_dir)
-
-    def run(argv: list[str], *, env: dict[str, str], answers: str | None = None) -> str:
+    def run(argv: list[str], *, env: dict[str, str] | None = None, answers: str | None = None) -> str:
         assert answers is None
-        executable = Path(argv[0])
-        assert executable.is_relative_to(instance.work)
-        assert executable.read_bytes() == b"bootstrapped uv"
-        assert str(executable.parent) not in env["PATH"].split(os.pathsep)
-        assert argv[-2:] == ["uninstall", "--yes"]
-        return "skip: uninstall (already done)"
+        assert Path(argv[0]).is_file()
+        if argv == owner_command:
+            executable.unlink()
+            environment.rmdir()
+            if purge:
+                shutil.rmtree(legion_home)
+            return "removed"
+        if argv == project_command:
+            assert env is not None
+            assert env["UV_PROJECT_ENVIRONMENT"] == str(instance.work / "python-env")
+            assert env["PATH"].split(os.pathsep)[0] == str(instance.uv.parent)
+            return "skip: uninstall (already done)"
+        if argv == [uv, "tool", "dir", "--bin"]:
+            return str(instance.uv.parent)
+        if argv == [uv, "tool", "list"]:
+            return ""
+        if argv == [uv, "--version"]:
+            return "uv fixture version"
+        pytest.fail(f"unexpected command: {argv}")
+
+    instance.run = Mock(side_effect=run)
+    wait_gone = Mock(wraps=runner.wait_gone)
+    monkeypatch.setattr(runner, "wait_gone", wait_gone)
+    action = instance.purge if purge else instance.uninstall
+    assert action(False) == "removed"
+    assert action(True) == "skip: uninstall (already done)"
+    tool_check = [[uv, "tool", "dir", "--bin"], [uv, "tool", "list"], [uv, "--version"]]
+    assert [entry.args[0] for entry in instance.run.call_args_list] == [tool_check[0], owner_command, *tool_check, project_command, *tool_check]
+    removed_paths = [call(executable, environment)]
+    assert wait_gone.call_args_list == ([call(legion_home), *removed_paths] if purge else removed_paths) * 2
+    assert instance.targets_for_uninstall.call_args_list == ([call(all_tools=True)] if purge else [call()])
+    assert instance.uv.read_bytes() == b"fixture uv"
+    assert not executable.exists()
+    assert not environment.exists()
+    assert legion_home.is_dir() is not purge
+
+
+@pytest.mark.parametrize("uv_works", [False, True], ids=["broken-uv", "legion-still-listed"])
+def test_full_uninstall_rejects_invalid_uv_state(tmp_path: Path, uv_works: bool) -> None:
+    instance = make_runner(tmp_path)
+    instance.legion = Mock(return_value="skip: uninstall (already done)")
+
+    def run(argv: list[str]) -> str:
+        assert argv[0] == str(instance.uv)
+        if argv[1:] == ["tool", "dir", "--bin"]:
+            return str(instance.uv.parent)
+        if argv[1:] == ["tool", "list"]:
+            return "legion v1.2.3" if uv_works else ""
+        assert argv[1:] == ["--version"]
+        raise RuntimeError("fixture uv cannot run")
 
     instance.run = run
-    instance.uninstall(True)
-    assert not bin_dir.exists()
+    if uv_works:
+        with pytest.raises(AssertionError, match="uv still lists legion after uninstall"):
+            instance.uninstall(True)
+    else:
+        with pytest.raises(RuntimeError, match="uv cannot run"):
+            instance.uninstall(True)
 
-    def install(_tool: str) -> str:
-        assert uv.read_bytes() == b"bootstrapped uv"
-        assert str(uv.parent) in instance.env["PATH"].split(os.pathsep)
-        return "installed"
 
-    instance.install_legion = install
-    instance.active = lambda: ["claude"]
-    instance.targets_for_uninstall = list
-    instance.check_account_launch = lambda **_kwargs: None
-    assert instance.reinstall(False) == "installed"
+def test_scoped_uninstall_keeps_uv_tool_and_other_targets(tmp_path: Path) -> None:
+    instance = make_runner(tmp_path)
+    (instance.tool_dir / "legion").mkdir(parents=True)
+    target = instance.folder("codex")
+    other = instance.home / "codex-account"
+    instance.active = lambda: ["codex"]
+    instance.targets_for_uninstall = lambda: [("codex", target), ("codex", other)]
+    instance.tool_version = lambda: "1.2.3"
+    instance.legion = Mock(side_effect=["removed", "skip: uninstall (already done)"])
+    instance.check_tool = Mock()
+    instance.listing = Mock(side_effect=lambda _tool, folder, *_args, **_kwargs: folder == other)
+
+    assert instance.uninstall_scoped(False) == "removed"
+    assert instance.uninstall_scoped(True) == "skip: uninstall (already done)"
+    assert instance.legion.call_args_list == [call("uninstall", "--tool", "codex", "--config-dir", str(target), "--yes", owner=True)] * 2
+    assert instance.check_tool.call_args_list == [call("1.2.3")] * 2
+    assert instance.listing.call_args_list == [call("codex", target, include_disabled=True), call("codex", target, "marketplace"), call("codex", other)] * 2
 
 
 @pytest.mark.parametrize("text", ["codex exited 1\nlocal directory source is not supported", "claude exited 1\nlocal directory source is not supported"])
@@ -372,11 +515,15 @@ def test_local_refusal_only_skips_its_cli(tmp_path: Path, text: str) -> None:
 
     instance.install_legion = install
     instance.listing = lambda _tool, folder, *_args, **_kwargs: not str(folder).startswith(str(instance.work / "control-"))
-    instance.version = lambda *_args: json.loads((instance.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
+    expected = json.loads((instance.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
+    instance.version = Mock(return_value=expected)
+    instance.check_tool = Mock()
     instance.home_snapshot = dict
     if text.startswith("codex"):
         instance.install_first()
         assert list(instance.not_tested) == ["codex"]
+        assert instance.version.call_args_list == [call(tool, instance.folder(tool)) for tool in runner.TOOLS if tool != "codex"]
+        instance.check_tool.assert_called_once_with(expected)
     else:
         with pytest.raises(AssertionError, match=r"codex:.*claude exited"):
             instance.install_first()
@@ -402,11 +549,8 @@ def test_source_fallback_rejects_other_or_moving_main(tmp_path: Path, moved: boo
 
 def test_purge_rejects_a_leftover_marketplace(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
-    instance.home_snapshot = dict
     instance.legion = lambda *_args, **_kwargs: "skip: uninstall (already done)"
-    instance.run = lambda *_args, **_kwargs: "skip: uninstall (already done)"
-    instance.profile_count = lambda: 0
-    instance.check_uninstalled = lambda *_args: None
+    instance.check_tool_removed = Mock()
     instance.listing = lambda _tool, _folder, kind="plugin", **_kwargs: kind == "marketplace"
     instance.cli = lambda *_args: ""
     folder = instance.folder("copilot")
@@ -414,41 +558,6 @@ def test_purge_rejects_a_leftover_marketplace(tmp_path: Path) -> None:
     instance.state["purge_targets"] = [("copilot", folder)]
     with pytest.raises(AssertionError, match="marketplace remains"):
         instance.purge(True)
-
-
-def test_repeat_purge_uses_bootstrap_after_owned_uv_was_removed(tmp_path: Path) -> None:
-    instance = make_runner(tmp_path)
-    instance.state["purge_targets"] = []
-    instance.state["purge_snapshot"] = instance.home_snapshot()
-    instance.profile_count = lambda: 0
-    instance.cli = lambda *_args: ""
-    calls: list[list[str]] = []
-
-    def run(argv: list[str], **_kwargs: Any) -> str:
-        calls.append(argv)
-        return "skip: uninstall (already done)"
-
-    instance.run = run
-    instance.legion = lambda *_args, **_kwargs: pytest.fail("repeat purge used missing uv")
-    instance.purge(True)
-    assert len(calls) == 1
-    bootstrap = calls[0]
-    assert bootstrap[-2:] == (["-Purge", "-Yes"] if os.name == "nt" else ["--purge", "--yes"])
-    assert Path(bootstrap[0]).name in ("powershell.exe", "sh")
-
-
-@pytest.mark.skipif(os.name != "nt", reason="Windows cannot delete a running uv.exe")
-def test_first_windows_purge_uses_owner_command(tmp_path: Path) -> None:
-    instance = make_runner(tmp_path)
-    instance.targets_for_uninstall = lambda **_kwargs: []
-    instance.profile_count = lambda: 0
-    instance.cli = lambda *_args: ""
-    calls: list[list[str]] = []
-    instance.run = lambda *_args, **_kwargs: pytest.fail("first purge ran bootstrap")
-    instance.legion = lambda *args, **kwargs: calls.append([*args, str(kwargs)]) or "done: purge"
-    instance.purge(False)
-    assert len(calls) == 1
-    assert calls[0] == ["uninstall", "--purge", "--yes", "{'owner': True}"]
 
 
 def test_version_orders_semantic_parts(tmp_path: Path) -> None:
@@ -522,8 +631,7 @@ def test_private_repeat_needs_exact_skip(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(sys.platform != "win32", reason="winget changes the Windows saved PATH")
 def test_command_finds_winget_alias_on_saved_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    checkout = Path(__file__).resolve().parents[2]
-    instance = runner.Runner(checkout, tmp_path / "home", tmp_path / "results", False)
+    instance = make_runner(tmp_path)
     folder = tmp_path / "winget-links"
     folder.mkdir()
     (folder / "claude.cmd").write_text("@echo off\r\necho fixture-version\r\n", encoding="utf-8")
