@@ -8,7 +8,7 @@ Pass a model (`-m <named-model>`) only as [model tiers](../../legion-overseer/re
 LEGION_ROLE=member LEGION_TASK="<prompt>" <command> exec --dangerously-bypass-approvals-and-sandbox -C "<repo>" -o "<report>.last.md" - < "<prompt>"
 ```
 
-PowerShell 7: set `$legion` (that home's `legion.cmd`), `$account`, `$promptText`, `$repoPath` and `$report` from the assigned task. Keep the same process environment and capture stdout as the report where needed.
+PowerShell 7: set `$legion` (that home's `legion.cmd`), `$account`, `$promptText`, `$repoPath` and `$report` from the assigned task. Keep the same process environment.
 
 ```powershell
 $promptText | & $legion run --account $account -- exec --dangerously-bypass-approvals-and-sandbox -C $repoPath -o "${report}.last.md" -

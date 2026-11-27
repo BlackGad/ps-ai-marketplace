@@ -87,7 +87,7 @@ async def _start(command: list[str], cwd: Optional[Path], environment: dict[str,
             return process, psutil.Process(process.pid)
         except psutil.NoSuchProcess:
             return process, None
-    raise RuntimeError("process start was cancelled")
+    raise AssertionError("unreachable: the shielded start always returns")  # pyright cannot see that a shield never swallows
 
 
 # Go on past a process that cannot be stopped, then report the first such failure.
