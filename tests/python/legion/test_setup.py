@@ -301,8 +301,10 @@ def test_knowledge_adopts_the_plugin_and_follows_later_accounts(bench: Bench, mo
     assert pointer.is_file()
 
 
-@pytest.mark.parametrize(("was_enabled", "fail_once"), [(True, False), (True, True), (False, False)])
-def test_setup_no_knowledge_removes_only_managed_wiki(bench: Bench, monkeypatch: pytest.MonkeyPatch, was_enabled: bool, fail_once: bool) -> None:
+@pytest.mark.parametrize(("was_enabled", "fail_once", "missing_cli"), [(True, False, False), (True, True, False), (False, False, False), (True, False, True)])
+def test_setup_no_knowledge_removes_only_managed_wiki(bench: Bench, monkeypatch: pytest.MonkeyPatch, was_enabled: bool, fail_once: bool, missing_cli: bool) -> None:
+    if missing_cli:
+        bench.seed("wiki-missing", "codex", command=bench.base / "missing.exe")
     for account in ("wiki-a", "wiki-b"):
         bench.apply("claude", account_id=account)
     folders = {bench.folder(account) for account in ("wiki-a", "wiki-b")}
@@ -330,6 +332,7 @@ def test_setup_no_knowledge_removes_only_managed_wiki(bench: Bench, monkeypatch:
         elif args == remove_plugin:
             plugins.remove(folder)
             removals.append((folder, args))
+            output = "fixture removed wiki plugin"
         else:
             assert args == remove_marketplace
             assert folder not in plugins
@@ -346,9 +349,12 @@ def test_setup_no_knowledge_removes_only_managed_wiki(bench: Bench, monkeypatch:
     if fail_once:
         assert result.exit_code == 1
         assert "fixture marketplace failure" in result.output
+        assert "fixture removed wiki plugin\nknowledge stays on; run legion setup --no-knowledge again\n" in result.output
         assert bench.settings()["knowledgeEnabled"] is True
         result = CliRunner().invoke(cli.main, args)
     assert result.exit_code == 0, result.output
+    if missing_cli:
+        assert "skip: knowledge: wiki-missing (codex command is missing)\nfixture removed wiki plugin" in result.output
     assert plugins == marketplaces == (set() if was_enabled else folders)
     for folder in folders:
         assert [args for target, args in removals if target == folder] == ([remove_plugin, remove_marketplace] if was_enabled else [])

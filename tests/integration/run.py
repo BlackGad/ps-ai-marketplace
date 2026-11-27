@@ -1141,17 +1141,19 @@ asyncio.run(main())
             if tool == "copilot":
                 require(any((folder / "installed-plugins/llm-wiki/wiki/skills").glob("*/SKILL.md")), "Copilot did not install the wiki skill")
 
-    def manual_wiki(self, replace: bool = False) -> None:
-        names = {"legion@ps-legion-marketplace": WIKI_PLUGIN, "ps-legion-marketplace": WIKI_MARKETPLACE, "{source}": WIKI_SOURCE}
-        steps = ["uninstall", "marketplaceRemove"] if replace else []
+    def manual_wiki(self) -> None:
+        names = {"legion@ps-legion-marketplace": WIKI_PLUGIN, "{source}": WIKI_SOURCE}
         for tool, folder in self.wiki_accounts():
             recipe = self.catalog[tool]["plugin"]
-            for step in (*steps, "marketplaceAdd", "install"):
+            for step in ("marketplaceAdd", "install"):
                 arguments: list[str] = recipe[step]
                 self.cli(tool, [names.get(word, word) for word in arguments], folder)
         self.check_wiki(None)
 
     def knowledge_setup(self, repeat: bool) -> str:
+        if not repeat:
+            require("knowledgeEnabled" not in self.settings(), "knowledge choice must be unset before manual installation")
+            self.manual_wiki()
         hub = self.home / ".legion/knowledge"
         pointer = self.home / ".config/llm-wiki/config.json"
         before = self.home_snapshot() if repeat else {}
@@ -1244,10 +1246,6 @@ asyncio.run(main())
         wiki: Runner = self.state["knowledge"]
         wiki.log = self.log
         wiki.env["PATH"] = self.env["PATH"]
-        if action == "adopt":
-            if not repeat:
-                wiki.manual_wiki(replace=True)
-            return wiki.knowledge_setup(repeat)
         return getattr(wiki, f"knowledge_{action}")(repeat)
 
     def steps(self) -> list[tuple[str, Any]]:
@@ -1270,7 +1268,7 @@ asyncio.run(main())
             ("update-from-latest-release", self.update_from_release),
             ("purge", self.purge),
         ]
-        steps += [(f"knowledge-{action}", lambda repeat, action=action: self.knowledge_step(action, repeat)) for action in ("setup", "adopt", "uninstall", "declined", "off", "purge")]
+        steps += [(f"knowledge-{action}", lambda repeat, action=action: self.knowledge_step(action, repeat)) for action in ("setup", "uninstall", "declined", "off", "purge")]
         return steps
 
     def execute(self) -> list[Case]:

@@ -177,7 +177,6 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "update-from-latest-release",
         "purge",
         "knowledge-setup",
-        "knowledge-adopt",
         "knowledge-uninstall",
         "knowledge-declined",
         "knowledge-off",

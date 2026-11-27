@@ -58,6 +58,10 @@ class InstallerError(ValueError):
     pass
 
 
+class _MissingAccountCommandError(InstallerError):
+    pass
+
+
 def _catalog(source: str | Path, ref: str, catalog: Optional[ToolsCatalog]) -> ToolsCatalog:
     if catalog is not None:
         return catalog
@@ -405,7 +409,7 @@ def _account_target(home: Path, catalog: ToolsCatalog, agent: Agent) -> tuple[Ca
     entry = _tool(catalog, agent.tool)
     command = registered_command(agent, home) if agent.command is not None else shutil.which(entry.command)
     if command is None:
-        raise InstallerError(f"{agent.tool} command is missing")
+        raise _MissingAccountCommandError(f"{agent.tool} command is missing")
     return entry.model_copy(update={"command": str(command)}), _config_path(home, agent.config_dir)
 
 
@@ -422,6 +426,8 @@ def remove_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent], lin
                 for arguments in _wiki_removal_steps(entry, folder, pin):
                     _step(entry, arguments, folder, False, lines)
                 seen.add(key)
+        except _MissingAccountCommandError as error:
+            lines.append(f"skip: knowledge: {agent.id} ({error})")
         except (OSError, ValueError) as error:
             raise InstallerError(f"knowledge: {agent.id}: {error}") from error
 

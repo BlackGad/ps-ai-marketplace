@@ -461,11 +461,16 @@ def _save_knowledge_locked(home: Path, choice: bool, explicit: bool, say: Callab
         return
     if not choice and settings.knowledge_enabled:
         lines: list[str] = []
-        with saved_path():
-            catalog = _installer._catalog(_installer.DEFAULT_SOURCE, "release", None)
-            _installer.remove_knowledge(home, catalog, settings.agents, lines)
-        for line in lines:
-            say(line)
+        try:
+            with saved_path():
+                catalog = _installer._catalog(_installer.DEFAULT_SOURCE, "release", None)
+                _installer.remove_knowledge(home, catalog, settings.agents, lines)
+        except (OSError, ValueError):
+            lines.append("knowledge stays on; run legion setup --no-knowledge again")
+            raise
+        finally:
+            for line in lines:
+                say(line)
     settings.knowledge_enabled = choice
     _settings_io.save_locked(home, settings)
 
