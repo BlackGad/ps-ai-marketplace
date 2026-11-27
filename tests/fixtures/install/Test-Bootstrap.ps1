@@ -49,23 +49,42 @@ function Invoke-InstallDownload {
         Copy-Item -LiteralPath $uvZip -Destination $OutFile
     } else { throw "unexpected download $Url" }
 }
-# The downloaded and cleanup executables are placeholders. Alias their exact paths to the fake.
 function Invoke-FakeUv {
-    $script:uvUsed = $Uv
+    param([string]$UvPath, [string[]]$Arguments)
+    if (-not (Test-Path -LiteralPath $UvPath -PathType Leaf)) { throw "Missing fixture uv: $UvPath" }
+    $script:uvUsed = $UvPath
     $script:pathHead = ($env:PATH -split [regex]::Escape([string][IO.Path]::PathSeparator))[0]
-    & (Join-Path (Join-Path $Scratch 'fake-uv-source') $uvName) @args
+    & (Join-Path (Join-Path $Scratch 'fake-uv-source') $uvName) @Arguments
 }
+
+# The downloaded and cleanup executables are placeholders. Bind their exact paths to the fake.
+function Set-FakeUvAlias {
+    param([string]$UvPath)
+    $invokeFake = ${function:Invoke-FakeUv}
+    $command = { & $invokeFake -UvPath $UvPath -Arguments $args }.GetNewClosure()
+    Set-Item -LiteralPath Function:script:Invoke-AliasedUv -Value $command
+    Set-Alias -Name $UvPath -Value Invoke-AliasedUv -Scope Script
+}
+
+# A cleanup mode reserves the first temporary folder so it can bind the copied uv before bootstrapping.
+$realNewTemporary = ${function:New-InstallTemporary}
+function New-InstallTemporary {
+    if ($script:reservedTemporary) {
+        $reserved = $script:reservedTemporary
+        $script:reservedTemporary = $null
+        return $reserved
+    }
+    & $realNewTemporary
+}
+
+function Set-CleanupUvAlias {
+    $script:reservedTemporary = & $realNewTemporary
+    Set-FakeUvAlias -UvPath (Join-Path $script:reservedTemporary 'uv.exe')
+}
+
 # The extracted uv is a placeholder, so "runs" is decided by the mode.
 function Test-InstallUv { param([string]$Uv) return $script:Mode -ne 'uv-broken' }
-function Test-InstallPython {
-    param([string]$Uv)
-    if ($temporaryUv) {
-        Set-Alias -Name $temporaryUv -Value Invoke-FakeUv -Scope Script
-    } elseif ($Uv -eq (Join-Path $Scratch '.legion/bin/uv.exe')) {
-        Set-Alias -Name $Uv -Value Invoke-FakeUv -Scope Script
-    }
-    return -not $script:Mode.StartsWith('no-python')
-}
+function Test-InstallPython { param([string]$Uv) return -not $script:Mode.StartsWith('no-python') }
 function Read-Host { param($Prompt) $script:prompts++; return $script:answer }
 $script:prompts = 0
 $script:answer = 'n'
@@ -102,7 +121,12 @@ switch ($Mode) {
         # No uv on PATH: -Yes downloads and verifies the uv release, then the hand-over runs.
         $env:OS = 'Windows_NT'
         Set-NoUvPath
-        if ($Mode -in @('uv-missing-uninstall', 'uv-missing-purge')) { $parameters.Uninstall = [switch]$true }
+        if ($Mode -in @('uv-missing-uninstall', 'uv-missing-purge')) {
+            $parameters.Uninstall = [switch]$true
+            Set-CleanupUvAlias
+        } elseif ($Mode -eq 'uv-missing-yes') {
+            Set-FakeUvAlias -UvPath (Join-Path $Scratch '.legion/bin/uv.exe')
+        }
         if ($Mode -eq 'uv-missing-purge') { $parameters.Purge = [switch]$true }
         Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
     }
@@ -118,7 +142,11 @@ switch ($Mode) {
         $parameters.Remove('Yes')
         Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
     }
-    'purge' { $parameters.Purge = [switch]$true; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
+    'purge' {
+        $parameters.Purge = [switch]$true
+        Set-CleanupUvAlias
+        Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
+    }
     'purge-home-uv' {
         $env:OS = 'Windows_NT'
         Set-NoUvPath
@@ -127,6 +155,7 @@ switch ($Mode) {
         Set-Content -LiteralPath (Join-Path $folder 'uv.exe') -Value 'uv placeholder'
         $parameters.Uninstall = [switch]$true
         $parameters.Purge = [switch]$true
+        Set-CleanupUvAlias
         Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
     }
     'no-python-dry' { $parameters.DryRun = [switch]$true; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
