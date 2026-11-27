@@ -107,12 +107,21 @@ def test_stop_all_protects_the_caller_and_its_registered_ancestor(tmp_path: Path
     parent = run_folder(tmp_path) / f"{os.getppid()}.pid"
     with _stop_event.registered(tmp_path, lambda: stopped.append(True)):
         parent.write_text(str(os.getppid()), encoding="ascii")
-        assert _stop_event.stop_all(tmp_path, timeout=0.2) == []
+        assert _stop_event.stop_all(tmp_path, timeout=0.2, updating=True) == []
         assert not _stop_event.stop_raised(tmp_path, pid=os.getppid())
         time.sleep(0.2)
         assert stopped == []
         assert set(_stop_event.running(tmp_path)) == {os.getpid(), os.getppid()}
     assert capsys.readouterr().err.splitlines() == ["Restart this session after the legion update."]
+
+
+def test_stop_all_during_uninstall_does_not_ask_a_registered_ancestor_to_restart(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    with _stop_event.registered(tmp_path, lambda: None):
+        parent = run_folder(tmp_path) / f"{os.getppid()}.pid"
+        parent.write_text(str(os.getppid()), encoding="ascii")
+        assert _stop_event.stop_all(tmp_path) == []
+        assert not _stop_event.stop_raised(tmp_path, pid=os.getppid())
+    assert capsys.readouterr().err == ""
 
 
 # The process id a started process registered: on Windows a venv's python.exe starts the real one, so it is not the Popen pid.
@@ -145,6 +154,26 @@ def test_stop_all_waits_until_a_registered_process_is_gone(tmp_path: Path) -> No
     finally:
         child.kill()
         child.wait()
+
+
+def test_stop_all_times_out_if_a_process_unregisters_but_is_still_shutting_down(tmp_path: Path) -> None:
+    code = """
+import sys, threading, time
+from pathlib import Path
+from legion.core import _stop_event
+stopped = threading.Event()
+_stop_event.CHECK_SECONDS = 0.05
+with _stop_event.registered(Path(sys.argv[1]), stopped.set):
+    stopped.wait(30)
+sys.stdin.read()
+"""
+    with subprocess.Popen([sys.executable, "-c", code, str(tmp_path)], stdin=subprocess.PIPE) as child:
+        try:
+            pid = registered_pid(tmp_path)
+            assert _stop_event.stop_all(tmp_path, timeout=2, poll=0.05) == [pid]
+            assert list(run_folder(tmp_path).glob("*.pid")) == []
+        finally:
+            child.communicate(timeout=10)
 
 
 def test_stop_all_waits_for_a_real_process_that_ends_on_the_stop_file_and_leaves_no_registration(tmp_path: Path) -> None:

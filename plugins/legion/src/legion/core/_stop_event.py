@@ -11,6 +11,8 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
+import psutil
+
 from legion.core import _process
 from legion.core._atomic_write import atomic_write_bytes
 from legion.core._home import run_folder
@@ -72,39 +74,61 @@ def clear_stop(home: Path) -> None:
     stop_path(home).unlink(missing_ok=True)
 
 
-# The process ids of registered processes still alive. The file of a dead process is removed; so is the file of a pid that
-# a newer process reuses (it started after the file was written).
-def running(home: Path) -> list[int]:
-    alive: list[int] = []
+# The registration of a dead process or a reused pid is removed.
+def _registered_processes(home: Path) -> list[psutil.Process]:
+    alive: list[psutil.Process] = []
     for registration in sorted(run_folder(home).glob("*.pid")):
         try:
             pid = int(registration.read_text(encoding="ascii"))
             written = datetime.fromtimestamp(registration.stat().st_mtime, UTC)
-        except (OSError, ValueError):
-            registration.unlink(missing_ok=True)
-            continue
-        process = _process.process_info(pid)
-        if process is not None and (process.started_at <= written or _process.same_start_time(process.started_at, written)):
-            alive.append(pid)
-        else:
+            if pid > 0:
+                process = psutil.Process(pid)
+                started = datetime.fromtimestamp(process.create_time(), UTC)
+                if (started <= written or _process.same_start_time(started, written)) and _still_running(process):
+                    alive.append(process)
+                    continue
+        except (OSError, ValueError, OverflowError, psutil.Error):
+            pass
+        # On Windows a process can be deleting its own registration at the same time.
+        with contextlib.suppress(PermissionError):
             registration.unlink(missing_ok=True)
     return alive
 
 
-# Raises the stop event and waits until no registered process is alive. Returns the ones still alive after the timeout.
-def stop_all(home: Path, timeout: float = WAIT_SECONDS, poll: float = 0.2) -> list[int]:
+def running(home: Path) -> list[int]:
+    return [process.pid for process in _registered_processes(home)]
+
+
+def _still_running(process: psutil.Process) -> bool:
+    try:
+        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
+    except psutil.AccessDenied:
+        return True
+
+
+# Keep waiting for processes that remove their registration while shutting down.
+def stop_all(home: Path, timeout: float = WAIT_SECONDS, poll: float = 0.2, *, updating: bool = False) -> list[int]:
     caller = os.getpid()
     ancestors = {process.pid for process in _process.ancestors(caller)}
     protected = {caller, *ancestors}
+    registered_processes = _registered_processes(home)
     raise_stop(home, protected)
     deadline = time.monotonic() + timeout
-    warned = False
+    registered_processes += _registered_processes(home)
     while True:
-        registered_pids = running(home)
-        if not warned and ancestors.intersection(registered_pids):
+        if updating and ancestors.intersection(process.pid for process in registered_processes):
             print("Restart this session after the legion update.", file=sys.stderr, flush=True)
-            warned = True
-        alive = [pid for pid in registered_pids if pid not in protected]
-        if not alive or time.monotonic() >= deadline:
-            return alive
-        time.sleep(poll)
+            updating = False
+        alive = {process for process in registered_processes if process.pid not in protected}
+        if not alive:
+            return []
+        while alive:
+            alive = {process for process in alive if _still_running(process)}
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 and alive:
+                return sorted(process.pid for process in alive)
+            if alive:
+                time.sleep(min(poll, remaining))
+        registered_processes = _registered_processes(home)

@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 from app_fakes import make_link
 
-from legion.services.installation import _handover
+from legion.services.installation import _handover, _uv_tool
+from legion.services.status import status
 
 WINDOWS = sys.platform == "win32"
 
@@ -75,8 +76,8 @@ def test_cleanup_only_purge_starts_when_it_cannot_create_the_log(tmp_path: Path,
     assert json.loads(command[4])[-3:] == [[str(folder)], [], None]
 
 
-@pytest.mark.parametrize(("exit_code", "purge"), [(0, False), (2, False), (0, True), (2, True), (None, True)])
-def test_uv_handover_waits_for_exit_logs_the_result_and_cleans_up(tmp_path: Path, exit_code: int | None, purge: bool) -> None:
+@pytest.mark.parametrize(("exit_code", "purge"), [(0, False), (2, False), (0, True), (2, True), (None, True), ("missing", True)])
+def test_uv_handover_waits_for_exit_logs_the_result_and_cleans_up(tmp_path: Path, exit_code: int | str | None, purge: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     folder = tmp_path / "constraints %PATH%"
     folder.mkdir()
     stop = tmp_path / "stop"
@@ -92,11 +93,13 @@ log, folder, stop, ready, result_file = map(Path, sys.argv[1:6])
 command = [
     sys.executable, "-c",
     "import sys; from pathlib import Path; Path(sys.argv[2]).write_text(sys.argv[3]); "
-    "print('uv output', flush=True); print('uv error', file=sys.stderr); sys.exit(int(sys.argv[1]))",
+    "print('uv output', flush=True); print('uv error', file=sys.stderr, end=''); sys.exit(int(sys.argv[1]))",
     sys.argv[6], str(result_file), "legion[mcp] & 100% !x!",
 ]
 if sys.argv[6] == "None":
     _handover.UV_WAIT_SECONDS = 3
+if sys.argv[6] == "missing":
+    command = [str(folder / "missing-uv")]
 _handover.start(command, [folder, stop], purge=[log.parent.parent] if sys.argv[7] == "True" else [], log=log)
 ready.touch()
 sys.stdin.read()
@@ -121,12 +124,12 @@ sys.stdin.read()
         finally:
             parent.communicate(timeout=10)
     deadline = time.monotonic() + 10
-    while (folder.exists() or stop.exists() or (purge and exit_code is not None and purge_root.exists())) and time.monotonic() < deadline:
+    while (folder.exists() or stop.exists() or (purge and exit_code == 0 and purge_root.exists())) and time.monotonic() < deadline:
         time.sleep(0.05)
     assert not folder.exists()
     assert not stop.exists()
-    assert purge_root.exists() is (not purge or exit_code is None)
-    if exit_code is not None:
+    assert purge_root.exists() is (not purge or exit_code != 0)
+    if isinstance(exit_code, int):
         assert result_file.read_text() == "legion[mcp] & 100% !x!"
     if not purge_root.exists():
         return
@@ -134,7 +137,13 @@ sys.stdin.read()
     if exit_code is None:
         assert "Timed out waiting for the legion command to exit" in output
         assert "uv output" not in output
+    elif exit_code == "missing":
+        assert "legion handover failed:" in output
+        assert not result_file.exists()
     else:
         assert "uv output" in output
         assert "uv error" in output
         assert f"exited {exit_code}" in output
+    monkeypatch.setattr(_uv_tool, "find_uv", lambda: None)
+    warnings = status(tmp_path, tmp_path).warnings
+    assert any("Legion handover failed" in line and str(log) in line for line in warnings) is (exit_code != 0)

@@ -120,6 +120,9 @@ def status(repo: Path, home: Optional[Path] = None) -> StatusReport:
                 missing_wiki.append(agent.id)
             accounts.append(AccountStatus(id=agent.id, tool=agent.tool, config_dir=agent.config_dir, legion_version=version))
     warnings = _status.channel_warnings(settings, home, tools) if settings else []
+    handover_failure = _uv_tool.handover_failure(home)
+    if handover_failure:
+        warnings.append(handover_failure)
     uv = _uv_tool.find_uv()
     if uv is not None and _uv_tool.installed_version(uv) is not None and _uv_tool.path_missing(uv):
         warnings.append("The uv tool folder is missing from your PATH. Run legion setup to add it.")

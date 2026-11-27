@@ -544,7 +544,7 @@ def test_update_never_runs_uv_tool_update_shell(tmp_path: Path, monkeypatch: pyt
     monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: tmp_path / "plugin")
     monkeypatch.setattr(_installer, "_manifest", lambda _root: SimpleNamespace(version="1.2.3"))
     _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
-    assert seen == [{"dry_run": False, "detached": True, "update_shell": False}]
+    assert seen == [{"dry_run": False, "detached": True, "update_shell": False, "updating": True}]
 
 
 def test_update_reconciles_knowledge_before_handing_over(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -61,7 +61,13 @@ install_uv() {
     mkdir "$temporary/uv"
     tar -xzf "$temporary/uv.tar.gz" -C "$temporary/uv" --strip-components=1
     "$temporary/uv/uv" --version >/dev/null 2>&1 || fail 'The downloaded uv does not run; nothing was installed.'
-    if [ "$cleanup" = 1 ]; then uv=$temporary/uv/uv; return; fi
+    if [ "$cleanup" = 1 ]; then
+        # The detached uninstall may start after the bootstrap exits. Leave this copy to the system temp cleaner.
+        uv_folder=$(mktemp -d "${TMPDIR:-/tmp}/legion-uv.XXXXXX")
+        uv=$uv_folder/uv
+        mv "$temporary/uv/uv" "$uv"
+        return
+    fi
     # uv's default folder, where its installer puts it and `uv tool` puts commands.
     target=${UV_INSTALL_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}
     mkdir -p "$target"

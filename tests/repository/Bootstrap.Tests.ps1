@@ -166,14 +166,14 @@ Invoke-InstallTestCase 'BootstrapHomeAndPurge' {
         $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'default-home' -Scratch $scratch
         Assert-True (($result.Lines -join "`n").Contains("uv:--home`nuv:$scratch`nuv:install")) "The redirected `$HOME is handed over as --home: $($result.Lines -join ' ')"
 
-        # Purge deletes .legion, so uv and its environment run from a temporary copy outside it.
+        # Purge deletes .legion, so uv and the project environment must be outside it.
         $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'purge' -Scratch $scratch
         $text = $result.Lines -join "`n"
         $legion = Join-Path $scratch '.legion'
         Assert-True ($result.Lines -contains 'uv:--purge') "Purge reaches legion install: $text"
-        Assert-True (@($result.Lines | Where-Object { $_ -like 'uvUsed=*' -and -not $_.Contains($legion) -and -not $_.Contains((Join-Path $scratch 'bin')) }).Count -eq 1) "uv runs from a copy outside .legion: $text"
+        Assert-True ($result.Lines -contains 'downloads=') "The existing uv is reused: $text"
         Assert-True (@($result.Lines | Where-Object { $_ -like 'uv:env=*' -and -not $_.Contains($legion) }).Count -eq 1) "The environment is outside .legion: $text"
-        Assert-True ($result.Lines -contains 'tempLeft=0') "The copy is removed afterwards: $text"
+        Assert-True ($result.Lines -contains 'tempLeft=0') "The project environment is removed afterwards: $text"
     } finally { Remove-InstallTestFolder $scratch }
 }
 
@@ -247,6 +247,7 @@ Invoke-InstallTestCase 'BootstrapObtainsUvFirst' {
 Invoke-InstallTestCase 'BootstrapCleanupWithMissingUvKeepsHomeClean' {
     $scratch = New-BootstrapScratch
     try {
+        $retained = 0
         foreach ($mode in @('uv-missing-uninstall', 'uv-missing-purge')) {
             foreach ($invocation in 1..2) {
                 $result = Invoke-BootstrapFixture -Runtime (Get-InstallTestPwsh) -Mode $mode -Scratch $scratch -UvOnPath $false
@@ -257,7 +258,10 @@ Invoke-InstallTestCase 'BootstrapCleanupWithMissingUvKeepsHomeClean' {
                 Assert-True ($result.Lines -contains 'uvInstalled=False') "Cleanup leaves no uv in the home on $mode invocation ${invocation}: $text"
                 Assert-True (-not (Test-Path -LiteralPath (Join-Path $scratch '.legion'))) "Cleanup leaves a clean home on $mode invocation ${invocation}: $text"
                 Assert-True (@($result.Lines | Where-Object { $_ -like 'uvUsed=*' -and $_.Contains((Join-Path $scratch 'tmp')) }).Count -eq 1) "Cleanup runs temporary uv on $mode invocation ${invocation}: $text"
-                Assert-True ($result.Lines -contains 'tempLeft=0') "Cleanup removes temporary uv on $mode invocation ${invocation}: $text"
+                $uv = ($result.Lines | Where-Object { $_ -like 'uvUsed=*' }).Substring(7)
+                Assert-True (Test-Path -LiteralPath $uv -PathType Leaf) "Temporary uv is available to the helper after bootstrap exit: $text"
+                $retained += 1
+                Assert-True ($result.Lines -contains "tempLeft=$retained") "Only the temporary uv folders remain: $text"
             }
         }
     } finally { Remove-InstallTestFolder $scratch }
@@ -451,7 +455,12 @@ Invoke-InstallTestCase 'ShellBootstrap' {
                 Assert-True (Test-LegionPathUnder -Path $resolvedUv[0].Substring(3) -Root $systemTemp) "Cleanup children resolve temporary uv on invocation ${invocation}"
                 Assert-True (-not (Test-Path -LiteralPath $installedUv)) "Cleanup leaves no installed uv on invocation ${invocation}"
                 Assert-True (-not (Test-Path -LiteralPath (Join-Path $fakeHome '.legion'))) "Cleanup leaves a clean home on invocation ${invocation}"
-                Assert-True (@(Get-ChildItem -LiteralPath $systemTemp -Force).Count -eq 0) "Cleanup removes temporary uv on invocation ${invocation}"
+                $uv = $resolvedUv[0].Substring(3)
+                Assert-True (Test-Path -LiteralPath $uv -PathType Leaf) "Temporary uv is available to the helper after bootstrap exit"
+                & $uv --version
+                Assert-Equal 0 $LASTEXITCODE 'Temporary uv is still executable'
+                $left = @(Get-ChildItem -LiteralPath $systemTemp -Force)
+                Assert-Equal $invocation $left.Count 'Only temporary uv folders remain'
             }
 
             # A digest mismatch deletes the download, extracts nothing and never runs uv.
@@ -461,7 +470,7 @@ Invoke-InstallTestCase 'ShellBootstrap' {
             Assert-True ($LASTEXITCODE -ne 0 -and $text.Contains('uv SHA-256 digest mismatch; download deleted.')) "A digest mismatch fails: $text"
             Assert-True (-not (Test-Path -LiteralPath (Join-Path $fakeHome '.local/bin/uv'))) 'A digest mismatch publishes nothing'
             Assert-True (-not (Test-Path $log)) 'uv never runs after a digest mismatch'
-            Assert-True (@(Get-ChildItem -LiteralPath $systemTemp -Force).Count -eq 0) 'A digest mismatch leaves no download'
+            Assert-Equal 2 @(Get-ChildItem -LiteralPath $systemTemp -Force).Count 'A digest mismatch adds no download'
 
             $text = @('' | & $shell (Join-Path $fakeHome 'checkout/install.sh') --bogus 2>&1) -join "`n"
             Assert-True ($LASTEXITCODE -ne 0 -and $text.Contains('Unknown option: --bogus')) 'An unknown option is refused'

@@ -133,7 +133,7 @@ def test_an_install_raises_the_stop_event_before_uv_runs_and_lifts_it_after(tmp_
 def test_a_detached_install_starts_the_helper_and_leaves_the_stop_event_to_it(tmp_path: Path, home: Path, uv: FakeUv) -> None:
     source = make_source(tmp_path)
     lines = _uv_tool.install(source, home, detached=True)
-    assert lines[0] == "legion command 1.0.0 is installed when this command ends"
+    assert lines[0] == f"legion command 1.0.0 replacement scheduled. Check the result in {home / _uv_tool.HANDOVER_LOG}."
     assert uv.logs == [home / ".legion/temp/uv-tool.log"]
     assert uv.installs() == []
     ((command, remove),) = uv.detached
@@ -153,13 +153,13 @@ def test_setup_hands_the_install_over_when_it_runs_from_the_tool(tmp_path: Path,
     monkeypatch.setattr(_uv_tool, "sys", SimpleNamespace(platform=platform, prefix=prefix))
     lines = _uv_tool.install(make_source(tmp_path), home)
     assert bool(uv.detached) is expected
-    assert (lines[0] == "legion command 1.0.0 is installed when this command ends") is expected
+    assert lines[0].startswith("legion command 1.0.0 replacement scheduled.") is expected
     for _command, remove in uv.detached:
         shutil.rmtree(remove[0])
 
 
 def test_a_running_legion_that_does_not_stop_blocks_the_install_with_a_plain_message(tmp_path: Path, home: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_stop_event, "stop_all", lambda _home: [4242, 4343])
+    monkeypatch.setattr(_stop_event, "stop_all", lambda _home, **_options: [4242, 4343])
     with pytest.raises(_uv_tool.UvToolError, match=r"legion is still running after 30 seconds \(process 4242, 4343\); close those sessions"):
         _uv_tool.install(make_source(tmp_path), home)
     assert uv.installs() == []
@@ -198,7 +198,7 @@ def test_without_uv_install_says_so_and_runs_nothing(tmp_path: Path, home: Path,
 
 def test_uninstall_hands_only_the_tool_removal_to_the_helper_with_the_stop_file(home: Path, uv: FakeUv) -> None:
     uv.installed = "1.0.0"
-    assert _uv_tool.uninstall(home) == ["legion command is removed when this command ends"]
+    assert _uv_tool.uninstall(home) == [f"legion command removal scheduled. Check the result in {home / _uv_tool.HANDOVER_LOG}."]
     assert uv.detached == [(["uv", "tool", "uninstall", "legion"], [_stop_event.stop_path(home)])]
     assert uv.calls == [["tool", "list"]]
     assert _stop_event.stop_path(home).is_file()
@@ -206,7 +206,7 @@ def test_uninstall_hands_only_the_tool_removal_to_the_helper_with_the_stop_file(
 
 def test_uninstall_waits_for_running_legion_and_hands_nothing_over_on_a_timeout(home: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch) -> None:
     uv.installed = "1.0.0"
-    monkeypatch.setattr(_stop_event, "stop_all", lambda _home: [77])
+    monkeypatch.setattr(_stop_event, "stop_all", lambda _home, **_options: [77])
     with pytest.raises(_uv_tool.UvToolError, match="process 77"):
         _uv_tool.uninstall(home)
     assert uv.detached == []

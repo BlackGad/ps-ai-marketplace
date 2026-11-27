@@ -465,12 +465,12 @@ def _newest_source(roots: list[tuple[str, Path]]) -> Path:
     return max(roots, key=cmp_to_key(lambda left, right: compare_versions(left[0], right[0])))[1]
 
 
-def _install_tool(home: Path, roots: list[tuple[str, Path]], lines: list[str], rows: list[tuple[str, str, str]], dry_run: bool, *, update_shell: bool = False) -> None:
+def _install_tool(home: Path, roots: list[tuple[str, Path]], lines: list[str], rows: list[tuple[str, str, str]], dry_run: bool, *, updating: bool, update_shell: bool = False) -> None:
     if not roots:
         return
     root = _newest_source(roots)
     try:
-        lines.extend(_uv_tool.install(root, home, dry_run=dry_run, detached=True, update_shell=update_shell))
+        lines.extend(_uv_tool.install(root, home, dry_run=dry_run, detached=True, update_shell=update_shell, updating=updating))
     except Exception as error:
         lines.append(f"commands not refreshed: {error}; run legion setup")
         rows.append(("legion", str(home), f"commands not refreshed: {error}"))
@@ -519,7 +519,7 @@ def install(
             return [*lines, "Nothing changed. Run again with --yes to apply."]
         if manage_knowledge:
             reconcile_knowledge(home, catalog, dry_run, lines)
-        lines.extend(_uv_tool.install(PLUGIN_ROOT, home, dry_run=dry_run, update_shell=not update))
+        lines.extend(_uv_tool.install(PLUGIN_ROOT, home, dry_run=dry_run, update_shell=not update, updating=update))
         return lines
     if update:
         targets: list[tuple[CatalogTool, Path]] = []
@@ -574,7 +574,7 @@ def install(
             # The returned lines are lost with the error, so the install is reported before it propagates.
             failed: list[str] = []
             if tool_roots is None:
-                _install_tool(home, roots, failed, rows, dry_run)
+                _install_tool(home, roots, failed, rows, dry_run, updating=True)
             else:
                 tool_roots.extend(roots)
             for line in failed:
@@ -585,12 +585,12 @@ def install(
                 reconcile_knowledge(home, catalog, dry_run, lines)
         finally:
             if tool_roots is None:
-                _install_tool(home, roots, lines, rows, dry_run)
+                _install_tool(home, roots, lines, rows, dry_run, updating=True)
             else:
                 tool_roots.extend(roots)
         if targets and not dry_run:
             lines.extend(_results_table(rows))
-            lines.append("done: restart your sessions; run legion in the repository")
+            lines.append("Restart your sessions and run legion in the repository.")
         return lines
     lines.append(f"Install legion for {', '.join(selected)}")
     if not dry_run and not (yes or _confirm(f"Install legion for {', '.join(selected)} now, and put the legion command on your PATH with uv? [y/N]", lines)):
@@ -638,7 +638,7 @@ def install(
     if dry_run:
         lines.extend(_uv_tool.install(PLUGIN_ROOT, home, dry_run=True, update_shell=True))
     else:
-        _install_tool(home, deferred_roots, lines, rows, dry_run, update_shell=True)
+        _install_tool(home, deferred_roots, lines, rows, dry_run, updating=False, update_shell=True)
         lines.extend(_results_table(rows))
     if installed_version and not dry_run:
         lines.append(f"installed: legion {installed_version} ({ref})")
@@ -733,7 +733,7 @@ def _uninstall(
             result = _uv_tool.uninstall(home, stopped=stopped, purge=remaining)
             handed_over = bool(result)
             lines.extend(result)
-            if not remaining:
+            if not result:
                 lines.append("done: legion is uninstalled")
     finally:
         if stopped and not handed_over:

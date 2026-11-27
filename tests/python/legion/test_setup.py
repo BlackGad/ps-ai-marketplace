@@ -289,7 +289,7 @@ def test_knowledge_adopts_the_plugin_and_follows_later_accounts(bench: Bench, mo
     report = status(bench.base, bench.home)
     assert report.knowledge.missing_accounts == [later_id]
     assert report.knowledge.hub == "invalid"
-    monkeypatch.setattr(_installer, "_install_tool", lambda *_: None)
+    monkeypatch.setattr(_installer, "_install_tool", lambda *_args, **_options: None)
     fail_later = False
     _installer.install(bench.home, [tool], config_dir=later, update=True, yes=True)
     assert (later, wiki) in plugins

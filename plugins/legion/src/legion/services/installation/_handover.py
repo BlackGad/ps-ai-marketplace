@@ -21,6 +21,7 @@ if sys.platform == "win32":
 
 UV_WAIT_SECONDS = 60
 WINDOWS_DELETE_ATTEMPTS = 30
+FAILURE_PREFIX = "legion handover failed:"
 
 
 def start(command: list[str], cleanup: list[Path], *, purge: list[Path], log: Path | None) -> None:
@@ -110,22 +111,21 @@ def _purge(path: Path) -> None:
             time.sleep(1)
 
 
-def _run(pids: list[int], timeout: float, command: list[str], cleanup: list[str], stream: TextIO) -> tuple[bool, int]:
-    exited = False
+def _run(pids: list[int], timeout: float, command: list[str], cleanup: list[str], stream: TextIO) -> int:
     try:
         deadline = time.monotonic() + timeout
         for pid in pids:
             _wait_for_exit(pid, deadline)
-        exited = True
         if command:
             result = subprocess.run(command, stdout=stream, stderr=stream, check=False)
-            print(f"uv tool command exited {result.returncode}", file=stream)
-            return exited, result.returncode
+            outcome = f"uv tool command exited {result.returncode}"
+            print(f"\n{FAILURE_PREFIX} {outcome}" if result.returncode else f"\n{outcome}", file=stream, flush=True)
+            return result.returncode
         print("purging legion folders", file=stream)
-        return exited, 0
+        return 0
     except OSError as error:
-        print(f"legion handover failed: {error}", file=stream)
-        return exited, 1
+        print(f"{FAILURE_PREFIX} {error}", file=stream, flush=True)
+        return 1
     finally:
         for path in map(Path, cleanup):
             try:
@@ -141,17 +141,18 @@ def main() -> int:
             stream = files.enter_context(open(log or os.devnull, "a", encoding="utf-8"))
         except OSError:
             stream = files.enter_context(open(os.devnull, "a", encoding="utf-8"))
-        exited, result = _run(pids, timeout, command, cleanup, stream)
-    if exited:
-        for path in map(Path, purge):
-            try:
-                _purge(path)
-            except OSError as error:
-                result = result or 1
-                if log:
-                    with suppress(OSError), open(log, "r+", encoding="utf-8") as stream:
-                        stream.seek(0, os.SEEK_END)
-                        print(f"legion handover could not remove {path}: {error}", file=stream)
+        result = _run(pids, timeout, command, cleanup, stream)
+    if result:
+        return result
+    for path in map(Path, purge):
+        try:
+            _purge(path)
+        except OSError as error:
+            result = 1
+            if log:
+                with suppress(OSError), open(log, "r+", encoding="utf-8") as stream:
+                    stream.seek(0, os.SEEK_END)
+                    print(f"{FAILURE_PREFIX} could not remove {path}: {error}", file=stream)
     return result
 
 

@@ -144,7 +144,6 @@ switch ($Mode) {
     }
     'purge' {
         $parameters.Purge = [switch]$true
-        Set-CleanupUvAlias
         Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
     }
     'no-python-dry' { $parameters.DryRun = [switch]$true; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }

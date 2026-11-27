@@ -110,7 +110,8 @@ def test_a_full_uninstall_hands_only_the_legion_tool_to_the_helper_and_never_rem
     lines = run(home, yes=True)
     assert recorder.uv.detached == [(["uv", "tool", "uninstall", "legion"], [_stop_event.stop_path(home)])]
     assert recorder.uv.calls == [["tool", "list"], ["tool", "list"]]
-    assert "legion command is removed when this command ends" in lines
+    assert f"legion command removal scheduled. Check the result in {home / _uv_tool.HANDOVER_LOG}." in lines
+    assert "done: legion is uninstalled" not in lines
     assert _stop_event.stop_path(home).is_file()
 
 
@@ -126,7 +127,7 @@ def test_a_legion_that_will_not_stop_blocks_the_uninstall_before_anything_is_del
     hub = home / ".legion/knowledge"
     hub.mkdir()
     monkeypatch.setattr(_installer.click, "confirm", lambda *_args, **_options: True)
-    monkeypatch.setattr(_stop_event, "stop_all", lambda _home: [4242])
+    monkeypatch.setattr(_stop_event, "stop_all", lambda _home, **_options: [4242])
     with pytest.raises(_uv_tool.UvToolError, match="process 4242"):
         run(home, yes=True, purge=True)
     assert recorder.uv.purges == []
@@ -137,12 +138,12 @@ def test_a_legion_that_will_not_stop_blocks_the_uninstall_before_anything_is_del
 
 def test_a_full_uninstall_raises_the_stop_event_before_the_uv_step_and_a_partial_one_does_not(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
     recorder.uv.installed = "1.0.0"
-    raised: list[Path] = []
-    monkeypatch.setattr(_stop_event, "stop_all", lambda target: raised.append(target) or [])
+    raised: list[tuple[Path, bool]] = []
+    monkeypatch.setattr(_stop_event, "stop_all", lambda target, *, updating: raised.append((target, updating)) or [])
     run(home, ["codex"], yes=True)
     assert raised == []
     run(home, yes=True)
-    assert raised == [home]
+    assert raised == [(home, False)]
 
 
 def test_one_tool_alone_leaves_the_legion_tool(home: Path, recorder: Recorder) -> None:

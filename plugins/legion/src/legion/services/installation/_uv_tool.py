@@ -23,6 +23,7 @@ from legion.services.installation._constraints import export_constraints
 UV_MISSING = "uv is missing. Ask the owner before installing it, then run the legion installer again."
 TOOL = "legion"
 STOP_NOTICE = "stop     running legion sessions (mcp servers and runs) end first"
+HANDOVER_LOG = Path(".legion/temp/uv-tool.log")
 
 
 class UvToolError(ValueError):
@@ -88,10 +89,10 @@ def running_from_tool(uv: str) -> bool:
 
 
 # Waits for registered processes that can be stopped. On a timeout, lift the stop event before reporting the failure.
-def stop_running(home: Path) -> None:
+def stop_running(home: Path, *, updating: bool = False) -> None:
     if not owner_path_safe(_stop_event.stop_path(home), home):
         raise UvToolError("The legion stop file path contains a link; resolve it before continuing")
-    remaining = _stop_event.stop_all(home)
+    remaining = _stop_event.stop_all(home, updating=updating)
     if remaining:
         _stop_event.clear_stop(home)
         ids = ", ".join(str(pid) for pid in remaining)
@@ -99,7 +100,7 @@ def stop_running(home: Path) -> None:
 
 
 def _hand_over(home: Path, command: list[str], cleanup: list[Path], purge: list[Path]) -> None:
-    log = home / ".legion/temp/uv-tool.log"
+    log = home / HANDOVER_LOG
     if not owner_path_safe(log, home):
         if command:
             raise UvToolError("The uv tool log path contains a link; resolve it before continuing")
@@ -110,6 +111,20 @@ def _hand_over(home: Path, command: list[str], cleanup: list[Path], purge: list[
         # Keeping the hub can leave a new log directory outside the original purge list.
         purge = [*purge, log.parent]
     _handover.start(command, cleanup, purge=purge, log=log)
+
+
+def handover_failure(home: Path) -> str | None:
+    log = home / HANDOVER_LOG
+    if not owner_path_safe(log, home):
+        return None
+    try:
+        with log.open("rb") as stream:
+            stream.seek(max(0, os.fstat(stream.fileno()).st_size - 4096))
+            if any(line.startswith(_handover.FAILURE_PREFIX.encode("ascii")) for line in stream.read(4096).splitlines()):
+                return f"Legion handover failed. See {log} for details."
+    except OSError:
+        pass
+    return None
 
 
 # The saved PATH is uv's to write, and only with the owner's yes. The current process learns the folder from uv.
@@ -131,7 +146,7 @@ def _path_lines(uv: str, update_shell: bool) -> list[str]:
 # this process exits, and lifts the stop event after it: Windows cannot replace a running legion.exe.
 # By default it is detached when this process runs from the tool. `update_shell` also runs `uv tool update-shell`,
 # which edits the owner's shell profile or user PATH: callers pass it only inside the owner's yes.
-def install(plugin_root: Path, home: Path, dry_run: bool = False, detached: Optional[bool] = None, update_shell: bool = False) -> list[str]:
+def install(plugin_root: Path, home: Path, dry_run: bool = False, detached: Optional[bool] = None, update_shell: bool = False, *, updating: bool = False) -> list[str]:
     if not dry_run:
         if not owner_path_safe(home / ".legion", home):
             raise _settings_io.SettingsError("The legion folder contains a link; resolve it before installing")
@@ -153,7 +168,7 @@ def install(plugin_root: Path, home: Path, dry_run: bool = False, detached: Opti
         return [STOP_NOTICE, display_command([uv, "tool", "install", spec, "--constraints", "<exported uv.lock>", "--reinstall"]), *shell]
     if detached is None:
         detached = running_from_tool(uv)
-    stop_running(home)
+    stop_running(home, updating=updating)
     folder: Optional[Path] = None
     handed_over = False
     try:
@@ -163,7 +178,7 @@ def install(plugin_root: Path, home: Path, dry_run: bool = False, detached: Opti
             path_lines = _path_lines(uv, update_shell)
             _hand_over(home, command, [folder, _stop_event.stop_path(home)], [])
             handed_over = True
-            return [f"legion command {version} is installed when this command ends", *path_lines]
+            return [f"legion command {version} replacement scheduled. Check the result in {home / HANDOVER_LOG}.", *path_lines]
         result = run_command(uv, command[1:])
         if result.exit_code != 0:
             raise _failure("uv tool install", result.error, result.exit_code)
@@ -193,7 +208,7 @@ def uninstall(home: Path, dry_run: bool = False, *, stopped: bool = False, purge
         if stopped:
             _stop_event.clear_stop(home)
         raise
-    lines = ["legion command is removed when this command ends"] if command else []
+    lines = [f"legion command removal scheduled. Check the result in {home / HANDOVER_LOG}."] if command else []
     if purge:
-        lines.append("done: legion folders are removed when this command ends")
+        lines.append("Legion folder removal scheduled.")
     return lines
