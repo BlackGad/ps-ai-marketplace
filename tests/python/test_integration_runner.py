@@ -242,6 +242,34 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
     ]
 
 
+@pytest.mark.parametrize(("step", "choice"), [("declined", "--no-knowledge"), ("off", "--knowledge")])
+def test_knowledge_setup_restores_checkout_after_uninstall(tmp_path: Path, step: str, choice: str) -> None:
+    instance = make_runner(tmp_path)
+    accounts = [(tool, instance.home / ".legion/agents" / f"wiki-{tool}") for tool in runner.TOOLS]
+    instance.wiki_accounts = lambda: accounts
+    installed = set()
+
+    def legion(*args: str) -> str:
+        if args[0] == "install":
+            _, _, tool, _, folder, _, source, _ = args
+            assert source == str(instance.checkout)
+            installed.add((tool, Path(folder)))
+        if args == ("setup", choice, "--yes"):
+            assert installed == set(accounts), "setup would install missing Legion copies from GitHub"
+        return json.dumps({"knowledge": {"state": "declined"}}) if args[0] == "status" else ""
+
+    instance.legion = legion
+    instance.listing = lambda tool, folder: (tool, folder) in installed
+    for name in ("manual_wiki", "check_wiki", "check_wiki_removed", "check_uninstalled", "check_tool_removed"):
+        setattr(instance, name, Mock())
+    (instance.home / ".legion/knowledge").mkdir(parents=True)
+    pointer = instance.home / ".config/llm-wiki/config.json"
+    pointer.parent.mkdir(parents=True)
+    pointer.write_text('{"hub_path":"~/.legion/knowledge"}', encoding="utf-8")
+
+    getattr(instance, f"knowledge_{step}")(False)
+
+
 def test_update_first_reinstalls_a_tool_then_repeat_is_stable(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
     expected = json.loads((instance.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]

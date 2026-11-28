@@ -1236,8 +1236,15 @@ asyncio.run(main())
             require(not self.listing(tool, folder, include_disabled=True, wanted=WIKI_PLUGIN), f"{tool} still lists the wiki plugin")
             require(not self.listing(tool, folder, "marketplace", wanted=WIKI_MARKETPLACE), f"{tool} still lists the wiki marketplace")
 
+    def restore_wiki_accounts(self) -> None:
+        # Restore the checkout copies before setup so it can apply the knowledge choice offline.
+        for tool, folder in self.wiki_accounts():
+            self.legion("install", "--tool", tool, "--config-dir", str(folder), "--source", str(self.checkout), "--yes")
+            require(self.listing(tool, folder), f"{tool} did not reinstall Legion in {folder}")
+
     def knowledge_off(self, repeat: bool) -> str:
         if not repeat:
+            self.restore_wiki_accounts()
             self.legion("setup", "--knowledge", "--yes")
             self.check_wiki(WIKI_TAG)
         hub = self.home / ".legion/knowledge"
@@ -1271,10 +1278,8 @@ asyncio.run(main())
 
     def knowledge_declined(self, repeat: bool) -> str:
         if not repeat:
+            self.restore_wiki_accounts()
             self.legion("setup", "--no-knowledge", "--yes")
-            for tool, folder in self.wiki_accounts():
-                self.legion("install", "--tool", tool, "--config-dir", str(folder), "--source", str(self.checkout), "--yes")
-                require(self.listing(tool, folder), f"{tool} did not reinstall Legion for the declined case")
             self.manual_wiki()
         status = json.loads(self.legion("status", "--json"))["knowledge"]
         require(status["state"] == "declined", f"wiki choice was not declined: {status}")
