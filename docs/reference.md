@@ -25,10 +25,10 @@ By default, the script installs legion for every installed coding CLI, using the
 
 Plain install and `-Update` select the same targets:
 
-- Without `-Tools`, select the CLIs found on PATH from `tools.json`. `-Tools` selects the named descriptors (an array or comma-separated ids) instead; update skips a selected CLI if its executable is missing.
-- For each selected CLI, the default folder is the one named by the CLI's account environment variable when it is set (for example `CLAUDE_CONFIG_DIR`). When it is not set, the CLI's own default runs with that variable cleared. Then add each matching `agents[].configDir` in `~/.legion/configuration/personalisation.json`; a recorded folder equal to the default folder is not run twice. Blank or missing `configDir` values are ignored; a leading `~/` or `~\` expands against the owner home and recorded paths become full paths. Repeated recorded paths run once (case insensitive on Windows, case sensitive elsewhere).
+- Without `-Tools`, select CLIs with a stock command on PATH or a usable command for a registered account. `-Tools` selects the named descriptors from `tools.json` (an array or comma-separated ids). Install and update skip targets whose commands are missing.
+- Each CLI has one outlander folder when its stock command is on PATH. The folders are `~/.claude`, `~/.codex`, and `~/.copilot`. Target discovery ignores `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and `COPILOT_HOME`. Accounts come from matching `agents[].configDir` in `~/.legion/configuration/personalisation.json` and use the recorded command when provided. A leading `~/` or `~\` expands against the Legion home. Linked spellings of the same folder run once.
 - `-ConfigDir` replaces that folder list with only the supplied folder for each selected CLI. `-Tools` and `-ConfigDir` can be combined.
-- Plain install skips completed steps. Update refreshes installed copies, including disabled ones; a folder where legion is missing gets a fresh install, with the same marketplace registration and plugin installation steps as plain install. Missing recorded folders can be created by installation.
+- Plain install skips completed steps. Update refreshes installed copies, including disabled ones, and uses the install steps when a copy is missing. Legion reads versions from manifests on disk and checks marketplace registration and enabled state through the CLI. Missing recorded folders can be created by installation.
 - Update lists every target and asks one question, `Update legion? [y/N]`, for all of them, so one folder cannot be declined alone. `-Yes` skips that question; `-DryRun` only previews, reading listings and showing the commands it would run.
 - `legion update` has no `--tool` or `--config-dir` options and updates every listed target; use `-Update` with `-Tools` or `-ConfigDir` to update chosen targets. The one-liner for when `legion` is not available is in the [README](../README.md#update-and-uninstall). Run `legion` in the repository afterward to load the new skills.
 - Uninstall selects the same targets (see [Uninstall](#uninstall)).
@@ -131,7 +131,7 @@ Uninstall shows the commands it will run and the folders it will delete, then as
 
 Setup also puts the knowledge hub under git so a bad compile or a mistake can be undone: a new hub, or an existing hub that is not a repository, gets `git init`, a `.gitignore` with `.sessions/` and one first commit (a repeat prints `skip: knowledge hub git repository (already done)`; a hub that already is a repository is left alone). The commit uses your own git identity, or `legion` / `legion@localhost` for that repository only when none is set; the global config is never changed. Without git, setup prints one line and continues. `legion status` says when the hub is not a repository.
 
-When knowledge is enabled, uninstall also removes the llm-wiki plugin and marketplace from the selected accounts and keeps the hub and its pointer.
+When knowledge is enabled, uninstall also removes the llm-wiki plugin and marketplace from the selected accounts and keeps the hub and its pointer. Legion manages llm-wiki only in accounts. Outlanders keep any manual wiki installs.
 
 If the bootstrap needs to download uv for uninstall, it keeps the verified executable in a separate system temp folder for the detached helper to use. The bootstrap removes its project environment and leaves the executable folder for system temp cleanup. The helper deletes approved purge folders when `uv tool uninstall legion` succeeds or when the tool is already absent. If uv fails to launch or exits with an error, the helper retains those folders and the log. It closes the log before deleting its folder and retries locked files during deletion on Windows. A directory link is removed without deleting its target.
 
@@ -160,14 +160,14 @@ Plan (nothing changed yet):
 Run again with --yes to apply.
 ```
 
-After approving the plan (an interactive terminal asks `Apply? [Y/n]`), run it again with `--yes`. Setup installs a missing CLI first, then adds the account and installs legion before login. For a new account folder, the `log in:` column shows the command that starts the tool itself with the account's folder variable set (for example `$env:CLAUDE_CONFIG_DIR='<folder>'; claude` in PowerShell, `CLAUDE_CONFIG_DIR='<folder>' claude` on macOS and Linux); run it once outside legion and log in. `legion` and `legion pick` start only the overseer. If CLI installation fails or needs a new terminal, that account is not recorded; retry the add after resolving the reported next step. Setup writes:
+After approving the plan (an interactive terminal asks `Apply? [Y/n]`), run it again with `--yes`. Setup installs a missing CLI first, then adds the account and installs legion before login. It shows plugin commands and their output as they run and records them in `~/.legion/temp/setup-install-<tool>.log`. For a new account folder, the `log in:` column shows the command that starts the tool itself with the account's folder variable set (for example `$env:CLAUDE_CONFIG_DIR='<folder>'; claude` in PowerShell, `CLAUDE_CONFIG_DIR='<folder>' claude` on macOS and Linux); run it once outside legion and log in. `legion` and `legion pick` start only the overseer. If CLI installation fails or needs a new terminal, that account is not recorded; retry the add after resolving the reported next step. Setup writes:
 
 - `~/.legion/configuration/personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/legion/schemas/personalisation.schema.json`. It never holds tokens.
 - `~/.legion/configuration/notes.md`: free-form preferences and lessons.
 
 For every Claude account, setup also adds the permission rule `Bash(LEGION_ROLE=member *)` to its `settings.json`, so the overseer can start legion members without a prompt; other settings and rules stay. It also installs the `legion` command as a uv tool (`uv tool install`, from the plugin copy, pinned to the plugin's `uv.lock`). Inside the same yes, setup and the installer run `uv tool update-shell`, which edits your shell profile or, on Windows, your user PATH so the tool folder is on PATH; the plan shows that line before consent and a dry run lists it. If the tool is already installed and its folder is missing from PATH, `legion status` reports it and setup offers to run just `uv tool update-shell` for the command. On Windows this checks the saved user and machine PATH. On macOS and Linux it checks the shell's current PATH. Without a yes nothing is installed or edited. Legion records only what it adds itself: a permission rule you already had stays yours. Open a new terminal if needed.
 
-Run `legion status` before making changes. Before setup, outside an orchestrated repository, status prints:
+Run `legion status` before making changes. It has separate `accounts` and `outlanders` headings and reads plugin versions from disk without launching the coding CLIs. The outlanders heading appears when a stock command is available. `legion status --json` and the MCP `status` tool include an `outlanders` list. Before setup, with no stock CLI on PATH and outside an orchestrated repository, status prints:
 
 ```text
 no legion settings yet
@@ -187,7 +187,7 @@ These are the main commands; `legion help` lists all of them:
 | `legion setup --knowledge/--no-knowledge` | Turn llm-wiki on or decline it. Turning it off after an opt-in removes the wiki plugin and marketplace from every account and keeps the hub and its pointer. If knowledge was never enabled, a decline leaves manual installs in place. Add `--yes` to also apply the Legion setup plan. |
 | `legion add <tool> [<folder>] [--yes]` | Add a claude, codex or copilot account, in a new folder or a copy of an existing one |
 | `legion remove --id <id>` | Remove an account; keep its folder |
-| `legion status` | Show accounts, channels, knowledge and this repository |
+| `legion status` | Show accounts, outlanders, channels, knowledge and this repository |
 | `legion [--no-channel]` | Start the overseer here, set up if needed; resumes the last conversation (see [launcher defaults](../plugins/legion/skills/legion-personalisation/references/launcher.md)) |
 | `legion pick [--no-channel]` | Choose which account leads the overseer |
 | `legion limits [--id <id>]` | Show each account's usage windows (how much is left in %, reset time, status; JSON has `used` and `left`), or one account's; `unknown` when the tool gives no readout |

@@ -131,7 +131,8 @@
         "marketplaceUpdate": [
           "plugin",
           "marketplace",
-          "upgrade"
+          "upgrade",
+          "ps-legion-marketplace"
         ],
         "update": [
           "plugin",
@@ -173,7 +174,7 @@
         "adoptRewrite": [
           "config.json"
         ],
-        "installedRoot": "installed-plugins",
+        "installedRoot": "installed-plugins/ps-legion-marketplace/legion",
         "marketplaceAddRef": [
           "plugin",
           "marketplace",

@@ -8,7 +8,7 @@ legion update --check --force
 
 The result includes the installed and available versions and the update command, `legion update`. "Installed" is the version of the legion plugin that the `legion` command was installed from. Use the versions in the owner conversation; keep the command internal unless the owner asks for it or must run it themselves. The forced check bypasses the daily session-start cache. Checks read the `stable` branch of `BlackGad/ps-legion-marketplace`, which moves only with a published release. `legion update` follows the track the install was added with; to switch between release and main, uninstall, then install.
 
-Before asking for approval, read `skills/legion-<agent.tool>/SKILL.md` and its plugin/update reference for each targeted account's tool. Stop if the tool skill is missing. Explain the documented update scope, including whether it can refresh other marketplaces in that account.
+Update covers registered accounts and the default folders of stock CLIs on PATH. Status lists these default folders as outlanders. Before asking for approval, read `skills/legion-<tool>/SKILL.md` and its plugin/update reference for each targeted tool. Stop if the tool skill is missing. Explain the documented update scope, including whether it can refresh other marketplaces in a target folder.
 
 On Windows, after the owner's yes, tell them to close the Legion session, run `legion update` from a terminal, then run `legion` in the repository to reopen the conversation. The update refuses before making changes if it finds a registered ancestor. The owner runs the update themselves.
 

@@ -214,6 +214,110 @@ def test_repeat_install_skips_existing_plugins_and_uv(lifecycle: Lifecycle) -> N
     assert not lifecycle.settings.exists()
 
 
+def test_status_and_install_use_stock_default_folders(lifecycle: Lifecycle, monkeypatch: pytest.MonkeyPatch) -> None:
+    lifecycle.enable("claude", "codex")
+    overrides = {tool: lifecycle.home / f"override-{tool}" for tool in CONFIG}
+    for tool, variable in CONFIG.items():
+        monkeypatch.setenv(variable, str(overrides[tool]))
+    lifecycle.add("claude")
+    lifecycle.install()
+    account = lifecycle.account("claude")
+    claude, codex = (lifecycle.outlander(tool) for tool in ("claude", "codex"))
+    logs = [folder / "fake-cli.log" for folder in (account, claude, codex)]
+    before = [log.read_bytes() for log in logs]
+    result = lifecycle.invoke("status")
+    ordered(result.output, "accounts\n", f"claude1  claude  {account}", "outlanders\n", f"claude  {claude}  legion {lifecycle.version}", f"codex  {codex}  legion {lifecycle.version}")
+    report = json.loads(lifecycle.invoke("status", "--json").output)
+    assert [row["tool"] for row in report["outlanders"]] == ["claude", "codex"]
+    assert [log.read_bytes() for log in logs] == before
+    assert not any(folder.exists() for folder in overrides.values())
+    assert not lifecycle.outlander("copilot").exists()
+
+
+def test_install_repairs_unregistered_marketplace_with_cached_plugin(lifecycle: Lifecycle) -> None:
+    lifecycle.enable("claude")
+    lifecycle.install()
+    folder = lifecycle.outlander("claude")
+    state_file = folder / "fake-cli.json"
+    state = read_json(state_file)
+    state["marketplaces"] = {}
+    state_file.write_text(json.dumps(state), encoding="utf-8")
+    assert f"claude  {folder}  legion {lifecycle.version}" in lifecycle.invoke("status").output
+    result = lifecycle.install()
+    ordered(result.output, "claude plugin marketplace add", f"claude plugin install {PLUGIN}")
+    lifecycle.assert_plugin("claude", folder, lifecycle.version)
+
+
+@pytest.mark.parametrize("tool", CONFIG)
+def test_install_enables_a_disabled_plugin_with_a_cached_version(lifecycle: Lifecycle, tool: str) -> None:
+    lifecycle.enable(tool)
+    lifecycle.install()
+    folder = lifecycle.outlander(tool)
+    state_file = folder / "fake-cli.json"
+    state = read_json(state_file)
+    state["disabled"] = [PLUGIN]
+    state_file.write_text(json.dumps(state), encoding="utf-8")
+    assert f"{tool}  {folder}  legion {lifecycle.version}" in lifecycle.invoke("status").output
+    result = lifecycle.install()
+    assert f"{tool} plugin {'add' if tool == 'codex' else 'install'} {PLUGIN}" in result.output
+    assert "plugin marketplace add" not in result.output
+    assert read_json(state_file)["disabled"] == []
+
+
+def test_account_command_off_path_does_not_create_an_outlander(lifecycle: Lifecycle) -> None:
+    folder = lifecycle.account("claude")
+    private_bin = lifecycle.home / "registered bin"
+    write_shim(private_bin, "claude", Path(__file__).with_name("fake_cli.py"))
+    [command] = private_bin.iterdir()
+    lifecycle.settings.parent.mkdir(parents=True)
+    settings = {"schemaVersion": 1, "agents": [{"id": "claude1", "tool": "claude", "configDir": str(folder), "command": str(command)}], "channels": []}
+    lifecycle.settings.write_text(json.dumps(settings), encoding="utf-8")
+    lifecycle.install()
+    lifecycle.assert_plugin("claude", folder, lifecycle.version)
+    report = json.loads(lifecycle.invoke("status", "--json").output)
+    assert report["outlanders"] == []
+    assert not lifecycle.outlander("claude").exists()
+
+
+def test_uv_uses_registered_claude_copy_when_a_newer_cache_remains(lifecycle: Lifecycle) -> None:
+    lifecycle.enable("claude")
+    lifecycle.install()
+    folder = lifecycle.outlander("claude")
+    active = plugin_root("claude", folder)
+    stale = active / "stale/plugin.json"
+    stale.parent.mkdir()
+    stale.write_text('{"name":"legion","version":"999.0.0"}', encoding="utf-8")
+    registration = {"plugins": {PLUGIN: [{"scope": "user", "installPath": str(active)}]}}
+    (folder / "plugins/installed_plugins.json").write_text(json.dumps(registration), encoding="utf-8")
+    assert f"claude  {folder}  legion {lifecycle.version}" in lifecycle.invoke("status").output
+    lifecycle.uv.unlink()
+    lifecycle.install()
+    assert read_json(lifecycle.uv) == {"version": lifecycle.version, "source": str(active)}
+
+
+def test_outlander_keeps_a_manually_installed_wiki(lifecycle: Lifecycle) -> None:
+    lifecycle.enable("codex")
+    lifecycle.install()
+    folder = lifecycle.outlander("codex")
+    wiki = "wiki@llm-wiki"
+    state_file = folder / "fake-cli.json"
+    state = read_json(state_file)
+    state["marketplaces"]["llm-wiki"] = str(lifecycle.source)
+    state["plugins"].append(wiki)
+    state_file.write_text(json.dumps(state), encoding="utf-8")
+    root = plugin_root("codex", folder, wiki)
+    root.mkdir(parents=True)
+    (root / "plugin.json").write_text('{"name":"wiki","version":"1.0.0"}', encoding="utf-8")
+    lifecycle.settings.parent.mkdir(parents=True, exist_ok=True)
+    lifecycle.settings.write_text('{"schemaVersion":1,"agents":[],"channels":[],"knowledgeEnabled":true}', encoding="utf-8")
+    lifecycle.invoke("update", "--yes")
+    lifecycle.invoke("uninstall", "--tool", "codex", "--config-dir", str(folder), "--yes")
+    assert read_json(state_file) == {"marketplaces": {"llm-wiki": str(lifecycle.source)}, "plugins": [wiki]}
+    upgrades = [args for args in calls(folder / "fake-cli.log") if args[:3] == ["plugin", "marketplace", "upgrade"]]
+    assert upgrades
+    assert all(args[3:] == ["ps-legion-marketplace"] for args in upgrades)
+
+
 @pytest.mark.parametrize("answer", ["n\n", ""], ids=["no", "eof"])
 def test_declined_install_leaves_home_untouched(lifecycle: Lifecycle, answer: str) -> None:
     lifecycle.enable("claude")
@@ -237,13 +341,18 @@ def test_add_new_account(lifecycle: Lifecycle) -> None:
     assert "Apply?" not in preview.output
     assert not lifecycle.settings.exists()
     result = lifecycle.add("claude")
-    # today: add prints no plugin progress. The setup log has the target and result, without the commands.
-    ordered(result.output, "account  tool  folder  legion  next step", f"claude1  claude  {folder}  {lifecycle.version}  log in:", f"legion command {lifecycle.version} installed")
-    assert "plugin marketplace add" not in result.output
+    ordered(
+        result.output,
+        f"Install legion for claude in {folder}",
+        "claude plugin marketplace add",
+        f"claude plugin install {PLUGIN}",
+        f"installed legion {lifecycle.version} in {folder}",
+        "account  tool  folder  legion  next step",
+        f"claude1  claude  {folder}  {lifecycle.version}  log in:",
+        f"legion command {lifecycle.version} installed",
+    )
     log = lifecycle.home / ".legion/temp/setup-install-claude.log"
-    log_text = log.read_text(encoding="utf-8")
-    ordered(log_text, f"Update legion for claude in {folder} (not installed)", f"not installed -> {lifecycle.version}")
-    assert "plugin marketplace add" not in log_text
+    ordered(log.read_text(encoding="utf-8"), "claude plugin marketplace add", f"claude plugin install {PLUGIN}")
     assert ["plugin", "marketplace", "add", lifecycle.source.as_posix()] in calls(folder / "fake-cli.log")
     [agent] = read_json(lifecycle.settings)["agents"]
     assert (agent["id"], agent["tool"], Path(agent["configDir"]).expanduser()) == ("claude1", "claude", folder)
@@ -258,7 +367,7 @@ def test_add_reports_plugin_failure_in_the_table_but_exits_zero(lifecycle: Lifec
     # today: add exits zero and installs the command even when account plugin installation fails.
     result = lifecycle.add("claude")
     folder = lifecycle.account("claude")
-    ordered(result.output, f"claude1  claude  {folder}  missing  install failed:", f"legion command {lifecycle.version} installed")
+    ordered(result.output, "fake claude: plugin install failed", f"claude1  claude  {folder}  missing  install failed:", f"legion command {lifecycle.version} installed")
     assert read_json(lifecycle.settings)["agents"][0]["id"] == "claude1"
     assert not (plugin_root("claude", folder) / "plugin.json").exists()
     assert "fake claude: plugin install failed" in (lifecycle.home / ".legion/temp/setup-install-claude.log").read_text(encoding="utf-8")
@@ -316,7 +425,9 @@ def test_update_with_a_failed_target(installed_accounts: Lifecycle, monkeypatch:
     monkeypatch.setenv("FAKE_CLI_FAIL", "plugin update")
     monkeypatch.setenv("FAKE_CLI_FAIL_FOLDER", str(env.account("claude")))
     result = env.invoke("update", answer="y\n", code=1)
-    ordered(result.output, "Update legion? [y/N] y\n", "claude plugin update", WAITING, f"legion {UPDATED} is installed; restart your sessions.", "fake claude: plugin update failed")
+    ordered(
+        result.output, "Update legion? [y/N] y\n", "claude plugin update", "fake claude: plugin update failed", WAITING, f"legion {UPDATED} is installed; restart your sessions.", "claude exited 1"
+    )
     # today: update stops at the failing target and drops the results table.
     assert "Results:" not in result.output
     env.assert_plugin("claude", env.outlander("claude"), UPDATED)

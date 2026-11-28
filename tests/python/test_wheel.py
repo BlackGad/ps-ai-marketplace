@@ -65,12 +65,12 @@ import sys
 import legion
 from legion.services.accounts._setup import NOTES_TEMPLATE
 from legion.services.installation._tool_install import find_recipe, load_tools
-from legion.services.installation.installer import DEFAULT_SOURCE, _catalog
+from legion.services.installation.installer import DEFAULT_SOURCE, load_catalog
 from legion.services.repository._repository import _check_templates
 
 assert Path(legion.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
 assert version("legion") == sys.argv[1]
-assert {tool.id for tool in _catalog(DEFAULT_SOURCE, "stable", None).tools} == {"claude", "codex", "copilot"}
+assert {tool.id for tool in load_catalog(DEFAULT_SOURCE, "release").tools} == {"claude", "codex", "copilot"}
 assert {tool.id for tool in load_tools()} == {"claude", "codex", "copilot"}
 assert find_recipe("uv").check == ["uv", "--version"]
 assert NOTES_TEMPLATE.read_text(encoding="utf-8").strip()

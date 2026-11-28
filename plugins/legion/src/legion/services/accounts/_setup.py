@@ -14,16 +14,7 @@ from typing import Optional
 import click
 from pydantic import ValidationError
 
-from legion.services.accounts import _accounts, _launchers
-from legion.services.installation import (
-    _tool_install,
-    _uv_tool,
-    installer as _installer,
-)
-from legion.services.status import _status
-from legion.services.repository import _footprints
 from legion.core import _generated, _settings_io
-from legion.services.installation import _user_path
 from legion.core._home import (
     full_path,
     home_path,
@@ -35,6 +26,15 @@ from legion.core._home import (
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._settings_models import Agent, PersonalisationSettings, ToolDescriptor
 from legion.core._validate import read_text
+from legion.services.accounts import _accounts, _launchers
+from legion.services.installation import (
+    _tool_install,
+    _user_path,
+    _uv_tool,
+    installer as _installer,
+)
+from legion.services.lifecycle import _plugins, _targets
+from legion.services.repository import _footprints
 
 WINDOWS = sys.platform == "win32"
 NO_FOLDER = "Existing account config folder does not exist."
@@ -122,10 +122,6 @@ def add_saved_folders() -> None:
     os.environ["PATH"] = path
 
 
-def _resolve(folder: str, home: Path) -> Path:
-    return full_path(home_path(folder, home))
-
-
 # Two spellings of one folder (a link and its target) are one folder.
 def _same_folder(left: Path, right: Path) -> bool:
     return same_path(resolve_directory(left), resolve_directory(right))
@@ -133,12 +129,6 @@ def _same_folder(left: Path, right: Path) -> bool:
 
 def _managed_folder(account: str, home: Path) -> Path:
     return full_path(home / ".legion" / "agents" / account)
-
-
-# True when the account's own program is gone and the owner must name it again (legion account add --command --config-dir);
-# a missing stock CLI is installed instead.
-def _target_needed(agent: Agent, home: Path) -> bool:
-    return agent.command is not None and not _resolve(agent.command, home).is_file()
 
 
 def _read_json(file: Path) -> dict[str, object]:
@@ -176,11 +166,11 @@ def _missing_allow_rules(tool: ToolDescriptor, folder: Path) -> list[str]:
 
 
 def _row(agent: Agent, tool: ToolDescriptor, home: Path, requested: bool = False, new: bool = False, source: Optional[Path] = None) -> Row:
-    folder = _resolve(agent.config_dir, home)
+    folder = _targets.account_folder(home, agent)
     read_from = source or folder
     # Login is owner-only; infer the guidance from our managed folder without reading credentials.
     next_step = f"log in: {_accounts.login_command(tool, folder, agent.command, home)}" if source is None and agent.provider is None and same_path(folder, _managed_folder(agent.id, home)) else "ready"
-    if not new and agent.provider is None and _target_needed(agent, home):
+    if not new and agent.provider is None and agent.command is not None and _launchers.registered_command(agent.command, home) is None:
         next_step = f"target needed: {agent.id}; ask the owner for the registered executable"
     return Row(
         id=agent.id,
@@ -189,7 +179,7 @@ def _row(agent: Agent, tool: ToolDescriptor, home: Path, requested: bool = False
         requested=requested,
         new=new,
         source=source,
-        version=_status.installed_version(read_from, tool),
+        version=_targets.installed_version(read_from, tool),
         next_step=next_step,
         usable=not next_step.startswith("target needed:"),
         command=agent.command,
@@ -211,11 +201,11 @@ def _added_account(tool_id: str, config_dir: Optional[str], account_id: Optional
         raise SetupError(f"unknown tool '{tool_id}'")
     given: Optional[Path] = None
     if config_dir is not None:
-        given = _resolve(config_dir, home) if config_dir else None
+        given = full_path(home_path(config_dir, home)) if config_dir else None
         if given is None or not given.is_dir():
             raise SetupError(NO_FOLDER)
         if account_id is None:
-            same = next((agent for agent in settings.agents if agent.tool == tool_id and agent.provider is None and _same_folder(_resolve(agent.config_dir, home), given)), None)
+            same = next((agent for agent in settings.agents if agent.tool == tool_id and agent.provider is None and _same_folder(_targets.account_folder(home, agent), given)), None)
             if same is not None:
                 account_id = same.id
     account_id = account_id or _next_id(tool_id, settings)
@@ -224,7 +214,7 @@ def _added_account(tool_id: str, config_dir: Optional[str], account_id: Optional
     if existing is not None:
         if existing.tool != tool_id or existing.provider is not None:
             raise SetupError(f"account '{account_id}' already exists with other values")
-        if given is not None and not _same_folder(_resolve(existing.config_dir, home), given):
+        if given is not None and not _same_folder(_targets.account_folder(home, existing), given):
             raise SetupError(f"account '{account_id}' already has its folder; legion add {tool_id} <folder> copies a folder into a new account")
     else:
         _accounts.check_new_id(settings, account_id)
@@ -387,22 +377,39 @@ def add_allow_rules(plan: Plan, say: Callable[[str], None]) -> None:
         _generated.write_generated(file, json.dumps(data, indent=2, ensure_ascii=False) + "\n", executable=False)
 
 
-# The plugin goes into an account's folder by the installer module, without questions (yes); its output goes to a log.
-# Returns 0 when it finished, 1 when it failed.
-def install_plugin(tool_id: str, folder: Path, home: Path, source: Optional[str], tool_roots: list[tuple[str, Path]]) -> int:
-    try:
-        output = "\n".join(_installer.install(home, tools=[tool_id], config_dir=folder, update=True, yes=True, source=source or _installer.DEFAULT_SOURCE, with_knowledge=False, tool_roots=tool_roots))
-        code = 0
-    except (_installer.InstallerError, _footprints.FootprintError, _launchers.LauncherError, _settings_io.SettingsError, OSError, ValueError) as error:
-        output, code = str(error), 1
-    log = home / ".legion" / "temp" / f"setup-install-{tool_id}.log"
+def install_plugin(plan: Plan, row: Row, source: str | None, say: Callable[[str], None]) -> int:
+    source = source or _installer.DEFAULT_SOURCE
+    folder, tool_id = row.folder, row.tool.id
+    log = plan.home / ".legion" / "temp" / f"setup-install-{tool_id}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
-    log.write_text(output, encoding="utf-8")
-    return code
+    with log.open("w", encoding="utf-8") as stream:
+
+        def report(line: str) -> None:
+            say(line)
+            print(line, file=stream, flush=True)
+
+        try:
+            catalog = _installer.load_catalog(source, "release")
+            entry = _installer.catalog_tool(catalog, tool_id)
+            command = _targets.account_command(plan.home, entry, row.command)
+            if command is None:
+                raise SetupError(f"{tool_id} command is missing")
+            report(f"Install legion for {tool_id} in {folder}")
+            entry = entry.model_copy(update={"command": command})
+            _plugins.ensure(entry, folder, source, "release", False, [], progress=report)
+            copy = _plugins.verified_copy(entry, folder)
+            if copy is None:
+                raise SetupError(f"{tool_id} legion copy is missing after install")
+            plan.tool_roots.append(copy)
+        except ERRORS as error:
+            report(f"legion install failed in {folder}: {one_line(str(error))}")
+            return 1
+        report(f"installed legion {copy[0]} in {folder}")
+        return 0
 
 
 def install_plugins(plan: Plan, source: Optional[str], say: Callable[[str], None]) -> None:
-    results: dict[str, int] = {}
+    results: dict[tuple[str, str], int] = {}
     for row in plan.accounts:
         if not row.usable:
             continue
@@ -410,13 +417,13 @@ def install_plugins(plan: Plan, source: Optional[str], say: Callable[[str], None
         if row.version:
             say(f"skip: legion in {row.folder} (already done)")
             continue
-        key = f"{row.tool.id}:{os.path.normcase(str(resolve_directory(row.folder)))}"
+        key = row.tool.id, _targets.folder_key(row.folder)
         if key not in results:
             try:
-                results[key] = install_plugin(row.tool.id, row.folder, plan.home, source, plan.tool_roots)
+                results[key] = install_plugin(plan, row, source, say)
             except (OSError, ValueError):
                 results[key] = 1
-        row.version = _status.installed_version(row.folder, row.tool)
+        row.version = _targets.installed_version(row.folder, row.tool)
         if results[key] != 0 and row.version is None:
             row.next_step = f"install failed: log in with {row.id}, then finish setup"
 
@@ -425,8 +432,8 @@ def write_commands(plan: Plan, say: Callable[[str], None]) -> None:
     if plan.uv_missing:
         say("uv is missing. Ask the owner before installing it.")
         return
-    source = _installer._newest_source(plan.tool_roots) if plan.tool_roots else PLUGIN_ROOT
-    for line in _uv_tool.install(source, plan.home, update_shell=True):
+    source = _installer.newest_source(plan.tool_roots) if plan.tool_roots else PLUGIN_ROOT
+    for line in _uv_tool.install(source, plan.home, update_shell=True, progress=say):
         say(line)
 
 
@@ -446,17 +453,13 @@ def _save_knowledge_locked(home: Path, choice: bool, explicit: bool, say: Callab
     if not explicit and settings.knowledge_enabled is not None:
         return
     if not choice and settings.knowledge_enabled:
-        lines: list[str] = []
         try:
             with saved_path():
-                catalog = _installer._catalog(_installer.DEFAULT_SOURCE, "release", None)
-                _installer.remove_knowledge(home, catalog, settings.agents, lines)
+                catalog = _installer.load_catalog(_installer.DEFAULT_SOURCE, "release")
+                _installer.remove_knowledge(home, catalog, settings.agents, [], say)
         except (OSError, ValueError):
-            lines.append("knowledge stays on; run legion setup --no-knowledge again")
+            say("knowledge stays on; run legion setup --no-knowledge again")
             raise
-        finally:
-            for line in lines:
-                say(line)
     settings.knowledge_enabled = choice
     _settings_io.save_locked(home, settings)
 
@@ -467,8 +470,8 @@ def _install_knowledge(home: Path, say: Callable[[str], None]) -> None:
     settings = _settings_io.load_unchecked(home)
     if settings.knowledge_enabled:
         lines: list[str] = []
-        catalog = _installer._catalog(_installer.DEFAULT_SOURCE, "release", None)
-        _installer.reconcile_knowledge(home, catalog, False, lines)
+        catalog = _installer.load_catalog(_installer.DEFAULT_SOURCE, "release")
+        _installer.reconcile_knowledge(home, catalog, False, lines, say)
         for line in lines:
             say(line)
 

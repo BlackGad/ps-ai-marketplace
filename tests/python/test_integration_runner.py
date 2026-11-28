@@ -634,7 +634,7 @@ def test_copilot_published_fallback_reads_installed_manifest(tmp_path: Path) -> 
         ),
         encoding="utf-8",
     )
-    manifest = folder / "installed-plugins/legion-marketplace/legion/plugin.json"
+    manifest = folder / "installed-plugins/ps-legion-marketplace/legion/plugin.json"
     manifest.parent.mkdir(parents=True)
     manifest.write_text('{"name":"legion","version":"0.16.0"}', encoding="utf-8")
     assert instance.version("copilot", folder) == "0.16.0"

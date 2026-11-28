@@ -6,7 +6,7 @@
   "plugin": {
     "defaultConfigDir": "~/.copilot",
     "adoptRewrite": ["config.json"],
-    "installedRoot": "installed-plugins",
+    "installedRoot": "installed-plugins/ps-legion-marketplace/legion",
     "marketplaceAddRef": ["plugin", "marketplace", "add", "{source}#{ref}"],
     "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],
     "uninstall": ["plugin", "uninstall", "legion@ps-legion-marketplace"],
