@@ -75,7 +75,7 @@ One update covers registered accounts and outlanders. Before replacing the comma
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Uninstall
 ```
 
-Uninstall shows each tool's plugin and marketplace removal steps as they run. A full uninstall waits for registered Legion processes outside the calling session to exit, then schedules removal of the `legion` command. An installed uv stays installed. If the bootstrap downloads uv for uninstall, it uses a temporary copy that remains available to the helper after the bootstrap exits.
+Update and uninstall show a plan, ask `Apply? [y/N]` and print a results table. Uninstall waits for registered Legion sessions outside the calling session and their Windows launchers, removes the plugins and marketplaces through each CLI, then schedules removal of the `legion` command. An installed uv stays installed. The POSIX bootstrap takes `--update`, `--uninstall` or `--purge` after `sh -s --`. If the bootstrap downloads uv for uninstall, it uses a temporary copy that remains available to the helper after the bootstrap exits.
 
 > [!IMPORTANT]
 > A plain uninstall keeps your settings, notes, account folders and logins. **Purge removes that data after the uv uninstall succeeds** or when the command is already absent. Purge also removes the recorded PATH entries for portable tools Legion installed. It asks separately before deleting a knowledge hub. The coding tools keep their own data and settings.

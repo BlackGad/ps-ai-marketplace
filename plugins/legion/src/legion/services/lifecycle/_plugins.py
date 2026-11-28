@@ -6,6 +6,7 @@ import re
 import shutil
 import tempfile
 import tomllib
+from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 
@@ -107,24 +108,21 @@ def command_line(entry: CatalogTool, arguments: list[str], folder: Path) -> str:
     return f"{entry.config_env}={display_command([str(folder)])} {display_command([str(program), *prefix, *arguments])}"
 
 
-def flush_progress(lines: list[str], progress: Callable[[str], None] | None) -> None:
-    if progress is not None:
-        for line in lines:
-            progress(line)
-        lines.clear()
-
-
-def run_step(entry: CatalogTool, arguments: list[str], folder: Path, dry_run: bool, lines: list[str], progress: Callable[[str], None] | None = None) -> None:
-    line = command_line(entry, arguments, folder)
+def run_step(entry: CatalogTool, arguments: list[str], folder: Path, dry_run: bool, say: Callable[[str], None]) -> None:
+    say(command_line(entry, arguments, folder))
     if dry_run:
-        lines.append(line)
-        flush_progress(lines, progress)
         return
-    flush_progress(lines, progress)
-    if progress is not None:
-        progress(line)
-    lines.extend(_execute(entry, arguments, folder, progress=progress).splitlines())
-    flush_progress(lines, progress)
+    tail: deque[str] = deque(maxlen=5)
+
+    def progress(line: str) -> None:
+        tail.append(line)
+        say(line)
+
+    try:
+        _execute(entry, arguments, folder, progress=progress)
+    except ValueError as error:
+        detail = "\n".join(tail).strip()
+        raise ValueError(f"{error}\n{detail}" if detail else str(error)) from error
 
 
 def ensure(
@@ -156,7 +154,7 @@ def ensure(
         ready = registered and _pinned_marketplace(entry, folder, item, pin)
         if not ready:
             for arguments in _removal_steps(plugin, listed, registered):
-                run_step(entry, arguments, folder, dry_run, [], say)
+                run_step(entry, arguments, folder, dry_run, say)
             registered = False
     else:
         field = plugin.marketplace_listing.root_field
@@ -167,7 +165,7 @@ def ensure(
     if ready and updating:
         for arguments in (plugin.marketplace_update, plugin.update):
             if arguments:
-                run_step(entry, arguments, folder, dry_run, [], say)
+                run_step(entry, arguments, folder, dry_run, say)
         return before
     if ready and enabled:
         for arguments in (add, plugin.install):
@@ -176,12 +174,12 @@ def ensure(
     if not dry_run:
         folder.mkdir(parents=True, exist_ok=True)
     if not registered:
-        run_step(entry, add, folder, dry_run, [], say)
+        run_step(entry, add, folder, dry_run, say)
         if pin and not dry_run and not _pinned_marketplace(entry, folder, _marketplace_item(entry, folder, marketplace), pin):
             raise ValueError(f"llm-wiki marketplace could not be verified at {pin.tag}")
     if plugin.marketplace_update:
-        run_step(entry, plugin.marketplace_update, folder, dry_run, [], say)
-    run_step(entry, plugin.install, folder, dry_run, [], say)
+        run_step(entry, plugin.marketplace_update, folder, dry_run, say)
+    run_step(entry, plugin.install, folder, dry_run, say)
     return before
 
 

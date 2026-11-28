@@ -4,7 +4,7 @@ import json
 import os
 import sys
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from functools import cmp_to_key, partial
 from pathlib import Path
@@ -16,6 +16,7 @@ from legion.core import _generated, _settings_io, _stop_event
 from legion.core._home import (
     full_path,
     home_path,
+    is_reparse,
     owner_path_safe,
     path_contains,
     resolve_directory,
@@ -27,6 +28,7 @@ from legion.core._plugin import PLUGIN_ROOT
 from legion.core._settings_models import (
     Agent,
     CatalogTool,
+    PersonalisationSettings,
     PluginPin,
     ToolsCatalog,
 )
@@ -39,18 +41,14 @@ from legion.services.installation import (
     _uv_tool,
 )
 from legion.services.installation._update import compare_versions
-from legion.services.installation.installer import (
-    DEFAULT_SOURCE,
-    catalog_tool,
-    load_catalog,
-    remove_knowledge,
-)
 from legion.services.lifecycle import _plugins, _targets
+from legion.services.lifecycle._catalog import DEFAULT_SOURCE, catalog_tool, load_catalog
+from legion.services.repository._footprints import FootprintError
 
-Intent = Literal["setup", "install", "update", "finish"]
+Intent = Literal["setup", "install", "update", "finish", "uninstall", "purge"]
 Say = Callable[[str], None]
 Copy = tuple[str, Path]
-ERRORS = (_settings_io.SettingsError, _accounts.AccountError, _launchers.LauncherError, _tool_install.ToolInstallError, OSError, ValueError, TypeError, RuntimeError)
+ERRORS = (_settings_io.SettingsError, _accounts.AccountError, _launchers.LauncherError, _tool_install.ToolInstallError, FootprintError, OSError, ValueError, TypeError, RuntimeError)
 NOTES_TEMPLATE = PLUGIN_ROOT / "skills/legion-personalisation/references/notes-template.md"
 
 
@@ -61,6 +59,7 @@ class Step:
     folder: Path
     run: Callable[[Say], str]
     needs_yes: bool = True
+    stop_on_failure: bool = False
 
 
 @dataclass
@@ -70,6 +69,7 @@ class Plan:
     notices: list[str] = field(default_factory=list)
     dry_run: bool = False
     summary: str | None = None
+    stopped_home: Path | None = None
 
 
 def _approved() -> bool:
@@ -100,18 +100,25 @@ def apply(changes: Plan, *, yes: bool = False, say: Say = click.echo) -> int:
 
     rows = [("Target", "Folder", "Result")]
     failed = False
-    for step in changes.steps:
-        if changes.intent == "finish" and step.needs_yes:
-            continue
-        say(step.line)
-        try:
-            result = step.run(say)
-        except ERRORS as error:
-            failed = True
-            result = f"failed: {' '.join(str(error).split())}"
-            if changes.intent == "finish":
-                click.echo(f"First-run check: {step.line}: {result}", err=True)
-        rows.append((step.target, str(step.folder), result))
+    try:
+        for step in changes.steps:
+            if changes.intent == "finish" and step.needs_yes:
+                continue
+            say(step.line)
+            try:
+                result = step.run(say)
+            except ERRORS as error:
+                failed = True
+                result = f"failed: {' '.join(str(error).split())}"
+                if changes.intent == "finish":
+                    click.echo(f"First-run check: {step.line}: {result}", err=True)
+            rows.append((step.target, str(step.folder), result))
+            if step.stop_on_failure and result.startswith("failed: "):
+                break
+    finally:
+        if changes.stopped_home is not None:
+            _stop_event.clear_stop(changes.stopped_home)
+            changes.stopped_home = None
     if not changes.dry_run or failed:
         say("Results:")
         target_width = max(len(row[0]) for row in rows)
@@ -156,8 +163,6 @@ def plan(
     source: str | Path = DEFAULT_SOURCE,
     ref: str = "release",
     dry_run: bool = False,
-    tools: tuple[str, ...] = (),
-    config_dir: Path | None = None,
     account_tool: str | None = None,
     account_folder: str | None = None,
     account_id: str | None = None,
@@ -174,7 +179,15 @@ def plan(
     try:
         settings = _settings_io.load_unchecked(home) if file.exists() else _settings_io.load_or_empty(home)
     except _settings_io.SettingsError as error:
-        raise ValueError(f"Fix invalid settings in {file}: {error}") from error
+        if intent not in ("uninstall", "purge"):
+            raise ValueError(f"Fix invalid settings in {file}: {error}") from error
+        reason = " ".join(str(error).split()).split("; ", 1)[0]
+        changes.notices.append(f"skip: account folders (settings invalid: {reason})")
+        settings = PersonalisationSettings.model_validate_json(_settings_io.EMPTY)
+
+    if intent in ("uninstall", "purge"):
+        _uninstall_steps(changes, home, catalog, settings)
+        return changes
 
     roots: list[Copy] = []
     if intent in ("setup", "finish"):
@@ -198,10 +211,8 @@ def plan(
             changes.steps.append(_command_step(home, roots, changes, fallback=not agents))
         return changes
 
-    selected = list(dict.fromkeys(part for word in tools for part in word.split(",") if part))
-    entries = [catalog_tool(catalog, tool) for tool in selected] if selected else catalog.tools
-    for entry in entries:
-        folders = _targets.folders(home, entry, settings.agents, config_dir)
+    for entry in catalog.tools:
+        folders = _targets.folders(home, entry, settings.agents)
         if not any(command for _, command in folders):
             changes.notices.extend((f"skip: {entry.id} (not installed)", entry.install_hint))
         for folder, command in folders:
@@ -216,6 +227,114 @@ def plan(
         _knowledge_steps(changes, home, catalog.tools, settings.agents, catalog.wiki, settings.knowledge_enabled)
     changes.steps.append(_command_step(home, roots, changes, fallback=fallback))
     return changes
+
+
+def _removal_targets(home: Path, catalog: ToolsCatalog, settings: PersonalisationSettings) -> Iterator[tuple[CatalogTool, Path, str | None, PluginPin | None]]:
+    wiki_folders = {(agent.tool, _targets.folder_key(_targets.account_folder(home, agent))) for agent in settings.agents} if settings.knowledge_enabled else set()
+    for entry in catalog.tools:
+        for folder, command in _targets.folders(home, entry, settings.agents):
+            with_wiki = (entry.id, _targets.folder_key(folder)) in wiki_folders and not _targets.is_default_folder(home, entry, folder)
+            yield entry, folder, command, catalog.wiki if with_wiki else None
+
+
+def _uninstall_steps(changes: Plan, home: Path, catalog: ToolsCatalog, settings: PersonalisationSettings) -> None:
+    for entry, folder, command, pin in _removal_targets(home, catalog, settings):
+        if command is None:
+            changes.notices.append(f"skip: {entry.id} in {folder} (no command for this folder)")
+            continue
+        target = entry.model_copy(update={"command": command})
+        for recipe in (None, pin) if pin else (None,):
+            plugin = "llm-wiki" if recipe else "legion"
+            line = f"Remove {plugin} for {entry.id} in {folder}"
+            label = f"{entry.id} knowledge" if recipe else entry.id
+            action: Callable[[Say], str]
+            try:
+                arguments = _plugins.removal_steps(target, folder, recipe)
+            except ERRORS as error:
+                action = partial(_removal_error, error)
+            else:
+                if not arguments:
+                    changes.notices.append(f"skip: {plugin} for {entry.id} in {folder} (already done)")
+                    continue
+                action = partial(_remove_from, target, folder, arguments, changes.dry_run)
+            changes.steps.append(Step(line, label, folder, action))
+
+    purge = changes.intent == "purge"
+    legion = home / ".legion"
+    hub = purge and os.path.lexists(legion / "knowledge")
+    folders = _purge_folders(home, keep_hub=hub) if purge else []
+    path_lines = _user_path.remove(home, purge, dry_run=True)
+    uv_lines = _uv_tool.uninstall(home, dry_run=True)
+    if not (changes.steps or folders or hub or path_lines or uv_lines):
+        changes.notices.append(f"skip: {changes.intent} (already done)")
+        return
+
+    stopped = bool(uv_lines) or (owner_path_safe(_stop_event.stop_path(home), home) and run_folder(home).is_dir())
+    if stopped:
+
+        def stop(_say: Say) -> str:
+            if changes.dry_run:
+                return "previewed"
+            _uv_tool.stop_running(home)
+            changes.stopped_home = home
+            return "stopped"
+
+        changes.steps.insert(0, Step("Waiting for running Legion sessions to exit...", "sessions", home, stop, stop_on_failure=True))
+
+    preview = [*path_lines, *uv_lines[1:]]
+    if folders or hub:
+        preview.append(f"Remove folder: {legion}")
+    if hub:
+        preview.append("Asked separately: the knowledge hub in ~/.legion/knowledge")
+    line = "\n  ".join(preview) or "Finish uninstall"
+    changes.steps.append(Step(line, "legion command", home, partial(_removal_handover, changes, home, hub)))
+
+
+def _removal_error(error: Exception, _say: Say) -> str:
+    raise error
+
+
+def _remove_from(entry: CatalogTool, folder: Path, arguments: list[list[str]], dry_run: bool, say: Say) -> str:
+    for command in arguments:
+        _plugins.run_step(entry, command, folder, dry_run, say)
+    return "previewed" if dry_run else "removed"
+
+
+def _removal_handover(changes: Plan, home: Path, hub: bool, say: Say) -> str:
+    if changes.dry_run:
+        return "previewed"
+    purge = changes.intent == "purge"
+    for line in _user_path.remove(home, purge):
+        say(line)
+    with_knowledge = False
+    if hub:
+        with suppress(click.Abort):
+            with_knowledge = click.confirm("Also delete the knowledge hub in ~/.legion/knowledge? [y/N]", default=False, prompt_suffix=" ", show_default=False)
+    if with_knowledge:
+        lines: list[str] = []
+        _knowledge_hub.purge(home, lines)
+        for line in lines:
+            say(line)
+    remaining = _purge_folders(home, keep_hub=hub and not with_knowledge) if purge else []
+    result = _uv_tool.uninstall(home, stopped=changes.stopped_home is not None, purge=remaining)
+    if not result:
+        return "already done"
+    changes.stopped_home = None  # The handover owns the stop file now.
+    changes.summary = result[0]
+    if result[0].startswith("legion command"):
+        row = f"removal scheduled. See {home / _uv_tool.HANDOVER_LOG}."
+        return " ".join([row, *result[1:]])
+    return "folder removal scheduled"
+
+
+def _purge_folders(home: Path, *, keep_hub: bool) -> list[Path]:
+    legion = home / ".legion"
+    if not os.path.lexists(legion):
+        return []
+    # Handover removes a linked Legion folder as a link.
+    if is_reparse(legion) or not keep_hub:
+        return [legion]
+    return [child for child in legion.iterdir() if child.name != "knowledge"]
 
 
 def _install_in(
@@ -483,7 +602,14 @@ def _set_knowledge(home: Path, catalog: ToolsCatalog, choice: bool, say: Say) ->
             say(f"skip: knowledge {'enabled' if choice else 'declined'} (already done)")
             return "already done"
         if not choice and settings.knowledge_enabled:
-            remove_knowledge(home, catalog, settings.agents, [], say)
+            for entry, folder, command, pin in _removal_targets(home, catalog, settings):
+                if pin is None:
+                    continue
+                if command is None:
+                    say(f"skip: knowledge: {entry.id} in {folder} (no command for this folder)")
+                    continue
+                target = entry.model_copy(update={"command": command})
+                _remove_from(target, folder, _plugins.removal_steps(target, folder, pin), False, say)
         settings.knowledge_enabled = choice
         _settings_io.save_locked(home, settings)
     return "enabled" if choice else "declined"

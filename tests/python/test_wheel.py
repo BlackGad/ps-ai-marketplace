@@ -65,7 +65,7 @@ import sys
 import legion
 from legion.services.lifecycle._lifecycle import NOTES_TEMPLATE
 from legion.services.installation._tool_install import find_recipe, load_tools
-from legion.services.installation.installer import DEFAULT_SOURCE, load_catalog
+from legion.services.lifecycle._catalog import DEFAULT_SOURCE, load_catalog
 from legion.services.repository._repository import _check_templates
 
 assert Path(legion.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())

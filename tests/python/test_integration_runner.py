@@ -229,7 +229,6 @@ def test_steps_keep_first_repeat_order(tmp_path: Path) -> None:
         "channel",
         "foundry-launch",
         "no-pwsh",
-        "uninstall-scoped",
         "uninstall",
         "reinstall",
         "update-uv-tool",
@@ -295,7 +294,7 @@ def test_update_first_reinstalls_a_tool_then_repeat_is_stable(tmp_path: Path) ->
     instance.update(False)
     instance.update(True)
     assert calls[:2] == [("codex", tuple(instance.catalog["codex"]["plugin"][name])) for name in ("uninstall", "marketplaceRemove")]
-    assert calls[2:] == [(("install", "--update", "--source", str(instance.checkout), "--yes"), {"owner": True}), (("update", "--yes"), {"owner": True})]
+    assert calls[2:] == [(("update", "--source", str(instance.checkout), "--yes"), {"owner": True}), (("update", "--yes"), {"owner": True})]
     assert instance.home_snapshot.call_args_list == [call(update=True), call(update=True)]
     assert instance.check_tool.call_args_list == [call(expected), call(expected)]
 
@@ -332,7 +331,7 @@ def test_published_source_repeat_uses_documented_owner_command(tmp_path: Path) -
     instance.check_tool = Mock()
     instance.update(False)
     instance.update(True)
-    assert calls == [(("install", "--update", "--source", runner.MARKETPLACE, "--ref", "main", "--yes"), {"owner": True}), (("update", "--yes"), {"owner": True})]
+    assert calls == [(("update", "--source", runner.MARKETPLACE, "--ref", "main", "--yes"), {"owner": True}), (("update", "--yes"), {"owner": True})]
     assert instance.cli.call_args_list == [call("claude", instance.catalog["claude"]["plugin"][name]) for name in ("uninstall", "marketplaceRemove")]
     assert instance.home_snapshot.call_args_list == [call(update=True), call(update=True)]
     assert instance.check_tool.call_args_list == [call(expected), call(expected)]
@@ -373,6 +372,7 @@ def test_update_uv_tool_repeats_on_the_upgraded_fixture_then_purges(tmp_path: Pa
         child.click_pin = Mock(side_effect=[initial_pin, candidate_pin])
         child.installed_click = Mock(side_effect=[initial_pin, candidate_pin])
         child.install_legion = Mock()
+        child.cli = Mock()
         child.version = Mock(side_effect=[current] * len(runner.TOOLS) + [candidate] * len(runner.TOOLS))
         child.stage_candidate = Mock(return_value=candidate)
         child.legion = Mock(side_effect=[f"legion {current} -> {candidate}", json.dumps(status), f"skip: legion command {candidate} (already done)", "removed"])
@@ -397,8 +397,8 @@ def test_update_uv_tool_repeats_on_the_upgraded_fixture_then_purges(tmp_path: Pa
     [child] = children
     assert instance.run.call_args_list == [call(clone), call(branch)]
     instance.nested.assert_called_once_with(release, root / "home")
-    assert child.targets == {tool: (str(release) if tool == "copilot" else runner.MARKETPLACE, "release") for tool in runner.TOOLS}
-    assert child.install_legion.call_args_list == [call(tool) for tool in runner.TOOLS]
+    child.cli.assert_called_once_with("copilot", [word.replace("{source}", release.as_posix()) for word in child.catalog["copilot"]["plugin"]["marketplaceAdd"]])
+    child.install_legion.assert_called_once_with(runner.MARKETPLACE)
     assert child.version.call_args_list == [call(tool, child.folder(tool)) for tool in runner.TOOLS] * 2
     child.stage_candidate.assert_called_once_with(release, current, initial_pin)
     assert child.check_tool.call_args_list == [call(current), call(candidate)]
@@ -500,7 +500,7 @@ def test_full_uninstall_uses_owner_then_project_command_and_keeps_uv(tmp_path: P
             assert env is not None
             assert env["UV_PROJECT_ENVIRONMENT"] == str(instance.work / "python-env")
             assert env["PATH"].split(os.pathsep)[0] == str(instance.uv.parent)
-            return "skip: uninstall (already done)"
+            return f"skip: {'purge' if purge else 'uninstall'} (already done)"
         if argv == [uv, "tool", "dir", "--bin"]:
             return str(instance.uv.parent)
         if argv == [uv, "tool", "list"]:
@@ -514,7 +514,7 @@ def test_full_uninstall_uses_owner_then_project_command_and_keeps_uv(tmp_path: P
     monkeypatch.setattr(runner, "wait_gone", wait_gone)
     action = instance.purge if purge else instance.uninstall
     assert action(False) == "removed"
-    assert action(True) == "skip: uninstall (already done)"
+    assert action(True) == f"skip: {'purge' if purge else 'uninstall'} (already done)"
     tool_check = [[uv, "tool", "dir", "--bin"], [uv, "tool", "list"], [uv, "--version"]]
     assert [entry.args[0] for entry in instance.run.call_args_list] == [tool_check[0], owner_command, *tool_check, project_command, *tool_check]
     removed_paths = [call(executable, environment)]
@@ -549,33 +549,12 @@ def test_full_uninstall_rejects_invalid_uv_state(tmp_path: Path, uv_works: bool)
             instance.uninstall(True)
 
 
-def test_scoped_uninstall_keeps_uv_tool_and_other_targets(tmp_path: Path) -> None:
-    instance = make_runner(tmp_path)
-    (instance.tool_dir / "legion").mkdir(parents=True)
-    target = instance.folder("codex")
-    other = instance.home / "codex-account"
-    instance.active = lambda: ["codex"]
-    instance.targets_for_uninstall = lambda: [("codex", target), ("codex", other)]
-    instance.tool_version = lambda: "1.2.3"
-    instance.legion = Mock(side_effect=["removed", "skip: uninstall (already done)"])
-    instance.check_tool = Mock()
-    instance.listing = Mock(side_effect=lambda _tool, folder, *_args, **_kwargs: folder == other)
-
-    assert instance.uninstall_scoped(False) == "removed"
-    assert instance.uninstall_scoped(True) == "skip: uninstall (already done)"
-    assert instance.legion.call_args_list == [call("uninstall", "--tool", "codex", "--config-dir", str(target), "--yes", owner=True)] * 2
-    assert instance.check_tool.call_args_list == [call("1.2.3")] * 2
-    assert instance.listing.call_args_list == [call("codex", target, include_disabled=True), call("codex", target, "marketplace"), call("codex", other)] * 2
-
-
 @pytest.mark.parametrize("text", ["codex exited 1\nlocal directory source is not supported", "claude exited 1\nlocal directory source is not supported"])
 def test_local_refusal_only_skips_its_cli(tmp_path: Path, text: str) -> None:
     instance = make_runner(tmp_path)
 
-    def install(tool: str) -> str:
-        if tool == "codex":
-            raise RuntimeError(text)
-        return "installed"
+    def install(_source: str) -> str:
+        raise RuntimeError("Results:\ncodex  /cfg  failed: " + text.replace("\n", " "))
 
     instance.install_legion = install
     instance.listing = lambda _tool, folder, *_args, **_kwargs: not str(folder).startswith(str(instance.work / "control-"))
@@ -590,7 +569,7 @@ def test_local_refusal_only_skips_its_cli(tmp_path: Path, text: str) -> None:
         assert instance.version.call_args_list == [call(tool, instance.folder(tool)) for tool in runner.TOOLS if tool != "codex"]
         instance.check_tool.assert_called_once_with(expected)
     else:
-        with pytest.raises(AssertionError, match=r"codex:.*claude exited"):
+        with pytest.raises(AssertionError, match=r"codex .*claude exited"):
             instance.install_first()
         assert not instance.not_tested
 
@@ -600,21 +579,21 @@ def test_source_fallback_rejects_other_or_moving_main(tmp_path: Path, moved: boo
     instance = make_runner(tmp_path)
     instance.fallback = True
 
-    def install(tool: str) -> str:
-        if tool == "codex" and tool not in instance.targets:
-            raise RuntimeError("codex exited 1\nlocal directory source is not supported")
+    def install(source: str, _ref: str = "release") -> str:
+        if source == str(instance.checkout):
+            raise RuntimeError("Results:\ncodex  /cfg  failed: codex exited 1 local directory source is not supported")
         return "installed"
 
     instance.install_legion = install
     hashes = iter(["a", "a" if moved else "b", "b"])
     instance.run = lambda _argv, **_kwargs: next(hashes)
-    with pytest.raises(AssertionError, match=r"main differs|main moved"):
+    with pytest.raises(AssertionError, match=r"needs main to match|main moved"):
         instance.install_first()
 
 
 def test_purge_rejects_a_leftover_marketplace(tmp_path: Path) -> None:
     instance = make_runner(tmp_path)
-    instance.legion = lambda *_args, **_kwargs: "skip: uninstall (already done)"
+    instance.legion = lambda *_args, **_kwargs: "skip: purge (already done)"
     instance.check_tool_removed = Mock()
     instance.listing = lambda _tool, _folder, kind="plugin", **_kwargs: kind == "marketplace"
     instance.cli = lambda *_args: ""
