@@ -1,4 +1,4 @@
-# Characterize the lifecycle through Click, executable CLIs, and the files they leave.
+# Exercise the lifecycle through Click, executable CLIs, and the files they leave.
 
 import json
 import os
@@ -26,7 +26,7 @@ REPO = Path(__file__).resolve().parents[3]
 CHECKING = "Checking Legion installations..."
 WAITING = "Waiting for running Legion sessions to exit..."
 NO_CLI = "No coding CLI is installed. Run legion setup to install one."
-UV_QUESTION = "Install the legion command with uv and add it to your PATH? [y/N]"
+QUESTION = "Apply? [y/N]"
 UPDATED = "987.6.5"
 
 
@@ -142,10 +142,10 @@ def test_fresh_install_without_a_cli(lifecycle: Lifecycle) -> None:
     result = lifecycle.install()
     ordered(
         result.output,
-        CHECKING,
         NO_CLI,
         *(f"skip: {tool} (not installed)" for tool in CONFIG),
-        UV_QUESTION + " y\n",
+        "Install plan:",
+        QUESTION + "\n",
         WAITING,
         f"Preparing locked dependencies for legion {lifecycle.version}...",
         f"Installing legion {lifecycle.version} with uv...",
@@ -163,7 +163,7 @@ def test_uv_install_failure_keeps_the_plugin_copy(lifecycle: Lifecycle, monkeypa
     lifecycle.enable("claude")
     monkeypatch.setenv("FAKE_UV_FAIL", "install")
     result = lifecycle.install(code=1)
-    ordered(result.output, f"claude plugin install {PLUGIN}", WAITING, "Results:", "commands not refreshed: uv tool install exited 1")
+    ordered(result.output, f"claude plugin install {PLUGIN}", WAITING, "Results:", "failed: uv tool install exited 1")
     lifecycle.assert_plugin("claude", lifecycle.outlander("claude"), lifecycle.version)
     assert not lifecycle.uv.exists()
     assert not (lifecycle.home / ".legion/run/stop").exists()
@@ -174,17 +174,17 @@ def test_fresh_install_with_clis(lifecycle: Lifecycle) -> None:
     result = lifecycle.install()
     ordered(
         result.output,
-        CHECKING,
-        "Install legion for claude, codex, copilot\n",
-        "now, and put the legion command on your PATH with uv? [y/N] y\n",
+        "Install plan:",
+        *(f"Install legion for {tool} in {lifecycle.outlander(tool)}" for tool in CONFIG),
+        QUESTION + "\n",
         "claude plugin marketplace add",
         f"claude plugin install {PLUGIN}",
-        f"legion command {lifecycle.version} installed",
         f"codex plugin add {PLUGIN}",
         f"copilot plugin install {PLUGIN}",
+        WAITING,
         "Results:",
         *(f"installed legion {lifecycle.version}" for _ in CONFIG),
-        f"installed: legion {lifecycle.version} (release)",
+        f"legion command {lifecycle.version} installed",
     )
     for tool in CONFIG:
         lifecycle.assert_plugin(tool, lifecycle.outlander(tool), lifecycle.version)
@@ -323,10 +323,7 @@ def test_declined_install_leaves_home_untouched(lifecycle: Lifecycle, answer: st
     lifecycle.enable("claude")
     before = list(lifecycle.home.iterdir())
     result = lifecycle.install(answer)
-    ordered(result.output, CHECKING, "Install legion for claude\n", "[y/N] ", "Run again with --yes")
-    if not answer:
-        # today: on EOF the cancellation shares the prompt's line.
-        assert "[y/N] Nothing changed. Run again with --yes to apply.\n" in result.output
+    ordered(result.output, "Install plan:", "Install legion for claude in", QUESTION, "\nNothing changed. Run again with --yes to apply.\n")
     assert list(lifecycle.home.iterdir()) == before
     assert not lifecycle.uv.exists()
     assert not lifecycle.uv.with_suffix(".log").exists()
@@ -335,24 +332,20 @@ def test_declined_install_leaves_home_untouched(lifecycle: Lifecycle, answer: st
 def test_add_new_account(lifecycle: Lifecycle) -> None:
     lifecycle.enable("claude")
     folder = lifecycle.account("claude")
-    preview = lifecycle.invoke("add", "claude", "--source", str(lifecycle.source), answer="y\n")
-    # today: piped input does not answer the add plan. It requires --yes outside a TTY.
-    ordered(preview.output, "Plan (nothing changed yet):", f"add      claude1 (claude) new folder {folder}", "--yes")
-    assert "Apply?" not in preview.output
-    assert not lifecycle.settings.exists()
-    result = lifecycle.add("claude")
+    result = lifecycle.invoke("add", "claude", "--source", str(lifecycle.source), answer="y\n")
     ordered(
         result.output,
-        f"Install legion for claude in {folder}",
+        f"Add claude1 (claude) in {folder}",
+        QUESTION + "\n",
         "claude plugin marketplace add",
         f"claude plugin install {PLUGIN}",
-        f"installed legion {lifecycle.version} in {folder}",
-        "account  tool  folder  legion  next step",
-        f"claude1  claude  {folder}  {lifecycle.version}  log in:",
+        WAITING,
+        "Results:",
+        f"installed legion {lifecycle.version}",
+        "log in:",
         f"legion command {lifecycle.version} installed",
     )
-    log = lifecycle.home / ".legion/temp/setup-install-claude.log"
-    ordered(log.read_text(encoding="utf-8"), "claude plugin marketplace add", f"claude plugin install {PLUGIN}")
+    assert result.output.count(QUESTION) == 1
     assert ["plugin", "marketplace", "add", lifecycle.source.as_posix()] in calls(folder / "fake-cli.log")
     [agent] = read_json(lifecycle.settings)["agents"]
     assert (agent["id"], agent["tool"], Path(agent["configDir"]).expanduser()) == ("claude1", "claude", folder)
@@ -361,17 +354,15 @@ def test_add_new_account(lifecycle: Lifecycle) -> None:
     assert not lifecycle.outlander("claude").exists()
 
 
-def test_add_reports_plugin_failure_in_the_table_but_exits_zero(lifecycle: Lifecycle, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_add_reports_plugin_failure_and_exits_one(lifecycle: Lifecycle, monkeypatch: pytest.MonkeyPatch) -> None:
     lifecycle.enable("claude")
     monkeypatch.setenv("FAKE_CLI_FAIL", "plugin install")
-    # today: add exits zero and installs the command even when account plugin installation fails.
-    result = lifecycle.add("claude")
+    result = lifecycle.invoke("add", "claude", "--source", str(lifecycle.source), "--yes", code=1)
     folder = lifecycle.account("claude")
-    ordered(result.output, "fake claude: plugin install failed", f"claude1  claude  {folder}  missing  install failed:", f"legion command {lifecycle.version} installed")
+    ordered(result.output, "fake claude: plugin install failed", "Results:", "claude1", str(folder), "failed: claude exited 1", "Setup failed.")
     assert read_json(lifecycle.settings)["agents"][0]["id"] == "claude1"
     assert not (plugin_root("claude", folder) / "plugin.json").exists()
-    assert "fake claude: plugin install failed" in (lifecycle.home / ".legion/temp/setup-install-claude.log").read_text(encoding="utf-8")
-    assert read_json(lifecycle.uv)["version"] == lifecycle.version
+    assert not lifecycle.uv.exists()
 
 
 def test_setup_with_nothing_to_do(lifecycle: Lifecycle) -> None:
@@ -384,6 +375,78 @@ def test_setup_with_nothing_to_do(lifecycle: Lifecycle) -> None:
     assert result.output.splitlines() == ["Nothing to do."]
     assert [path.read_bytes() for path in files] == before
     lifecycle.assert_plugin("claude", folder, lifecycle.version)
+
+
+def test_plain_install_uses_the_newest_copy_once(lifecycle: Lifecycle) -> None:
+    lifecycle.enable("claude", "codex")
+    claude = lifecycle.outlander("claude")
+    lifecycle.invoke("install", "--tool", "claude", "--source", str(lifecycle.source), "--yes")
+    lifecycle.publish_update()
+    lifecycle.uv.unlink()
+    log = lifecycle.uv.with_suffix(".log")
+    count = len(calls(log))
+    lifecycle.install()
+    lifecycle.assert_plugin("claude", claude, lifecycle.version)
+    lifecycle.assert_plugin("codex", lifecycle.outlander("codex"), UPDATED)
+    assert read_json(lifecycle.uv)["version"] == UPDATED
+    assert [args[:2] for args in calls(log)[count:]].count(["tool", "install"]) == 1
+
+
+def test_first_run_finishes_safe_steps_once(lifecycle: Lifecycle) -> None:
+    lifecycle.enable("claude")
+    lifecycle.add("claude")
+    notes = lifecycle.settings.with_name("notes.md")
+    notes.unlink()
+    stamp = lifecycle.home / ".legion/version"
+    stamp.write_text("0.0.1\n", encoding="utf-8")
+    folder = lifecycle.account("claude")
+    (plugin_root("claude", folder) / "plugin.json").unlink()
+    result = lifecycle.invoke("status")
+    ordered(result.output, "Finish plan", "Create notes", "needs approval", "Results:", "accounts")
+    assert QUESTION not in result.output
+    assert notes.is_file()
+    assert stamp.read_text(encoding="utf-8").strip() == lifecycle.version
+    assert not (plugin_root("claude", folder) / "plugin.json").exists()
+    assert "Finish plan" not in lifecycle.invoke("status").output
+
+
+@pytest.mark.parametrize("args", [("validate",), ("status", "--json")])
+def test_first_run_preserves_machine_output(lifecycle: Lifecycle, args: tuple[str, ...]) -> None:
+    lifecycle.settings.parent.mkdir(parents=True)
+    lifecycle.settings.write_text('{"schemaVersion":1,"agents":[],"channels":[]}', encoding="utf-8")
+    stamp = lifecycle.home / ".legion/version"
+    stamp.write_text("0.0.1\n", encoding="utf-8")
+    if args[0] == "validate":
+        result = lifecycle.invoke(*args, "--kind", "personalisation", "--path", str(lifecycle.settings))
+        assert result.output == ""
+    else:
+        result = lifecycle.invoke(*args)
+        assert json.loads(result.output)["accounts"] == []
+    assert stamp.read_text(encoding="utf-8").strip() == "0.0.1"
+    assert not lifecycle.settings.with_name("notes.md").exists()
+
+
+def test_setup_decline_leaves_knowledge_and_settings_untouched(lifecycle: Lifecycle) -> None:
+    result = lifecycle.invoke("setup", "--knowledge", answer="")
+    ordered(result.output, "Setup plan:", "Turn knowledge on", QUESTION, "\nNothing changed. Run again with --yes to apply.\n")
+    assert list(lifecycle.home.iterdir()) == []
+
+
+def test_first_run_failure_retries_and_runs_the_verb(lifecycle: Lifecycle) -> None:
+    lifecycle.enable("claude")
+    lifecycle.add("claude")
+    notes = lifecycle.settings.with_name("notes.md")
+    notes.unlink()
+    notes.mkdir()
+    stamp = lifecycle.home / ".legion/version"
+    stamp.write_text("0.0.1\n", encoding="utf-8")
+    result = lifecycle.invoke("status")
+    assert "First-run check:" in result.stderr
+    assert "accounts" in result.stdout
+    assert stamp.read_text(encoding="utf-8").strip() == "0.0.1"
+    notes.rmdir()
+    assert "Finish plan" in lifecycle.invoke("status").output
+    assert stamp.read_text(encoding="utf-8").strip() == lifecycle.version
 
 
 @pytest.fixture
@@ -403,9 +466,9 @@ def test_update_across_accounts_and_outlanders(installed_accounts: Lifecycle) ->
     targets = [(tool, folder) for tool in ("claude", "codex") for folder in (env.outlander(tool), env.account(tool))]
     ordered(
         result.output,
-        CHECKING,
+        "Update plan:",
         *(f"Update legion for {tool} in {folder} ({env.version})" for tool, folder in targets),
-        "Update legion? [y/N] y\n",
+        QUESTION + "\n",
         WAITING,
         "Results:",
         *(str(folder) for _, folder in targets),
@@ -425,15 +488,11 @@ def test_update_with_a_failed_target(installed_accounts: Lifecycle, monkeypatch:
     monkeypatch.setenv("FAKE_CLI_FAIL", "plugin update")
     monkeypatch.setenv("FAKE_CLI_FAIL_FOLDER", str(env.account("claude")))
     result = env.invoke("update", answer="y\n", code=1)
-    ordered(
-        result.output, "Update legion? [y/N] y\n", "claude plugin update", "fake claude: plugin update failed", WAITING, f"legion {UPDATED} is installed; restart your sessions.", "claude exited 1"
-    )
-    # today: update stops at the failing target and drops the results table.
-    assert "Results:" not in result.output
+    ordered(result.output, QUESTION + "\n", "fake claude: plugin update failed", "codex plugin marketplace upgrade", WAITING, "Results:", "failed: claude exited 1", "Update failed.")
     env.assert_plugin("claude", env.outlander("claude"), UPDATED)
     env.assert_plugin("claude", env.account("claude"), env.version)
     for folder in (env.outlander("codex"), env.account("codex")):
-        env.assert_plugin("codex", folder, env.version)
+        env.assert_plugin("codex", folder, UPDATED)
     assert read_json(env.uv) == {"version": UPDATED, "source": str(plugin_root("claude", env.outlander("claude")))}
 
 

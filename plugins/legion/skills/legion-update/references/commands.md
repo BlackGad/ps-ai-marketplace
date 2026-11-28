@@ -12,7 +12,7 @@ Update covers registered accounts and the default folders of stock CLIs on PATH.
 
 On Windows, after the owner's yes, tell them to close the Legion session, run `legion update` from a terminal, then run `legion` in the repository to reopen the conversation. The update refuses before making changes if it finds a registered ancestor. The owner runs the update themselves.
 
-On macOS and Linux, after the owner's yes, run `legion update --yes`. The flag also answers the question the installer asks when legion is missing in a folder. Restart the starting session afterwards to load the new skills.
+On macOS and Linux, after the owner's yes, run `legion update --yes`. The flag skips the single `Apply? [y/N]` question for the whole plan, including missing plugin copies. Restart the starting session afterwards to load the new skills.
 
 If the check fails, explain the failed check and offer the GitHub update from the README. It still requires the owner's yes. On Windows, give the owner the PowerShell command to run in a terminal after closing the Legion session.
 
@@ -24,4 +24,4 @@ The bootstrap announces preparation and asks for confirmation in the terminal. I
 
 `legion update` waits for MCP servers and `legion run` wrappers registered under its own legion home to exit before replacing the command. Tell the owner before approval. If legion reports that other sessions are still running after 30 seconds, ask the owner to close them and run it again. Continue stopped members from the [handoff](../../legion-overseer/references/takeover.md).
 
-The bootstrap and the installed command on macOS and Linux display uv's progress and the result in the terminal. A failed foreground uv install exits with status 1. On Windows, the installed command can schedule its own replacement after it exits. The terminal shows the log path and asks the owner to restart after replacement succeeds. Check `<home>/.legion/temp/uv-tool.log` for the uv exit code or a handover error before reporting success. `legion status` flags a failed handover and points to the log. A same-version update reports the skip immediately.
+The bootstrap and the installed command on macOS and Linux display uv's progress and the result in the terminal. A failed foreground uv install exits with status 1. On Windows, the installed command can schedule its own replacement after it exits. The terminal shows the log path and asks the owner to restart after replacement succeeds. Check `<home>/.legion/temp/uv-tool.log` for the uv exit code or a handover error before reporting success. `legion status` flags a failed handover and points to the log. A same-version update reports the skip immediately. A failed target has a `failed: <reason>` result row. Other targets continue, and uv uses the newest successful copy. Read the final result and the table before reporting success.

@@ -88,7 +88,7 @@ def home(tmp_path: Path) -> Path:
 
 
 def run(home: Path, tools: Any = None, **options: Any) -> list[str]:
-    return _installer.install(home, tools, uninstall=True, catalog=CATALOG, **options)
+    return _installer.uninstall(home, tools, catalog=CATALOG, **options)
 
 
 def tool_files(home: Path) -> dict[Path, bytes]:
