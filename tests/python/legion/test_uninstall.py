@@ -45,7 +45,7 @@ def recorder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
     monkeypatch.setattr(_installer, "_marketplace", lambda *_args: True)
     monkeypatch.setattr(_installer, "_marketplace_item", lambda *_args: {})
 
-    def step(entry: CatalogTool, arguments: list[str], _folder: Path, _dry_run: bool, _lines: list[str]) -> None:
+    def step(entry: CatalogTool, arguments: list[str], _folder: Path, _dry_run: bool, _lines: list[str], *_progress: object) -> None:
         recorder.steps.append((entry.id, arguments))
 
     monkeypatch.setattr(_installer, "_step", step)
@@ -231,6 +231,21 @@ def test_purge_deletes_the_knowledge_hub_only_on_its_own_yes(home: Path, recorde
     run(home, yes=True, purge=True)
     assert recorder.questions == ["Also delete the knowledge hub in ~/.legion/knowledge? [y/N]"]
     assert recorder.uv.purges == [[home / ".legion"]]
+
+
+def test_purge_flushes_progress_before_asking_about_the_hub(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
+    (home / ".legion" / "knowledge").mkdir()
+    progress: list[str] = []
+    monkeypatch.setattr(_user_path, "remove", lambda *_args, dry_run=False: [] if dry_run else ["Removed Legion PATH entry."])
+
+    def confirm(question: str, **_options: object) -> bool:
+        assert "knowledge hub" in question
+        assert progress[-1] == "Removed Legion PATH entry."
+        return False
+
+    monkeypatch.setattr(_installer.click, "confirm", confirm)
+    run(home, yes=True, purge=True, progress=progress.append)
+    assert recorder.uv.purges
 
 
 @pytest.mark.parametrize("external", [False, True])

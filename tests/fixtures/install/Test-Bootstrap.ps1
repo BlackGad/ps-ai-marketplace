@@ -115,6 +115,19 @@ switch ($Mode) {
     }
     'no-release' { Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot '' }
     'exit-code' { $env:FAKE_UV_EXIT = '3'; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
+    { $_ -in 'encoding-set-error', 'encoding-restore-error' } {
+        $script:encodingWrites = 0
+        function Set-InstallConsoleEncoding {
+            param([Text.Encoding]$Encoding)
+            $script:encodingWrites++
+            if ($script:Mode -eq 'encoding-set-error' -or $script:encodingWrites -eq 2) {
+                throw [IO.IOException]::new('The handle is invalid.')
+            }
+        }
+        $env:FAKE_UV_EXIT = '3'
+        Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
+        Write-Output "encodingWrites=$script:encodingWrites"
+    }
     { $_ -in 'uv-missing-yes', 'uv-missing-uninstall', 'uv-missing-purge', 'uv-bad-digest', 'uv-no-digest', 'uv-broken' } {
         # No uv on PATH: -Yes downloads and verifies the uv release, then the hand-over runs.
         $env:OS = 'Windows_NT'

@@ -253,6 +253,11 @@ function Invoke-InstallUv {
     } finally { $process.Dispose() }
 }
 
+function Set-InstallConsoleEncoding {
+    param([Text.Encoding]$Encoding)
+    [Console]::OutputEncoding = $Encoding
+}
+
 function Invoke-InstallBootstrap {
     param([Collections.IDictionary]$Parameters, [string]$CheckoutRoot = $PSScriptRoot)
     $script:bootstrapExitCode = 0
@@ -278,13 +283,21 @@ function Invoke-InstallBootstrap {
         # The project environment lives beside the downloaded copy and goes with it.
         $env:UV_PROJECT_ENVIRONMENT = Join-Path $temporary 'env'
         $arguments = @('run', '--project', $project, '--frozen', '--quiet', 'legion') + @(Get-InstallArguments -Parameters $Parameters)
-        $previousEncoding = [Console]::OutputEncoding
+        $previousEncoding = $null
+        if ($env:OS -eq 'Windows_NT') {
+            try {
+                # Legion relays UTF-8. Some PowerShell hosts have no console to configure.
+                $originalEncoding = [Console]::OutputEncoding
+                Set-InstallConsoleEncoding ([Text.UTF8Encoding]::new($false))
+                $previousEncoding = $originalEncoding
+            } catch {}
+        }
         try {
-            # Legion relays UTF-8. Match the Windows console's output code page to it.
-            if ($env:OS -eq 'Windows_NT') { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) }
             $script:bootstrapExitCode = Invoke-InstallUv -Uv $uv -Arguments $arguments
         } finally {
-            if ($env:OS -eq 'Windows_NT') { [Console]::OutputEncoding = $previousEncoding }
+            if ($previousEncoding) {
+                try { Set-InstallConsoleEncoding $previousEncoding } catch {}
+            }
         }
         $global:LASTEXITCODE = $script:bootstrapExitCode
     } finally {

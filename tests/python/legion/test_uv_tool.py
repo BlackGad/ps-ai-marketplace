@@ -152,8 +152,10 @@ def test_only_windows_self_replacement_needs_a_handover(tmp_path: Path, home: Pa
     monkeypatch.setattr(_uv_tool, "sys", SimpleNamespace(platform=platform, prefix=prefix))
     lines = _uv_tool.install(make_source(tmp_path), home, updating=True)
     assert bool(uv.detached) is expected
-    assert lines[0].startswith("legion command 1.0.0 replacement scheduled.") is expected
-    if not expected:
+    if expected:
+        assert lines[-1].startswith("legion command 1.0.0 replacement scheduled.")
+        assert "restart your sessions" in lines[-1].lower()
+    else:
         assert lines[-1] == "legion 1.0.0 is installed; restart your sessions."
     for _command, remove in uv.detached:
         shutil.rmtree(remove[0])
@@ -170,11 +172,9 @@ def test_a_running_legion_that_does_not_stop_blocks_the_install_with_a_plain_mes
 
 def test_a_failed_install_reports_the_exit_code_leaves_no_constraints_file_and_lifts_the_stop_event(tmp_path: Path, home: Path, uv: FakeUv) -> None:
     uv.fail["tool install"] = 2
-    log = home / _uv_tool.FOREGROUND_ERROR_LOG
-    with pytest.raises(_uv_tool.UvToolError, match="exited 2") as failed:
+    with pytest.raises(_uv_tool.UvToolError, match=r"^uv tool install exited 2$"):
         _uv_tool.install(make_source(tmp_path), home)
-    assert str(log) in str(failed.value)
-    assert "uv tool install exited 2" in log.read_text(encoding="utf-8")
+    assert not (home / ".legion/temp/uv-tool-install.log").exists()
     assert not list(Path(tempfile.gettempdir()).glob("legion-constraints-*"))
     assert not _stop_event.stop_path(home).exists()
 
@@ -196,7 +196,10 @@ def test_a_failed_update_shell_is_a_warning_not_an_error(tmp_path: Path, home: P
 
 def test_without_uv_install_says_so_and_runs_nothing(tmp_path: Path, home: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_uv_tool, "find_uv", lambda: None)
-    assert _uv_tool.install(make_source(tmp_path), home) == [_uv_tool.UV_MISSING]
+    source = make_source(tmp_path)
+    with pytest.raises(_uv_tool.UvToolError, match="uv is missing"):
+        _uv_tool.install(source, home)
+    assert _uv_tool.install(source, home, dry_run=True) == [_uv_tool.UV_MISSING]
     assert uv.calls == []
 
 

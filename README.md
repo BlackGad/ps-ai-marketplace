@@ -69,7 +69,7 @@ One update covers all accounts legion knows. Before replacing the command, Legio
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Uninstall
 ```
 
-Uninstall uses each tool's own commands to remove Legion's plugin and marketplace. A full uninstall waits for registered Legion processes outside the calling session to exit, then schedules removal of the `legion` command. An installed uv stays installed. If the bootstrap downloads uv for uninstall, it uses a temporary copy that remains available to the helper after the bootstrap exits.
+Uninstall shows each tool's plugin and marketplace removal steps as they run. A full uninstall waits for registered Legion processes outside the calling session to exit, then schedules removal of the `legion` command. An installed uv stays installed. If the bootstrap downloads uv for uninstall, it uses a temporary copy that remains available to the helper after the bootstrap exits.
 
 > [!IMPORTANT]
 > A plain uninstall keeps your settings, notes, account folders and logins. **Purge removes that data after the uv uninstall succeeds** or when the command is already absent. Purge also removes the recorded PATH entries for portable tools Legion installed. It asks separately before deleting a knowledge hub. The coding tools keep their own data and settings.

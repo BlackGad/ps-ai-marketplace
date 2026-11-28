@@ -126,15 +126,23 @@ def _report_installer(context: click.Context, change: Callable[[], list[str]]) -
     from legion.services.accounts._launchers import LauncherError
     from legion.core._settings_io import SettingsError
 
-    _report_lines(context, change, (InstallerError, FootprintError, LauncherError, SettingsError, OSError, ValueError), multiline=True)
+    try:
+        lines = change()
+    except (InstallerError, FootprintError, LauncherError, SettingsError, OSError, ValueError) as error:
+        if isinstance(error, InstallerError):
+            for line in error.lines:
+                click.echo(line)
+        click.echo(str(error), err=True)
+        context.exit(1)
+    for line in lines:
+        click.echo(line)
 
 
-def _report_lines(context: click.Context, change: Callable[[], list[str]], errors: tuple[type[Exception], ...], *, multiline: bool = False) -> None:
+def _report_lines(context: click.Context, change: Callable[[], list[str]], errors: tuple[type[Exception], ...]) -> None:
     try:
         lines = change()
     except errors as error:
-        message = str(error)
-        click.echo(message if multiline else " ".join(message.split()), err=True)
+        click.echo(" ".join(str(error).split()), err=True)
         context.exit(1)
     for line in lines:
         click.echo(line)
@@ -182,7 +190,10 @@ def install(context: click.Context, tools: tuple[str, ...], source: str, ref: st
 def uninstall(context: click.Context, tools: tuple[str, ...], config_dir: Optional[Path], purge: bool, dry_run: bool, yes: bool) -> None:
     from legion.services.installation import installer as _installer
 
-    _report_installer(context, lambda: _installer.install(_home.legion_home(context.obj), list(tools), config_dir=config_dir, dry_run=dry_run, yes=yes, uninstall=True, purge=purge))
+    _report_installer(
+        context,
+        lambda: _installer.install(_home.legion_home(context.obj), list(tools), config_dir=config_dir, dry_run=dry_run, yes=yes, uninstall=True, purge=purge, progress=click.echo),
+    )
 
 
 @main.command("mcp", help="Serve read-only status and explicit-account limits over MCP stdio")

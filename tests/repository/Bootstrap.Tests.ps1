@@ -204,6 +204,22 @@ Invoke-InstallTestCase 'BootstrapUvOutputAndExitCode' {
     } finally { Remove-InstallTestFolder $scratch }
 }
 
+Invoke-InstallTestCase 'BootstrapToleratesUnavailableConsoleEncoding' {
+    if (-not $IsWindows) { return }
+    $scratch = New-BootstrapScratch
+    try {
+        foreach ($runtime in @(Get-BootstrapRuntimes)) {
+            foreach ($mode in @('encoding-set-error', 'encoding-restore-error')) {
+                $result = Invoke-BootstrapFixture -Runtime $runtime -Mode $mode -Scratch $scratch
+                $expected = if ($mode -eq 'encoding-set-error') { 1 } else { 2 }
+                Assert-True ($result.Lines -contains "encodingWrites=$expected") "Expected encoding failure in $mode"
+                Assert-True ($result.Lines -contains 'lastExit=3') 'uv still runs and passes its status to the caller'
+                Assert-True ($result.Lines -contains 'tempLeft=0') 'Cleanup still runs'
+            }
+        }
+    } finally { Remove-InstallTestFolder $scratch }
+}
+
 Invoke-InstallTestCase 'BootstrapDownloadsOnlyOverHttps' {
     $scratch = New-BootstrapScratch
     try {

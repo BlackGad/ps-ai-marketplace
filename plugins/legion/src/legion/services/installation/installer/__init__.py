@@ -54,7 +54,9 @@ LEGION_PLUGIN = "legion@ps-legion-marketplace"
 
 
 class InstallerError(ValueError):
-    pass
+    def __init__(self, message: str, *, lines: list[str] | None = None) -> None:
+        super().__init__(message)
+        self.lines = lines if lines is not None else []
 
 
 class _MissingAccountCommandError(InstallerError):
@@ -502,15 +504,16 @@ def _install_tool(
     updating: bool,
     update_shell: bool = False,
     progress: Callable[[str], None] | None = None,
-) -> None:
+) -> str | None:
     if not roots:
-        return
+        return None
     root = _newest_source(roots)
     try:
         lines.extend(_uv_tool.install(root, home, dry_run=dry_run, update_shell=update_shell, updating=updating, progress=progress))
     except Exception as error:
-        lines.append(f"commands not refreshed: {error}; run legion setup")
         rows.append(("legion", str(home), f"commands not refreshed: {error}"))
+        return f"commands not refreshed: {error}; run legion setup"
+    return None
 
 
 def apply_hint(yes_flag: str = "--yes") -> str:
@@ -546,7 +549,7 @@ def install(
     home = full_path(home)
     if update and not dry_run and tool_roots is None and sys.platform == "win32" and _stop_event.has_registered_ancestor(home):
         raise InstallerError("Close this Legion session, run `legion update` from a terminal, then reopen Legion.")
-    if dry_run or uninstall:
+    if dry_run:
         progress = None
     if progress is not None:
         progress("Checking Legion installations...")
@@ -561,7 +564,7 @@ def install(
         _tool(catalog, tool_id)
     knowledge_enabled = settings is not None and settings.knowledge_enabled is True
     if uninstall:
-        _uninstall(home, catalog, selected, config_dir, purge, dry_run, yes, lines, agents, catalog.wiki if knowledge_enabled else None)
+        _uninstall(home, catalog, selected, config_dir, purge, dry_run, yes, lines, agents, catalog.wiki if knowledge_enabled else None, progress)
         return lines
     manage_knowledge = update and with_knowledge and knowledge_enabled
     if not selected:
@@ -631,30 +634,37 @@ def install(
             # The returned lines are lost with the error, so the install is reported before it propagates.
             failed: list[str] = []
             if tool_roots is None:
-                _install_tool(home, roots, failed, rows, dry_run, updating=True, progress=progress)
+                failure = _install_tool(home, roots, failed, rows, dry_run, updating=True, progress=progress)
+                if failure is not None:
+                    failed.append(failure)
             else:
                 tool_roots.extend(roots)
             for line in failed:
                 click.echo(line, err=True)
             raise
         command_lines: list[str] = []
+        failure = None
         try:
             if manage_knowledge:
                 reconcile_knowledge(home, catalog, dry_run, lines, progress)
         finally:
             if tool_roots is None:
                 _flush_progress(lines, progress)
-                _install_tool(home, roots, command_lines, rows, dry_run, updating=True, progress=progress)
+                failure = _install_tool(home, roots, command_lines, rows, dry_run, updating=True, progress=progress)
             else:
                 tool_roots.extend(roots)
         if targets and not dry_run:
             lines.extend(_results_table(rows))
-        return [*lines, *command_lines]
+        lines.extend(command_lines)
+        if failure is not None:
+            raise InstallerError(failure, lines=lines)
+        return lines
     lines.append(f"Install legion for {', '.join(selected)}")
     if not dry_run and not (yes or _confirm(f"Install legion for {', '.join(selected)} now, and put the legion command on your PATH with uv? [y/N]", lines)):
         return _declined(lines)
     _flush_progress(lines, progress)
     installed_version = ""
+    failure = None
     rows = []
     uv = _uv_tool.find_uv() if not dry_run else None
     from_tool = uv is not None and _uv_tool.running_from_tool(uv)
@@ -689,10 +699,10 @@ def install(
                             deferred_roots.append((installed_version, root))
                         rows.append((tool_id, str(folder), f"installed legion {installed_version}"))
                     except Exception as error:
-                        lines.append(f"commands not refreshed for {tool_id} in {folder}: {error}; run legion setup")
+                        failure = f"commands not refreshed for {tool_id} in {folder}: {error}; run legion setup"
                         rows.append((tool_id, str(folder), f"commands not refreshed: {error}"))
                 else:
-                    lines.append(f"commands not refreshed for {tool_id} in {folder}; run legion setup")
+                    failure = f"commands not refreshed for {tool_id} in {folder}; run legion setup"
                     rows.append((tool_id, str(folder), "commands not refreshed"))
         if entry.hooks.hint:
             lines.append(entry.hooks.hint)
@@ -700,8 +710,10 @@ def install(
         lines.extend(_uv_tool.install(PLUGIN_ROOT, home, dry_run=True, update_shell=True))
     else:
         _flush_progress(lines, progress)
-        _install_tool(home, deferred_roots, lines, rows, dry_run, updating=False, update_shell=True, progress=progress)
+        failure = _install_tool(home, deferred_roots, lines, rows, dry_run, updating=False, update_shell=True, progress=progress) or failure
         lines.extend(_results_table(rows))
+        if failure is not None:
+            raise InstallerError(failure, lines=lines)
     if installed_version and not dry_run:
         lines.append(f"installed: legion {installed_version} ({ref})")
         lines.append("next: legion add claude (or legion in a repository)")
@@ -719,10 +731,21 @@ def _confirm(question: str, lines: list[str]) -> bool:
 
 
 def _uninstall(
-    home: Path, catalog: ToolsCatalog, selected: list[str], config_dir: Optional[Path], purge: bool, dry_run: bool, yes: bool, lines: list[str], agents: list[Agent], pin: PluginPin | None
+    home: Path,
+    catalog: ToolsCatalog,
+    selected: list[str],
+    config_dir: Optional[Path],
+    purge: bool,
+    dry_run: bool,
+    yes: bool,
+    lines: list[str],
+    agents: list[Agent],
+    pin: PluginPin | None,
+    progress: Callable[[str], None] | None,
 ) -> None:
     # The tools' own commands remove the plugin and marketplace; nothing in a tool's files is edited here.
     steps: list[tuple[CatalogTool, Path, list[str], bool]] = []
+    preview = progress is None or not yes
     for tool_id in selected:
         entry = _tool(catalog, tool_id)
         if _target_tool(home, entry, agents) is None:
@@ -739,14 +762,16 @@ def _uninstall(
             ):
                 if listed:
                     steps.append((target, folder, arguments, False))
-                    lines.append(_command_line(target, arguments, folder))
+                    if preview:
+                        lines.append(_command_line(target, arguments, folder))
                 else:
                     lines.append(f"skip: {tool_id} {what} in {folder} (not installed)")
             if pin is not None:
                 try:
                     for arguments in _wiki_removal_steps(target, folder, pin):
                         steps.append((target, folder, arguments, True))
-                        lines.append(_command_line(target, arguments, folder))
+                        if preview:
+                            lines.append(_command_line(target, arguments, folder))
                 except (OSError, ValueError) as error:
                     lines.append(f"knowledge: {tool_id} in {folder}: {error}")
     # Only an uninstall of every tool, without --config-dir, removes legion's own folders.
@@ -771,23 +796,27 @@ def _uninstall(
     if not (yes or _confirm("Purge legion and all its data now? [y/N]" if purge else "Uninstall legion now? [y/N]", lines)):
         lines.append("Uninstall cancelled.")
         return
+    _flush_progress(lines, progress)
     stopped = everything and (bool(tool_lines) or (owner_path_safe(_stop_event.stop_path(home), home) and run_folder(home).is_dir()))
     if stopped:
+        if progress is not None:
+            progress("Waiting for running Legion sessions to exit...")
         _uv_tool.stop_running(home)
     handed_over = False
     try:
         failed_wiki: set[tuple[str, Path]] = set()
         for entry, folder, arguments, wiki in steps:
             if not wiki:
-                _step(entry, arguments, folder, False, lines)
+                _step(entry, arguments, folder, False, lines, progress)
             elif (entry.id, folder) not in failed_wiki:
                 try:
-                    _step(entry, arguments, folder, False, lines)
+                    _step(entry, arguments, folder, False, lines, progress)
                 except (OSError, ValueError) as error:
                     failed_wiki.add((entry.id, folder))
                     lines.append(f"knowledge: {entry.id} in {folder}: {error}")
         if everything:
             lines.extend(_user_path.remove(home, purge))
+            _flush_progress(lines, progress)
             with_knowledge = hub and _confirm("Also delete the knowledge hub in ~/.legion/knowledge? [y/N]", lines)
             if with_knowledge:
                 _knowledge_hub.purge(home, lines)
@@ -797,6 +826,8 @@ def _uninstall(
             lines.extend(result)
             if not result:
                 lines.append("done: legion is uninstalled")
+        else:
+            lines.append("done: legion is uninstalled from the selected accounts")
     finally:
         if stopped and not handed_over:
             _stop_event.clear_stop(home)

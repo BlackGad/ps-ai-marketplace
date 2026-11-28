@@ -5,12 +5,10 @@ import shutil
 import sys
 import tempfile
 from collections.abc import Callable
-from contextlib import suppress
 from pathlib import Path
 from typing import Optional
 
 from legion.core import _settings_io, _stop_event
-from legion.core._atomic_write import atomic_write_bytes
 from legion.core._home import (
     owner_path_safe,
     path_contains,
@@ -27,7 +25,6 @@ UV_MISSING = "uv is missing. Ask the owner before installing it, then run the le
 TOOL = "legion"
 STOP_NOTICE = "stop     running legion sessions (mcp servers and runs) end first"
 HANDOVER_LOG = Path(".legion/temp/uv-tool.log")
-FOREGROUND_ERROR_LOG = Path(".legion/temp/uv-tool-install.log")
 
 
 class UvToolError(ValueError):
@@ -126,23 +123,6 @@ def handover_failure(home: Path) -> str | None:
     return None
 
 
-def _install_foreground(home: Path, command: list[str]) -> None:
-    try:
-        exit_code = run_foreground(command[0], command[1:])
-    except OSError as error:
-        message = f"Could not start uv tool install: {error}"
-    else:
-        if exit_code == 0:
-            return
-        message = f"uv tool install exited {exit_code}"
-    log = home / FOREGROUND_ERROR_LOG
-    if owner_path_safe(log, home):
-        with suppress(OSError):
-            atomic_write_bytes(log, f"{message}\nFor uv diagnostics, check the terminal.\n".encode())
-            message = f"{message}. Exit details: {log}"
-    raise UvToolError(message)
-
-
 # The saved PATH is uv's to write, and only with the owner's yes. The current process learns the folder from uv.
 # A failed update-shell is only a warning.
 def _path_lines(uv: str, update_shell: bool) -> list[str]:
@@ -157,20 +137,26 @@ def _path_lines(uv: str, update_shell: bool) -> list[str]:
     return lines
 
 
+def _check_install_home(home: Path) -> None:
+    if not owner_path_safe(home / ".legion", home):
+        raise _settings_io.SettingsError("The legion folder contains a link; resolve it before installing")
+    with _settings_io.writer(home, require_existing=False):
+        if settings_path(home).is_file():
+            _settings_io.load(home)
+
+
 # Replaces legion with the plugin at `plugin_root`. A repeat only repairs PATH if needed and approved.
 # The stop event precedes replacement. On Windows a helper waits for the running tool to exit
 # before replacing it. `update_shell` also runs `uv tool update-shell`,
 # which edits the owner's shell profile or user PATH: callers pass it only inside the owner's yes.
 def install(plugin_root: Path, home: Path, dry_run: bool = False, update_shell: bool = False, *, updating: bool = False, progress: Callable[[str], None] | None = None) -> list[str]:
     if not dry_run:
-        if not owner_path_safe(home / ".legion", home):
-            raise _settings_io.SettingsError("The legion folder contains a link; resolve it before installing")
-        with _settings_io.writer(home, require_existing=False):
-            if settings_path(home).is_file():
-                _settings_io.load(home)
+        _check_install_home(home)
     uv = find_uv()
     if uv is None:
-        return [UV_MISSING]
+        if dry_run:
+            return [UV_MISSING]
+        raise UvToolError(UV_MISSING)
     version = plugin_version(plugin_root)
     if installed_version(uv) == version:
         lines = [f"skip: legion command {version} (already done)"]
@@ -196,10 +182,15 @@ def install(plugin_root: Path, home: Path, dry_run: bool = False, update_shell: 
             path_lines = _path_lines(uv, update_shell)
             _hand_over(home, command, [folder, _stop_event.stop_path(home)], [])
             handed_over = True
-            return [*path_lines, f"legion command {version} replacement scheduled. Check the result in {home / HANDOVER_LOG}."]
+            scheduled = f"legion command {version} replacement scheduled. Check the result in {home / HANDOVER_LOG}."
+            if updating:
+                scheduled += " Restart your sessions after the replacement succeeds."
+            return [*path_lines, scheduled]
         if progress is not None:
             progress(f"Installing legion {version} with uv...")
-        _install_foreground(home, command)
+        exit_code = run_foreground(uv, command[1:])
+        if exit_code:
+            raise UvToolError(f"uv tool install exited {exit_code}")
     finally:
         if not handed_over:
             _stop_event.clear_stop(home)
