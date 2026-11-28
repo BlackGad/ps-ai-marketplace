@@ -4,7 +4,8 @@ import os
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Optional
 
@@ -171,7 +172,15 @@ def _check_install_home(home: Path) -> None:
 # before replacing it. `update_shell` also runs `uv tool update-shell`,
 # which edits the owner's shell profile or user PATH: callers pass it only inside the owner's yes.
 def install(
-    plugin_root: Path, home: Path, dry_run: bool = False, update_shell: bool = False, *, updating: bool = False, progress: Callable[[str], None] | None = None, receipt: str | None = None
+    plugin_root: Path,
+    home: Path,
+    dry_run: bool = False,
+    update_shell: bool = False,
+    *,
+    updating: bool = False,
+    progress: Callable[[str], None] | None = None,
+    receipt: str | None = None,
+    rollback: bool = False,
 ) -> list[str]:
     if not dry_run:
         _check_install_home(home)
@@ -192,7 +201,7 @@ def install(
     if dry_run:
         shell = [display_command([uv, "tool", "update-shell"])] if update_shell else []
         return [STOP_NOTICE, display_command([uv, "tool", "install", spec, "--constraints", "<exported uv.lock>", "--reinstall"]), *shell]
-    scheduled = _replace(uv, spec, home, plugin_root, version, updating, update_shell, progress, receipt)
+    scheduled = _replace(uv, spec, home, plugin_root, version, updating, update_shell, progress, receipt, rollback)
     if scheduled:
         return [scheduled]
     outcome = f"legion {version} is installed; restart your sessions." if updating else f"legion command {version} installed"
@@ -200,8 +209,12 @@ def install(
     return [f"legion command {version} is installed but not on PATH. {instruction}" if instruction else outcome]
 
 
-def _replace(uv: str, spec: str, home: Path, plugin_root: Path, version: str, updating: bool, update_shell: bool, progress: Callable[[str], None] | None, receipt: str | None) -> str | None:
+def _replace(
+    uv: str, spec: str, home: Path, plugin_root: Path, version: str, updating: bool, update_shell: bool, progress: Callable[[str], None] | None, receipt: str | None, rollback: bool
+) -> str | None:
     detached = sys.platform == "win32" and running_from_tool(uv)
+    if detached and rollback:
+        raise UvToolError("Self-update requires a separate uv environment")
     if progress is not None:
         progress("Waiting for running Legion sessions to exit...")
     stop_running(home, updating=updating)
@@ -215,8 +228,8 @@ def _replace(uv: str, spec: str, home: Path, plugin_root: Path, version: str, up
         source_file = home / SOURCE_RECEIPT
         if not owner_path_safe(source_file, home):
             raise UvToolError("The uv source receipt path contains a link; resolve it before installing")
-        source_file.unlink(missing_ok=True)
         if detached:
+            source_file.unlink(missing_ok=True)
             if update_shell and path_missing(uv):
                 run_command(uv, ["tool", "update-shell"])
             cleanup = [folder, _stop_event.stop_path(home)]
@@ -231,17 +244,57 @@ def _replace(uv: str, spec: str, home: Path, plugin_root: Path, version: str, up
             return scheduled
         if progress is not None:
             progress(f"Installing legion {version} with uv...")
-        exit_code = _run_install(uv, command[1:], progress)
-        if exit_code:
-            raise UvToolError(f"uv tool install exited {exit_code}")
-        if receipt is not None:
-            source_file.write_text(receipt, encoding="utf-8")
+        with _restore_failed_replacement(uv, source_file) if rollback else nullcontext():
+            source_file.unlink(missing_ok=True)
+            exit_code = _run_install(uv, command[1:], progress)
+            if exit_code:
+                raise UvToolError(f"uv tool install exited {exit_code}")
+            if receipt is not None:
+                source_file.write_text(receipt, encoding="utf-8")
     finally:
         if not handed_over:
             _stop_event.clear_stop(home)
             if folder is not None:
                 shutil.rmtree(folder, ignore_errors=True)
     return None
+
+
+@contextmanager
+def _restore_failed_replacement(uv: str, receipt: Path) -> Iterator[None]:
+    # uv can remove the old tool and its entry point before an install fails.
+    directory = run_command(uv, ["tool", "dir"])
+    binaries = bin_directory(uv)
+    entry = shutil.which(TOOL, path=str(binaries)) if binaries else None
+    if directory.exit_code or not directory.output.strip() or entry is None:
+        raise UvToolError("Could not locate the installed Legion command for recovery")
+    tool = Path(directory.output.strip()) / TOOL
+    launcher = Path(entry)
+    paths = (tool, launcher, receipt)
+    scratch = Path(tempfile.mkdtemp(prefix="legion-recovery-", dir=tool.parent))
+    restoring = False
+    try:
+        copies = [scratch / name for name in ("environment", "entry", "receipt")]
+        for path, copy in zip(paths, copies, strict=True):
+            if path.is_dir() and not path.is_symlink():
+                shutil.copytree(path, copy, symlinks=True)
+            elif os.path.lexists(path):
+                shutil.copy2(path, copy, follow_symlinks=False)
+        try:
+            yield
+        except BaseException:
+            restoring = True
+            for path, copy in zip(paths, copies, strict=True):
+                if path.is_dir() and not path.is_symlink():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink(missing_ok=True)
+                if os.path.lexists(copy):
+                    shutil.move(str(copy), str(path))
+            restoring = False
+            raise
+    finally:
+        if not restoring:
+            shutil.rmtree(scratch, ignore_errors=True)
 
 
 def _run_install(uv: str, arguments: list[str], progress: Callable[[str], None] | None) -> int:

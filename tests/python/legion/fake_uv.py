@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -19,6 +20,11 @@ def main(args: list[str]) -> int:
     else:
         raise ValueError(f"unexpected uv arguments: {args}")
     if os.environ.get("FAKE_UV_FAIL") == verb:
+        if verb == "install" and os.environ.get("FAKE_OVERSEER_REQUEST"):
+            tool = Path(os.environ["UV_TOOL_DIR"]) / "legion"
+            shutil.rmtree(tool)
+            bin_dir = Path(os.environ["UV_TOOL_BIN_DIR"])
+            (bin_dir / ("legion.cmd" if sys.platform == "win32" else "legion")).unlink()
         print(f"fake uv: {verb} failed", file=sys.stderr)
         return 1
 
@@ -32,6 +38,8 @@ def main(args: list[str]) -> int:
         assert (Path.cwd() / "plugin.json").is_file()
         print("fake-dependency==1.0.0")
     elif verb == "install":
+        if os.environ.get("FAKE_OVERSEER_REQUEST"):
+            assert not list((Path(os.environ["LEGION_HOME"]) / ".legion/run").glob("*.pid"))
         spec, flag, constraints, reinstall = operands
         assert spec.endswith("[mcp]")
         assert (flag, reinstall) == ("--constraints", "--reinstall")

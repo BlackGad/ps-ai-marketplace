@@ -4,12 +4,15 @@ import json
 import os
 import shlex
 import shutil
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 CONFIG = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME", "copilot": "COPILOT_HOME"}
 MARKETPLACE = "ps-legion-marketplace"
 PLUGIN = f"legion@{MARKETPLACE}"
+FAKE_SESSION = "2df8daf6-4f6d-4dd8-8601-cc8a83fe07ff"
 
 
 def write_shim(bin_dir: Path, name: str, script: Path) -> None:
@@ -51,10 +54,45 @@ def list_plugins(tool: str, folder: Path, installed: list[str], disabled: list[s
         print(json.dumps(rows))
 
 
+def overseer(tool: str, args: list[str], folder: Path, source: str) -> int:
+    repo = Path.cwd()
+    log_call(repo / "overseer.jsonl", args)
+    mode = os.environ.get("FAKE_OVERSEER_UVX")
+    legion = ["legion"] if mode else [sys.executable, "-m", "legion.cli"]
+    resumed = args[0] in ("--resume", "resume") or args[0].startswith("--resume=")
+    if tool == "claude" and not resumed:
+        project = folder / "projects/fake"
+        project.mkdir(parents=True, exist_ok=True)
+        (project / f"{args[1]}.jsonl").touch()
+    subprocess.run(
+        [*legion, "--home", os.environ["LEGION_HOME"], "lease", "take", "--tool", tool, "--account", f"{tool}1", "--process-id", str(os.getpid())],
+        check=True,
+        env=os.environ | {"CODEX_THREAD_ID": FAKE_SESSION},
+    )
+    if resumed and not (repo / "request-again").exists():
+        assert "Continue the fake task." in (repo / ".legion/state/handoff.md").read_text(encoding="utf-8")
+        (repo / "resumed-config.json").write_text(json.dumps([str(folder), os.environ.get("TELEGRAM_STATE_DIR")]), encoding="utf-8")
+        return 0
+    if tool == "codex":
+        # The test requests from outside this process tree, as an app-server command does.
+        (repo / "codex-ready").touch()
+        time.sleep(60)
+        return 0
+    (repo / "request-again").unlink(missing_ok=True)
+    if mode == "1":
+        legion = ["uvx", "--isolated", "--from", f"{Path(source) / 'plugins/legion'}[mcp]", "legion"]
+    copilot = ["--session-id", FAKE_SESSION] if tool == "copilot" else []
+    subprocess.run([*legion, "update", "--self", "--yes", "--source", source, *copilot], check=True)
+    time.sleep(60)
+    return 0
+
+
 def main(tool: str, args: list[str]) -> int:
     folder = Path(os.environ[CONFIG[tool]])
     folder.mkdir(parents=True, exist_ok=True)
     log_call(folder / "fake-cli.log", args)
+    if args[:1] != ["plugin"] and (source := os.environ.get("FAKE_OVERSEER_REQUEST")):
+        return overseer(tool, args, folder, source)
     group, verb, *operands = args
     if group != "plugin":
         raise ValueError(f"unexpected {tool} arguments: {args}")
