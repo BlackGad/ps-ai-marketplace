@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.23.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.22.0...v0.23.0) (2026-11-28)
+
+
+### Features
+
+* **install:** install legion as a uv tool ([#136](https://github.com/BlackGad/ps-legion-marketplace/issues/136)) ([46526eb](https://github.com/BlackGad/ps-legion-marketplace/commit/46526eb4fb569880a5fb2f41a0d23397e9795b02))
+
+
+### Tests
+
+* **mcp:** stabilize limits tests on Windows ([c0e38e4](https://github.com/BlackGad/ps-legion-marketplace/commit/c0e38e43e40f64d47d44f2af08f77b8119764fcb))
+* stabilise two flaky Windows tests ([#137](https://github.com/BlackGad/ps-legion-marketplace/issues/137)) ([c0e38e4](https://github.com/BlackGad/ps-legion-marketplace/commit/c0e38e43e40f64d47d44f2af08f77b8119764fcb))
+
 ## [0.22.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.21.0...v0.22.0) (2026-11-27)
 
 
