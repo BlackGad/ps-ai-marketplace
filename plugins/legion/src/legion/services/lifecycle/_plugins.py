@@ -206,14 +206,18 @@ def ensure(
     say: Callable[[str], None],
     *,
     pin: PluginPin,
-) -> None:
+) -> str:
     _, steps = installation_steps(entry, folder, source, ref, pin=pin)
-    if steps and not dry_run:
+    if not steps:
+        say(f"skip: {pin.plugin_id} in {folder} (already done)")
+        return "already done"
+    if not dry_run:
         folder.mkdir(parents=True, exist_ok=True)
     for arguments in steps:
         run_step(entry, arguments, folder, dry_run, say)
     if not dry_run and not _pinned_marketplace(entry, folder, _marketplace_item(entry, folder, pin.marketplace), pin):
         raise ValueError(f"llm-wiki marketplace could not be verified at {pin.tag}")
+    return "previewed" if dry_run else "ready"
 
 
 def _wiki_recipe(plugin: Plugin, pin: PluginPin) -> Plugin:

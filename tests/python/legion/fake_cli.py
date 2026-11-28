@@ -69,12 +69,12 @@ def main(tool: str, args: list[str]) -> int:
 
     state_file = folder / "fake-cli.json"
     state = json.loads(state_file.read_text(encoding="utf-8")) if state_file.exists() else {"marketplaces": {}, "plugins": []}
-    markets: dict[str, str] = state["marketplaces"]
+    markets: dict[str, str | dict[str, str]] = state["marketplaces"]
     installed: list[str] = state["plugins"]
     if verb == "list":
         assert operands == (["--json"] if marketplace or tool == "claude" else []), args
         if marketplace:
-            rows = [{"name": name, "root": root} for name, root in markets.items()]
+            rows = [{"name": name, **(root if isinstance(root, dict) else {"root": root})} for name, root in markets.items()]
             print(json.dumps({"marketplaces": rows} if tool == "codex" else rows))
         else:
             list_plugins(tool, folder, installed, state.get("disabled", []))
@@ -96,7 +96,9 @@ def main(tool: str, args: list[str]) -> int:
     elif not marketplace and verb in (("add",) if tool == "codex" else ("install", "update")):
         [plugin] = operands
         name, market = plugin.split("@")
-        source = Path(markets[market])
+        location = markets[market]
+        assert isinstance(location, str), "fake installs require a local marketplace"
+        source = Path(location)
         manifest = json.loads((source / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
         relative = next(row["source"] for row in manifest["plugins"] if row["name"] == name)
         root = plugin_root(tool, folder, plugin)

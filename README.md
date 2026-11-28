@@ -46,7 +46,7 @@ legion keeps settings in `~/.legion/configuration/`, account folders in `~/.legi
 
 `legion dismiss` releases a repository again: it removes the legion traces outside `.legion/` and then `.legion/` itself.
 
-`legion status` lists outlanders separately from accounts. An outlander is the owner's default `~/.claude`, `~/.codex`, or `~/.copilot` folder when that tool's stock command is on PATH. Install puts Legion there for first setup and the owner's own work. The optional llm-wiki plugin goes into Legion accounts only.
+`legion status` lists outlanders separately from accounts. An outlander is the owner's default `~/.claude`, `~/.codex`, or `~/.copilot` folder when that tool's stock command is on PATH. Install puts Legion there for first setup and the owner's own work. The optional llm-wiki plugin goes into Legion accounts only. When setup can reuse the knowledge hub or an account's pinned wiki plugin, its results show `already done` for that target.
 
 Repository setup offers [Private (default) or Shared](plugins/legion/skills/legion-repository/SKILL.md#choose-where-notes-live) storage for notes and history.
 

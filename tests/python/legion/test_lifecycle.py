@@ -313,6 +313,31 @@ def test_outlander_keeps_a_manually_installed_wiki(lifecycle: Lifecycle) -> None
     assert not upgrades  # A current local marketplace needs no upgrade.
 
 
+def test_repeat_knowledge_setup_reports_the_hub_and_pinned_wiki_already_done(lifecycle: Lifecycle) -> None:
+    lifecycle.enable("claude")
+    lifecycle.add("claude")
+    folder = lifecycle.account("claude")
+    state_file = folder / "fake-cli.json"
+    state = read_json(state_file)
+    wiki = "wiki@llm-wiki"
+    state["marketplaces"]["llm-wiki"] = {"repo": "nvk/llm-wiki", "ref": "v1.0.0"}
+    state["plugins"].append(wiki)
+    state_file.write_text(json.dumps(state), encoding="utf-8")
+    root = plugin_root("claude", folder, wiki)
+    root.mkdir(parents=True)
+    (root / "plugin.json").write_text('{"name":"wiki","version":"1.0.0"}', encoding="utf-8")
+
+    lifecycle.invoke("setup", "--knowledge", "--yes")
+    log = folder / "fake-cli.log"
+    before = len(calls(log))
+    output = lifecycle.invoke("setup", "--knowledge", "--yes").output
+    assert f"skip: {wiki} in {folder} (already done)" in output
+    rows = output.split("Results:\n", 1)[1].splitlines()
+    assert any(row.startswith("knowledge hub ") and row.endswith("  already done") for row in rows)
+    assert any(row.startswith("claude1 knowledge ") and row.endswith("  already done") for row in rows)
+    assert all("list" in args for args in calls(log)[before:])
+
+
 @pytest.mark.parametrize("answer", ["n\n", ""], ids=["no", "eof"])
 def test_declined_install_leaves_home_untouched(lifecycle: Lifecycle, answer: str) -> None:
     lifecycle.enable("claude")

@@ -176,7 +176,7 @@ These are the main commands; `legion help` lists all of them:
 | Command | What it does |
 | --- | --- |
 | `legion setup [--yes]` | Finish setup: settings, commands, legion in every account |
-| `legion setup --knowledge/--no-knowledge` | Turn llm-wiki on or decline it. Turning it off after an opt-in removes the wiki plugin and marketplace from every account and keeps the hub and its pointer. If knowledge was never enabled, a decline leaves manual installs in place. The choice is part of the setup plan. Use `--yes` to apply it without a prompt. |
+| `legion setup --knowledge/--no-knowledge` | Turn llm-wiki on or decline it. A hub that needs no changes and accounts with the pinned plugin already enabled appear as `already done` in the setup results. Turning knowledge off after an opt-in removes the wiki plugin and marketplace from every account and keeps the hub and its pointer. If knowledge was never enabled, a decline leaves manual installs in place. The choice is part of the setup plan. Use `--yes` to apply it without a prompt. |
 | `legion add <tool> [<folder>] [--yes]` | Add a claude, codex or copilot account, in a new folder or a copy of an existing one |
 | `legion remove --id <id>` | Remove an account; keep its folder |
 | `legion status` | Show accounts, outlanders, channels, knowledge and this repository |

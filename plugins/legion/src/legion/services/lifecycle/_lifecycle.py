@@ -677,13 +677,12 @@ def _set_knowledge(home: Path, catalog: ToolsCatalog, choice: bool, say: Say) ->
     return "enabled" if choice else "declined"
 
 
-def _with_knowledge(home: Path, run: Callable[[], None], say: Say) -> str:
+def _with_knowledge(home: Path, run: Callable[[], str], say: Say) -> str:
     with _settings_io.writer(home, require_existing=False):
         if not _settings_io.load_or_empty(home).knowledge_enabled:
             say("skip: knowledge (off)")
             return "off"
-        run()
-    return "ready"
+        return run()
 
 
 def _knowledge_steps(changes: Plan, home: Path, entries: list[CatalogTool], agents: list[Agent], pin: PluginPin | None, enabled: bool | None) -> None:
@@ -691,10 +690,10 @@ def _knowledge_steps(changes: Plan, home: Path, entries: list[CatalogTool], agen
         return
 
     def hub(say: Say) -> str:
-        def initialize() -> None:
+        def initialize() -> str:
             lines: list[str] = []
             try:
-                _knowledge_hub.initialize(home, lines)
+                return "ready" if _knowledge_hub.initialize(home, lines) else "already done"
             finally:
                 for line in lines:
                     say(line)
@@ -706,16 +705,15 @@ def _knowledge_steps(changes: Plan, home: Path, entries: list[CatalogTool], agen
         changes.steps.append(Step(f"Prepare the knowledge hub in {folder}", "knowledge hub", folder, hub, needs_yes=False))
 
     def wiki(agent: Agent, entry: CatalogTool, folder: Path, say: Say) -> str:
-        def ensure() -> None:
+        def ensure() -> str:
             command = _targets.account_command(home, entry, agent.command)
             if command is None:
                 raise ValueError(f"{entry.id} command is missing")
             target = entry.model_copy(update={"command": command})
-            _plugins.ensure(target, folder, pin.source, pin.tag, changes.dry_run, say, pin=pin)
+            return _plugins.ensure(target, folder, pin.source, pin.tag, changes.dry_run, say, pin=pin)
 
         if changes.dry_run:
-            ensure()
-            return "previewed"
+            return ensure()
         return _with_knowledge(home, ensure, say)
 
     by_tool = {entry.id: entry for entry in entries}
