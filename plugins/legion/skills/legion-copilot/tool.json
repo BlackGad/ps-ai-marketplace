@@ -5,6 +5,7 @@
   "overseerArgs": ["-i"],
   "plugin": {
     "defaultConfigDir": "~/.copilot",
+    "adoptRewrite": ["config.json"],
     "installedRoot": "installed-plugins",
     "marketplaceAddRef": ["plugin", "marketplace", "add", "{source}#{ref}"],
     "marketplaceAdd": ["plugin", "marketplace", "add", "{source}"],

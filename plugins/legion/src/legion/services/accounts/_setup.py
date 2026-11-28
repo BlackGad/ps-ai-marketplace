@@ -62,7 +62,7 @@ class Row:
     folder: Path
     requested: bool = False
     new: bool = False
-    adopted: bool = False
+    source: Optional[Path] = None
     version: Optional[str] = None
     next_step: str = "ready"
     usable: bool = True
@@ -175,10 +175,11 @@ def _missing_allow_rules(tool: ToolDescriptor, folder: Path) -> list[str]:
     return [rule for rule in rules if rule not in current]
 
 
-def _row(agent: Agent, tool: ToolDescriptor, home: Path, requested: bool = False, new: bool = False, adopted: bool = False) -> Row:
+def _row(agent: Agent, tool: ToolDescriptor, home: Path, requested: bool = False, new: bool = False, source: Optional[Path] = None) -> Row:
     folder = _resolve(agent.config_dir, home)
+    read_from = source or folder
     # Login is owner-only; infer the guidance from our managed folder without reading credentials.
-    next_step = f"log in: {_accounts.login_command(tool, folder, agent.command, home)}" if not adopted and agent.provider is None and same_path(folder, _managed_folder(agent.id, home)) else "ready"
+    next_step = f"log in: {_accounts.login_command(tool, folder, agent.command, home)}" if source is None and agent.provider is None and same_path(folder, _managed_folder(agent.id, home)) else "ready"
     if not new and agent.provider is None and _target_needed(agent, home):
         next_step = f"target needed: {agent.id}; ask the owner for the registered executable"
     return Row(
@@ -187,12 +188,12 @@ def _row(agent: Agent, tool: ToolDescriptor, home: Path, requested: bool = False
         folder=folder,
         requested=requested,
         new=new,
-        adopted=adopted,
-        version=_status.installed_version(folder, tool),
+        source=source,
+        version=_status.installed_version(read_from, tool),
         next_step=next_step,
         usable=not next_step.startswith("target needed:"),
         command=agent.command,
-        missing_allow_rules=_missing_allow_rules(tool, folder),
+        missing_allow_rules=_missing_allow_rules(tool, read_from),
     )
 
 
@@ -208,25 +209,32 @@ def _next_id(tool_id: str, settings: PersonalisationSettings) -> str:
 def _added_account(tool_id: str, config_dir: Optional[str], account_id: Optional[str], settings: PersonalisationSettings, tools: dict[str, ToolDescriptor], home: Path) -> Row:
     if tool_id not in tools:
         raise SetupError(f"unknown tool '{tool_id}'")
-    folder: Optional[Path] = None
+    given: Optional[Path] = None
     if config_dir is not None:
-        folder = _resolve(config_dir, home) if config_dir else None
-        if folder is None or not folder.is_dir():
+        given = _resolve(config_dir, home) if config_dir else None
+        if given is None or not given.is_dir():
             raise SetupError(NO_FOLDER)
         if account_id is None:
-            same = next((agent for agent in settings.agents if agent.tool == tool_id and agent.provider is None and _same_folder(_resolve(agent.config_dir, home), folder)), None)
+            same = next((agent for agent in settings.agents if agent.tool == tool_id and agent.provider is None and _same_folder(_resolve(agent.config_dir, home), given)), None)
             if same is not None:
-                account_id, folder = same.id, _resolve(same.config_dir, home)
+                account_id = same.id
     account_id = account_id or _next_id(tool_id, settings)
-    folder = folder or _managed_folder(account_id, home)
     existing = next((agent for agent in settings.agents if agent.id == account_id), None)
+    source: Optional[Path] = None
     if existing is not None:
-        if existing.tool != tool_id or existing.provider is not None or not _same_folder(_resolve(existing.config_dir, home), folder):
+        if existing.tool != tool_id or existing.provider is not None:
             raise SetupError(f"account '{account_id}' already exists with other values")
+        if given is not None and not _same_folder(_resolve(existing.config_dir, home), given):
+            raise SetupError(f"account '{account_id}' already has its folder; legion add {tool_id} <folder> copies a folder into a new account")
     else:
         _accounts.check_new_id(settings, account_id)
-    agent = existing or Agent.model_construct(id=account_id, tool=tool_id, config_dir=str(folder))
-    return _row(agent, tools[tool_id], home, requested=True, new=existing is None, adopted=config_dir is not None)
+        if given is not None:
+            source = given
+            target = _managed_folder(account_id, home)
+            if target.is_dir() and any(target.iterdir()):
+                raise SetupError(f"{target} already has files; adopt copies a folder into an empty one")
+    agent = existing or Agent.model_construct(id=account_id, tool=tool_id, config_dir=str(_managed_folder(account_id, home)))
+    return _row(agent, tools[tool_id], home, requested=True, new=existing is None, source=source)
 
 
 def _accounts_plan(tool_id: Optional[str], config_dir: Optional[str], account_id: Optional[str], settings: PersonalisationSettings, tools: dict[str, ToolDescriptor], home: Path) -> list[Row]:
@@ -276,7 +284,7 @@ def plan_lines(plan: Plan) -> list[str]:
         lines.append(f"  cli      install {tool.id} ({install_hint(tool.id)})")
     for row in plan.accounts:
         if row.new:
-            lines.append(f"  add      {row.id} ({row.tool.id}) {'existing' if row.adopted else 'new'} folder {row.folder}")
+            lines.append(f"  add      {row.id} ({row.tool.id}) {f'copy of {row.source} in' if row.source else 'new'} folder {row.folder}")
     if plan.uv_missing:
         lines.append("  uv       missing; ask the owner before installing it")
     lines.extend(f"  account  {row.next_step}" for row in plan.accounts if row.blocked)
@@ -347,10 +355,9 @@ def add_accounts(plan: Plan, say: Callable[[str], None]) -> None:
         if not row.usable:
             continue
         if row.requested:
-            adopted = row.adopted or not same_path(row.folder, _managed_folder(row.id, plan.home))
             # The account verb takes the settings lock itself, so no lock is held here.
             try:
-                lines = _accounts.add_subscription(plan.home, row.id, row.tool.id, None, str(row.folder) if adopted else None)
+                lines = _accounts.add_subscription(plan.home, row.id, row.tool.id, None, str(row.source) if row.source else None, say)
             except ERRORS as error:
                 raise SetupError(one_line(str(error))) from None
             if not row.new:

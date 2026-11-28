@@ -465,11 +465,11 @@ _account_id_option = click.option("--id", "account_id", required=True, help="the
 _account_tool_option = click.option("--tool", "tool_id", required=True, help="the tool, such as claude, codex or copilot")
 
 
-@account.command("add", help="Add a subscription account, or update the command or folder of an existing one")
+@account.command("add", help="Add a subscription account (a new folder, or a copy of an existing one), or change the command of an existing one.")
 @_account_id_option
 @_account_tool_option
 @click.option("--command", help="the account's own CLI program, when it is not the tool's stock command")
-@click.option("--config-dir", help="an existing account folder to adopt")
+@click.option("--config-dir", help="an existing folder to copy into the new account")
 @click.option("--provider", type=click.Choice(["foundry"]))
 @click.option("--endpoint")
 @click.option("--deployment", "deployments", multiple=True)
@@ -505,7 +505,7 @@ def account_add(
             raise click.UsageError("--endpoint is required for Foundry")
         _report_account(context, lambda: _accounts.add_foundry(_home.legion_home(context.obj), account_id, tool_id, endpoint, list(deployments), default_model, list(aliases), standard, list_only))
         return
-    _report_account(context, lambda: _accounts.add_subscription(_home.legion_home(context.obj), account_id, tool_id, command, config_dir))
+    _report_account(context, lambda: _accounts.add_subscription(_home.legion_home(context.obj), account_id, tool_id, command, config_dir, click.echo))
 
 
 @account.command("models", help="Show or change a Foundry account's deployments")
@@ -544,7 +544,7 @@ def setup(context: click.Context, yes: bool, knowledge: Optional[bool]) -> None:
     _run_setup(context, None, None, None, None, yes, knowledge)
 
 
-@main.command("add", help="Add a claude, codex or copilot account")
+@main.command("add", help="Add a claude, codex or copilot account (a new folder, or a copy of an existing one)")
 @click.argument("tool")
 @click.argument("folder", required=False)
 @click.option("--yes", is_flag=True, help="Apply without asking.")
