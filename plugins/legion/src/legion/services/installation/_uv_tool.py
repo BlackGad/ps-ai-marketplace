@@ -4,6 +4,7 @@ import os
 import shutil
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
@@ -15,7 +16,7 @@ from legion.core._home import (
     same_path,
     settings_path,
 )
-from legion.core._run import display_command, run_command
+from legion.core._run import display_command, run_command, run_foreground
 from legion.core._settings_models import PluginManifest
 from legion.services.installation import _handover, _user_path
 from legion.services.installation._constraints import export_constraints
@@ -32,11 +33,6 @@ class UvToolError(ValueError):
 
 def find_uv() -> Optional[str]:
     return shutil.which("uv")
-
-
-def _failure(action: str, result_error: str, exit_code: int) -> UvToolError:
-    detail = result_error.strip()
-    return UvToolError(f"{action} exited {exit_code}" + (f"\n{detail}" if detail else ""))
 
 
 def plugin_version(plugin_root: Path) -> str:
@@ -141,21 +137,26 @@ def _path_lines(uv: str, update_shell: bool) -> list[str]:
     return lines
 
 
+def _check_install_home(home: Path) -> None:
+    if not owner_path_safe(home / ".legion", home):
+        raise _settings_io.SettingsError("The legion folder contains a link; resolve it before installing")
+    with _settings_io.writer(home, require_existing=False):
+        if settings_path(home).is_file():
+            _settings_io.load(home)
+
+
 # Replaces legion with the plugin at `plugin_root`. A repeat only repairs PATH if needed and approved.
-# The stop event precedes replacement. `detached` leaves the uv step to a helper that starts after
-# this process exits, and lifts the stop event after it: Windows cannot replace a running legion.exe.
-# By default it is detached when this process runs from the tool. `update_shell` also runs `uv tool update-shell`,
+# The stop event precedes replacement. On Windows a helper waits for the running tool to exit
+# before replacing it. `update_shell` also runs `uv tool update-shell`,
 # which edits the owner's shell profile or user PATH: callers pass it only inside the owner's yes.
-def install(plugin_root: Path, home: Path, dry_run: bool = False, detached: Optional[bool] = None, update_shell: bool = False, *, updating: bool = False) -> list[str]:
+def install(plugin_root: Path, home: Path, dry_run: bool = False, update_shell: bool = False, *, updating: bool = False, progress: Callable[[str], None] | None = None) -> list[str]:
     if not dry_run:
-        if not owner_path_safe(home / ".legion", home):
-            raise _settings_io.SettingsError("The legion folder contains a link; resolve it before installing")
-        with _settings_io.writer(home, require_existing=False):
-            if settings_path(home).is_file():
-                _settings_io.load(home)
+        _check_install_home(home)
     uv = find_uv()
     if uv is None:
-        return [UV_MISSING]
+        if dry_run:
+            return [UV_MISSING]
+        raise UvToolError(UV_MISSING)
     version = plugin_version(plugin_root)
     if installed_version(uv) == version:
         lines = [f"skip: legion command {version} (already done)"]
@@ -166,28 +167,37 @@ def install(plugin_root: Path, home: Path, dry_run: bool = False, detached: Opti
     if dry_run:
         shell = [display_command([uv, "tool", "update-shell"])] if update_shell else []
         return [STOP_NOTICE, display_command([uv, "tool", "install", spec, "--constraints", "<exported uv.lock>", "--reinstall"]), *shell]
-    if detached is None:
-        detached = running_from_tool(uv)
+    detached = sys.platform == "win32" and running_from_tool(uv)
+    if progress is not None:
+        progress("Waiting for running Legion sessions to exit...")
     stop_running(home, updating=updating)
     folder: Optional[Path] = None
     handed_over = False
     try:
+        if progress is not None:
+            progress(f"Preparing locked dependencies for legion {version}...")
         folder = _write_constraints(uv, plugin_root)
         command = [uv, "tool", "install", spec, "--constraints", str(folder / "constraints.txt"), "--reinstall"]
         if detached:
             path_lines = _path_lines(uv, update_shell)
             _hand_over(home, command, [folder, _stop_event.stop_path(home)], [])
             handed_over = True
-            return [f"legion command {version} replacement scheduled. Check the result in {home / HANDOVER_LOG}.", *path_lines]
-        result = run_command(uv, command[1:])
-        if result.exit_code != 0:
-            raise _failure("uv tool install", result.error, result.exit_code)
+            scheduled = f"legion command {version} replacement scheduled. Check the result in {home / HANDOVER_LOG}."
+            if updating:
+                scheduled += " Restart your sessions after the replacement succeeds."
+            return [*path_lines, scheduled]
+        if progress is not None:
+            progress(f"Installing legion {version} with uv...")
+        exit_code = run_foreground(uv, command[1:])
+        if exit_code:
+            raise UvToolError(f"uv tool install exited {exit_code}")
     finally:
         if not handed_over:
             _stop_event.clear_stop(home)
             if folder is not None:
                 shutil.rmtree(folder, ignore_errors=True)
-    return [f"legion command {version} installed", *_path_lines(uv, update_shell)]
+    outcome = f"legion {version} is installed; restart your sessions." if updating else f"legion command {version} installed"
+    return [*_path_lines(uv, update_shell), outcome]
 
 
 # Remove the tool and any approved folders after exit. The helper also lifts the stop event.

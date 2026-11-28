@@ -21,11 +21,17 @@ function New-BootstrapScratch {
     # A fake uv logs one argument per line, then the project environment, and exits with FAKE_UV_EXIT.
     if ($env:OS -eq 'Windows_NT') {
         $lines = @('@echo off', 'del "%FAKE_UV_LOG%" 2>nul', ':loop', 'if "%~1"=="" goto done', '>> "%FAKE_UV_LOG%" echo %~1', 'shift', 'goto loop', ':done',
-            '>> "%FAKE_UV_LOG%" echo env=%UV_PROJECT_ENVIRONMENT%', 'if defined FAKE_UV_SAY echo fake uv output', 'exit /b %FAKE_UV_EXIT%')
+            '>> "%FAKE_UV_LOG%" echo env=%UV_PROJECT_ENVIRONMENT%', 'if not defined FAKE_UV_SAY goto finish',
+            'echo fake uv diagnostic 1>&2', 'set /p "answer=fake uv prompt [y/N] "',
+            'echo answer=%answer%', 'echo bootstrap=%LEGION_BOOTSTRAP_POWERSHELL%', 'echo cwd=%CD%',
+            'type "%FAKE_UV_UTF8%"', ':finish', 'exit /b %FAKE_UV_EXIT%')
         $name = 'uv.cmd'
     } else {
         $lines = @('#!/bin/sh', ': > "$FAKE_UV_LOG"', 'for word in "$@"; do echo "$word" >> "$FAKE_UV_LOG"; done',
-            'echo "env=$UV_PROJECT_ENVIRONMENT" >> "$FAKE_UV_LOG"', '[ -z "$FAKE_UV_SAY" ] || echo "fake uv output"', 'exit "$FAKE_UV_EXIT"')
+            'echo "env=$UV_PROJECT_ENVIRONMENT" >> "$FAKE_UV_LOG"', 'if [ -n "$FAKE_UV_SAY" ]; then',
+            '  echo "fake uv diagnostic" >&2', '  printf "%s" "fake uv prompt [y/N] "', '  read -r answer',
+            '  echo "answer=$answer"', '  echo "bootstrap=$LEGION_BOOTSTRAP_POWERSHELL"', '  echo "cwd=$(pwd)"',
+            '  cat "$FAKE_UV_UTF8"', 'fi', 'exit "$FAKE_UV_EXIT"')
         $name = 'uv'
     }
     Set-Content -LiteralPath (Join-Path $fakeSource $name) -Value $lines
@@ -88,7 +94,7 @@ Invoke-InstallTestCase 'BootstrapHandsOverToUv' {
             }
             Assert-True (@($result.Lines | Where-Object { $_ -like 'uv:env=*temp*env' }).Count -eq 1) "uv gets its own project environment: $text"
             Assert-True ($result.Lines -contains 'tempLeft=0') 'The temporary folder is gone afterwards'
-            Assert-True ($result.Lines -contains 'exit=0') 'Exit code is zero'
+            Assert-True ($result.Lines -contains 'exit=0') "Exit code is zero: $text"
 
             $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'exit-code' -Scratch $scratch
             Assert-True ($result.Lines -contains 'exit=3') "uv's exit code is the bootstrap's: $($result.Lines -join ' ')"
@@ -141,12 +147,75 @@ Invoke-InstallTestCase 'RemoteBootstrapDryRun' {
 Invoke-InstallTestCase 'BootstrapUvOutputAndExitCode' {
     $scratch = New-BootstrapScratch
     try {
-        foreach ($runtime in @(Get-InstallTestPwsh)) {
-            $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'uv-call' -Scratch $scratch
-            $text = $result.Lines -join "`n"
-            Assert-True ($result.Lines -contains 'fake uv output') "uv's output reaches the owner: $text"
-            Assert-True ($result.Lines -contains 'exit=3') "The hand-over preserves the exit code: $text"
-            Assert-True ($result.Lines -contains 'resultCount=0') "uv output does not enter the output pipeline: $text"
+        $unicode = 'Updating… ✔ →'
+        $utf8 = [Text.UTF8Encoding]::new($false)
+        $unicodeFile = Join-Path $scratch 'utf8.txt'
+        [IO.File]::WriteAllText($unicodeFile, "$unicode`n", $utf8)
+        foreach ($runtime in @(Get-BootstrapRuntimes)) {
+            $start = [Diagnostics.ProcessStartInfo]::new($runtime)
+            foreach ($argument in @('-NoProfile', '-File', $fixture, '-Installer', $bootstrap, '-Mode', 'uv-call', '-Scratch', $scratch, '-Archive', (Join-Path $scratch 'plugin.zip'))) {
+                $start.ArgumentList.Add($argument)
+            }
+            $start.Environment['PATH'] = (Join-Path $scratch 'bin') + [IO.Path]::PathSeparator + $env:PATH
+            $start.Environment['FAKE_UV_UTF8'] = $unicodeFile
+            $start.UseShellExecute = $false
+            $start.RedirectStandardInput = $true
+            $start.RedirectStandardOutput = $true
+            $start.StandardOutputEncoding = $utf8
+            $start.RedirectStandardError = $true
+            $process = [Diagnostics.Process]::Start($start)
+            try {
+                foreach ($expected in @('skip: uv (already done)', 'Preparing legion (first run can take a minute)...')) {
+                    $line = $process.StandardOutput.ReadLineAsync()
+                    Assert-True ($line.Wait(10000)) "Expected '$expected' before the prompt in $runtime"
+                    Assert-Equal $expected $line.Result 'Bootstrap progress'
+                }
+                $codePage = $process.StandardOutput.ReadLineAsync()
+                Assert-True ($codePage.Wait(10000)) "Expected the code page during hand-over in $runtime"
+                if ($IsWindows) { Assert-Equal 'uvCodePage=65001' $codePage.Result 'uv writes to a UTF-8 console' }
+                $prompt = 'fake uv prompt [y/N] '
+                $buffer = [char[]]::new($prompt.Length)
+                $read = $process.StandardOutput.ReadBlockAsync($buffer, 0, $buffer.Length)
+                Assert-True ($read.Wait(10000)) "The prompt is visible before an answer in $runtime"
+                Assert-Equal $prompt (-join $buffer) 'uv passes through a prompt without a newline'
+                $process.StandardInput.WriteLine('y')
+                $process.StandardInput.Close()
+                Assert-True ($process.WaitForExit(10000)) "The answer reaches uv in $runtime"
+                $lines = $process.StandardOutput.ReadToEnd() -split '\r?\n'
+                Assert-True ($lines -contains 'answer=y') 'uv gets the answer'
+                Assert-True ($lines -contains $unicode) 'UTF-8 progress reaches the caller intact'
+                Assert-True ($lines -contains 'bootstrap=1') 'The installer gets the bootstrap context'
+                Assert-True ($lines -contains 'bootstrapAfter=original') 'The flag context is scoped to uv'
+                if ($IsWindows) { Assert-True ($lines -contains 'codePageAfter=437') 'The bootstrap restores the console code page' }
+                $cwd = $lines | Where-Object { $_ -like 'cwd=*' } | Select-Object -First 1
+                Assert-True ($null -ne $cwd) 'uv reports its working directory'
+                $expectedCwd = Resolve-LegionDirectoryPath (Join-Path $scratch 'checkout')
+                Assert-Equal $expectedCwd (Resolve-LegionDirectoryPath $cwd.Substring(4)) 'Relative arguments use the current PowerShell location'
+                Assert-True ($lines -contains 'exit=3') 'The hand-over preserves the exit code'
+                Assert-True ($lines -contains 'lastExit=3') 'The exit code reaches the PowerShell caller'
+                Assert-True ($lines -contains 'resultCount=0') 'uv output bypasses the output pipeline'
+                Assert-Equal 'fake uv diagnostic' $process.StandardError.ReadToEnd().Trim() 'uv stderr reaches the owner'
+            } finally {
+                $process.StandardInput.Close()
+                if (-not $process.WaitForExit(1000)) { $process.Kill($true) }
+                $process.Dispose()
+            }
+        }
+    } finally { Remove-InstallTestFolder $scratch }
+}
+
+Invoke-InstallTestCase 'BootstrapToleratesUnavailableConsoleEncoding' {
+    if (-not $IsWindows) { return }
+    $scratch = New-BootstrapScratch
+    try {
+        foreach ($runtime in @(Get-BootstrapRuntimes)) {
+            foreach ($mode in @('encoding-set-error', 'encoding-restore-error')) {
+                $result = Invoke-BootstrapFixture -Runtime $runtime -Mode $mode -Scratch $scratch
+                $expected = if ($mode -eq 'encoding-set-error') { 1 } else { 2 }
+                Assert-True ($result.Lines -contains "encodingWrites=$expected") "Expected encoding failure in $mode"
+                Assert-True ($result.Lines -contains 'lastExit=3') 'uv still runs and passes its status to the caller'
+                Assert-True ($result.Lines -contains 'tempLeft=0') 'Cleanup still runs'
+            }
         }
     } finally { Remove-InstallTestFolder $scratch }
 }
@@ -194,6 +263,7 @@ Invoke-InstallTestCase 'BootstrapPythonPrerequisite' {
         $result = Invoke-BootstrapFixture -Runtime $runtime -Mode 'no-python-yes' -Scratch $scratch
         Assert-True ($result.Lines -contains 'uv:run') "A yes lets uv fetch Python and run: $($result.Lines -join ' ')"
         Assert-True ($result.Lines -contains 'prompts=0') '-Yes never asks'
+        Assert-True ($result.Lines -contains 'lastExit=0') 'Successful hand-over clears a preceding failure code'
     } finally { Remove-InstallTestFolder $scratch }
 }
 
@@ -352,6 +422,7 @@ Invoke-InstallTestCase 'ShellBootstrap' {
             $script = Get-Content -LiteralPath (Join-Path $repo 'install.sh') -Raw
             $text = @($script | & $shell -s -- --yes 2>&1) -join "`n"
             Assert-Equal 0 $LASTEXITCODE "Shell remote run: $text"
+            Assert-True ($text.Contains('Preparing legion (first run can take a minute)...')) 'The shell announces preparation'
             Assert-True ((Get-Content -LiteralPath $env:FAKE_CURL_LOG) -contains 'https://github.com/BlackGad/ps-legion-marketplace/archive/refs/heads/stable.tar.gz') 'The stable archive is downloaded'
             Assert-True (((Get-Content -LiteralPath $log) -join '|') -like 'run|--project|*/source/plugins/legion|*') 'uv runs the downloaded project'
             Remove-Item $env:FAKE_CURL_LOG

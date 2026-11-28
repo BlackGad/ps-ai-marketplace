@@ -11,7 +11,6 @@ from app_fakes import FakeUv, make_link, make_source
 
 from legion.core import _settings_io, _stop_event
 from legion.core._home import settings_path
-from legion.core._run import RunResult
 from legion.services.installation import _user_path, _uv_tool
 
 
@@ -40,14 +39,13 @@ def test_install_exports_the_lock_then_installs_non_editable_with_the_extra(tmp_
 
 def test_the_constraints_file_holds_the_exported_lock(tmp_path: Path, home: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[str] = []
-    real = uv.run
+    real = uv.run_foreground
 
-    def run(command: str, arguments: list[str], timeout: float | None = None, cwd: Path | None = None) -> RunResult:
-        if arguments[:2] == ["tool", "install"]:
-            seen.append(Path(arguments[arguments.index("--constraints") + 1]).read_text(encoding="utf-8"))
-        return real(command, arguments, timeout=timeout, cwd=cwd)
+    def run(command: str, arguments: list[str]) -> int:
+        seen.append(Path(arguments[arguments.index("--constraints") + 1]).read_text(encoding="utf-8"))
+        return real(command, arguments)
 
-    monkeypatch.setattr(_uv_tool, "run_command", run)
+    monkeypatch.setattr(_uv_tool, "run_foreground", run)
     _uv_tool.install(make_source(tmp_path), home)
     assert seen == ["mcp==1.0.0\n"]
 
@@ -117,22 +115,22 @@ def test_a_new_plugin_version_replaces_the_installed_one(tmp_path: Path, home: P
 
 def test_an_install_raises_the_stop_event_before_uv_runs_and_lifts_it_after(tmp_path: Path, home: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch) -> None:
     raised_during: list[bool] = []
-    real = uv.run
+    real = uv.run_foreground
 
-    def run(command: str, arguments: list[str], timeout: float | None = None, cwd: Path | None = None) -> RunResult:
-        if arguments[:2] == ["tool", "install"]:
-            raised_during.append(_stop_event.stop_path(home).is_file())
-        return real(command, arguments, timeout=timeout, cwd=cwd)
+    def run(command: str, arguments: list[str]) -> int:
+        raised_during.append(_stop_event.stop_path(home).is_file())
+        return real(command, arguments)
 
-    monkeypatch.setattr(_uv_tool, "run_command", run)
+    monkeypatch.setattr(_uv_tool, "run_foreground", run)
     _uv_tool.install(make_source(tmp_path), home)
     assert raised_during == [True]
     assert not _stop_event.stop_path(home).exists()
 
 
-def test_a_detached_install_starts_the_helper_and_leaves_the_stop_event_to_it(tmp_path: Path, home: Path, uv: FakeUv) -> None:
+def test_a_detached_install_starts_the_helper_and_leaves_the_stop_event_to_it(tmp_path: Path, home: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_uv_tool, "sys", SimpleNamespace(platform="win32", prefix=str(uv.tools / "legion")))
     source = make_source(tmp_path)
-    lines = _uv_tool.install(source, home, detached=True)
+    lines = _uv_tool.install(source, home)
     assert lines[0] == f"legion command 1.0.0 replacement scheduled. Check the result in {home / _uv_tool.HANDOVER_LOG}."
     assert uv.logs == [home / ".legion/temp/uv-tool.log"]
     assert uv.installs() == []
@@ -147,13 +145,18 @@ def test_a_detached_install_starts_the_helper_and_leaves_the_stop_event_to_it(tm
     shutil.rmtree(constraints)
 
 
-@pytest.mark.parametrize(("platform", "inside", "expected"), [("win32", True, True), ("win32", False, False), ("linux", True, True), ("darwin", True, True)])
-def test_setup_hands_the_install_over_when_it_runs_from_the_tool(tmp_path: Path, home: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch, platform: str, inside: bool, expected: bool) -> None:
+@pytest.mark.parametrize(("platform", "inside", "expected"), [("win32", True, True), ("win32", False, False), ("linux", True, False), ("darwin", True, False)])
+def test_only_windows_self_replacement_needs_a_handover(tmp_path: Path, home: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch, platform: str, inside: bool, expected: bool) -> None:
+    uv.installed = "0.9.0"
     prefix = str(uv.tools / "legion" if inside else tmp_path / "elsewhere")
     monkeypatch.setattr(_uv_tool, "sys", SimpleNamespace(platform=platform, prefix=prefix))
-    lines = _uv_tool.install(make_source(tmp_path), home)
+    lines = _uv_tool.install(make_source(tmp_path), home, updating=True)
     assert bool(uv.detached) is expected
-    assert lines[0].startswith("legion command 1.0.0 replacement scheduled.") is expected
+    if expected:
+        assert lines[-1].startswith("legion command 1.0.0 replacement scheduled.")
+        assert "restart your sessions" in lines[-1].lower()
+    else:
+        assert lines[-1] == "legion 1.0.0 is installed; restart your sessions."
     for _command, remove in uv.detached:
         shutil.rmtree(remove[0])
 
@@ -169,8 +172,9 @@ def test_a_running_legion_that_does_not_stop_blocks_the_install_with_a_plain_mes
 
 def test_a_failed_install_reports_the_exit_code_leaves_no_constraints_file_and_lifts_the_stop_event(tmp_path: Path, home: Path, uv: FakeUv) -> None:
     uv.fail["tool install"] = 2
-    with pytest.raises(_uv_tool.UvToolError, match="exited 2"):
+    with pytest.raises(_uv_tool.UvToolError, match=r"^uv tool install exited 2$"):
         _uv_tool.install(make_source(tmp_path), home)
+    assert not (home / ".legion/temp/uv-tool-install.log").exists()
     assert not list(Path(tempfile.gettempdir()).glob("legion-constraints-*"))
     assert not _stop_event.stop_path(home).exists()
 
@@ -192,7 +196,10 @@ def test_a_failed_update_shell_is_a_warning_not_an_error(tmp_path: Path, home: P
 
 def test_without_uv_install_says_so_and_runs_nothing(tmp_path: Path, home: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_uv_tool, "find_uv", lambda: None)
-    assert _uv_tool.install(make_source(tmp_path), home) == [_uv_tool.UV_MISSING]
+    source = make_source(tmp_path)
+    with pytest.raises(_uv_tool.UvToolError, match="uv is missing"):
+        _uv_tool.install(source, home)
+    assert _uv_tool.install(source, home, dry_run=True) == [_uv_tool.UV_MISSING]
     assert uv.calls == []
 
 
@@ -226,10 +233,11 @@ def test_uninstall_dry_run_shows_the_command_and_starts_nothing(home: Path, uv: 
 
 
 # uv is a global helper like git: no command legion runs ever removes or replaces it.
-def test_no_legion_command_touches_uv_itself(tmp_path: Path, home: Path, uv: FakeUv) -> None:
+def test_no_legion_command_touches_uv_itself(tmp_path: Path, home: Path, uv: FakeUv, monkeypatch: pytest.MonkeyPatch) -> None:
     uv.installed = "0.9.0"
     _uv_tool.install(make_source(tmp_path), home)
-    _uv_tool.install(make_source(tmp_path / "again", "2.0.0"), home, detached=True)
+    monkeypatch.setattr(_uv_tool, "sys", SimpleNamespace(platform="win32", prefix=str(uv.tools / "legion")))
+    _uv_tool.install(make_source(tmp_path / "again", "2.0.0"), home)
     _uv_tool.uninstall(home)
     for arguments in [*uv.calls, *(command[1:] for command, _remove in uv.detached)]:
         assert arguments[0] in {"tool", "export"}

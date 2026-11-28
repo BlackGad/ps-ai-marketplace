@@ -26,7 +26,7 @@ macOS and Linux:
 curl -fsSL https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.sh | sh
 ```
 
-The bootstrap offers to install uv if it is missing, then installs legion for your installed AI tools after asking. Windows needs only the built-in PowerShell. Add `-Yes` in PowerShell to skip the questions; for macOS and Linux, replace `sh` with `sh -s -- --yes`. See [installer options](docs/reference.md#installer-parameters).
+The bootstrap offers to install uv if it is missing, then announces when it starts preparing Legion and asks before installing it for your AI tools. Answer the prompts in the terminal. Windows needs only the built-in PowerShell. Add `-Yes` in PowerShell to skip the install questions. On macOS and Linux, replace `sh` with `sh -s -- --yes`. See [installer options](docs/reference.md#installer-parameters).
 
 ## Why mix tools
 
@@ -59,7 +59,7 @@ Open your AI tool and say:
 
 Say “Update legion” or “Uninstall legion,” or run `legion update` or `legion uninstall`. On Windows, close your Legion session, run `legion update` from a terminal, then reopen Legion. An update started from a registered Windows session refuses before making changes.
 
-One update covers all accounts legion knows. Before replacing the command, Legion waits for the MCP servers and `legion run` wrappers registered in its home to exit, with the updater and its ancestors exempt. Restart your session after the update. Check `~/.legion/temp/uv-tool.log` for the detached update or uninstall result. `legion status` flags failures recorded in the log. Use the handoff to recover stopped members. See [running sessions and recovery](docs/reference.md#running-sessions-and-the-stop-event). If `legion` is unavailable, run the matching one-liner in PowerShell.
+One update covers all accounts legion knows. Before replacing the command, Legion waits for the MCP servers and `legion run` wrappers registered in its home to exit, with the updater and its ancestors exempt. The bootstrap and macOS/Linux updates show account steps, uv's progress, and the result in the terminal. On Windows, the installed `legion` command schedules its own replacement after it exits and gives you the log path. Check `~/.legion/temp/uv-tool.log` for a scheduled update or uninstall result. `legion status` flags failures recorded in the log. Restart your sessions after a successful update and use the handoff to recover stopped members. See [running sessions and recovery](docs/reference.md#running-sessions-and-the-stop-event). If `legion` is unavailable, run the matching one-liner in PowerShell.
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Update
@@ -69,7 +69,7 @@ One update covers all accounts legion knows. Before replacing the command, Legio
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Uninstall
 ```
 
-Uninstall uses each tool's own commands to remove Legion's plugin and marketplace. A full uninstall waits for registered Legion processes outside the calling session to exit, then schedules removal of the `legion` command. An installed uv stays installed. If the bootstrap downloads uv for uninstall, it uses a temporary copy that remains available to the helper after the bootstrap exits.
+Uninstall shows each tool's plugin and marketplace removal steps as they run. A full uninstall waits for registered Legion processes outside the calling session to exit, then schedules removal of the `legion` command. An installed uv stays installed. If the bootstrap downloads uv for uninstall, it uses a temporary copy that remains available to the helper after the bootstrap exits.
 
 > [!IMPORTANT]
 > A plain uninstall keeps your settings, notes, account folders and logins. **Purge removes that data after the uv uninstall succeeds** or when the command is already absent. Purge also removes the recorded PATH entries for portable tools Legion installed. It asks separately before deleting a knowledge hub. The coding tools keep their own data and settings.

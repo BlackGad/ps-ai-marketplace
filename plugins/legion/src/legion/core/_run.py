@@ -1,4 +1,4 @@
-# Run a command with stdin closed, capture both streams and kill the whole tree on timeout.
+# Run commands with stdin closed, with live output or captured output and a timeout.
 
 import ctypes
 import os
@@ -10,7 +10,7 @@ import sys
 import sysconfig
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -43,15 +43,24 @@ class RunResult(BaseModel):
     timed_out: bool
 
 
+def _native_command(command: str, arguments: Sequence[str]) -> str | list[str]:
+    words = [command, *arguments]
+    if sys.platform == "win32" and Path(command).suffix.lower() in {".cmd", ".bat"}:
+        return _cmd_line(words)
+    return words
+
+
+def run_foreground(command: str, arguments: Sequence[str]) -> int:
+    # Keep the terminal on stdout and stderr so the program can draw its own progress.
+    return subprocess.run(_native_command(command, arguments), stdin=subprocess.DEVNULL, check=False).returncode
+
+
 # Return exit code -1 and timed_out when the timeout kills the process tree.
 # A .cmd or .bat runs through cmd.exe with every character kept literal; a line break cannot pass and raises ValueError.
 def run_command(command: str, arguments: Sequence[str], timeout: Optional[float] = None, env: Optional[Mapping[str, str]] = None, cwd: Optional[Path] = None) -> RunResult:
     on_windows = sys.platform == "win32"
-    line: Union[str, list[str]] = [command, *arguments]
-    if on_windows and Path(command).suffix.lower() in {".cmd", ".bat"}:
-        line = _cmd_line([command, *arguments])
     process = subprocess.Popen(
-        line,
+        _native_command(command, arguments),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

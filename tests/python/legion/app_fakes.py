@@ -49,6 +49,7 @@ class FakeUv:
         self.tools = bin_folder.parent / "uv tools"
         monkeypatch.setattr(_uv_tool, "find_uv", lambda: "uv")
         monkeypatch.setattr(_uv_tool, "run_command", self.run)
+        monkeypatch.setattr(_uv_tool, "run_foreground", self.run_foreground)
         monkeypatch.setattr("legion.services.installation._constraints.run_command", self.run)
         monkeypatch.setattr(_uv_tool._handover, "start", self.hand_over)
 
@@ -60,6 +61,9 @@ class FakeUv:
 
     def installs(self) -> list[list[str]]:
         return [call for call in self.calls if call[:2] == ["tool", "install"]]
+
+    def run_foreground(self, command: str, arguments: list[str]) -> int:
+        return self.run(command, arguments).exit_code
 
     def run(self, command: str, arguments: list[str], timeout: float | None = None, env: Mapping[str, str] | None = None, cwd: Path | None = None) -> RunResult:
         assert command == "uv"

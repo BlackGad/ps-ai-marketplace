@@ -20,6 +20,8 @@ If the check fails, explain the failed check and offer the GitHub update from th
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Update
 ```
 
+The bootstrap announces preparation and asks for confirmation in the terminal. If the owner declines, the prompt to retry names `-Yes`, the PowerShell bootstrap flag.
+
 `legion update` waits for MCP servers and `legion run` wrappers registered under its own legion home to exit before replacing the command. Tell the owner before approval. If legion reports that other sessions are still running after 30 seconds, ask the owner to close them and run it again. Continue stopped members from the [handoff](../../legion-overseer/references/takeover.md).
 
-When the update schedules replacement, the helper runs `uv tool install` after Legion exits. Check `<home>/.legion/temp/uv-tool.log` for the uv exit code or a handover error before reporting success. `legion status` flags a failed handover and points to the log. A same-version update reports the skip immediately.
+The bootstrap and the installed command on macOS and Linux display uv's progress and the result in the terminal. A failed foreground uv install exits with status 1. On Windows, the installed command can schedule its own replacement after it exits. The terminal shows the log path and asks the owner to restart after replacement succeeds. Check `<home>/.legion/temp/uv-tool.log` for the uv exit code or a handover error before reporting success. `legion status` flags a failed handover and points to the log. A same-version update reports the skip immediately.

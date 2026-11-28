@@ -4,6 +4,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -100,6 +102,20 @@ def test_a_pid_that_a_newer_process_reuses_is_stale(tmp_path: Path) -> None:
 def test_stop_all_raises_the_event_and_returns_at_once_when_nothing_runs(tmp_path: Path) -> None:
     assert _stop_event.stop_all(tmp_path) == []
     assert _stop_event.stop_path(tmp_path).is_file()
+
+
+@pytest.mark.parametrize(("platform", "remaining"), [("win32", [4242]), ("linux", [])])
+def test_stop_waits_for_a_windows_legion_launcher_after_its_python_unregisters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str, remaining: list[int]) -> None:
+    launcher = Mock(pid=4242)
+    launcher.name.return_value = "Legion.EXE"
+    python = Mock(pid=4243)
+    python.name.return_value = "python.exe"
+    registered = Mock(pid=4244)
+    registered.parents.return_value = [python, launcher]
+    monkeypatch.setattr(_stop_event, "sys", SimpleNamespace(platform=platform, stderr=sys.stderr))
+    monkeypatch.setattr(_stop_event, "_registered_processes", lambda home: [] if _stop_event.stop_path(home).exists() else [registered])
+    monkeypatch.setattr(_stop_event, "_still_running", lambda process: process is launcher)
+    assert _stop_event.stop_all(tmp_path, timeout=0, updating=True) == remaining
 
 
 def test_stop_all_protects_the_caller_and_its_registered_ancestor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

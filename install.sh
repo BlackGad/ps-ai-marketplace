@@ -135,6 +135,7 @@ main() {
         confirm 'Download Python with uv now?' || return 0
     fi
 
+    [ "$dry_run" = 1 ] || printf '%s\n' 'Preparing legion (first run can take a minute)...'
     # The plugin folder that holds the Python project: this checkout, or the archive from the fixed legion repository.
     project=
     if [ -f "$0" ]; then

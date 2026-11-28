@@ -116,12 +116,31 @@ def _still_running(process: psutil.Process) -> bool:
         return True
 
 
+def _stop_targets(registered: list[psutil.Process], protected: set[int]) -> set[psutil.Process]:
+    targets = {process for process in registered if process.pid not in protected}
+    if sys.platform != "win32":
+        return targets
+    # Snapshot launchers before shutdown: legion.exe can still lock the tool after Python exits.
+    for process in tuple(targets):
+        with contextlib.suppress(psutil.Error):
+            for parent in process.parents():
+                name = parent.name().lower()
+                if name == "legion.exe":
+                    if parent.pid not in protected:
+                        targets.add(parent)
+                    break
+                if not name.startswith("python"):
+                    break
+    return targets
+
+
 # Keep waiting for processes that remove their registration while shutting down.
 def stop_all(home: Path, timeout: float = WAIT_SECONDS, poll: float = 0.2, *, updating: bool = False) -> list[int]:
     caller = os.getpid()
     ancestors = {process.pid for process in _process.ancestors(caller)}
     protected = {caller, *ancestors}
     registered_processes = _registered_processes(home)
+    alive = _stop_targets(registered_processes, protected)
     raise_stop(home, protected)
     deadline = time.monotonic() + timeout
     registered_processes += _registered_processes(home)
@@ -129,7 +148,7 @@ def stop_all(home: Path, timeout: float = WAIT_SECONDS, poll: float = 0.2, *, up
         if updating and ancestors.intersection(process.pid for process in registered_processes):
             print("Restart this session after the legion update.", file=sys.stderr, flush=True)
             updating = False
-        alive = {process for process in registered_processes if process.pid not in protected}
+        alive.update(_stop_targets(registered_processes, protected))
         if not alive:
             return []
         while alive:
