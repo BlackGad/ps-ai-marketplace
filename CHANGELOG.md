@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.1](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.23.0...v0.23.1) (2026-11-28)
+
+
+### Fixes
+
+* **install:** show bootstrap prompts, progress and result ([#139](https://github.com/BlackGad/ps-legion-marketplace/issues/139)) ([bb815b9](https://github.com/BlackGad/ps-legion-marketplace/commit/bb815b9097df1508104ea94ab73f9b29a772109a))
+
 ## [0.23.0](https://github.com/BlackGad/ps-legion-marketplace/compare/v0.22.0...v0.23.0) (2026-11-28)
 
 
