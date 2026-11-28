@@ -23,7 +23,6 @@ from launcher_fakes import only_on_path
 from legion.cli import main
 
 REPO = Path(__file__).resolve().parents[3]
-CHECKING = "Checking Legion installations..."
 WAITING = "Waiting for running Legion sessions to exit..."
 NO_CLI = "No coding CLI is installed. Run legion setup to install one."
 QUESTION = "Apply? [y/N]"
@@ -311,7 +310,8 @@ def test_outlander_keeps_a_manually_installed_wiki(lifecycle: Lifecycle) -> None
     lifecycle.settings.parent.mkdir(parents=True, exist_ok=True)
     lifecycle.settings.write_text('{"schemaVersion":1,"agents":[],"channels":[],"knowledgeEnabled":true}', encoding="utf-8")
     lifecycle.invoke("update", "--yes")
-    lifecycle.invoke("uninstall", "--tool", "codex", "--config-dir", str(folder), "--yes")
+    lifecycle.invoke_in_child("uninstall", answer="y\n")
+    lifecycle.await_removal()
     assert read_json(state_file) == {"marketplaces": {"llm-wiki": str(lifecycle.source)}, "plugins": [wiki]}
     upgrades = [args for args in calls(folder / "fake-cli.log") if args[:3] == ["plugin", "marketplace", "upgrade"]]
     assert upgrades
@@ -378,9 +378,10 @@ def test_setup_with_nothing_to_do(lifecycle: Lifecycle) -> None:
 
 
 def test_plain_install_uses_the_newest_copy_once(lifecycle: Lifecycle) -> None:
-    lifecycle.enable("claude", "codex")
+    lifecycle.enable("claude")
     claude = lifecycle.outlander("claude")
-    lifecycle.invoke("install", "--tool", "claude", "--source", str(lifecycle.source), "--yes")
+    lifecycle.install()
+    lifecycle.enable("codex")
     lifecycle.publish_update()
     lifecycle.uv.unlink()
     log = lifecycle.uv.with_suffix(".log")
@@ -519,7 +520,8 @@ def test_uninstall_and_repeat_keep_accounts_and_settings(lifecycle: Lifecycle) -
     login.write_text('{"fixture":true}', encoding="utf-8")
     settings = lifecycle.settings.read_bytes()
     result = lifecycle.invoke_in_child("uninstall", answer="y\n")
-    ordered(result, CHECKING, "Uninstall legion now? [y/N] y\n", WAITING, f"codex plugin remove {PLUGIN}", "legion command removal scheduled.")
+    ordered(result, "Uninstall plan:", QUESTION, WAITING, f"codex plugin remove {PLUGIN}", "Results:", "legion command removal scheduled.")
+    assert result.count(QUESTION) == 1
     lifecycle.await_removal()
     for folder in (account, outlander):
         assert not (plugin_root("codex", folder) / "plugin.json").exists()
@@ -529,7 +531,7 @@ def test_uninstall_and_repeat_keep_accounts_and_settings(lifecycle: Lifecycle) -
     assert login.read_text(encoding="utf-8") == '{"fixture":true}'
     repeat = lifecycle.invoke_in_child("uninstall", answer="")
     assert "skip: uninstall (already done)" in repeat
-    assert "Uninstall legion now?" not in repeat
+    assert QUESTION not in repeat
     assert calls(lifecycle.uv.with_suffix(".log")).count(["tool", "uninstall", "legion"]) == 1
     assert lifecycle.settings.read_bytes() == settings
     assert login.is_file()
@@ -553,12 +555,13 @@ def test_purge_asks_about_the_hub_separately(lifecycle: Lifecycle, answer: str) 
         result,
         f"Remove folder: {legion}",
         "Asked separately: the knowledge hub",
-        "Purge legion and all its data now? [y/N] y\n",
+        QUESTION,
         WAITING,
         f"claude plugin uninstall {PLUGIN}",
         "Also delete the knowledge hub in ~/.legion/knowledge? [y/N] ",
-        "legion command removal scheduled.",
+        "Results:",
         "Legion folder removal scheduled.",
+        "legion command removal scheduled.",
     )
     if answer == "y\n":
         lifecycle.await_removal(legion)
@@ -571,6 +574,151 @@ def test_purge_asks_about_the_hub_separately(lifecycle: Lifecycle, answer: str) 
     outlander = lifecycle.outlander("claude")
     assert outlander.is_dir()
     assert read_json(outlander / "fake-cli.json") == {"marketplaces": {}, "plugins": []}
+
+
+@pytest.mark.parametrize("answer", ["n\n", ""], ids=["no", "eof"])
+def test_uninstall_decline_keeps_installations(installed_accounts: Lifecycle, answer: str) -> None:
+    env = installed_accounts
+    result = env.invoke("uninstall", answer=answer)
+    ordered(result.output, "Uninstall plan:", QUESTION, "Nothing changed. Run again with --yes to apply.")
+    assert f"\n{WAITING}\n" not in result.output
+    assert env.uv.exists()
+    env.assert_plugin("codex", env.account("codex"), env.version)
+
+
+def test_uninstall_continues_after_a_failed_target(installed_accounts: Lifecycle, monkeypatch: pytest.MonkeyPatch) -> None:
+    env = installed_accounts
+    monkeypatch.setenv("FAKE_CLI_FAIL", "plugin uninstall")
+    monkeypatch.setenv("FAKE_CLI_FAIL_FOLDER", str(env.account("claude")))
+    output = env.invoke_in_child("uninstall", answer="y\n", code=1)
+    ordered(output, WAITING, "fake claude: plugin uninstall failed", f"codex plugin remove {PLUGIN}", "Results:", "failed: claude exited 1", "Uninstall failed.")
+    env.await_removal()
+    env.assert_plugin("claude", env.account("claude"), env.version)
+    for folder in (env.outlander("codex"), env.account("codex")):
+        assert read_json(folder / "fake-cli.json") == {"marketplaces": {}, "plugins": []}
+
+
+def test_uninstall_dry_run_previews_without_removal(lifecycle: Lifecycle) -> None:
+    lifecycle.enable("copilot")
+    lifecycle.install()
+    output = lifecycle.invoke("uninstall", "--purge", "--dry-run", answer="y\ny\n").output
+    ordered(output, "Purge plan:", "Remove folder:", f"copilot plugin uninstall {PLUGIN}", "plugin marketplace remove")
+    assert QUESTION not in output
+    assert lifecycle.uv.is_file()
+    assert not (lifecycle.home / ".legion/run/stop").exists()
+    lifecycle.assert_plugin("copilot", lifecycle.outlander("copilot"), lifecycle.version)
+
+
+def test_uninstall_stops_a_registered_session_before_removing_plugins(lifecycle: Lifecycle) -> None:
+    lifecycle.enable("codex")
+    lifecycle.install()
+    folder = lifecycle.outlander("codex")
+    cli_log = folder / "fake-cli.log"
+    run = lifecycle.home / ".legion/run"
+    observed = run / "session-stopped"
+    code = """
+import os, sys, time
+from pathlib import Path
+run, cli_log, observed = map(Path, sys.argv[1:])
+registration = run / f"{os.getpid()}.pid"
+registration.write_text(str(os.getpid()), encoding="ascii")
+while not (run / "stop").exists():
+    time.sleep(0.02)
+removed = any('["plugin", "remove"' in line for line in cli_log.read_text(encoding="utf-8").splitlines())
+observed.write_text(str(removed), encoding="ascii")
+registration.unlink()
+"""
+    with subprocess.Popen([sys.executable, "-c", code, str(run), str(cli_log), str(observed)]) as child:
+        try:
+            deadline = time.monotonic() + 10
+            while not any(registration.stat().st_size for registration in run.glob("*.pid")):
+                assert child.poll() is None, "Session exited before registering"
+                assert time.monotonic() < deadline, "Session did not register"
+                time.sleep(0.02)
+            output = lifecycle.invoke_in_child("uninstall", "--yes", answer="")
+            ordered(output, f"\n{WAITING}\n", f"codex plugin remove {PLUGIN}", "Results:", "legion command removal scheduled.")
+            assert child.wait(timeout=5) == 0
+            assert observed.read_text(encoding="ascii") == "False"
+            lifecycle.await_removal()
+        finally:
+            if child.poll() is None:
+                child.kill()
+
+
+def test_uninstall_stops_when_it_cannot_raise_the_stop_event(lifecycle: Lifecycle) -> None:
+    lifecycle.enable("codex")
+    lifecycle.install()
+    stop = lifecycle.home / ".legion/run/stop"
+    stop.mkdir()
+    result = lifecycle.invoke("uninstall", "--yes", code=1)
+    ordered(result.output, f"\n{WAITING}\n", "Results:", "sessions", "failed:", "Uninstall failed.")
+    assert "plugin remove" not in result.output
+    lifecycle.assert_plugin("codex", lifecycle.outlander("codex"), lifecycle.version)
+    assert lifecycle.uv.is_file()
+
+
+def test_uninstall_removes_managed_wiki_and_keeps_the_hub(lifecycle: Lifecycle) -> None:
+    lifecycle.enable("codex")
+    lifecycle.add("codex")
+    folder = lifecycle.account("codex")
+    state_file = folder / "fake-cli.json"
+    state = read_json(state_file)
+    wiki = "wiki@llm-wiki"
+    state["marketplaces"]["llm-wiki"] = str(lifecycle.source)
+    state["plugins"].append(wiki)
+    state_file.write_text(json.dumps(state), encoding="utf-8")
+    root = plugin_root("codex", folder, wiki)
+    root.mkdir(parents=True)
+    (root / "plugin.json").write_text('{"name":"wiki","version":"1.0.0"}', encoding="utf-8")
+    settings = read_json(lifecycle.settings)
+    settings["knowledgeEnabled"] = True
+    lifecycle.settings.write_text(json.dumps(settings), encoding="utf-8")
+    hub = lifecycle.home / ".legion/knowledge"
+    hub.mkdir()
+    output = lifecycle.invoke_in_child("uninstall", "--yes", answer="")
+    ordered(output, f"plugin remove {PLUGIN}", "marketplace remove ps-legion-marketplace", f"plugin remove {wiki}", "marketplace remove llm-wiki", "Results:")
+    lifecycle.await_removal()
+    assert read_json(state_file) == {"marketplaces": {}, "plugins": []}
+    assert hub.is_dir()
+
+
+def test_uninstall_with_invalid_settings_uses_outlanders(lifecycle: Lifecycle) -> None:
+    lifecycle.enable("codex")
+    lifecycle.install()
+    lifecycle.settings.parent.mkdir(parents=True, exist_ok=True)
+    lifecycle.settings.write_text("{broken", encoding="utf-8")
+    output = lifecycle.invoke_in_child("uninstall", "--yes", answer="")
+    ordered(output, "skip: account folders (settings invalid:", "Uninstall plan:", f"plugin remove {PLUGIN}", "Results:")
+    lifecycle.await_removal()
+    assert lifecycle.settings.read_text(encoding="utf-8") == "{broken"
+
+
+def test_purge_keeps_legion_files_after_uv_failure(lifecycle: Lifecycle, monkeypatch: pytest.MonkeyPatch) -> None:
+    lifecycle.enable("claude")
+    lifecycle.install()
+    lifecycle.add("claude")
+    monkeypatch.setenv("FAKE_UV_FAIL", "uninstall")
+    output = lifecycle.invoke_in_child("uninstall", "--purge", answer="y\n")
+    ordered(output, "Purge plan:", QUESTION, WAITING, f"claude plugin uninstall {PLUGIN}", "Results:", "legion command removal scheduled.")
+    log = lifecycle.home / ".legion/temp/uv-tool.log"
+    stop = lifecycle.home / ".legion/run/stop"
+    deadline = time.monotonic() + 15
+    while not log.is_file() or "uv tool command exited 1" not in log.read_text(encoding="utf-8") or stop.exists():
+        assert time.monotonic() < deadline, "Failed handover did not finish"
+        time.sleep(0.05)
+    assert lifecycle.uv.is_file()
+    assert lifecycle.settings.is_file()
+    monkeypatch.delenv("FAKE_UV_FAIL")
+    lifecycle.invoke_in_child("uninstall", "--purge", "--yes", answer="")
+    lifecycle.await_removal(lifecycle.home / ".legion")
+
+
+@pytest.mark.parametrize(
+    ("verb", "flag"),
+    [("install", flag) for flag in ("--tool", "--config-dir", "--update", "--uninstall", "--purge")] + [("uninstall", flag) for flag in ("--tool", "--config-dir")],
+)
+def test_lifecycle_rejects_removed_options(lifecycle: Lifecycle, verb: str, flag: str) -> None:
+    assert f"No such option '{flag}'" in lifecycle.invoke(verb, flag, code=2).output
 
 
 if __name__ == "__main__":

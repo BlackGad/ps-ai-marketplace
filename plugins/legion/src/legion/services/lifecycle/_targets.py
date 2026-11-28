@@ -51,14 +51,8 @@ def outlander(home: Path, tool: CatalogTool | ToolDescriptor) -> tuple[Path, str
     return (folder, tool.command) if folder is not None and shutil.which(tool.command) else None
 
 
-def folders(home: Path, tool: CatalogTool, agents: list[Agent], selected: Path | None) -> list[tuple[Path, str | None]]:
+def folders(home: Path, tool: CatalogTool, agents: list[Agent]) -> list[tuple[Path, str | None]]:
     accounts = [(account_folder(home, agent), account_command(home, tool, agent.command)) for agent in agents if agent.tool == tool.id]
-    if selected is not None:
-        folder = full_path(selected)
-        key = folder_key(folder)
-        commands = [command for path, command in accounts if folder_key(path) == key]
-        command = next((command for command in commands if command), None) if commands else account_command(home, tool, None)
-        return [(folder, command)]
     targets: dict[str, tuple[Path, str | None]] = {}
     stock = outlander(home, tool)
     for folder, command in ([stock] if stock else []) + accounts:
