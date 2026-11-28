@@ -383,6 +383,26 @@ def lease_release(context: click.Context, repo: Optional[Path], process_id: Opti
     _report_lease(context, lambda: _lease.release(repo or Path.cwd(), process_id))
 
 
+@main.command("dismiss", help="Release this repository from the legion: remove what setup added, then .legion/")
+@click.option("--yes", is_flag=True, help="Apply without asking.")
+@click.pass_context
+def dismiss(context: click.Context, yes: bool) -> None:
+    from legion.services.repository import _dismiss
+    from legion.services.repository._repository import RepositoryError
+
+    def ask() -> bool:
+        try:
+            return click.prompt("Apply? [y/N]", default="", show_default=False, prompt_suffix=" ").strip().lower() in ("y", "yes")
+        except click.Abort:
+            return False
+
+    try:
+        _dismiss.dismiss(Path.cwd(), yes, ask, click.echo)
+    except (RepositoryError, OSError) as error:
+        click.echo(" ".join(str(error).split()), err=True)
+        context.exit(1)
+
+
 @main.group(help="Set up this repository for legion orchestration")
 def repository() -> None:
     pass

@@ -1,6 +1,6 @@
 ---
 name: legion-personalisation
-description: Use when any legion skill starts, setup is missing or invalid, or the owner asks to add/update/remove an agent or account, change preferences or channels, add a minion, extend the legion, or dismiss one.
+description: Use when any legion skill starts, setup is missing or invalid, or the owner asks to add/update/remove an agent or account, change preferences or channels, add a minion, extend the legion, or retire a minion.
 ---
 
 # Owner personalisation

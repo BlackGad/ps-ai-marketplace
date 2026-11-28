@@ -208,8 +208,11 @@ The owner command also accepts these account, channel and repository verbs:
 | `legion channel check --kind telegram --account <account>` | Show channel prerequisites without launching a tool |
 | `legion channel remove --id <id>` | Remove a channel binding |
 | `legion repository setup --repo <path> [--mode shared] [--gate <command>] [--rules-file <file>]` | Set up repository orchestration |
+| `legion dismiss [--yes]` | Release this repository from the legion |
 
 `setup` and `add` show the plan, then ask `Apply? [Y/n]` in an interactive terminal (Enter accepts). `--yes` applies without asking; redirected input only prints the plan.
+
+`dismiss` shows its plan, then asks `Apply? [y/N]` (closed input means no; `--yes` skips). It removes what setup added outside `.legion/` (Private: the `.legion/` line in `.git/info/exclude`; Shared: the `.gitignore` lines and the legion section of the rules file, left uncommitted for review), removes lane worktrees under `.legion/temp/`, runs `git worktree prune`, then deletes `.legion/`. A Private repository warns first that its legion history goes with the folder. It refuses in a member session and while another live session holds the overseer lease. A repository without legion prints `skip: legion in this repository (already dismissed)`.
 
 A bare `legion` creates Private orchestration by default; ask the tool for [Private or Shared](../plugins/legion/skills/legion-repository/SKILL.md#choose-where-notes-live) storage and a repository check command when needed. Each repository's overseer has its own Telegram bot folder, `~/.legion/channels/telegram/<channel id>`; the launcher points the session at it.
 

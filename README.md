@@ -42,6 +42,8 @@ Add preferences later in your own words. Say “use Telegram” when you want a 
 
 legion keeps settings in `~/.legion/configuration/`, account folders in `~/.legion/agents/`, and the running sessions' registrations in `~/.legion/run/`. The `legion` command is a [uv](https://docs.astral.sh/uv/) tool: setup installs it with `uv tool install` and, with your yes, runs `uv tool update-shell` so uv's tool folder is on your PATH. If the uv tool folder is missing from PATH, `legion status` reports it and setup offers a repair. Repository orchestration files live in `.legion/`.
 
+`legion dismiss` releases a repository again: it removes the legion traces outside `.legion/` and then `.legion/` itself.
+
 Repository setup offers [Private (default) or Shared](plugins/legion/skills/legion-repository/SKILL.md#choose-where-notes-live) storage for notes and history.
 
 ## What you can do
