@@ -843,13 +843,19 @@ def _steps_run(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return ran
 
 
-def test_install_without_consent_changes_nothing_and_says_how_to_apply(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("update", [False, True])
+@pytest.mark.parametrize(("powershell_bootstrap", "flag"), [(False, "--yes"), (True, "-Yes")])
+def test_install_without_consent_changes_nothing_and_says_how_to_apply(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, update: bool, powershell_bootstrap: bool, flag: str) -> None:
     _fake_targets(tmp_path, monkeypatch)
     ran = _steps_run(monkeypatch)
 
+    if powershell_bootstrap:
+        monkeypatch.setenv("LEGION_BOOTSTRAP_POWERSHELL", "1")
+    else:
+        monkeypatch.delenv("LEGION_BOOTSTRAP_POWERSHELL", raising=False)
     monkeypatch.setattr("sys.stdin", io.StringIO(""))
-    lines = _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", catalog=catalog())
-    assert lines[-1] == "Nothing changed. Run again with --yes to apply."
+    lines = _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", update=update, catalog=catalog())
+    assert lines[-1] == f"Nothing changed. Run again with {flag} to apply."
     assert ran == []
     assert not (tmp_path / "config").exists()
     assert not (tmp_path / ".legion").exists()

@@ -232,6 +232,27 @@ function Get-InstallArguments {
     return $arguments
 }
 
+function Invoke-InstallUv {
+    param([string]$Uv, [string[]]$Arguments)
+    # Inherit all three standard streams, including prompts written without a newline.
+    $start = [Diagnostics.ProcessStartInfo]::new($Uv)
+    $start.UseShellExecute = $false
+    $start.WorkingDirectory = (Get-Location -PSProvider FileSystem).ProviderPath
+    $start.EnvironmentVariables['LEGION_BOOTSTRAP_POWERSHELL'] = '1'
+    # Windows PowerShell 5.1 has no ArgumentList property. Escape arguments for the native parser.
+    $quoted = foreach ($argument in $Arguments) {
+        $escaped = $argument -replace '(\\*)"', '$1$1\"'
+        '"' + ($escaped -replace '(\\+)$', '$1$1') + '"'
+    }
+    $start.Arguments = $quoted -join ' '
+    $process = [Diagnostics.Process]::Start($start)
+    try {
+        # Wait only for uv. A detached update or uninstall helper can outlive the installer.
+        $process.WaitForExit()
+        return $process.ExitCode
+    } finally { $process.Dispose() }
+}
+
 function Invoke-InstallBootstrap {
     param([Collections.IDictionary]$Parameters, [string]$CheckoutRoot = $PSScriptRoot)
     $script:bootstrapExitCode = 0
@@ -249,6 +270,7 @@ function Invoke-InstallBootstrap {
             $env:PATH = $folder + [IO.Path]::PathSeparator + $env:PATH
         }
         if (-not (Confirm-InstallPython -Uv $uv -DryRun:$dryRun -Yes:([bool]$Parameters.Yes))) { return }
+        if (-not $dryRun) { Write-Host 'Preparing legion (first run can take a minute)...' }
         $temporary = New-InstallTemporary
         $branch = 'stable'
         if ($Parameters.Ref -eq 'main') { $branch = 'main' }
@@ -256,8 +278,8 @@ function Invoke-InstallBootstrap {
         # The project environment lives beside the downloaded copy and goes with it.
         $env:UV_PROJECT_ENVIRONMENT = Join-Path $temporary 'env'
         $arguments = @('run', '--project', $project, '--frozen', '--quiet', 'legion') + @(Get-InstallArguments -Parameters $Parameters)
-        & $uv @arguments | Out-Host
-        $script:bootstrapExitCode = $LASTEXITCODE
+        $script:bootstrapExitCode = Invoke-InstallUv -Uv $uv -Arguments $arguments
+        $global:LASTEXITCODE = $script:bootstrapExitCode
     } finally {
         $env:UV_PROJECT_ENVIRONMENT = $savedEnvironment
         if ($cleanup) { $env:PATH = $savedPath }

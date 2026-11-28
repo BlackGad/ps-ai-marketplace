@@ -39,7 +39,7 @@ from legion.core._validate import read_text
 WINDOWS = sys.platform == "win32"
 NO_FOLDER = "Existing account config folder does not exist."
 NOTES_TEMPLATE = PLUGIN_ROOT / "skills" / "legion-personalisation" / "references" / "notes-template.md"
-RUN_AGAIN = "Run again with --yes to apply."
+RUN_AGAIN = _installer.apply_hint()
 NOTHING_TO_DO = "Nothing to do."
 
 

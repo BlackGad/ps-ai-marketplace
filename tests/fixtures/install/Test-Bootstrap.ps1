@@ -49,24 +49,20 @@ function Invoke-InstallDownload {
         Copy-Item -LiteralPath $uvZip -Destination $OutFile
     } else { throw "unexpected download $Url" }
 }
-function Invoke-FakeUv {
-    param([string]$UvPath, [string[]]$Arguments)
-    if (-not (Test-Path -LiteralPath $UvPath -PathType Leaf)) { throw "Missing fixture uv: $UvPath" }
-    $script:uvUsed = $UvPath
-    $script:pathHead = ($env:PATH -split [regex]::Escape([string][IO.Path]::PathSeparator))[0]
-    & (Join-Path (Join-Path $Scratch 'fake-uv-source') $uvName) @Arguments
+# The downloaded and cleanup executables are placeholders. Send those paths to the executable fake.
+$realInvokeUv = ${function:Invoke-InstallUv}
+function Invoke-InstallUv {
+    param([string]$Uv, [string[]]$Arguments)
+    if ($Uv -eq $script:fakeUvPath) {
+        if (-not (Test-Path -LiteralPath $Uv -PathType Leaf)) { throw "Missing fixture uv: $Uv" }
+        $script:uvUsed = $Uv
+        $script:pathHead = ($env:PATH -split [regex]::Escape([string][IO.Path]::PathSeparator))[0]
+        $Uv = Join-Path $Scratch "fake-uv-source/$uvName"
+    }
+    & $realInvokeUv -Uv $Uv -Arguments $Arguments
 }
 
-# The downloaded and cleanup executables are placeholders. Bind their exact paths to the fake.
-function Set-FakeUvAlias {
-    param([string]$UvPath)
-    $invokeFake = ${function:Invoke-FakeUv}
-    $command = { & $invokeFake -UvPath $UvPath -Arguments $args }.GetNewClosure()
-    Set-Item -LiteralPath Function:script:Invoke-AliasedUv -Value $command
-    Set-Alias -Name $UvPath -Value Invoke-AliasedUv -Scope Script
-}
-
-# A cleanup mode reserves the first temporary folder so it can bind the copied uv before bootstrapping.
+# A cleanup mode reserves the first temporary folder so it can identify the copied uv before bootstrapping.
 $realNewTemporary = ${function:New-InstallTemporary}
 function New-InstallTemporary {
     if ($script:reservedTemporary) {
@@ -77,9 +73,9 @@ function New-InstallTemporary {
     & $realNewTemporary
 }
 
-function Set-CleanupUvAlias {
+function Set-CleanupFakeUv {
     $script:reservedTemporary = & $realNewTemporary
-    Set-FakeUvAlias -UvPath (Join-Path $script:reservedTemporary 'uv.exe')
+    $script:fakeUvPath = Join-Path $script:reservedTemporary 'uv.exe'
 }
 
 # The extracted uv is a placeholder, so "runs" is decided by the mode.
@@ -94,6 +90,7 @@ function Show-Result {
     Write-Output ("uvInstalled=" + (Test-Path -LiteralPath (Join-Path $Scratch '.local/bin/uv.exe')))
     Write-Output "prompts=$($script:prompts)"
     Write-Output "exit=$($script:bootstrapExitCode)"
+    Write-Output "lastExit=$LASTEXITCODE"
     Write-Output "uvUsed=$($script:uvUsed)"
     Write-Output "pathHead=$($script:pathHead)"
     if (Test-Path -LiteralPath $uvLog) { Get-Content -LiteralPath $uvLog | ForEach-Object { Write-Output "uv:$_" } }
@@ -123,9 +120,9 @@ switch ($Mode) {
         Set-NoUvPath
         if ($Mode -in @('uv-missing-uninstall', 'uv-missing-purge')) {
             $parameters.Uninstall = [switch]$true
-            Set-CleanupUvAlias
+            Set-CleanupFakeUv
         } elseif ($Mode -eq 'uv-missing-yes') {
-            Set-FakeUvAlias -UvPath (Join-Path $Scratch '.local/bin/uv.exe')
+            $script:fakeUvPath = Join-Path $Scratch '.local/bin/uv.exe'
         }
         if ($Mode -eq 'uv-missing-purge') { $parameters.Purge = [switch]$true }
         Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
@@ -148,13 +145,22 @@ switch ($Mode) {
     }
     'no-python-dry' { $parameters.DryRun = [switch]$true; Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
     'no-python-declined' { $parameters.Remove('Yes'); Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
-    'no-python-yes' { Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout') }
+    'no-python-yes' {
+        $global:LASTEXITCODE = 7
+        Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout')
+    }
     'uv-call' {
         # Exercise the real hand-over with the executable fake on PATH.
         $env:FAKE_UV_SAY = '1'
         $env:FAKE_UV_EXIT = '3'
-        $result = @(Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Join-Path $Scratch 'checkout'))
+        $env:LEGION_BOOTSTRAP_POWERSHELL = 'original'
+        $parameters.Remove('Yes')
+        $parameters.Update = [switch]$true
+        Push-Location -LiteralPath (Join-Path $Scratch 'checkout')
+        try { $result = @(Invoke-InstallBootstrap -Parameters $parameters -CheckoutRoot (Get-Location).Path) }
+        finally { Pop-Location }
         Write-Output "resultCount=$($result.Count)"
+        Write-Output "bootstrapAfter=$env:LEGION_BOOTSTRAP_POWERSHELL"
     }
     'http-refused' {
         # The real download refuses a plain HTTP address before it connects.

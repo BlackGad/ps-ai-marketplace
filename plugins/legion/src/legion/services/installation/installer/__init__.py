@@ -477,6 +477,15 @@ def _install_tool(home: Path, roots: list[tuple[str, Path]], lines: list[str], r
         rows.append(("legion", str(home), f"commands not refreshed: {error}"))
 
 
+def apply_hint(yes_flag: str = "--yes") -> str:
+    return f"Run again with {yes_flag} to apply."
+
+
+def _declined(lines: list[str]) -> list[str]:
+    yes_flag = "-Yes" if os.environ.get("LEGION_BOOTSTRAP_POWERSHELL") == "1" else "--yes"
+    return [*lines, f"Nothing changed. {apply_hint(yes_flag)}"]
+
+
 def install(
     home: Path,
     tools: list[str] | None = None,
@@ -519,7 +528,7 @@ def install(
             lines.extend([f"skip: {entry.id} (not installed)", entry.install_hint])
         question = "Update the legion command with uv? [y/N]" if update else "Install the legion command with uv and add it to your PATH? [y/N]"
         if not dry_run and not (yes or _confirm(question, lines)):
-            return [*lines, "Nothing changed. Run again with --yes to apply."]
+            return _declined(lines)
         if manage_knowledge:
             reconcile_knowledge(home, catalog, dry_run, lines)
         lines.extend(_uv_tool.install(PLUGIN_ROOT, home, dry_run=dry_run, update_shell=not update, updating=update))
@@ -548,7 +557,7 @@ def install(
         if targets:
             lines.append("Running legion sessions (MCP servers and legion runs) end when the legion command is replaced.")
         if (targets or manage_knowledge) and not dry_run and not (yes or _confirm("Update legion? [y/N]", lines)):
-            return [*lines, "Nothing changed. Run again with --yes to apply."]
+            return _declined(lines)
         rows: list[tuple[str, str, str]] = []
         roots: list[tuple[str, Path]] = []
         try:
@@ -597,7 +606,7 @@ def install(
         return lines
     lines.append(f"Install legion for {', '.join(selected)}")
     if not dry_run and not (yes or _confirm(f"Install legion for {', '.join(selected)} now, and put the legion command on your PATH with uv? [y/N]", lines)):
-        return [*lines, "Nothing changed. Run again with --yes to apply."]
+        return _declined(lines)
     installed_version = ""
     rows = []
     uv = _uv_tool.find_uv() if not dry_run else None
