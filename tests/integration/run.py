@@ -39,6 +39,7 @@ WIKI_COMMIT = "35d37c5591c7585643196333edd83922e7bbc757"
 ENDPOINT = "https://example-resource.cognitiveservices.azure.com"
 WINDOWS = sys.platform == "win32"
 CODEX_PROBE_SECONDS = 120
+INSTALLATION_NO_CHANGES = "Nothing to do. Legion is already installed for the available targets."
 
 
 @dataclass
@@ -597,15 +598,21 @@ class Runner:
             refused.add(tool)
         return refused
 
-    def install_targets(self) -> str:
+    def install_targets(self, *, repeat: bool) -> str:
         source = str(self.checkout)
         try:
-            return self.install_legion(source)
+            output = self.install_legion(source)
         except RuntimeError as error:
-            refused = self.local_source_refusals(str(error))
+            output = str(error)
+            refused = self.local_source_refusals(output)
             if not refused or any(tool not in self.not_tested and self.targets[tool][1] != "main" for tool in refused):
                 raise
-            return str(error)
+            if repeat:
+                contains(output, f"skip: legion command {self.tool_version()} (already done)")
+            return output
+        if repeat:
+            require(output == INSTALLATION_NO_CHANGES, output)
+        return output
 
     def install_first(self) -> str:
         source = str(self.checkout)
@@ -661,10 +668,9 @@ class Runner:
         require(codex_legion_server(servers) is not None, "Codex does not list a connected legion MCP server with the status tool")
 
     def install_repeat(self) -> str:
-        lines = self.install_targets()
-        contains(lines, f"skip: legion command {self.tool_version()} (already done)")
+        output = self.install_targets(repeat=True)
         unchanged(self.state["snapshot"], self.home_snapshot())
-        return lines
+        return output
 
     def update(self, repeat: bool) -> str:
         expected = json.loads((self.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
@@ -693,13 +699,18 @@ class Runner:
                 if not refused or refused - self.not_tested.keys():
                     raise
         if not repeat:
-            contains(output, f"legion not installed -> {expected}")
-        for tool in self.active():
-            contains(output, f"Update legion for {tool}")
+            restored = rf"^{re.escape(target)}\s+{re.escape(str(self.folder(target)))}\s+installed legion {re.escape(expected)}$"
+            require(re.search(restored, output, re.MULTILINE) is not None, output)
+        elif all(self.targets[tool][1] != "main" for tool in active):
+            require(output == INSTALLATION_NO_CHANGES, output)
+        else:
+            contains(output, "already done")
+        for tool in active:
+            if not repeat:
+                contains(output, f"Update legion for {tool}")
             require(self.version(tool, self.folder(tool)) == expected, f"{tool} version changed away from the checkout")
             require(self.installed_source_matches(tool, self.folder(tool)), f"{tool} update did not keep the PR checkout source")
         if repeat:
-            contains(output, "already up to date")
             unchanged(self.state["update_snapshot"], self.home_snapshot(update=True))
         else:
             self.state["update_snapshot"] = self.home_snapshot(update=True)
@@ -1111,13 +1122,12 @@ asyncio.run(main())
         return output
 
     def reinstall(self, repeat: bool) -> str:
-        output = self.install_targets()
+        output = self.install_targets(repeat=repeat)
         if any(ref == "main" for _, ref in self.targets.values()) and not repeat:
             output += "\n" + self.install_legion(MARKETPLACE, "main")
         expected = json.loads((self.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
         self.check_tool(expected)
         if repeat:
-            contains(output, f"skip: legion command {expected} (already done)")
             unchanged(self.state["snapshot"], self.home_snapshot())
         else:
             for tool, folder in self.targets_for_uninstall():

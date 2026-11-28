@@ -282,8 +282,8 @@ def test_update_first_reinstalls_a_tool_then_repeat_is_stable(tmp_path: Path) ->
         calls.append((args, kwargs))
         owner_calls.append(args)
         if len(owner_calls) == 1:
-            return f"Update legion for codex\nlegion not installed -> {expected}"
-        return f"Update legion for codex\nskip: legion {expected} (already up to date)"
+            return f"Update legion for codex\nResults:\ncodex  {instance.folder('codex')}  installed legion {expected}"
+        return "Nothing to do. Legion is already installed for the available targets."
 
     instance.legion = legion
     instance.version = lambda _tool, _folder: expected
@@ -305,10 +305,10 @@ def test_update_rejects_a_release_instead_of_the_checkout(tmp_path: Path) -> Non
     instance.targets["codex"] = (str(instance.checkout), "release")
     instance.cli = lambda *_args, **_kwargs: ""
     instance.listing = lambda *_args, **_kwargs: False
-    instance.legion = lambda *_args, **_kwargs: f"Update legion for codex\nlegion not installed -> {expected}"
+    instance.legion = lambda *_args, **_kwargs: f"Update legion for codex\nResults:\ncodex  {instance.folder('codex')}  installed legion {expected}"
     instance.version = lambda _tool, _folder: expected
     instance.installed_source_matches = lambda _tool, _folder: False
-    with pytest.raises(AssertionError, match="checkout"):
+    with pytest.raises(AssertionError, match="update did not keep the PR checkout source"):
         instance.update(False)
 
 
@@ -322,7 +322,11 @@ def test_published_source_repeat_uses_documented_owner_command(tmp_path: Path) -
     calls = []
     instance.legion = lambda *args, **kwargs: (
         calls.append((args, kwargs))
-        or (f"Update legion for claude\nlegion not installed -> {expected}" if len(calls) == 1 else f"Update legion for claude\nskip: legion {expected} (already up to date)")
+        or (
+            f"Update legion for claude\nResults:\nclaude  {instance.folder('claude')}  installed legion {expected}"
+            if len(calls) == 1
+            else f"Update legion for claude\nskip: legion {expected} (already done)"
+        )
     )
     instance.version = lambda _tool, _folder: expected
     instance.installed_source_matches = lambda _tool, _folder: True

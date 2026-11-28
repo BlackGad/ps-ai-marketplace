@@ -148,6 +148,8 @@ def test_only_windows_self_replacement_needs_a_handover(tmp_path: Path, home: Pa
     uv.installed = "0.9.0"
     prefix = str(uv.tools / "legion" if inside else tmp_path / "elsewhere")
     monkeypatch.setattr(_uv_tool, "sys", SimpleNamespace(platform=platform, prefix=prefix))
+    monkeypatch.setenv("PATH", str(uv.bin))
+    monkeypatch.setattr(_user_path, "persistent_folders", list)
     lines = _uv_tool.install(make_source(tmp_path), home, updating=True)
     assert bool(uv.detached) is expected
     if expected:
