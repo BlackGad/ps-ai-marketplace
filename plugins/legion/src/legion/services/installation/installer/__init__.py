@@ -1,12 +1,8 @@
 # Install, update and remove Legion through the tool catalog.
 
-import json
 import os
 import re
-import shutil
 import sys
-import tempfile
-import tomllib
 from collections.abc import Callable
 from contextlib import nullcontext
 from functools import cmp_to_key
@@ -17,8 +13,8 @@ import click
 import httpx
 from pydantic import ValidationError
 
-from legion.services.accounts._launchers import command_prefix, registered_command
 from legion.services.installation import _user_path
+from legion.services.lifecycle import _plugins, _targets
 from legion.services.installation import _knowledge_hub
 from legion.services.installation import _uv_tool
 from legion.services.installation._update import compare_versions
@@ -27,30 +23,21 @@ from legion.core._http import HttpsError, failure_text, get_bytes
 from legion.core._home import (
     full_path,
     is_reparse,
-    is_under,
     owner_path_safe,
-    resolve_directory,
     run_folder,
-    same_path,
     settings_path,
 )
 from legion.core._plugin import PLUGIN_ROOT
-from legion.core._run import display_command, run_command
 from legion.core._settings_models import (
     Agent,
     CatalogTool,
-    JsonListing,
     PersonalisationSettings,
-    Plugin,
-    PluginManifest,
     PluginPin,
     ToolsCatalog,
 )
 
 
 DEFAULT_SOURCE = "BlackGad/ps-legion-marketplace"
-LEGION_MARKETPLACE = "ps-legion-marketplace"
-LEGION_PLUGIN = "legion@ps-legion-marketplace"
 
 
 class InstallerError(ValueError):
@@ -59,11 +46,7 @@ class InstallerError(ValueError):
         self.lines = lines if lines is not None else []
 
 
-class _MissingAccountCommandError(InstallerError):
-    pass
-
-
-def _catalog(source: str | Path, ref: str, catalog: Optional[ToolsCatalog]) -> ToolsCatalog:
+def load_catalog(source: str | Path, ref: str, catalog: ToolsCatalog | None = None) -> ToolsCatalog:
     if catalog is not None:
         return catalog
     if Path(source).is_dir():
@@ -85,19 +68,11 @@ def _catalog(source: str | Path, ref: str, catalog: Optional[ToolsCatalog]) -> T
         raise InstallerError(f"invalid tools catalog: {error}") from error
 
 
-def _tool(catalog: ToolsCatalog, tool_id: str) -> CatalogTool:
+def catalog_tool(catalog: ToolsCatalog, tool_id: str) -> CatalogTool:
     for entry in catalog.tools:
         if entry.id == tool_id:
             return entry
     raise InstallerError(f"unknown tool '{tool_id}'")
-
-
-def _config_path(home: Path, value: str) -> Path:
-    if value == "~":
-        return full_path(home)
-    if value.startswith(("~/", "~\\")):
-        return full_path(home / value[2:])
-    return full_path(Path(value))
 
 
 def _personalisation(home: Path, skip_lines: Optional[list[str]] = None) -> PersonalisationSettings | None:
@@ -114,330 +89,35 @@ def _personalisation(home: Path, skip_lines: Optional[list[str]] = None) -> Pers
         return None
 
 
-def _target_tool(home: Path, entry: CatalogTool, agents: list[Agent], folder: Optional[Path] = None) -> Optional[CatalogTool]:
-    if folder is not None:
-        folder = resolve_directory(folder)
-    for agent in agents:
-        if agent.tool != entry.id:
-            continue
-        command = registered_command(agent, home)
-        if command is None:
-            continue
-        if folder is None or same_path(folder, resolve_directory(_config_path(home, agent.config_dir))):
-            return entry.model_copy(update={"command": str(command)})
-    return entry if shutil.which(entry.command) else None
-
-
-def _folders(home: Path, entry: CatalogTool, selected: Path | None, agents: list[Agent]) -> list[Path]:
-    if selected is not None:
-        return [full_path(selected)]
-    folders: list[Path] = []
-    for agent in agents:
-        if agent.tool == entry.id:
-            folder = _config_path(home, agent.config_dir)
-            if not any(same_path(resolve_directory(folder), resolve_directory(previous)) for previous in folders):
-                folders.append(folder)
-    override = os.getenv(entry.config_env)
-    if override and not same_path(home, Path.home()) and not is_under(_config_path(home, override), home, allow_equal=True):
-        override = None
-    value = override or entry.plugin.default_config_dir
-    if value:
-        default = _config_path(home, value)
-        if not any(same_path(resolve_directory(default), resolve_directory(previous)) for previous in folders):
-            folders.insert(0, default)
-    return folders
-
-
-def _execute(entry: CatalogTool, arguments: list[str], folder: Path, listing: bool = False) -> str:
-    env = dict(os.environ)
-    env[entry.config_env] = str(folder)
-    if listing:
-        env.update(entry.plugin.listing_env or {})
-    command = entry.command if Path(entry.command).is_absolute() else shutil.which(entry.command) or entry.command
-    program, prefix = command_prefix(Path(command))
-    result = run_command(str(program), [*prefix, *arguments], env=env, cwd=Path(tempfile.gettempdir()))
-    if result.exit_code:
-        detail = result.error.strip() or result.output.strip()
-        raise InstallerError(f"{entry.command} {'listing ' if listing else ''}exited {result.exit_code}" + (f"\n{detail}" if detail else ""))
-    return result.output
-
-
-def _listing(entry: CatalogTool, folder: Path, kind: str) -> str:
-    if not folder.is_dir():
-        return ""
-    arguments = entry.plugin.marketplace_list if kind == "marketplace" else entry.plugin.list_command
-    return _execute(entry, arguments, folder, listing=True)
-
-
-def _marketplace_item(entry: CatalogTool, folder: Path, name: str) -> dict[str, object]:
-    output = _listing(entry, folder, "marketplace")
-    if not output:
-        return {}
-    try:
-        data = json.loads(output)
-        listing = entry.plugin.marketplace_listing
-        if listing.collection_field is not None:
-            data = data[listing.collection_field]
-        for item in data:
-            if isinstance(item, dict) and item.get(listing.name_field) == name:
-                return item
-        return {}
-    except (ValueError, TypeError, KeyError) as error:
-        raise InstallerError(f"{entry.id} marketplace listing returned invalid JSON") from error
-
-
-def _marketplace(entry: CatalogTool, folder: Path, require_root: bool = False) -> bool:
-    item = _marketplace_item(entry, folder, LEGION_MARKETPLACE)
-    field = entry.plugin.marketplace_listing.root_field
-    if require_root and field is not None:
-        root = item.get(field)
-        return isinstance(root, str) and bool(root) and Path(root).is_dir()
-    return bool(item)
-
-
-# The id is the first word of a listing row, or the second after a bullet in any spelling (the Windows console may print it as other
-# characters). A continuation line such as "from <path>" has none. tests/integration/run.py keeps an identical copy.
-def _row_id(line: str) -> Optional[str]:
-    words = line.split()
-    if words and "@" in words[0]:
-        return words[0]
-    if len(words) > 1 and "@" in words[1] and words[0].rstrip(":") != "from":
-        return words[1]
-    return None
-
-
-# Hand-built, reason: the three CLIs expose different listing formats described by tools.json.
-def _plugin_state(entry: CatalogTool, folder: Path, plugin_id: str = LEGION_PLUGIN) -> tuple[bool, bool, list[Path], str]:
-    output = _listing(entry, folder, "plugin")
-    if not output:
-        return False, False, [], ""
-    listing = entry.plugin.listing
-    paths: list[Path] = []
-    version = ""
-    if isinstance(listing, JsonListing):
-        try:
-            items = json.loads(output)
-        except ValueError as error:
-            raise InstallerError(f"{entry.id} plugin listing returned invalid JSON") from error
-        if not isinstance(items, list):
-            raise InstallerError(f"{entry.id} plugin listing returned invalid JSON")
-        matches = [item for item in items if isinstance(item, dict) and item.get(listing.id_field) == plugin_id and isinstance(item.get(listing.enabled_field), bool)]
-        for item in matches:
-            if item.get("installPath"):
-                paths.append(Path(item["installPath"]))
-            version = item.get("version") or version
-        return bool(matches), any(item[listing.enabled_field] for item in matches), paths, version
-    lines = [line for line in output.splitlines() if _row_id(line) == plugin_id and "not installed" not in line]
-    for line in lines:
-        match = re.search(r"\b(v?\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b", line)
-        if match:
-            version = match[1].removeprefix("v")
-        match = re.search(r"\s((?:[A-Za-z]:[/\\]|/).+?)\s*$", line)
-        if match:
-            paths.append(Path(match[1]))
-    return bool(lines), any(not re.search(listing.reject_pattern, line) for line in lines), paths, version
-
-
-def _plugin_root(entry: CatalogTool, folder: Path) -> Path | None:
-    listed, _, paths, version = _plugin_state(entry, folder)
-    if not listed:
+def _wiki_target(home: Path, catalog: ToolsCatalog, agent: Agent) -> tuple[CatalogTool | None, Path] | None:
+    entry = catalog_tool(catalog, agent.tool)
+    folder = _targets.account_folder(home, agent)
+    if _targets.is_default_folder(home, entry, folder):
         return None
-    settings_path = folder / "settings.json"
-    configured_source = None
-    if entry.id == "copilot":
-        is_legion = False
-        if settings_path.is_file():
-            try:
-                settings = json.loads(settings_path.read_text(encoding="utf-8-sig"))
-                source = settings["extraKnownMarketplaces"]["ps-legion-marketplace"]["source"]
-                if source["source"] == "directory" and isinstance(source["path"], str) and isinstance(settings["enabledPlugins"]["legion@ps-legion-marketplace"], bool):
-                    configured_source = Path(source["path"])
-            except (OSError, ValueError, TypeError, KeyError):
-                pass
-        for line in _listing(entry, folder, "plugin").splitlines():
-            row = _row_id(line)
-            if row is not None:
-                is_legion = row == "legion@ps-legion-marketplace" and "not installed" not in line
-            elif line.strip() and not line[:1].isspace():
-                is_legion = False
-            marketplace = re.match(r"^\s+from (.+?)\s*$", line) if is_legion else None
-            if marketplace is None:
-                continue
-            try:
-                root = Path(marketplace[1])
-                if settings_path.is_file() and configured_source is None:
-                    continue
-                if configured_source is not None and not same_path(resolve_directory(root), resolve_directory(configured_source)):
-                    continue
-                data = json.loads((root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8-sig"))
-                if data.get("name") != "ps-legion-marketplace":
-                    continue
-                for plugin in data["plugins"]:
-                    if plugin.get("name") == "legion" and isinstance(plugin.get("source"), str):
-                        path = root / plugin["source"]
-                        if is_under(resolve_directory(path), resolve_directory(root)):
-                            paths.append(path)
-            except (OSError, ValueError, TypeError, KeyError):
-                continue
-    if not paths and entry.plugin.installed_root:
-        root = folder / entry.plugin.installed_root
-        if root.is_dir():
-            paths = [path.parent for path in root.rglob("plugin.json") if path.parent.name not in (".claude-plugin", ".codex-plugin")]
-    if entry.id == "copilot" and not paths and settings_path.is_file() and configured_source is None:
-        return None
-    roots = []
-    for path in set(paths):
-        try:
-            manifest = _manifest(path)
-            if manifest.name == "legion" and (not version or manifest.version == version):
-                roots.append(path)
-        except (OSError, ValueError):
-            continue
-    if len(roots) != 1:
-        raise InstallerError(f"{entry.id} installed legion folder could not be identified uniquely.")
-    return roots[0]
+    command = _targets.account_command(home, entry, agent.command)
+    return (entry.model_copy(update={"command": command}) if command else None), folder
 
 
-def _manifest(root: Path) -> PluginManifest:
-    return PluginManifest.model_validate_json((root / "plugin.json").read_text(encoding="utf-8-sig"))
-
-
-def _command_line(entry: CatalogTool, arguments: list[str], folder: Path) -> str:
-    program, prefix = command_prefix(Path(entry.command))
-    return f"{entry.config_env}={display_command([str(folder)])} {display_command([str(program), *prefix, *arguments])}"
-
-
-def _flush_progress(lines: list[str], progress: Callable[[str], None] | None) -> None:
-    if progress is not None:
-        for line in lines:
-            progress(line)
-        lines.clear()
-
-
-def _step(entry: CatalogTool, arguments: list[str], folder: Path, dry_run: bool, lines: list[str], progress: Callable[[str], None] | None = None) -> None:
-    line = _command_line(entry, arguments, folder)
-    if dry_run:
-        lines.append(line)
-    else:
-        if progress is not None:
-            _flush_progress(lines, progress)
-            progress(line)
-        output = _execute(entry, arguments, folder)
-        lines.extend(output.splitlines())
-        _flush_progress(lines, progress)
-
-
-def _install_steps(
-    entry: CatalogTool,
-    folder: Path,
-    source: str | Path,
-    ref: str,
-    dry_run: bool,
-    lines: list[str],
-    plugin: Plugin | None = None,
-    pin: PluginPin | None = None,
-    *,
-    progress: Callable[[str], None] | None = None,
-) -> None:
-    plugin = plugin or entry.plugin
-    branch = pin.tag if pin else "main" if ref == "main" else "stable"
-    local = Path(source).is_dir()
-    if local:
-        source = Path(source).resolve().as_posix()
-    template = plugin.marketplace_add if local else plugin.marketplace_add_ref
-    marketplace_add = [word.replace("{source}", str(source)).replace("{ref}", branch) for word in template]
-    if pin is None:
-        installed = _marketplace(entry, folder)
-        listed, enabled, _, _ = _plugin_state(entry, folder)
-        ready = installed and _marketplace(entry, folder, require_root=True) if enabled else False
-    else:
-        item = _marketplace_item(entry, folder, pin.marketplace)
-        installed = bool(item)
-        listed, enabled, _, _ = _plugin_state(entry, folder, pin.plugin_id)
-        ready = installed and _pinned_marketplace(entry, folder, item, pin)
-        if not ready:
-            for arguments in _removal_steps(plugin, listed, installed):
-                _step(entry, arguments, folder, dry_run, lines, progress)
-            installed = False
-    if ready and enabled:
-        lines.extend(f"skip: {display_command([entry.command, *arguments])} in {folder} (already done)" for arguments in (marketplace_add, plugin.install))
-        _flush_progress(lines, progress)
-        return
-    if not installed:
-        _step(entry, marketplace_add, folder, dry_run, lines, progress)
-        if pin is not None and not dry_run and not _pinned_marketplace(entry, folder, _marketplace_item(entry, folder, pin.marketplace), pin):
-            raise InstallerError(f"llm-wiki marketplace could not be verified at {pin.tag}")
-    if plugin.marketplace_update:
-        _step(entry, plugin.marketplace_update, folder, dry_run, lines, progress)
-    if not installed or not listed or not enabled:
-        _step(entry, plugin.install, folder, dry_run, lines, progress)
-
-
-def _wiki_recipe(plugin: Plugin, pin: PluginPin) -> Plugin:
-    names = {LEGION_MARKETPLACE: pin.marketplace, LEGION_PLUGIN: pin.plugin_id}
-    return plugin.model_copy(
-        update={
-            "install": [names.get(word, word) for word in plugin.install],
-            "uninstall": [names.get(word, word) for word in plugin.uninstall],
-            "marketplace_remove": [names.get(word, word) for word in plugin.marketplace_remove],
-            "marketplace_update": [],
-        }
-    )
-
-
-def _pinned_marketplace(entry: CatalogTool, folder: Path, item: dict[str, object], pin: PluginPin) -> bool:
-    nested = item.get("marketplaceSource") or item.get("source")
-    details = nested if isinstance(nested, dict) else item
-    source = details.get("repo") or details.get("url") or details.get("source")
-    if not isinstance(source, str):
-        return False
-    source, _, source_ref = source.partition("#")
-    if source.removeprefix("GitHub: ").removesuffix(".git").removeprefix("https://github.com/").removeprefix("git@github.com:") != pin.source:
-        return False
-    ref = details.get("ref") or item.get("ref") or source_ref
-    if not ref:
-        # Codex and Copilot can omit the ref from their marketplace listings.
-        try:
-            if entry.id == "codex":
-                ref = tomllib.loads((folder / "config.toml").read_text(encoding="utf-8-sig"))["marketplaces"][pin.marketplace]["ref"]
-            elif entry.id == "copilot":
-                ref = json.loads((folder / "settings.json").read_text(encoding="utf-8-sig"))["extraKnownMarketplaces"][pin.marketplace]["source"]["ref"]
-        except (OSError, ValueError, TypeError, KeyError):
-            return False
-    return ref == pin.tag
-
-
-def _removal_steps(plugin: Plugin, listed: bool, registered: bool) -> list[list[str]]:
-    return [arguments for present, arguments in ((listed, plugin.uninstall), (registered, plugin.marketplace_remove)) if present]
-
-
-def _wiki_removal_steps(entry: CatalogTool, folder: Path, pin: PluginPin) -> list[list[str]]:
-    return _removal_steps(_wiki_recipe(entry.plugin, pin), _plugin_state(entry, folder, pin.plugin_id)[0], bool(_marketplace_item(entry, folder, pin.marketplace)))
-
-
-def _account_target(home: Path, catalog: ToolsCatalog, agent: Agent) -> tuple[CatalogTool, Path]:
-    entry = _tool(catalog, agent.tool)
-    command = registered_command(agent, home) if agent.command is not None else shutil.which(entry.command)
-    if command is None:
-        raise _MissingAccountCommandError(f"{agent.tool} command is missing")
-    return entry.model_copy(update={"command": str(command)}), _config_path(home, agent.config_dir)
-
-
-def remove_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent], lines: list[str]) -> None:
+def remove_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent], lines: list[str], progress: Callable[[str], None] | None = None) -> None:
     pin = catalog.wiki
     if pin is None:
         return
     seen: set[tuple[str, str]] = set()
     for agent in agents:
         try:
-            entry, folder = _account_target(home, catalog, agent)
-            key = entry.id, os.path.normcase(str(resolve_directory(folder)))
+            target = _wiki_target(home, catalog, agent)
+            if target is None:
+                continue
+            entry, folder = target
+            if entry is None:
+                lines.append(f"skip: knowledge: {agent.id} ({agent.tool} command is missing)")
+                _plugins.flush_progress(lines, progress)
+                continue
+            key = entry.id, _targets.folder_key(folder)
             if key not in seen:
-                for arguments in _wiki_removal_steps(entry, folder, pin):
-                    _step(entry, arguments, folder, False, lines)
+                for arguments in _plugins.removal_steps(entry, folder, pin):
+                    _plugins.run_step(entry, arguments, folder, False, lines, progress)
                 seen.add(key)
-        except _MissingAccountCommandError as error:
-            lines.append(f"skip: knowledge: {agent.id} ({error})")
         except (OSError, ValueError) as error:
             raise InstallerError(f"knowledge: {agent.id}: {error}") from error
 
@@ -455,7 +135,7 @@ def _reconcile_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent],
     if pin is None:
         return
     if progress is not None:
-        _flush_progress(lines, progress)
+        _plugins.flush_progress(lines, progress)
         progress("Checking llm-wiki in registered accounts...")
     if not dry_run:
         try:
@@ -465,13 +145,16 @@ def _reconcile_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent],
     results: dict[tuple[str, str], str | None] = {}
     for agent in agents:
         try:
-            entry, folder = _account_target(home, catalog, agent)
-            key = entry.id, os.path.normcase(str(resolve_directory(folder)))
+            target = _wiki_target(home, catalog, agent)
+            if target is None:
+                continue
+            entry, folder = target
+            if entry is None:
+                raise InstallerError(f"{agent.tool} command is missing")
+            key = entry.id, _targets.folder_key(folder)
             if key not in results:
                 try:
-                    if not dry_run:
-                        folder.mkdir(parents=True, exist_ok=True)
-                    _install_steps(entry, folder, pin.source, pin.tag, dry_run, lines, _wiki_recipe(entry.plugin, pin), pin, progress=progress)
+                    _plugins.ensure(entry, folder, pin.source, pin.tag, dry_run, lines, pin=pin, progress=progress)
                     results[key] = None
                 except (OSError, ValueError, TypeError, RuntimeError) as error:
                     results[key] = str(error)
@@ -479,6 +162,7 @@ def _reconcile_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent],
                 lines.append(f"knowledge: {agent.id}: {results[key]}")
         except (OSError, ValueError, RuntimeError) as error:
             lines.append(f"knowledge: {agent.id}: {error}")
+        _plugins.flush_progress(lines, progress)
 
 
 # One row per tool and folder, so a long install ends with what happened where.
@@ -490,7 +174,7 @@ def _results_table(rows: list[tuple[str, str, str]]) -> list[str]:
 
 
 # One uv install serves all update targets. The newest plugin version this update reached wins.
-def _newest_source(roots: list[tuple[str, Path]]) -> Path:
+def newest_source(roots: list[tuple[str, Path]]) -> Path:
     return max(roots, key=cmp_to_key(lambda left, right: compare_versions(left[0], right[0])))[1]
 
 
@@ -507,7 +191,7 @@ def _install_tool(
 ) -> str | None:
     if not roots:
         return None
-    root = _newest_source(roots)
+    root = newest_source(roots)
     try:
         lines.extend(_uv_tool.install(root, home, dry_run=dry_run, update_shell=update_shell, updating=updating, progress=progress))
     except Exception as error:
@@ -523,6 +207,21 @@ def apply_hint(yes_flag: str = "--yes") -> str:
 def _declined(lines: list[str]) -> list[str]:
     yes_flag = "-Yes" if os.environ.get("LEGION_BOOTSTRAP_POWERSHELL") == "1" else "--yes"
     return [*lines, f"Nothing changed. {apply_hint(yes_flag)}"]
+
+
+def _tool_targets(entry: CatalogTool, folders: list[tuple[Path, str | None]], lines: list[str], *, hint: bool = True) -> list[tuple[CatalogTool, Path]]:
+    if not any(command for _, command in folders):
+        lines.append(f"skip: {entry.id} (not installed)")
+        if hint:
+            lines.append(entry.install_hint)
+        return []
+    targets = []
+    for folder, command in folders:
+        if command is None:
+            lines.append(f"skip: {entry.id} in {folder} (no command for this folder)")
+        else:
+            targets.append((entry.model_copy(update={"command": command}), folder))
+    return targets
 
 
 def install(
@@ -553,18 +252,20 @@ def install(
         progress = None
     if progress is not None:
         progress("Checking Legion installations...")
-    catalog = _catalog(source, ref, catalog)
+    catalog = load_catalog(source, ref, catalog)
     lines: list[str] = []
     settings = _personalisation(home, lines if uninstall else None)
     agents = settings.agents if settings else []
     selected = list(dict.fromkeys(part for word in (tools or []) for part in word.split(",") if part))
+    targets_by_tool = {entry.id: _targets.folders(home, entry, agents, config_dir) for entry in catalog.tools if not selected or entry.id in selected}
     if not selected:
-        selected = [entry.id for entry in catalog.tools if uninstall or _target_tool(home, entry, agents) is not None]
+        selected = [tool_id for tool_id, folders in targets_by_tool.items() if uninstall or any(command for _, command in folders)]
     for tool_id in selected:
-        _tool(catalog, tool_id)
+        catalog_tool(catalog, tool_id)
     knowledge_enabled = settings is not None and settings.knowledge_enabled is True
     if uninstall:
-        _uninstall(home, catalog, selected, config_dir, purge, dry_run, yes, lines, agents, catalog.wiki if knowledge_enabled else None, progress)
+        wiki_folders = {(agent.tool, _targets.folder_key(_targets.account_folder(home, agent))) for agent in agents} if knowledge_enabled else set()
+        _uninstall(home, catalog, selected, config_dir, purge, dry_run, yes, lines, targets_by_tool, catalog.wiki, wiki_folders, progress)
         return lines
     manage_knowledge = update and with_knowledge and knowledge_enabled
     if not selected:
@@ -574,61 +275,43 @@ def install(
         question = "Update the legion command with uv? [y/N]" if update else "Install the legion command with uv and add it to your PATH? [y/N]"
         if not dry_run and not (yes or _confirm(question, lines)):
             return _declined(lines)
-        _flush_progress(lines, progress)
+        _plugins.flush_progress(lines, progress)
         if manage_knowledge:
             reconcile_knowledge(home, catalog, dry_run, lines, progress)
-        _flush_progress(lines, progress)
+        _plugins.flush_progress(lines, progress)
         lines.extend(_uv_tool.install(PLUGIN_ROOT, home, dry_run=dry_run, update_shell=not update, updating=update, progress=progress))
         return lines
     if update:
         targets: list[tuple[CatalogTool, Path]] = []
         for tool_id in selected:
-            entry = _tool(catalog, tool_id)
-            if _target_tool(home, entry, agents) is None:
-                lines.extend([f"skip: {tool_id} (not installed)", entry.install_hint])
-                continue
-            for folder in _folders(home, entry, config_dir, agents):
-                target = _target_tool(home, entry, agents, folder)
-                if target is None:
-                    lines.append(f"skip: {tool_id} in {folder} (no command for this folder)")
-                    continue
-                if knowledge_enabled and target.id == "codex" and target.plugin.marketplace_update == ["plugin", "marketplace", "upgrade"]:
-                    # Codex's unqualified upgrade would also refresh the pinned wiki and could block Legion on a wiki error.
-                    plugin = target.plugin.model_copy(update={"marketplace_update": [*target.plugin.marketplace_update, LEGION_MARKETPLACE]})
-                    target = target.model_copy(update={"plugin": plugin})
-                targets.append((target, folder))
+            entry = catalog_tool(catalog, tool_id)
+            targets.extend(_tool_targets(entry, targets_by_tool[tool_id], lines))
         for entry, folder in targets:
-            root = _plugin_root(entry, folder)
-            version = _manifest(root).version if root else "not installed"
+            version = _targets.installed_version(folder, entry) or "not installed"
             lines.append(f"Update legion for {entry.id} in {folder} ({version})")
         if targets:
             lines.append("Running legion sessions (MCP servers and legion runs) end when the legion command is replaced.")
         if (targets or manage_knowledge) and not dry_run and not (yes or _confirm("Update legion? [y/N]", lines)):
             return _declined(lines)
-        _flush_progress(lines, progress)
+        _plugins.flush_progress(lines, progress)
         rows: list[tuple[str, str, str]] = []
         roots: list[tuple[str, Path]] = []
         try:
             for entry, folder in targets:
-                before = _plugin_root(entry, folder)
-                before_version = _manifest(before).version if before else "not installed"
-                if before:
-                    for arguments in (entry.plugin.marketplace_update, entry.plugin.update):
-                        if arguments:
-                            _step(entry, arguments, folder, dry_run, lines, progress)
-                else:
-                    _install_steps(entry, folder, source, ref, dry_run, lines, progress=progress)
+                before = _plugins.ensure(entry, folder, source, ref, dry_run, lines, updating=True, progress=progress)
+                before_version = before[0] if before else "not installed"
                 if dry_run:
                     if before:
-                        roots.append((before_version, before))
+                        roots.append(before)
                 else:
-                    after = _plugin_root(entry, folder)
+                    after = _plugins.verified_copy(entry, folder)
                     if after is None:
-                        raise InstallerError(f"{entry.id} legion is absent from the post-update listing; generated artifacts were not refreshed.")
-                    after_version = _manifest(after).version
+                        raise InstallerError(f"{entry.id} legion copy is missing after update; generated artifacts were not refreshed.")
+                    after_version, after_root = after
                     lines.append(f"legion {before_version} -> {after_version}" if before_version != after_version else f"skip: legion {after_version} (already up to date)")
+                    _plugins.flush_progress(lines, progress)
                     rows.append((entry.id, str(folder), f"{before_version} -> {after_version}" if before_version != after_version else f"already up to date ({after_version})"))
-                    roots.append((after_version, after))
+                    roots.append((after_version, after_root))
         except BaseException:
             # Plugins already updated need their legion command even when a later account fails.
             # The returned lines are lost with the error, so the install is reported before it propagates.
@@ -649,7 +332,7 @@ def install(
                 reconcile_knowledge(home, catalog, dry_run, lines, progress)
         finally:
             if tool_roots is None:
-                _flush_progress(lines, progress)
+                _plugins.flush_progress(lines, progress)
                 failure = _install_tool(home, roots, command_lines, rows, dry_run, updating=True, progress=progress)
             else:
                 tool_roots.extend(roots)
@@ -662,7 +345,7 @@ def install(
     lines.append(f"Install legion for {', '.join(selected)}")
     if not dry_run and not (yes or _confirm(f"Install legion for {', '.join(selected)} now, and put the legion command on your PATH with uv? [y/N]", lines)):
         return _declined(lines)
-    _flush_progress(lines, progress)
+    _plugins.flush_progress(lines, progress)
     installed_version = ""
     failure = None
     rows = []
@@ -670,31 +353,24 @@ def install(
     from_tool = uv is not None and _uv_tool.running_from_tool(uv)
     deferred_roots: list[tuple[str, Path]] = []
     for tool_id in selected:
-        entry = _tool(catalog, tool_id)
-        if _target_tool(home, entry, agents) is None:
-            lines.extend([f"skip: {tool_id} (not installed)", entry.install_hint])
+        entry = catalog_tool(catalog, tool_id)
+        targets = _tool_targets(entry, targets_by_tool[tool_id], lines)
+        if not targets:
             rows.append((tool_id, "-", "skipped (not installed)"))
-            continue
-        for folder in _folders(home, entry, config_dir, agents):
-            target = _target_tool(home, entry, agents, folder)
-            if target is None:
-                lines.append(f"skip: {tool_id} in {folder} (no command for this folder)")
-                continue
-            if not dry_run:
-                folder.mkdir(parents=True, exist_ok=True)
-            _install_steps(target, folder, source, ref, dry_run, lines, progress=progress)
+        for target, folder in targets:
+            _plugins.ensure(target, folder, source, ref, dry_run, lines, progress=progress)
             if not dry_run:
                 try:
-                    root = _plugin_root(target, folder)
-                except Exception:
-                    root = None
-                if root:
+                    copy = _plugins.verified_copy(target, folder)
+                except (OSError, ValueError):
+                    copy = None
+                if copy:
                     try:
+                        installed_version, root = copy
                         if not from_tool:
-                            _flush_progress(lines, progress)
+                            _plugins.flush_progress(lines, progress)
                             lines.extend(_uv_tool.install(root, home, update_shell=True, progress=progress))
-                            _flush_progress(lines, progress)
-                        installed_version = _manifest(root).version
+                            _plugins.flush_progress(lines, progress)
                         if from_tool:
                             deferred_roots.append((installed_version, root))
                         rows.append((tool_id, str(folder), f"installed legion {installed_version}"))
@@ -706,17 +382,18 @@ def install(
                     rows.append((tool_id, str(folder), "commands not refreshed"))
         if entry.hooks.hint:
             lines.append(entry.hooks.hint)
+        _plugins.flush_progress(lines, progress)
     if dry_run:
         lines.extend(_uv_tool.install(PLUGIN_ROOT, home, dry_run=True, update_shell=True))
     else:
-        _flush_progress(lines, progress)
+        _plugins.flush_progress(lines, progress)
         failure = _install_tool(home, deferred_roots, lines, rows, dry_run, updating=False, update_shell=True, progress=progress) or failure
         lines.extend(_results_table(rows))
         if failure is not None:
             raise InstallerError(failure, lines=lines)
     if installed_version and not dry_run:
-        lines.append(f"installed: legion {installed_version} ({ref})")
         lines.append("next: legion add claude (or legion in a repository)")
+        lines.append(f"installed: legion {installed_version} ({ref})")
     return lines
 
 
@@ -739,39 +416,30 @@ def _uninstall(
     dry_run: bool,
     yes: bool,
     lines: list[str],
-    agents: list[Agent],
+    targets_by_tool: dict[str, list[tuple[Path, str | None]]],
     pin: PluginPin | None,
+    wiki_folders: set[tuple[str, str]],
     progress: Callable[[str], None] | None,
 ) -> None:
     # The tools' own commands remove the plugin and marketplace; nothing in a tool's files is edited here.
     steps: list[tuple[CatalogTool, Path, list[str], bool]] = []
     preview = progress is None or not yes
     for tool_id in selected:
-        entry = _tool(catalog, tool_id)
-        if _target_tool(home, entry, agents) is None:
-            lines.append(f"skip: {tool_id} (not installed)")
-            continue
-        for folder in _folders(home, entry, config_dir, agents):
-            target = _target_tool(home, entry, agents, folder)
-            if target is None:
-                lines.append(f"skip: {tool_id} in {folder} (no command for this folder)")
-                continue
-            for what, listed, arguments in (
-                ("plugin", folder.is_dir() and _plugin_state(target, folder)[0], entry.plugin.uninstall),
-                ("marketplace", folder.is_dir() and _marketplace(target, folder), entry.plugin.marketplace_remove),
-            ):
-                if listed:
-                    steps.append((target, folder, arguments, False))
-                    if preview:
-                        lines.append(_command_line(target, arguments, folder))
-                else:
+        entry = catalog_tool(catalog, tool_id)
+        for target, folder in _tool_targets(entry, targets_by_tool[tool_id], lines, hint=False):
+            removal = _plugins.removal_steps(target, folder)
+            for what, arguments in (("plugin", entry.plugin.uninstall), ("marketplace", entry.plugin.marketplace_remove)):
+                if arguments not in removal:
                     lines.append(f"skip: {tool_id} {what} in {folder} (not installed)")
-            if pin is not None:
+            steps.extend((target, folder, arguments, False) for arguments in removal)
+            if preview:
+                lines.extend(_plugins.command_line(target, arguments, folder) for arguments in removal)
+            if pin is not None and (tool_id, _targets.folder_key(folder)) in wiki_folders and not _targets.is_default_folder(home, entry, folder):
                 try:
-                    for arguments in _wiki_removal_steps(target, folder, pin):
+                    for arguments in _plugins.removal_steps(target, folder, pin):
                         steps.append((target, folder, arguments, True))
                         if preview:
-                            lines.append(_command_line(target, arguments, folder))
+                            lines.append(_plugins.command_line(target, arguments, folder))
                 except (OSError, ValueError) as error:
                     lines.append(f"knowledge: {tool_id} in {folder}: {error}")
     # Only an uninstall of every tool, without --config-dir, removes legion's own folders.
@@ -796,7 +464,7 @@ def _uninstall(
     if not (yes or _confirm("Purge legion and all its data now? [y/N]" if purge else "Uninstall legion now? [y/N]", lines)):
         lines.append("Uninstall cancelled.")
         return
-    _flush_progress(lines, progress)
+    _plugins.flush_progress(lines, progress)
     stopped = everything and (bool(tool_lines) or (owner_path_safe(_stop_event.stop_path(home), home) and run_folder(home).is_dir()))
     if stopped:
         if progress is not None:
@@ -807,16 +475,16 @@ def _uninstall(
         failed_wiki: set[tuple[str, Path]] = set()
         for entry, folder, arguments, wiki in steps:
             if not wiki:
-                _step(entry, arguments, folder, False, lines, progress)
+                _plugins.run_step(entry, arguments, folder, False, lines, progress)
             elif (entry.id, folder) not in failed_wiki:
                 try:
-                    _step(entry, arguments, folder, False, lines, progress)
+                    _plugins.run_step(entry, arguments, folder, False, lines, progress)
                 except (OSError, ValueError) as error:
                     failed_wiki.add((entry.id, folder))
                     lines.append(f"knowledge: {entry.id} in {folder}: {error}")
         if everything:
             lines.extend(_user_path.remove(home, purge))
-            _flush_progress(lines, progress)
+            _plugins.flush_progress(lines, progress)
             with_knowledge = hub and _confirm("Also delete the knowledge hub in ~/.legion/knowledge? [y/N]", lines)
             if with_knowledge:
                 _knowledge_hub.purge(home, lines)

@@ -1,4 +1,6 @@
 # Uninstall and purge: the tools' own commands run, legion's folders are removed after exit, nothing in a tool's files is written.
+import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -6,7 +8,10 @@ from typing import Any
 import pytest
 
 from legion.core import _stop_event
-from legion.core._settings_models import CatalogTool, ToolsCatalog
+from legion.core._settings_models import ToolsCatalog
+from legion.core._run import RunResult
+from legion.services.lifecycle import _plugins
+from fake_cli import PLUGIN
 from legion.services.installation import (
     _handover,
     _user_path,
@@ -26,6 +31,8 @@ class Recorder:
         self.questions: list[str] = []
         self.events: list[str] = []
         self.uv: FakeUv
+        self.installed = True
+        self.wiki = False
 
 
 @pytest.fixture
@@ -35,20 +42,26 @@ def recorder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
     recorder.uv = FakeUv(monkeypatch, tmp_path / "uv bin")
     for entry in CATALOG.tools:
         monkeypatch.delenv(entry.config_env, raising=False)
-    monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
+    monkeypatch.setattr(shutil, "which", lambda name: name)
 
-    def plugin_state(_entry: CatalogTool, _folder: Path, plugin_id: str = _installer.LEGION_PLUGIN) -> tuple[bool, bool, list[Path], str]:
-        installed = plugin_id == _installer.LEGION_PLUGIN
-        return installed, installed, [], ""
+    def run_command(program: str, arguments: list[str], **_options: object) -> RunResult:
+        entry = next(tool for tool in CATALOG.tools if tool.id == program)
+        output = ""
+        if arguments == entry.plugin.list_command:
+            ids = [PLUGIN] if recorder.installed else []
+            if recorder.wiki:
+                ids.append("wiki@llm-wiki")
+            output = json.dumps([{"id": name, "enabled": True} for name in ids]) if program == "claude" else "\n".join(ids)
+        elif arguments == entry.plugin.marketplace_list:
+            rows = [{"name": "ps-legion-marketplace"}] if recorder.installed else []
+            if recorder.wiki:
+                rows.append({"name": "llm-wiki"})
+            output = json.dumps({"marketplaces": rows} if program == "codex" else rows)
+        else:
+            recorder.steps.append((program, arguments))
+        return RunResult(exit_code=0, output=output, error="", timed_out=False)
 
-    monkeypatch.setattr(_installer, "_plugin_state", plugin_state)
-    monkeypatch.setattr(_installer, "_marketplace", lambda *_args: True)
-    monkeypatch.setattr(_installer, "_marketplace_item", lambda *_args: {})
-
-    def step(entry: CatalogTool, arguments: list[str], _folder: Path, _dry_run: bool, _lines: list[str], *_progress: object) -> None:
-        recorder.steps.append((entry.id, arguments))
-
-    monkeypatch.setattr(_installer, "_step", step)
+    monkeypatch.setattr(_plugins, "run_command", run_command)
     return recorder
 
 
@@ -89,10 +102,9 @@ def test_uninstall_runs_each_tools_own_commands_and_writes_no_tool_file(home: Pa
     assert tool_files(home) == before
 
 
-def test_declined_knowledge_keeps_a_listed_manual_wiki(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_declined_knowledge_keeps_a_listed_manual_wiki(home: Path, recorder: Recorder) -> None:
     (home / ".legion/configuration/personalisation.json").write_text('{"schemaVersion":1,"agents":[],"channels":[],"knowledgeEnabled":false}', encoding="utf-8")
-    monkeypatch.setattr(_installer, "_plugin_state", lambda *_: (True, True, [], ""))
-    monkeypatch.setattr(_installer, "_marketplace_item", lambda *_: {"name": "llm-wiki"})
+    recorder.wiki = True
     run(home, yes=True)
     assert recorder.steps == [(entry.id, arguments) for entry in CATALOG.tools for arguments in (entry.plugin.uninstall, entry.plugin.marketplace_remove)]
 
@@ -152,9 +164,8 @@ def test_one_tool_alone_leaves_the_legion_tool(home: Path, recorder: Recorder) -
     assert recorder.uv.detached == []
 
 
-def test_the_installed_legion_tool_alone_is_work_for_a_repeat(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (False, False, [], ""))
-    monkeypatch.setattr(_installer, "_marketplace", lambda *_args: False)
+def test_the_installed_legion_tool_alone_is_work_for_a_repeat(home: Path, recorder: Recorder) -> None:
+    recorder.installed = False
     for name in ("configuration", "agents"):
         (home / ".legion" / name).rmdir()
     recorder.uv.installed = "1.0.0"
@@ -185,9 +196,8 @@ def test_a_declined_uninstall_changes_nothing(home: Path, recorder: Recorder, an
 
 
 @pytest.mark.usefixtures("answers")
-def test_a_repeat_prints_skip_lines_and_does_not_ask(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (False, False, [], ""))
-    monkeypatch.setattr(_installer, "_marketplace", lambda *_args: False)
+def test_a_repeat_prints_skip_lines_and_does_not_ask(home: Path, recorder: Recorder) -> None:
+    recorder.installed = False
     for name in ("configuration", "agents"):
         (home / ".legion" / name).rmdir()
     lines = run(home)
@@ -199,7 +209,7 @@ def test_a_repeat_prints_skip_lines_and_does_not_ask(home: Path, recorder: Recor
 
 
 def test_a_tool_that_is_not_installed_is_reported_and_skipped(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_installer.shutil, "which", lambda name: None if name == "claude" else name)
+    monkeypatch.setattr(shutil, "which", lambda name: None if name == "claude" else name)
     lines = run(home, yes=True)
     assert "skip: claude (not installed)" in lines
     assert {tool for tool, _arguments in recorder.steps} == {"codex", "copilot"}
@@ -324,9 +334,8 @@ def test_a_plain_uninstall_leaves_a_linked_legion_folder_alone(tmp_path: Path, r
     assert (outside / "configuration").is_dir()
 
 
-def test_a_second_purge_still_asks_about_a_kept_knowledge_hub(home: Path, recorder: Recorder, answers: list[bool], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (False, False, [], ""))
-    monkeypatch.setattr(_installer, "_marketplace", lambda *_args: False)
+def test_a_second_purge_still_asks_about_a_kept_knowledge_hub(home: Path, recorder: Recorder, answers: list[bool]) -> None:
+    recorder.installed = False
     for child in (home / ".legion").iterdir():
         child.rmdir()
     (home / ".legion" / "knowledge").mkdir()
@@ -337,9 +346,8 @@ def test_a_second_purge_still_asks_about_a_kept_knowledge_hub(home: Path, record
 
 
 @pytest.mark.usefixtures("recorder")
-def test_a_pending_path_cleanup_alone_is_work(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (False, False, [], ""))
-    monkeypatch.setattr(_installer, "_marketplace", lambda *_args: False)
+def test_a_pending_path_cleanup_alone_is_work(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
+    recorder.installed = False
     for name in ("configuration", "agents"):
         (home / ".legion" / name).rmdir()
     monkeypatch.setattr(_user_path, "remove", lambda *_args, **_options: ["Remove path entry"])

@@ -26,8 +26,9 @@ from legion.services.installation import (
     installer as _installer,
     _tool_install,
 )
-from legion.services.status import _status
+from legion.services.lifecycle import _plugins, _targets
 from legion.services.status import status
+from legion.services.status import _status
 from legion import cli
 from legion.services.repository import _footprints
 from legion.services.installation import _user_path
@@ -38,7 +39,6 @@ from legion.core._settings_models import ToolDescriptor
 from legion.core._validate import load_descriptors
 
 REAL_INSTALL_TOOL = _setup.install_tool
-REAL_INSTALL_PLUGIN = _setup.install_plugin
 VERSION = "1.0.0"
 RULE = "Bash(LEGION_ROLE=member *)"
 posix_only = pytest.mark.skipif(WINDOWS, reason="POSIX file modes and shell profile")
@@ -87,7 +87,8 @@ class Bench:
             fake_cli(self.tools, tool_id, descriptor(tool_id).config_env)
         return None
 
-    def install_plugin(self, tool_id: str, folder: Path, home: Path, source: Optional[str], _tool_roots: list[tuple[str, Path]]) -> int:
+    def install_plugin(self, _plan: _setup.Plan, row: _setup.Row, source: Optional[str], _say: object) -> int:
+        tool_id, folder = row.tool.id, row.folder
         self.plugin_installs.append((tool_id, folder, source))
         if self.failing_folder is not None and _setup.same_path(folder, self.failing_folder):
             return 1
@@ -221,7 +222,7 @@ def test_knowledge_adopts_the_plugin_and_follows_later_accounts(bench: Bench, mo
         output = ""
         legion = folder / (entry.plugin.installed_root or "") / VERSION
         if args == entry.plugin.marketplace_list:
-            market_rows: list[dict[str, object]] = []
+            market_rows: list[dict[str, object]] = [{"name": "ps-legion-marketplace", "root": str(folder)}]
             for (account, name), (source, ref) in markets.items():
                 if account != folder:
                     continue
@@ -244,7 +245,7 @@ def test_knowledge_adopts_the_plugin_and_follows_later_accounts(bench: Bench, mo
             output = json.dumps(rows) if tool == "claude" else "\n".join(f"{row['id']} {VERSION} {row.get('installPath', '')}".rstrip() for row in rows)
         elif tool == "codex" and args[:3] == ["plugin", "marketplace", "upgrade"]:
             assert args[3:] == ["ps-legion-marketplace"]
-        elif args in (entry.plugin.marketplace_update, entry.plugin.update, entry.plugin.uninstall):
+        elif args in (entry.plugin.marketplace_update, entry.plugin.update, entry.plugin.uninstall, entry.plugin.marketplace_remove):
             pass
         elif args[:3] == ["plugin", "marketplace", "add"]:
             assert all((hub / name).is_file() for name in ("wikis.json", "log.md", "_index.md"))
@@ -269,7 +270,7 @@ def test_knowledge_adopts_the_plugin_and_follows_later_accounts(bench: Bench, mo
             manifest.write_text(json.dumps({"name": "wiki", "version": VERSION}), encoding="utf-8")
         return RunResult(exit_code=0, output=output, error="", timed_out=False)
 
-    monkeypatch.setattr(_installer, "run_command", fake_run)
+    monkeypatch.setattr(_plugins, "run_command", fake_run)
     args = ["--home", str(bench.home), "setup", "--knowledge"]
     result = CliRunner().invoke(cli.main, args)
     assert result.exit_code == 0, result.output
@@ -283,7 +284,7 @@ def test_knowledge_adopts_the_plugin_and_follows_later_accounts(bench: Bench, mo
     assert plugins == {(first, wiki)}
     assert f"knowledge: {later_id}:" in text(lines)
     assert "fixture plugin failure" in text(lines)
-    assert _status.installed_version(later, entry) == VERSION
+    assert _targets.installed_version(later, entry) == VERSION
     assert all(folder != first or args in (entry.plugin.list_command, entry.plugin.marketplace_list) for folder, args in calls)
     (hub / "log.md").unlink()
     report = status(bench.base, bench.home)
@@ -342,18 +343,18 @@ def test_setup_no_knowledge_removes_only_managed_wiki(bench: Bench, monkeypatch:
             removals.append((folder, args))
         return RunResult(exit_code=0, output=output, error="", timed_out=False)
 
-    monkeypatch.setattr(_installer, "run_command", fake_run)
+    monkeypatch.setattr(_plugins, "run_command", fake_run)
     args = ["--home", str(bench.home), "setup", "--no-knowledge"]
     result = CliRunner().invoke(cli.main, args)
     if fail_once:
         assert result.exit_code == 1
         assert "fixture marketplace failure" in result.output
-        assert "fixture removed wiki plugin\nknowledge stays on; run legion setup --no-knowledge again\n" in result.output
+        assert "knowledge stays on; run legion setup --no-knowledge again\n" in result.output
         assert bench.settings()["knowledgeEnabled"] is True
         result = CliRunner().invoke(cli.main, args)
     assert result.exit_code == 0, result.output
     if missing_cli:
-        assert "skip: knowledge: wiki-missing (codex command is missing)\nfixture removed wiki plugin" in result.output
+        assert "skip: knowledge: wiki-missing (codex command is missing)" in result.output
     assert plugins == marketplaces == (set() if was_enabled else folders)
     for folder in folders:
         assert [args for target, args in removals if target == folder] == ([remove_plugin, remove_marketplace] if was_enabled else [])
@@ -383,7 +384,6 @@ def test_knowledge_preserves_settings_and_purge_asks(bench: Bench, monkeypatch: 
     expected = existing if external else {**existing, "hub_path": "~/.legion/knowledge"}
     assert json.loads(pointer.read_bytes()) == expected
     assert hub.is_dir()
-    monkeypatch.setattr(_installer, "_listing", lambda *_: "")
     handed: list[list[Path]] = []
     monkeypatch.setattr(_uv_tool._handover, "start", lambda _command, _cleanup, *, purge, **_options: handed.append(purge))
     answers = iter((False, True))
@@ -408,21 +408,6 @@ def test_knowledge_reports_a_missing_account_command(bench: Bench) -> None:
     assert result.exit_code == 0, result.output
     assert "knowledge: wiki-account: codex command is missing" in result.output
     assert status(bench.base, bench.home).knowledge.missing_accounts == ["wiki-account"]
-
-
-def test_invalid_pointer_is_reported_once_and_the_wikis_still_install(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
-    bench.apply("claude")
-    bench.apply("codex")
-    pointer = bench.home / ".config/llm-wiki/config.json"
-    pointer.parent.mkdir(parents=True)
-    pointer.write_bytes(b"invalid JSON")
-    installed: list[str] = []
-    monkeypatch.setattr(_installer, "_install_steps", lambda entry, *_, **_options: installed.append(entry.id))
-    result = CliRunner().invoke(cli.main, ["--home", str(bench.home), "setup", "--knowledge"])
-    assert result.exit_code == 0, result.output
-    assert result.output.count("knowledge: hub setup failed:") == 1
-    assert installed == ["claude", "codex"]
-    assert pointer.read_bytes() == b"invalid JSON"
 
 
 # --- the plan and a plain apply ---
@@ -744,8 +729,8 @@ def test_a_plugin_install_failure_is_a_table_row_and_the_next_folder_still_insta
 def test_copilot_setup_reports_login_when_plugin_installed_despite_installer_error(bench: Bench) -> None:
     install = bench.install_plugin
 
-    def installed_with_error(tool_id: str, folder: Path, home: Path, source: Optional[str], roots: list[tuple[str, Path]]) -> int:
-        install(tool_id, folder, home, source, roots)
+    def installed_with_error(plan: _setup.Plan, row: _setup.Row, source: Optional[str], say: object) -> int:
+        install(plan, row, source, say)
         return 1
 
     bench.monkeypatch.setattr(_setup, "install_plugin", installed_with_error)
@@ -757,8 +742,8 @@ def test_a_plugin_installer_that_raises_is_a_failure_row_for_each_target(bench: 
     bench.hide("claude1")
     attempts: list[str] = []
 
-    def broken(tool_id: str, *_rest: object) -> int:
-        attempts.append(tool_id)
+    def broken(_plan: _setup.Plan, row: _setup.Row, *_rest: object) -> int:
+        attempts.append(row.tool.id)
         raise OSError("fixture missing installer")
 
     bench.monkeypatch.setattr(_setup, "install_plugin", broken)
@@ -838,14 +823,15 @@ def test_setup_hands_the_newest_plugin_to_uv_after_knowledge_reconciliation(benc
     events: list[str] = []
     newest = bench.base / "newest-plugin"
 
-    def install(_tool: str, _folder: Path, _home: Path, _source: Optional[str], roots: list[tuple[str, Path]]) -> int:
-        roots.extend([("1.2.0", bench.source), ("1.10.0", newest)])
+    def install(plan: _setup.Plan, _row: _setup.Row, _source: Optional[str], _say: object) -> int:
+        plan.tool_roots.extend([("1.2.0", bench.source), ("1.10.0", newest)])
         events.append("plugins")
         return 0
 
-    def install_tool(source: Path, _home: Path, *, update_shell: bool) -> list[str]:
+    def install_tool(source: Path, _home: Path, *, update_shell: bool, progress: object) -> list[str]:
         assert source == newest
         assert update_shell
+        assert callable(progress)
         events.append("handover")
         return []
 
@@ -888,50 +874,6 @@ def test_the_preview_shows_the_command_the_apply_runs_when_npm_is_only_on_the_sa
     bench.apply("copilot")
     assert ran == [["npm", "install", "-g", "@github/copilot"]]
     assert " ".join(ran[0]) in shown
-
-
-# --- the plugin installer process ---
-
-
-def installer_calls(bench: Bench, lines: list[str] | Exception) -> list[tuple[Path, dict[str, Any]]]:
-    calls: list[tuple[Path, dict[str, Any]]] = []
-
-    def fake_install(home: Path, **options: Any) -> list[str]:
-        calls.append((home, options))
-        if isinstance(lines, Exception):
-            raise lines
-        return lines
-
-    bench.monkeypatch.setattr(_installer, "install", fake_install)
-    return calls
-
-
-def test_the_plugin_installer_gets_its_options_and_a_log(bench: Bench) -> None:
-    calls = installer_calls(bench, ["inert installer output", "second line"])
-    folder = bench.base / "target folder"
-    roots: list[tuple[str, Path]] = []
-    assert REAL_INSTALL_PLUGIN("codex", folder, bench.home, None, roots) == 0
-    assert calls == [(bench.home, {"tools": ["codex"], "config_dir": folder, "update": True, "yes": True, "source": _setup._installer.DEFAULT_SOURCE, "with_knowledge": False, "tool_roots": roots})]
-    assert (bench.home / ".legion" / "temp" / "setup-install-codex.log").read_text(encoding="utf-8") == "inert installer output\nsecond line"
-
-
-@pytest.mark.parametrize("source", ["owner/repo", "work folder/my-project"])
-def test_a_source_reaches_the_plugin_installer_unchanged(bench: Bench, source: str) -> None:
-    calls = installer_calls(bench, [])
-    REAL_INSTALL_PLUGIN("claude", bench.base, bench.home, source, [])
-    assert calls[0][1]["source"] == source
-
-
-def test_a_failed_plugin_install_returns_one_and_logs_why(bench: Bench) -> None:
-    installer_calls(bench, _installer.InstallerError("claude exited 3\nboom"))
-    assert REAL_INSTALL_PLUGIN("claude", bench.base, bench.home, None, []) == 1
-    assert "boom" in (bench.home / ".legion" / "temp" / "setup-install-claude.log").read_text(encoding="utf-8")
-
-
-def test_the_plugin_install_never_looks_for_pwsh(bench: Bench) -> None:
-    installer_calls(bench, [])
-    bench.monkeypatch.setenv("PATH", str(bench.base / "empty"))
-    assert REAL_INSTALL_PLUGIN("claude", bench.base, bench.home, None, []) == 0
 
 
 def test_a_cli_install_reports_its_failures_as_one_line(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:

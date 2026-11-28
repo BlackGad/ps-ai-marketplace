@@ -35,17 +35,18 @@ def plugin_root(tool: str, folder: Path, plugin: str = PLUGIN) -> Path:
     return folder / "plugins/cache" / market / name
 
 
-def list_plugins(tool: str, folder: Path, installed: list[str]) -> None:
+def list_plugins(tool: str, folder: Path, installed: list[str], disabled: list[str]) -> None:
     rows = []
     for plugin in installed:
         root = plugin_root(tool, folder, plugin)
         version = json.loads((root / "plugin.json").read_text(encoding="utf-8"))["version"]
+        enabled = plugin not in disabled
         if tool == "claude":
-            rows.append({"id": plugin, "version": version, "installPath": str(root), "enabled": True})
+            rows.append({"id": plugin, "version": version, "installPath": str(root), "enabled": enabled})
         elif tool == "codex":
-            print(f"{plugin} {version} {root}")
+            print(f"{plugin} {version} {root}" + (" (disabled)" if not enabled else ""))
         else:
-            print(f"  * {plugin} (v{version}) (enabled)")
+            print(f"  * {plugin} (v{version}) ({'enabled' if enabled else 'disabled'})")
     if tool == "claude":
         print(json.dumps(rows))
 
@@ -76,7 +77,7 @@ def main(tool: str, args: list[str]) -> int:
             rows = [{"name": name, "root": root} for name, root in markets.items()]
             print(json.dumps({"marketplaces": rows} if tool == "codex" else rows))
         else:
-            list_plugins(tool, folder, installed)
+            list_plugins(tool, folder, installed, state.get("disabled", []))
         return 0
 
     if marketplace and verb == "add":
@@ -102,6 +103,8 @@ def main(tool: str, args: list[str]) -> int:
         shutil.copyfile(source / relative / "plugin.json", root / "plugin.json")
         if plugin not in installed:
             installed.append(plugin)
+        if plugin in state.get("disabled", []):
+            state["disabled"].remove(plugin)
     elif not marketplace and verb == ("remove" if tool == "codex" else "uninstall"):
         [plugin] = operands
         installed.remove(plugin)
