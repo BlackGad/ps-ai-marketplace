@@ -250,9 +250,8 @@ def test_knowledge_setup_restores_checkout_after_uninstall(tmp_path: Path, step:
 
     def legion(*args: str) -> str:
         if args[0] == "install":
-            _, _, tool, _, folder, _, source, _ = args
-            assert source == str(instance.checkout)
-            installed.add((tool, Path(folder)))
+            assert args == ("install", "--source", str(instance.checkout), "--ref", "release", "--yes")
+            installed.update(accounts)
         if args == ("setup", choice, "--yes"):
             assert installed == set(accounts), "setup would install missing Legion copies from GitHub"
         return json.dumps({"knowledge": {"state": "declined"}}) if args[0] == "status" else ""
