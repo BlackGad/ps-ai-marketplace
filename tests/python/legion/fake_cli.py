@@ -1,0 +1,116 @@
+# Local, stateful stand-ins for the three plugin CLIs.
+
+import json
+import os
+import shlex
+import shutil
+import sys
+from pathlib import Path
+
+CONFIG = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME", "copilot": "COPILOT_HOME"}
+MARKETPLACE = "ps-legion-marketplace"
+PLUGIN = f"legion@{MARKETPLACE}"
+
+
+def write_shim(bin_dir: Path, name: str, script: Path) -> None:
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        (bin_dir / f"{name}.cmd").write_text(f'@echo off\n"{sys.executable}" "{script}" "%~n0" %*\n', encoding="utf-8")
+    else:
+        shim = bin_dir / name
+        command = shlex.join([sys.executable, str(script)])
+        shim.write_text(f'#!/bin/sh\nexec {command} "${{0##*/}}" "$@"\n', encoding="utf-8")
+        shim.chmod(0o755)
+
+
+def log_call(path: Path, args: list[str]) -> None:
+    with path.open("a", encoding="utf-8") as stream:
+        print(json.dumps(args), file=stream)
+
+
+def plugin_root(tool: str, folder: Path, plugin: str = PLUGIN) -> Path:
+    name, market = plugin.split("@")
+    if tool == "copilot":
+        return folder / "installed-plugins" / market / name
+    return folder / "plugins/cache" / market / name
+
+
+def list_plugins(tool: str, folder: Path, installed: list[str]) -> None:
+    rows = []
+    for plugin in installed:
+        root = plugin_root(tool, folder, plugin)
+        version = json.loads((root / "plugin.json").read_text(encoding="utf-8"))["version"]
+        if tool == "claude":
+            rows.append({"id": plugin, "version": version, "installPath": str(root), "enabled": True})
+        elif tool == "codex":
+            print(f"{plugin} {version} {root}")
+        else:
+            print(f"  * {plugin} (v{version}) (enabled)")
+    if tool == "claude":
+        print(json.dumps(rows))
+
+
+def main(tool: str, args: list[str]) -> int:
+    folder = Path(os.environ[CONFIG[tool]])
+    folder.mkdir(parents=True, exist_ok=True)
+    log_call(folder / "fake-cli.log", args)
+    group, verb, *operands = args
+    if group != "plugin":
+        raise ValueError(f"unexpected {tool} arguments: {args}")
+    marketplace = verb == "marketplace"
+    if marketplace:
+        verb, *operands = operands
+    qualified = f"marketplace {verb}" if marketplace else f"plugin {verb}"
+    fail_folder = os.environ.get("FAKE_CLI_FAIL_FOLDER")
+    if os.environ.get("FAKE_CLI_FAIL") in (verb, qualified) and (fail_folder is None or Path(fail_folder) == folder):
+        print(f"fake {tool}: {qualified} failed", file=sys.stderr)
+        return 1
+
+    state_file = folder / "fake-cli.json"
+    state = json.loads(state_file.read_text(encoding="utf-8")) if state_file.exists() else {"marketplaces": {}, "plugins": []}
+    markets: dict[str, str] = state["marketplaces"]
+    installed: list[str] = state["plugins"]
+    if verb == "list":
+        assert operands == (["--json"] if marketplace or tool == "claude" else []), args
+        if marketplace:
+            rows = [{"name": name, "root": root} for name, root in markets.items()]
+            print(json.dumps({"marketplaces": rows} if tool == "codex" else rows))
+        else:
+            list_plugins(tool, folder, installed)
+        return 0
+
+    if marketplace and verb == "add":
+        [location] = operands
+        source = Path(location).resolve()
+        manifest = json.loads((source / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+        markets[manifest["name"]] = str(source)
+    elif marketplace and verb == "remove":
+        name, *flags = operands
+        assert flags == (["--force"] if tool == "copilot" else []), args
+        del markets[name]
+    elif marketplace and verb == ("upgrade" if tool == "codex" else "update"):
+        # Local sources are already current. Plugin update reads the latest files there.
+        assert (tool == "codex" and not operands) or (len(operands) == 1 and operands[0] in markets), args
+    elif not marketplace and verb in (("add",) if tool == "codex" else ("install", "update")):
+        [plugin] = operands
+        name, market = plugin.split("@")
+        source = Path(markets[market])
+        manifest = json.loads((source / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+        relative = next(row["source"] for row in manifest["plugins"] if row["name"] == name)
+        root = plugin_root(tool, folder, plugin)
+        root.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source / relative / "plugin.json", root / "plugin.json")
+        if plugin not in installed:
+            installed.append(plugin)
+    elif not marketplace and verb == ("remove" if tool == "codex" else "uninstall"):
+        [plugin] = operands
+        installed.remove(plugin)
+        shutil.rmtree(plugin_root(tool, folder, plugin))
+    else:
+        raise ValueError(f"unexpected {tool} arguments: {args}")
+    state_file.write_text(json.dumps(state), encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1], sys.argv[2:]))
