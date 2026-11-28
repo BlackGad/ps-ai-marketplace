@@ -35,7 +35,7 @@ Different tools and providers give independent reviews another perspective. With
 ## First-time setup
 
 1. **Install.** Run the install command above. In Codex, open `/hooks` once per account and approve the legion hooks.
-2. **Add accounts.** Open your AI tool and say “Add a Codex agent called `<name>`” or “Add my existing Claude account from `<account folder>`.” You can also say “summon a minion”. Setup asks only which accounts to add. One yes approves installing legion into the selected accounts. For a new account, setup shows the command that starts the tool on that account's folder; run it once and log in yourself. Existing folders keep their settings and login.
+2. **Add accounts.** Open your AI tool and say “Add a Codex agent called `<name>`” or “Add my existing Claude account from `<account folder>`.” You can also say “summon a minion”. Setup asks only which accounts to add. One yes approves installing legion into the selected accounts. For a new account, setup shows the command that starts the tool on that account's folder; run it once and log in yourself. An existing folder is copied into the account and keeps its settings and login; the original stays as it is.
 3. **Start work.** Run `legion` in your repository; it sets up orchestration if needed and reopens the last conversation. Describe what you want done, then say “Continue.” Before the first legion task, the overseer asks once about running without a sandbox and saves your answer in notes. Future sessions continue from the handoff.
 
 Add preferences later in your own words. Say “use Telegram” when you want a channel.

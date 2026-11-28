@@ -14,6 +14,10 @@
       "configEnv": "CLAUDE_CONFIG_DIR",
       "plugin": {
         "defaultConfigDir": "~/.claude",
+        "adoptRewrite": [
+          "plugins/installed_plugins.json",
+          "plugins/known_marketplaces.json"
+        ],
         "installedRoot": "plugins/cache/ps-legion-marketplace/legion",
         "marketplaceAddRef": [
           "plugin",
@@ -89,6 +93,10 @@
       "configEnv": "CODEX_HOME",
       "plugin": {
         "defaultConfigDir": "~/.codex",
+        "adoptRewrite": [
+          "config.toml",
+          ".codex-global-state.json"
+        ],
         "installedRoot": "plugins/cache/ps-legion-marketplace/legion",
         "marketplaceAddRef": [
           "plugin",
@@ -162,6 +170,9 @@
       "configEnv": "COPILOT_HOME",
       "plugin": {
         "defaultConfigDir": "~/.copilot",
+        "adoptRewrite": [
+          "config.json"
+        ],
         "installedRoot": "installed-plugins",
         "marketplaceAddRef": [
           "plugin",

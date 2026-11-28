@@ -459,25 +459,28 @@ def test_accounts_plan_apply_and_repeat(bench: Bench) -> None:
     before = bench.tree()
     plan = text(bench.preview("claude")) + "\n" + text(bench.preview("codex", adopt))
     assert "  add      claude2 (claude) new folder" in plan  # claude1 is an application on PATH
-    assert f"  add      codex1 (codex) existing folder {adopt}" in plan
+    assert f"  add      codex1 (codex) copy of {adopt} in folder {bench.folder('codex1')}" in plan
     assert "  install  legion into " in plan
     assert bench.tree() == before
     bench.hide("claude1")
     calls: list[tuple[str, str]] = []
     real = _accounts.add_subscription
-    bench.monkeypatch.setattr(_accounts, "add_subscription", lambda home, account, tool, command, config_dir: (calls.append((account, tool)), real(home, account, tool, command, config_dir))[1])
+    bench.monkeypatch.setattr(
+        _accounts, "add_subscription", lambda home, account, tool, command, config_dir, say: (calls.append((account, tool)), real(home, account, tool, command, config_dir, say))[1]
+    )
     bench.apply("claude")
     apply = bench.apply("codex", adopt)
     assert calls == [("claude1", "claude"), ("codex1", "codex")]
     assert bench.ids() == ["claude1", "codex1"]
     assert [call[0] for call in bench.plugin_installs] == ["claude", "codex"]
-    assert bench.plugin_installs[1][1] == adopt
+    assert bench.plugin_installs[1][1] == bench.folder("codex1")
     assert (adopt / "owner.txt").read_text(encoding="utf-8") == "keep login data"
+    assert (bench.folder("codex1") / "owner.txt").read_text(encoding="utf-8") == "keep login data"
     assert "account  tool  folder  legion  next step" in apply
     assert any(line.startswith("claude1  claude  ") and line.endswith(f"  log in: {login('CLAUDE_CONFIG_DIR', bench.home / '.legion' / 'agents' / 'claude1', 'claude')}") for line in apply)
     assert any(line.startswith("codex1  codex  ") and line.endswith(f"  {VERSION}  ready") for line in apply)
     assert "Log in once:" not in text(apply)
-    assert "Existing account folder kept at" not in text(apply)
+    assert "Copied " not in text(apply)
     assert bench.uv.installed == VERSION
     before = bench.tree()
     installs = len(bench.plugin_installs)
@@ -533,12 +536,13 @@ def test_the_account_add_gets_the_id_the_tool_and_an_adopted_folder_only(bench: 
     real = _accounts.add_subscription
     bench.monkeypatch.setattr(_accounts, "add_subscription", lambda *args: (calls.append(args), real(*args))[1])
     bench.apply("codex")
-    assert calls == [(bench.home, "codex1", "codex", None, None)]
+    assert [call[:5] for call in calls] == [(bench.home, "codex1", "codex", None, None)]
     folder = bench.base / "existing"
     folder.mkdir()
     calls.clear()
     bench.apply("claude", folder)
     assert [(call[1], call[2], call[3], call[4]) for call in calls] == [("claude2", "claude", None, str(folder))]
+    assert (bench.folder("claude2")).is_dir()
 
 
 def test_setup_plans_under_the_settings_lock_and_does_the_outside_work_without_it(bench: Bench) -> None:
@@ -592,9 +596,10 @@ def test_the_allow_rule_is_added_once_and_the_rest_of_the_file_stays(bench: Benc
     bench.apply("claude", adopted)
     bench.apply("codex")
     bench.apply("copilot")
-    created = next(Path(agent["configDir"]) for agent in bench.settings()["agents"] if agent["tool"] == "claude" and not agent["configDir"].endswith("adopted-claude"))
+    created = bench.folder("claude1")
     assert json.loads((created / "settings.json").read_text(encoding="utf-8"))["permissions"]["allow"] == [RULE]
-    kept = json.loads((adopted / "settings.json").read_text(encoding="utf-8"))
+    assert json.loads((adopted / "settings.json").read_text(encoding="utf-8"))["permissions"]["allow"] == ["Bash(git status)"]
+    kept = json.loads((bench.folder("claude2") / "settings.json").read_text(encoding="utf-8"))
     assert kept["permissions"]["allow"] == ["Bash(git status)", RULE]
     assert kept["model"] == "opus"
     assert kept["permissions"]["deny"] == ["Bash(rm *)"]
@@ -611,7 +616,7 @@ def test_an_allow_rule_the_owner_already_had_is_a_skip_and_is_not_recorded(bench
     (folder / "settings.json").write_text(json.dumps({"permissions": {"allow": [RULE]}}), encoding="utf-8")
     bench.apply("claude", folder)
     assert [entry for entry in _footprints.read(bench.home).entries if entry.kind == "edit"] == []
-    assert f"skip: permission rule in {folder} (already done)" in bench.apply()
+    assert f"skip: permission rule in {bench.folder(bench.ids()[0])} (already done)" in bench.apply()
 
 
 def test_an_unreadable_settings_file_of_the_account_stops_the_plan(bench: Bench) -> None:
@@ -684,10 +689,11 @@ def test_an_account_without_a_command_uses_the_stock_cli(bench: Bench) -> None:
 
 
 def test_adopting_a_folder_twice_reuses_the_account(bench: Bench, capsys: pytest.CaptureFixture[str]) -> None:
-    folder = bench.base / "existing"
-    folder.mkdir()
-    assert run(["--home", str(bench.home), "add", "codex", str(folder), "--yes"]) == 0
+    source = bench.base / "existing"
+    source.mkdir()
+    assert run(["--home", str(bench.home), "add", "codex", str(source), "--yes"]) == 0
     capsys.readouterr()
+    folder = bench.folder("codex1")
     before = bench.tree()
     spellings = [str(folder) + os.sep]
     if WINDOWS:
@@ -778,8 +784,9 @@ def test_the_plugin_is_installed_only_where_it_is_missing_whatever_version_is_th
         manifest.write_text(json.dumps({"name": "legion", "version": delivered}), encoding="utf-8")
         bench.apply("codex", folder, f"codex-{delivered.replace('.', '-')}")
         assert bench.plugin_installs == []
+        assert (bench.folder(f"codex-{delivered.replace('.', '-')}") / (descriptor("codex").plugin.installed_root or "") / delivered / "plugin.json").is_file()
         assert "skip: legion in" in text(bench.apply())
-        assert f"install  legion into {folder}" not in text(bench.preview())
+        assert "install  legion into" not in text(bench.preview())
 
 
 def test_installs_are_keyed_by_folder_with_the_system_comparer(bench: Bench) -> None:
@@ -1042,7 +1049,8 @@ def test_add_preserves_an_adoption_folder_with_a_space_and_platform_colons(bench
     folder.mkdir()
     target = [f"codex:{folder}"] if inline else ["codex", str(folder)]
     assert run(["--home", str(bench.home), "add", *target, "--yes"]) == 0
-    assert bench.settings()["agents"][0]["configDir"] == str(folder)
+    assert bench.settings()["agents"][0]["configDir"] == str(bench.folder("codex1"))
+    assert bench.folder("codex1").is_dir()
     assert "account  tool  folder  legion  next step" in capsys.readouterr().out
 
 
@@ -1088,20 +1096,14 @@ def link_to(link: Path, real: Path) -> Path:
     return link
 
 
-def test_the_same_folder_through_a_link_and_its_real_path_is_one_account_and_one_install(bench: Bench) -> None:
+def test_a_linked_folder_is_copied_with_its_files(bench: Bench) -> None:
     real = bench.base / "real"
     link = link_to(bench.base / "link", real)
-    for folder in (link, real):
-        assert run(["--home", str(bench.home), "add", "codex", str(folder), "--yes"]) == 0
+    (real / "owner.txt").write_text("login data", encoding="utf-8")
+    assert run(["--home", str(bench.home), "add", "codex", str(link), "--yes"]) == 0
     assert bench.ids() == ["codex1"]
-    assert bench.plugin_installs == [("codex", link, None)]
-
-    other = bench.base / "second"
-    other_link = link_to(bench.base / "second-link", other)
-    _accounts.add_subscription(bench.home, "codex2", "codex", None, str(other_link))
-    _accounts.add_subscription(bench.home, "codex3", "codex", None, str(other))
-    assert run(["--home", str(bench.home), "setup", "--yes"]) == 0
-    assert bench.plugin_installs == [("codex", link, None), ("codex", other_link, None)]
+    assert (bench.folder("codex1") / "owner.txt").read_text(encoding="utf-8") == "login data"
+    assert bench.plugin_installs == [("codex", bench.folder("codex1"), None)]
 
 
 def test_an_interrupted_write_leaves_the_settings_file_and_never_makes_a_partial_one(bench: Bench) -> None:
@@ -1141,7 +1143,7 @@ def test_a_scalar_allow_rule_stays_a_rule(bench: Bench) -> None:
     folder.mkdir()
     (folder / "settings.json").write_text(json.dumps({"permissions": {"allow": "Bash(mine)"}}), encoding="utf-8")
     bench.apply("claude", folder)
-    data = json.loads((folder / "settings.json").read_text(encoding="utf-8"))
+    data = json.loads((bench.folder(bench.ids()[0]) / "settings.json").read_text(encoding="utf-8"))
     assert data["permissions"]["allow"] == ["Bash(mine)", RULE]
 
 

@@ -72,7 +72,7 @@ For options, use the script-block form in Windows PowerShell. This example selec
 
 `-Tools <tool-id>` (or an array of ids) chooses tools, `-Source <owner/repository>` overrides the GitHub marketplace source (default `BlackGad/ps-legion-marketplace`), and `-DryRun` prints the steps without changing anything. `-HomeRoot <folder>` uses that folder as the home for `~/.legion` and the files the installer writes, for a test or an alternate home; the default is your real home. `-Ref release|main` picks the track (default `release`, the `stable` branch). To follow `main`, add `-Ref main` to the install line; to switch between release and main later, uninstall, then install. The catalog comes from the bundled `tools.json` for the default source on the release track, and from the remote `tools.json` of the chosen source and branch otherwise (`-Ref main` included); a local checkout as source uses its own file. Remote dry runs read it once.
 
-To adopt a signed-in account folder, run `legion add codex <existing folder>`. The folder must exist; setup keeps its settings and login and records it; the account then starts through `legion --account <id>` or `legion pick`. Adopting the same folder again reuses its account. Setup installs a missing CLI, and legion only where a folder has none, under the same approval; moving an installed legion to a new version is the update flow's job. Only the owner logs in if the CLI asks. An account's existing program can instead be registered through the tool's account guide.
+To add a signed-in account folder, run `legion add codex <existing folder>`. The folder must exist; setup copies it into `~/.legion/agents/<id>`, rewrites the folder's own absolute paths in the files the tool's descriptor lists (`adoptRewrite` in `tool.json`; credentials and history are copied as they are), and records the copy. The original folder stays untouched, so the copy has its own login; the account then starts through `legion --account <id>` or `legion pick`. A target folder that already has files is refused, and so is a different folder for an existing id. Setup installs a missing CLI, and legion only where a folder has none, under the same approval; moving an installed legion to a new version is the update flow's job. Only the owner logs in if the CLI asks. An account's existing program can instead be registered through the tool's account guide.
 
 ### Version checks and catalog revisions
 
@@ -185,7 +185,7 @@ These are the main commands; `legion help` lists all of them:
 | --- | --- |
 | `legion setup [--yes]` | Finish setup: settings, commands, legion in every account |
 | `legion setup --knowledge/--no-knowledge` | Turn llm-wiki on or decline it. Turning it off after an opt-in removes the wiki plugin and marketplace from every account and keeps the hub and its pointer. If knowledge was never enabled, a decline leaves manual installs in place. Add `--yes` to also apply the Legion setup plan. |
-| `legion add <tool> [<folder>] [--yes]` | Add a claude, codex or copilot account, using a new or existing folder |
+| `legion add <tool> [<folder>] [--yes]` | Add a claude, codex or copilot account, in a new folder or a copy of an existing one |
 | `legion remove --id <id>` | Remove an account; keep its folder |
 | `legion status` | Show accounts, channels, knowledge and this repository |
 | `legion [--no-channel]` | Start the overseer here, set up if needed; resumes the last conversation (see [launcher defaults](../plugins/legion/skills/legion-personalisation/references/launcher.md)) |
@@ -201,7 +201,7 @@ The owner command also accepts these account, channel and repository verbs:
 
 | Command | What it does |
 | --- | --- |
-| `legion account add --id <id> --tool <tool> [--provider foundry --endpoint <url> --deployment <name> --default <name>]` | Add or repair a subscription or Foundry account; with `--command <path> --config-dir <dir>` it registers an existing account folder and its CLI program |
+| `legion account add --id <id> --tool <tool> [--provider foundry --endpoint <url> --deployment <name> --default <name>]` | Add or repair a subscription or Foundry account; with `--config-dir <dir>` it copies an existing folder into the new account; with `--command <path>` it sets or changes the account's CLI program |
 | `legion account rename --id <id> --new-id <new>` | Rename an account id; keep its folder |
 | `legion account models --id <id> [--deployment <name> --default <name>] [--alias <a>=<b>] [--standard] [--list]` | Show or change a Foundry account's deployments |
 | `legion channel add --id <id> --kind telegram --target <chat> --account <account>` | Bind a Telegram destination to an account |
@@ -219,7 +219,7 @@ Runs pass no model flag by default; a flag is passed only when owner notes name 
 
 The [launcher guide](../plugins/legion/skills/legion-personalisation/references/launcher.md) covers saved launches, account selection and channel defaults.
 
-Foundry agents use one Azure endpoint per agent, such as `https://<resource>.cognitiveservices.azure.com`, and the owner's `az` login. Setup can adopt an existing folder without changing its provider settings. For an explicit provider configuration request, use the matching account guide with values already supplied by the owner. Model preferences for work remain in notes.
+Foundry agents use one Azure endpoint per agent, such as `https://<resource>.cognitiveservices.azure.com`, and the owner's `az` login. Setup can copy an existing folder without changing its provider settings. For an explicit provider configuration request, use the matching account guide with values already supplied by the owner. Model preferences for work remain in notes.
 
 Manage accounts through the account's tool skill. See the shared [terms](../plugins/legion/skills/legion-overseer/references/terms.md) for account actions and model preferences.
 
@@ -261,7 +261,7 @@ To opt out, leave legion unused. To limit its use, route legion only to accounts
 | Personalisation and notes | `~/.legion/configuration/` | no |
 | The `legion` command (a uv tool; its folder is `uv tool dir`, the command in `uv tool dir --bin`) | uv's folders | no |
 | Running legion sessions and the stop file | `~/.legion/run/` | no |
-| New account config folders (adopted folders keep their names) | `~/.legion/agents/<id>/` | no |
+| New account config folders (a copied folder lands here too) | `~/.legion/agents/<id>/` | no |
 | Portable prerequisite tools | `~/.legion/tools/<tool>/` | no |
 | Cross-project knowledge wiki (optional, llm-wiki) | `~/.legion/knowledge/` | no |
 | Repo workflow configuration | `<repo>/.legion/configuration/` (`project.json`, `workflow.md`) | inner for Private; code repo for Shared |
