@@ -12,7 +12,7 @@
     "uninstall": ["plugin", "remove", "legion@ps-legion-marketplace"],
     "marketplaceRemove": ["plugin", "marketplace", "remove", "ps-legion-marketplace"],
     "install": ["plugin", "add", "legion@ps-legion-marketplace"],
-    "marketplaceUpdate": ["plugin", "marketplace", "upgrade", "ps-legion-marketplace"],
+    "marketplaceUpdate": ["plugin", "marketplace", "upgrade"],
     "update": ["plugin", "add", "legion@ps-legion-marketplace"],
     "marketplaceList": ["plugin", "marketplace", "list", "--json"],
     "marketplaceListing": {"format": "json", "collectionField": "marketplaces", "nameField": "name", "rootField": "root"},

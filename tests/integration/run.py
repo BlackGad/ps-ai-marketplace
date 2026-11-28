@@ -403,6 +403,7 @@ class Runner:
         output = result.stdout.rstrip()
         self.log.append(output)
         if check and result.returncode:
+            print(f"{Path(argv[0]).name} exited {result.returncode}:", output, sep=chr(10), file=sys.stderr, flush=True)
             raise RuntimeError(f"{Path(argv[0]).name} exited {result.returncode}\n{output}")
         return output
 

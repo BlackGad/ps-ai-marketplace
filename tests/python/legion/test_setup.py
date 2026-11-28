@@ -244,7 +244,7 @@ def test_knowledge_adopts_the_plugin_and_follows_later_accounts(bench: Bench, mo
                 rows.append({"id": "legion@ps-legion-marketplace", "enabled": True, "installPath": str(legion)})
             output = json.dumps(rows) if tool == "claude" else "\n".join(f"{row['id']} {VERSION} {row.get('installPath', '')}".rstrip() for row in rows)
         elif tool == "codex" and args[:3] == ["plugin", "marketplace", "upgrade"]:
-            assert args[3:] == ["ps-legion-marketplace"]
+            assert args[3:] == []
         elif args in (entry.plugin.marketplace_update, entry.plugin.update, entry.plugin.uninstall, entry.plugin.marketplace_remove):
             pass
         elif args[:3] == ["plugin", "marketplace", "add"]:

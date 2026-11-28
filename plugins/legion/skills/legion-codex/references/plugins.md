@@ -1,6 +1,6 @@
 # Codex plugins
 
-Install and update refresh the Legion marketplace with `codex plugin marketplace upgrade ps-legion-marketplace`. Other marketplaces, including the pinned llm-wiki marketplace, keep their current refs.
+Install and update run `codex plugin marketplace upgrade` without a name, which refreshes the configured Git marketplaces in that account and skips marketplaces added from a local folder. Codex refuses to upgrade a local marketplace by name.
 
 After the owner logs in to the selected account, use the account-specific [installer flow](accounts.md). For a manual install in that account's environment:
 

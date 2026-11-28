@@ -91,7 +91,8 @@ def main(tool: str, args: list[str]) -> int:
         del markets[name]
     elif marketplace and verb == ("upgrade" if tool == "codex" else "update"):
         # Local sources are already current. Plugin update reads the latest files there.
-        assert (tool == "codex" and not operands) or (len(operands) == 1 and operands[0] in markets), args
+        # Codex refuses to upgrade a local marketplace by name; a bare upgrade skips it.
+        assert (tool == "codex" and not operands) or (tool != "codex" and len(operands) == 1 and operands[0] in markets), args
     elif not marketplace and verb in (("add",) if tool == "codex" else ("install", "update")):
         [plugin] = operands
         name, market = plugin.split("@")

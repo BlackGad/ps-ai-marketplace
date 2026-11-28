@@ -1,5 +1,5 @@
-import os
-import socket
+import subprocess
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -120,10 +120,14 @@ def test_member_is_refused(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_live_lease_of_another_session_is_refused(repo: Path) -> None:
     set_up("private")
-    parent = os.getppid()
-    _lease.take(repo, "codex", "codex-a", process_id=parent)
-    assert socket.gethostname()
-    result = legion("dismiss", "--yes")
+    # A separate process: the test's parent can be the caller's own session, which dismiss may release.
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        _lease.take(repo, "codex", "codex-a", process_id=other.pid)
+        result = legion("dismiss", "--yes")
+    finally:
+        other.kill()
+        other.wait()
     assert result.exit_code == 1
     assert (repo / ".legion").exists()
 

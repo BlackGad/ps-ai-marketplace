@@ -315,7 +315,7 @@ def test_outlander_keeps_a_manually_installed_wiki(lifecycle: Lifecycle) -> None
     assert read_json(state_file) == {"marketplaces": {"llm-wiki": str(lifecycle.source)}, "plugins": [wiki]}
     upgrades = [args for args in calls(folder / "fake-cli.log") if args[:3] == ["plugin", "marketplace", "upgrade"]]
     assert upgrades
-    assert all(args[3:] == ["ps-legion-marketplace"] for args in upgrades)
+    assert all(args[3:] == [] for args in upgrades)
 
 
 @pytest.mark.parametrize("answer", ["n\n", ""], ids=["no", "eof"])
