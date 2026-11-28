@@ -38,13 +38,29 @@ Install, update and uninstall use the same target discovery.
 
 Each `legion mcp` server and `legion run` wrapper registers its process id in its legion home's `.legion/run/` folder. An update stops legion processes registered under its own legion home only. A full uninstall uses the same stop event immediately after approval, before removing plugins, changing PATH or purging the knowledge hub.
 
-On Windows, an update with a registered ancestor refuses before changing any plugins or starting the stop event or uv. The ancestor keeps the tool files open. Close your Legion session, run `legion update` from a terminal, then reopen Legion. Update checks and dry runs are available from the session.
+On Windows, a plain update with a registered ancestor refuses before changing any plugins or starting the stop event or uv. The ancestor keeps the tool files open. Close your Legion session, run `legion update` from a terminal, then reopen Legion. Update checks and dry runs are available from the session.
 
 Registered processes check for the stop file about once a second. A `legion run` wrapper ends the account's whole process tree by process id. The calling process and its ancestors are exempt. On macOS and Linux, an update asks you to restart the calling session if an ancestor is registered. Legion waits up to 30 seconds for the other registered processes to exit, even after they remove their registration files. On Windows it also waits for the registered processes' Legion launchers to exit so they release the executable. It removes stale registrations. If any process remains, legion lifts the stop file and asks you to close those sessions and run the command again. The uv step is skipped. A full uninstall also skips plugin, PATH and hub changes in this case.
 
 On macOS and Linux, uv replacement and removal run in the foreground and report their result in the terminal. A failed foreground uv install reports the failure in the terminal and exits with status 1. On Windows, an install or update running from the installed uv tool schedules replacement after it exits. The command reports when it schedules the helper. The detached Python helper waits up to 60 seconds for Legion to exit before running uv or purging folders. It records uv's output, exit code and handover errors in `<home>/.legion/temp/uv-tool.log`. `legion status` flags failures recorded in the handover log. A wait timeout skips uv and folder deletion. The helper still removes the stop file and any temporary constraints. If the helper is interrupted, the stop file expires after ten minutes. On Windows, if uv reports locked files, close the sessions that have them open and retry from a separate terminal.
 
 `legion run` repeats the session id Codex reports as `legion: session id <id>` on stderr. The overseer can resume a stopped Codex member when that id is in the handoff. It reruns Claude and Copilot members, and Codex members without a recorded id, from the handoff's task file. See the [task loop](../plugins/legion/skills/legion-overseer/references/task-loop.md#legion-run-and-updates).
+
+### Overseer self-update
+
+The overseer uses `legion update --self --yes` from its repository after the owner approves the update. The command checks for a saved handoff, a live lease owned by the calling session, and a registered launcher. Claude uses the conversation saved by the launcher. Codex uses the thread ID saved with its lease. For Copilot, use the current conversation ID from `/session id` with `--session-id <id>`.
+
+The detached worker waits for the request to exit, stops the registered sessions and waits for their launchers, then runs the update from a separate uv environment. It stops on a failed target before replacing the installed command. If uv replacement fails, it restores the previous command. Plugin changes completed by earlier steps remain applied. The worker starts the saved account with its original repository, channels and arguments, adding the CLI's resume arguments for the current conversation. It opens a new console on Windows and uses a detached pseudoterminal on macOS and Linux. The resumed overseer takes the stale lease and continues from the handoff.
+
+The repository's `.legion/temp/self-update.log` holds the result, including any failure to restart. The resumed overseer reports the result on every connected channel. On macOS and Linux, the result is available in that file and on the channels while the foreground shell remains available. If a stop or relaunch fails, the worker also tries to send the result to the configured Telegram destination. A still-running overseer retains the lease. After a failed relaunch, open Legion in the repository and use the saved handoff.
+
+When the installed version is 0.23.1, start the same command from the newer release with uvx. Run this from the launched overseer's repository after a release with self-update is published.
+
+```text
+uvx --isolated --refresh-package legion --from "legion[mcp] @ git+https://github.com/BlackGad/ps-legion-marketplace.git@stable#subdirectory=plugins/legion" legion update --self --yes
+```
+
+For a checkout, use `uvx --isolated --from "<checkout>/plugins/legion[mcp]" legion update --self --yes --source "<checkout>"`. An installed command that supports self-update opens the separate uv environment itself.
 
 ### Installer parameters
 
@@ -77,7 +93,7 @@ To add a signed-in account folder, run `legion add codex <existing folder>`. The
 
 ### Version checks and catalog revisions
 
-Overseer sessions check for a newer legion version once a day and show a notice when one is available. Say "check legion updates" for a fresh check, or "update legion" to start the update conversation. On Windows, the overseer asks you to run the update from a terminal after closing the session. On macOS and Linux, it can run the update after you approve. Checks never install updates. Update checks always read the `plugin.json` on the `stable` branch, which moves only when a release is published, so a notice always means a published release. That holds for an install that follows `main` too: the notice compares with the latest release, not with `main`; `legion update` itself follows the marketplace track the install registered. The notice names `legion update`. Run `legion update --check --force` for a fresh check; `--force` refreshes `~/.legion/temp/update.json` and reports check failures.
+Overseer sessions check for a newer legion version once a day and show a notice when one is available. Say "check legion updates" for a fresh check, or "update legion" to start the update conversation. A launched overseer can [update itself](#overseer-self-update) after approval. Checks never install updates. Update checks always read the `plugin.json` on the `stable` branch, which moves only when a release is published, so a notice always means a published release. That holds for an install that follows `main` too: the notice compares with the latest release, not with `main`; `legion update` itself follows the marketplace track the install registered. The notice names `legion update`. Run `legion update --check --force` for a fresh check; `--force` refreshes `~/.legion/temp/update.json` and reports check failures.
 
 ### Tools catalog
 
@@ -187,6 +203,7 @@ These are the main commands; `legion help` lists all of them:
 | `legion install [--source <source>] [--ref release\|main] [--dry-run] [--yes]` | Install legion in the available CLI targets and set up the legion command with uv |
 | `legion update [--source <source>] [--ref release\|main] [--dry-run] [--yes]` | Update every listed target along the registered marketplace track (release or `main`). One question covers them all, and `--yes` skips it. On Windows, run from a terminal after closing the Legion session. Registered processes exit before uv replaces the command |
 | `legion update --check [--force]` | Check for a newer release; `--force` refreshes the cached result |
+| `legion update --self --yes [--source <source>] [--ref release\|main] [--session-id <id>]` | Stop, update and resume the launched overseer. Supply the conversation ID for Copilot |
 | `legion uninstall [--purge] [--dry-run] [--yes]` | Remove legion (running sessions are stopped first); purge also removes settings, notes and legion-made logins |
 | `legion help` | Show this list |
 

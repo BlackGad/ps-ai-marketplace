@@ -10,6 +10,26 @@ The result includes the installed and available versions and the update command,
 
 Update covers registered accounts and the default folders of stock CLIs on PATH. Status lists these default folders as outlanders. Before asking for approval, read `skills/legion-<tool>/SKILL.md` and its plugin/update reference for each targeted tool. Stop if the tool skill is missing. Explain the documented update scope, including whether it can refresh other marketplaces in a target folder.
 
+## Update your launched overseer session
+
+From the repository, after saving the handoff and notifying the owner, run:
+
+```text
+legion update --self --yes
+```
+
+On Copilot, add `--session-id <id>` using the current conversation ID from `/session id`. The worker keeps the launcher settings and starts the same conversation after the update. Leave the lease in place and let Legion stop the session.
+
+When the installed command is still 0.23.1, use the new release's copy of the same command:
+
+```text
+uvx --isolated --refresh-package legion --from "legion[mcp] @ git+https://github.com/BlackGad/ps-legion-marketplace.git@stable#subdirectory=plugins/legion" legion update --self --yes
+```
+
+Read `.legion/temp/self-update.log` on return. Take the lease and report the result on every connected channel. An update failure still leads to a relaunch when the old session has stopped. If the request is refused, report the reason in the current session. If a stop times out and the overseer remains up, read the result there. When you recover from a relaunch failure, open Legion in the same repository and read the handoff and result.
+
+## Plain owner update
+
 On Windows, after the owner's yes, tell them to close the Legion session, run `legion update` from a terminal, then run `legion` in the repository to reopen the conversation. The update refuses before making changes if it finds a registered ancestor. The owner runs the update themselves.
 
 On macOS and Linux, after the owner's yes, run `legion update --yes`. The flag skips the single `Apply? [y/N]` question for the whole plan, including missing plugin copies. Restart the starting session afterwards to load the new skills.

@@ -71,6 +71,8 @@ class Plan:
     summary: str | None = None
     stopped_home: Path | None = None
     source_label: str | None = None
+    self_update: bool = False
+    failed_target: str | None = None
 
 
 def _approved() -> bool:
@@ -112,11 +114,12 @@ def apply(changes: Plan, *, yes: bool = False, say: Say = click.echo) -> int:
                 result = step.run(say)
             except ERRORS as error:
                 failed = True
+                changes.failed_target = step.target
                 result = f"failed: {' '.join(str(error).split())}"
                 if changes.intent == "finish":
                     click.echo(f"First-run check: {step.line}: {result}", err=True)
             rows.append((step.target, str(step.folder), result))
-            if step.stop_on_failure and result.startswith("failed: "):
+            if (step.stop_on_failure or changes.self_update) and result.startswith("failed: "):
                 break
     finally:
         if changes.stopped_home is not None:
@@ -173,11 +176,12 @@ def plan(
     account_folder: str | None = None,
     account_id: str | None = None,
     knowledge: bool | None = None,
+    self_update: bool = False,
 ) -> Plan:
     home = full_path(home)
     if intent == "update" and not dry_run and update_blocked(home):
         raise ValueError("Close this Legion session, run `legion update` from a terminal, then reopen Legion.")
-    changes = Plan(intent, dry_run=dry_run)
+    changes = Plan(intent, dry_run=dry_run, self_update=self_update)
     file = settings_path(home)
     if intent == "finish" and not file.exists():
         return changes
@@ -446,7 +450,7 @@ def _command_step(home: Path, roots: list[Copy], changes: Plan, *, fallback: boo
             return "skipped (no successful plugin copy)"
         root = checkout_root or (_newest(roots)[1] if roots else PLUGIN_ROOT)
         version = _uv_tool.plugin_version(root)
-        outcomes = _uv_tool.install(root, home, dry_run=changes.dry_run, update_shell=not updating, updating=updating, progress=say, receipt=receipt)
+        outcomes = _uv_tool.install(root, home, dry_run=changes.dry_run, update_shell=not updating, updating=updating, progress=say, receipt=receipt, rollback=changes.self_update)
         if changes.dry_run or outcomes[0].startswith("skip:"):
             for item in outcomes:
                 say(item)

@@ -63,9 +63,11 @@ Open your AI tool and say:
 
 ## Update and uninstall
 
-Say “Update legion” or “Uninstall legion,” or run `legion update` or `legion uninstall`. On Windows, close your Legion session, run `legion update` from a terminal, then reopen Legion. An update started from a registered Windows session refuses before making changes.
+Say “Update legion” or “Uninstall legion,” or run `legion update` or `legion uninstall`. For a plain update on Windows, close your Legion session, run `legion update` from a terminal, then reopen Legion. A plain update started from a registered Windows session refuses before making changes.
 
 One update covers registered accounts and outlanders. Before replacing the command, Legion waits for the MCP servers and `legion run` wrappers registered in its home to exit, with the updater and its ancestors exempt. The bootstrap and macOS/Linux updates show plugin steps, uv's progress, and the result in the terminal. On Windows, the installed `legion` command schedules its own replacement after it exits and gives you the log path. Check `~/.legion/temp/uv-tool.log` for a scheduled update or plain uninstall result. `legion status` flags failures recorded in the log. Restart your sessions after a successful update and use the handoff to recover stopped members. See [running sessions and recovery](docs/reference.md#running-sessions-and-the-stop-event). If `legion` is unavailable, run the matching one-liner in PowerShell.
+
+A launched overseer can update itself with your approval. It saves the handoff, runs `legion update --self --yes`, and comes back in the same conversation, account, repository and channels. It reads the result in `.legion/temp/self-update.log` and reports it on its channels. See the [self-update guide](docs/reference.md#overseer-self-update) for the first update from 0.23.1.
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Update

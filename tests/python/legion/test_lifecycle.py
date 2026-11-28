@@ -15,6 +15,7 @@ from click.testing import CliRunner, Result
 
 from fake_cli import (
     CONFIG,
+    FAKE_SESSION,
     PLUGIN,
     plugin_root,
     write_shim,
@@ -23,6 +24,7 @@ from launcher_fakes import only_on_path
 from legion.cli import main
 
 REPO = Path(__file__).resolve().parents[3]
+TEST_GIT = shutil.which("git")
 WAITING = "Waiting for running Legion sessions to exit..."
 REMOVAL = "legion command removal scheduled." if sys.platform == "win32" else "legion command removed."
 PURGE = "legion command removal scheduled, followed by Legion data removal." if sys.platform == "win32" else "legion command removed and Legion data purged."
@@ -848,3 +850,114 @@ def test_playground_intents_use_checkout_and_current_update_command() -> None:
     intents = REPO / "tests/playground/intents"
     assert "legion install --update" not in (intents / "install-update.md").read_text(encoding="utf-8")
     assert "install.sh --source /work/legion" in (intents / "bootstrap-one-liner.md").read_text(encoding="utf-8")
+
+
+@pytest.fixture
+def self_update_repo(lifecycle: Lifecycle, monkeypatch: pytest.MonkeyPatch) -> Path:
+    git = TEST_GIT
+    assert git
+    monkeypatch.setenv("PATH", os.pathsep.join((str(lifecycle.bin_dir), str(Path(git).parent))))
+    repo = lifecycle.source.parent / "work repo"
+    repo.mkdir()
+    subprocess.run([git, "init", "-q", str(repo)], check=True)
+    project = repo / ".legion/configuration/project.json"
+    project.parent.mkdir(parents=True)
+    project.write_text('{"schemaVersion":1}', encoding="utf-8")
+    handoff = repo / ".legion/state/handoff.md"
+    handoff.parent.mkdir(parents=True)
+    handoff.write_text("Continue the fake task.\n", encoding="utf-8")
+    return repo
+
+
+def test_self_update_requires_an_overseer_lease(lifecycle: Lifecycle, self_update_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(self_update_repo)
+    output = lifecycle.invoke("update", "--self", "--yes", "--source", str(lifecycle.source), code=1).output
+    assert "lease" in output
+    assert not (lifecycle.home / ".legion/run/stop").exists()
+
+
+@pytest.mark.parametrize(("tool_id", "failure"), [("claude", None), ("claude", "uv"), ("claude", "target"), ("codex", None), ("copilot", None)])
+def test_self_update_stops_and_resumes_the_saved_launch(lifecycle: Lifecycle, self_update_repo: Path, monkeypatch: pytest.MonkeyPatch, tool_id: str, failure: str | None) -> None:
+    lifecycle.enable(tool_id)
+    lifecycle.install()
+    lifecycle.add(tool_id)
+    repo = self_update_repo
+    settings = read_json(lifecycle.settings)
+    if tool_id == "claude":
+        settings["channels"] = [{"id": "main", "kind": "telegram", "target": "1", "accounts": ["claude1"]}]
+    lifecycle.settings.write_text(json.dumps(settings), encoding="utf-8")
+    monkeypatch.setenv("FAKE_OVERSEER_REQUEST", str(lifecycle.source))
+    tool = Path(os.environ["UV_TOOL_DIR"]) / "legion"
+    tool.mkdir()
+    original = tool / "installed"
+    original.write_text("old installed environment", encoding="utf-8")
+    entry = lifecycle.bin_dir / ("legion.cmd" if sys.platform == "win32" else "legion")
+    old_entry = entry.read_bytes()
+    if failure == "uv":
+        monkeypatch.setenv("FAKE_UV_FAIL", "install")
+    if failure == "target":
+        monkeypatch.setenv("FAKE_CLI_FAIL", "plugin uninstall")
+    lifecycle.publish_update()
+    output = repo / "launcher.log"
+    with output.open("wb") as stream:
+        launcher = subprocess.Popen(
+            [sys.executable, "-m", "legion.cli", "--home", str(lifecycle.home), "--argument=--model", "--argument=fake model"],
+            cwd=repo,
+            stdin=subprocess.DEVNULL,
+            stdout=stream,
+            stderr=stream,
+        )
+    try:
+        if tool_id == "codex":
+            ready = repo / "codex-ready"
+            deadline = time.monotonic() + 30
+            while not ready.exists() and launcher.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert ready.exists(), output.read_text(encoding="utf-8")
+            request = subprocess.run(
+                [sys.executable, "-m", "legion.cli", "--home", str(lifecycle.home), "update", "--self", "--yes", "--source", str(lifecycle.source)],
+                cwd=repo,
+                env=os.environ | {"CODEX_THREAD_ID": FAKE_SESSION},
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            assert request.returncode == 0, request.stderr
+        launcher.wait(timeout=40)
+        assert "stopped for an update" in output.read_text(encoding="utf-8")
+        starts = repo / "overseer.jsonl"
+        result = repo / ".legion/temp/self-update.log"
+        deadline = time.monotonic() + 40
+        resumed_config = repo / "resumed-config.json"
+        while not resumed_config.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert starts.exists(), output.read_text(encoding="utf-8")
+        assert len(calls(starts)) == 2, output.read_text(encoding="utf-8")
+        first, resumed = calls(starts)
+        extra = ["--model", "fake model"]
+        channel = None
+        if tool_id == "claude":
+            assert first[0] == "--session-id"
+            extra.extend(["--channels", "plugin:telegram@claude-plugins-official", "--"])
+            assert resumed[:-1] == ["--resume", first[1], *extra]
+            channel = str(lifecycle.home / ".legion/channels/telegram/main")
+        elif tool_id == "codex":
+            assert resumed[:-1] == ["resume", FAKE_SESSION, *extra]
+        else:
+            assert resumed[:-1] == [f"--resume={FAKE_SESSION}", *extra, "-i"]
+        assert "handoff" in resumed[-1]
+        assert json.loads(resumed_config.read_text(encoding="utf-8")) == [str(lifecycle.account(tool_id)), channel]
+        assert result.read_text(encoding="utf-8").startswith("Legion self-update failed" if failure else "Legion self-update completed")
+        assert read_json(lifecycle.uv)["version"] == (lifecycle.version if failure else UPDATED)
+        if failure:
+            assert entry.read_bytes() == old_entry
+            assert original.read_text(encoding="utf-8") == "old installed environment"
+        if failure == "target":
+            assert sum(line[:2] == ["tool", "install"] for line in calls(lifecycle.uv.with_suffix(".log"))) == 1
+        assert (repo / ".legion/state/handoff.md").read_text(encoding="utf-8") == "Continue the fake task.\n"
+        assert not (lifecycle.home / ".legion/run/stop").exists()
+    finally:
+        if launcher.poll() is None:
+            launcher.kill()
+            launcher.wait()

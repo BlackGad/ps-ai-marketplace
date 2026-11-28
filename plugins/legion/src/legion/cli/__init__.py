@@ -48,6 +48,7 @@ def main(context: click.Context, home: Optional[Path]) -> None:
     args = context.meta.get("lifecycle_args", ())
     skip = verb in ("mcp", "run", "lease", "inbox", "telegram", "validate", "uninstall")
     skip = skip or any(flag in args for flag in ("--help", "--json", "--dry-run")) or (verb == "update" and "--check" in args)
+    skip = skip or (verb == "update" and "--self" in args)
     if not skip:
         from legion.services.lifecycle import _lifecycle
 
@@ -119,10 +120,26 @@ def validate(context: click.Context, kind: str, path: Path) -> None:
 @click.option("--ref", type=click.Choice(["release", "main"]), default="release")
 @click.option("--dry-run", is_flag=True)
 @click.option("--yes", is_flag=True, help="Confirm the update without prompting.")
+@click.option("--self", "self_update", is_flag=True, help="Update from this overseer session and resume it.")
+@click.option("--session-id", help="Current Copilot conversation ID for --self.")
 @click.pass_context
-def update(context: click.Context, check: bool, force: bool, source: str, ref: str, dry_run: bool, yes: bool) -> None:
+def update(context: click.Context, check: bool, force: bool, source: str, ref: str, dry_run: bool, yes: bool, self_update: bool, session_id: str | None) -> None:
     if force and not check:
         raise click.UsageError("--force requires --check")
+    if session_id is not None and not self_update:
+        raise click.UsageError("--session-id requires --self")
+    if self_update:
+        if check or dry_run or not yes:
+            raise click.UsageError("--self requires --yes and cannot be combined with --check or --dry-run")
+        from legion.services.lifecycle import _self_update
+
+        launched_home = os.environ.get("LEGION_HOME")
+        home = context.obj or (_home.full_path(Path(launched_home)) if launched_home else None)
+        try:
+            code = _self_update.request(_home.legion_home(home), source, ref, session_id, source_explicit=context.get_parameter_source("source") == click.core.ParameterSource.COMMANDLINE)
+        except _self_update.ERRORS as error:
+            raise click.ClickException(str(error)) from None
+        context.exit(code)
     if check:
         for flag in ("yes", "dry_run", "source", "ref"):
             if context.get_parameter_source(flag) == click.core.ParameterSource.COMMANDLINE:
