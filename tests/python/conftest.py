@@ -138,7 +138,7 @@ def fence(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPa
         monkeypatch.setenv(name, str(fence.home))
     for name in ("TMPDIR", "TEMP", "TMP"):
         monkeypatch.setenv(name, str(fence.temp))
-    for name in ("UV_CACHE_DIR", "LOCALAPPDATA", "APPDATA", "XDG_CACHE_HOME", "XDG_CONFIG_HOME"):
+    for name in ("UV_CACHE_DIR", "UV_TOOL_DIR", "UV_TOOL_BIN_DIR", "LOCALAPPDATA", "APPDATA", "XDG_CACHE_HOME", "XDG_CONFIG_HOME"):
         folder = fence.home / name
         folder.mkdir()
         monkeypatch.setenv(name, str(folder))

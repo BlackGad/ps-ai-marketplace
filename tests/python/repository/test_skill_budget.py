@@ -120,7 +120,7 @@ def test_personalisation_and_launcher_rules() -> None:
     assert personalisation.count("references/launcher.md") == 1
     launcher = read("legion-personalisation/references/launcher.md")
     assert "use `legion <verb>`" in launcher
-    assert "if that file is missing too, finish setup first" in launcher
+    assert "finish setup first" in launcher
     for rule in (
         "exactly one question per message",
         "Save preferences, rulings and lessons that must persist in shared legion files",

@@ -1,13 +1,20 @@
-# Uninstall and purge: the tools' own commands run, legion's folders go to a shell, nothing in a tool's files is written.
+# Uninstall and purge: the tools' own commands run, legion's folders are removed after exit, nothing in a tool's files is written.
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from legion.core import _stop_event
 from legion.core._settings_models import CatalogTool, ToolsCatalog
-from legion.services.installation import _handover, _user_path, installer as _installer
-from app_fakes import make_link
+from legion.services.installation import (
+    _handover,
+    _user_path,
+    _uv_tool,
+    installer as _installer,
+)
+from app_fakes import FakeUv, make_link
+from legion.services.repository import _footprints
 
 CATALOG = ToolsCatalog.model_validate_json((Path(__file__).resolve().parents[3] / "plugins/legion/tools.json").read_bytes())
 TOOL_FOLDERS = (".claude", ".codex", ".copilot")
@@ -16,14 +23,16 @@ TOOL_FOLDERS = (".claude", ".codex", ".copilot")
 class Recorder:
     def __init__(self) -> None:
         self.steps: list[tuple[str, list[str]]] = []
-        self.handed: list[list[Path]] = []
         self.questions: list[str] = []
         self.events: list[str] = []
+        self.uv: FakeUv
 
 
 @pytest.fixture
-def recorder(monkeypatch: pytest.MonkeyPatch) -> Recorder:
+def recorder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
     recorder = Recorder()
+    # The legion tool is not installed unless a test sets `recorder.uv.installed`; no test reaches the real uv.
+    recorder.uv = FakeUv(monkeypatch, tmp_path / "uv bin")
     for entry in CATALOG.tools:
         monkeypatch.delenv(entry.config_env, raising=False)
     monkeypatch.setattr(_installer.shutil, "which", lambda name: name)
@@ -39,12 +48,7 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> Recorder:
     def step(entry: CatalogTool, arguments: list[str], _folder: Path, _dry_run: bool, _lines: list[str]) -> None:
         recorder.steps.append((entry.id, arguments))
 
-    def hand_over(folders: list[Path]) -> None:
-        recorder.events.append("handover")
-        recorder.handed.append(folders)
-
     monkeypatch.setattr(_installer, "_step", step)
-    monkeypatch.setattr(_handover, "start", hand_over)
     return recorder
 
 
@@ -65,7 +69,7 @@ def home(tmp_path: Path) -> Path:
     for name in TOOL_FOLDERS:
         (tmp_path / name).mkdir()
         (tmp_path / name / "settings.json").write_text('{"enabledPlugins": {"legion@ps-legion-marketplace": true}}', encoding="utf-8")
-    for name in ("app", "bin", "python", "configuration", "agents"):
+    for name in ("configuration", "agents"):
         (tmp_path / ".legion" / name).mkdir(parents=True)
     return tmp_path
 
@@ -93,40 +97,105 @@ def test_declined_knowledge_keeps_a_listed_manual_wiki(home: Path, recorder: Rec
     assert recorder.steps == [(entry.id, arguments) for entry in CATALOG.tools for arguments in (entry.plugin.uninstall, entry.plugin.marketplace_remove)]
 
 
-def test_uninstall_hands_over_app_bin_and_python_and_keeps_the_owners_data(home: Path, recorder: Recorder) -> None:
+def test_a_plain_uninstall_deletes_no_legion_folder_and_keeps_the_owners_data(home: Path, recorder: Recorder) -> None:
     lines = run(home, yes=True)
-    assert recorder.handed == [[home / ".legion" / name for name in ("app", "bin", "python")]]
-    assert any(line.startswith("done:") for line in lines)
+    assert recorder.uv.detached == []
+    assert "done: legion is uninstalled" in lines
+    assert (home / ".legion" / "configuration").is_dir()
+    assert (home / ".legion" / "agents").is_dir()
+
+
+def test_a_full_uninstall_hands_only_the_legion_tool_to_the_helper_and_never_removes_uv(home: Path, recorder: Recorder) -> None:
+    recorder.uv.installed = "1.0.0"
+    lines = run(home, yes=True)
+    assert recorder.uv.detached == [(["uv", "tool", "uninstall", "legion"], [_stop_event.stop_path(home)])]
+    assert recorder.uv.calls == [["tool", "list"], ["tool", "list"]]
+    assert f"legion command removal scheduled. Check the result in {home / _uv_tool.HANDOVER_LOG}." in lines
+    assert "done: legion is uninstalled" not in lines
+    assert _stop_event.stop_path(home).is_file()
+
+
+def test_a_full_purge_hands_the_uv_command_and_approved_paths_to_one_helper(home: Path, recorder: Recorder) -> None:
+    recorder.uv.installed = "1.0.0"
+    run(home, yes=True, purge=True)
+    assert recorder.uv.detached == [(["uv", "tool", "uninstall", "legion"], [_stop_event.stop_path(home)])]
+    assert recorder.uv.purges == [[home / ".legion"]]
+
+
+def test_a_legion_that_will_not_stop_blocks_the_uninstall_before_anything_is_deleted(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
+    recorder.uv.installed = "1.0.0"
+    hub = home / ".legion/knowledge"
+    hub.mkdir()
+    monkeypatch.setattr(_installer.click, "confirm", lambda *_args, **_options: True)
+    monkeypatch.setattr(_stop_event, "stop_all", lambda _home, **_options: [4242])
+    with pytest.raises(_uv_tool.UvToolError, match="process 4242"):
+        run(home, yes=True, purge=True)
+    assert recorder.uv.purges == []
+    assert recorder.uv.detached == []
+    assert recorder.steps == []
+    assert hub.is_dir()
+
+
+def test_a_full_uninstall_raises_the_stop_event_before_the_uv_step_and_a_partial_one_does_not(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
+    recorder.uv.installed = "1.0.0"
+    raised: list[tuple[Path, bool]] = []
+    monkeypatch.setattr(_stop_event, "stop_all", lambda target, *, updating: raised.append((target, updating)) or [])
+    run(home, ["codex"], yes=True)
+    assert raised == []
+    run(home, yes=True)
+    assert raised == [(home, False)]
+
+
+def test_one_tool_alone_leaves_the_legion_tool(home: Path, recorder: Recorder) -> None:
+    recorder.uv.installed = "1.0.0"
+    run(home, ["claude"], yes=True)
+    assert recorder.uv.detached == []
+
+
+def test_the_installed_legion_tool_alone_is_work_for_a_repeat(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (False, False, [], ""))
+    monkeypatch.setattr(_installer, "_marketplace", lambda *_args: False)
+    for name in ("configuration", "agents"):
+        (home / ".legion" / name).rmdir()
+    recorder.uv.installed = "1.0.0"
+    lines = run(home, yes=True)
+    assert "skip: uninstall (already done)" not in lines
+    assert recorder.uv.detached == [(["uv", "tool", "uninstall", "legion"], [_stop_event.stop_path(home)])]
 
 
 @pytest.mark.usefixtures("answers")
 def test_a_dry_run_previews_without_asking_running_or_handing_over(home: Path, recorder: Recorder) -> None:
-    lines = run(home, dry_run=True)
+    recorder.uv.installed = "1.0.0"
+    lines = run(home, dry_run=True, purge=True)
     assert recorder.questions == []
     assert recorder.steps == []
-    assert recorder.handed == []
-    assert f"Remove folder: {home / '.legion' / 'app'}" in lines
+    assert recorder.uv.purges == []
+    assert recorder.uv.detached == []
+    assert f"Remove folder: {home / '.legion'}" in lines
+    assert _uv_tool.STOP_NOTICE in lines
+    assert "uv tool uninstall legion" in lines
+    assert not _stop_event.stop_path(home).exists()
 
 
 def test_a_declined_uninstall_changes_nothing(home: Path, recorder: Recorder, answers: list[bool]) -> None:
     answers.append(False)
     assert "Uninstall cancelled." in run(home)
     assert recorder.steps == []
-    assert recorder.handed == []
+    assert recorder.uv.purges == []
 
 
 @pytest.mark.usefixtures("answers")
 def test_a_repeat_prints_skip_lines_and_does_not_ask(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (False, False, [], ""))
     monkeypatch.setattr(_installer, "_marketplace", lambda *_args: False)
-    for name in ("app", "bin", "python"):
+    for name in ("configuration", "agents"):
         (home / ".legion" / name).rmdir()
     lines = run(home)
     assert f"skip: claude plugin in {home / '.claude'} (not installed)" in lines
     assert "skip: uninstall (already done)" in lines
     assert recorder.questions == []
     assert recorder.steps == []
-    assert recorder.handed == []
+    assert recorder.uv.purges == []
 
 
 def test_a_tool_that_is_not_installed_is_reported_and_skipped(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -139,12 +208,12 @@ def test_a_tool_that_is_not_installed_is_reported_and_skipped(home: Path, record
 def test_one_tool_alone_leaves_legions_folders(home: Path, recorder: Recorder) -> None:
     run(home, ["codex"], yes=True)
     assert {tool for tool, _arguments in recorder.steps} == {"codex"}
-    assert recorder.handed == []
+    assert recorder.uv.purges == []
 
 
 def test_purge_hands_over_all_of_the_legion_folder(home: Path, recorder: Recorder) -> None:
     run(home, yes=True, purge=True)
-    assert recorder.handed == [[home / ".legion"]]
+    assert recorder.uv.purges == [[home / ".legion"]]
 
 
 def test_purge_asks_separately_before_deleting_a_knowledge_hub(home: Path, recorder: Recorder, answers: list[bool]) -> None:
@@ -153,7 +222,7 @@ def test_purge_asks_separately_before_deleting_a_knowledge_hub(home: Path, recor
     run(home, purge=True)
     assert len(recorder.questions) == 2
     assert "knowledge" in recorder.questions[1]
-    assert sorted(recorder.handed[0]) == sorted(home / ".legion" / name for name in ("app", "bin", "python", "configuration", "agents"))
+    assert set(recorder.uv.purges[0]) == {home / ".legion" / name for name in ("configuration", "agents", "temp")}
 
 
 def test_purge_deletes_the_knowledge_hub_only_on_its_own_yes(home: Path, recorder: Recorder, answers: list[bool]) -> None:
@@ -161,7 +230,7 @@ def test_purge_deletes_the_knowledge_hub_only_on_its_own_yes(home: Path, recorde
     answers.append(True)
     run(home, yes=True, purge=True)
     assert recorder.questions == ["Also delete the knowledge hub in ~/.legion/knowledge? [y/N]"]
-    assert recorder.handed == [[home / ".legion"]]
+    assert recorder.uv.purges == [[home / ".legion"]]
 
 
 @pytest.mark.parametrize("external", [False, True])
@@ -177,7 +246,7 @@ def test_purge_of_linked_hub_clears_only_the_pointer_to_the_hub_link(home: Path,
     run(home, yes=True, purge=True)
     assert pointer.exists() is external
     assert outside.is_dir()
-    assert recorder.handed == [[home / ".legion"]]
+    assert recorder.uv.purges == [[home / ".legion"]]
 
 
 def test_purge_of_a_linked_legion_folder_hands_over_the_link_only(tmp_path: Path, recorder: Recorder, answers: list[bool]) -> None:
@@ -188,7 +257,7 @@ def test_purge_of_a_linked_legion_folder_hands_over_the_link_only(tmp_path: Path
     home.mkdir()
     make_link(home / ".legion", outside)
     run(home, yes=True, purge=True)
-    assert recorder.handed == [[home / ".legion"]]
+    assert recorder.uv.purges == [[home / ".legion"]]
 
 
 @pytest.mark.usefixtures("recorder")
@@ -201,7 +270,7 @@ def test_uninstall_and_purge_go_on_when_settings_are_invalid(home: Path, recorde
     (home / ".legion" / "configuration" / "personalisation.json").write_text("{}", encoding="utf-8")
     lines = run(home, yes=True, purge=True)
     assert any(line.startswith("skip: account folders (settings invalid: ") for line in lines)
-    assert recorder.handed == [[home / ".legion"]]
+    assert recorder.uv.purges == [[home / ".legion"]]
 
 
 def test_the_path_entry_goes_before_the_handover(home: Path, recorder: Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -211,42 +280,33 @@ def test_the_path_entry_goes_before_the_handover(home: Path, recorder: Recorder,
         return ["Remove path entry"]
 
     monkeypatch.setattr(_user_path, "remove", remove)
-    run(home, yes=True)
+    monkeypatch.setattr(_handover, "start", lambda *_args, **_options: recorder.events.append("handover"))
+    run(home, yes=True, purge=True)
     assert recorder.events == ["path", "handover"]
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell profile")
-@pytest.mark.usefixtures("recorder")
-def test_uninstall_takes_legions_line_out_of_the_shell_profile(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SHELL", "/bin/sh")
-    profile = home / ".profile"
-    profile.write_text("owner line", encoding="utf-8")
-    _installer.ensure_path(home, False, [])
-    run(home, yes=True)
-    assert profile.read_text(encoding="utf-8") == "owner line"
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows saved PATH")
 @pytest.mark.usefixtures("recorder")
-def test_uninstall_takes_legions_entry_out_of_the_user_path(home: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_a_purge_takes_the_recorded_portable_tool_entry_out_of_the_user_path(home: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    portable = home / ".legion" / "tools" / "claude"
     saved = tmp_path / "user-path.txt"
-    saved.write_text("other;", encoding="utf-8")
+    saved.write_text(f"other;{portable}", encoding="utf-8")
     monkeypatch.setenv("LEGION_TEST_USER_PATH_FILE", str(saved))
     monkeypatch.setenv("PATH", "fixture-only")
-    _installer.ensure_path(home, False, [])
-    run(home, yes=True)
+    _footprints.add(home, "path-entry", "user PATH", "legion", value=str(portable))
+    run(home, yes=True, purge=True)
     assert saved.read_text(encoding="utf-8") == "other"
 
 
 def test_a_plain_uninstall_leaves_a_linked_legion_folder_alone(tmp_path: Path, recorder: Recorder) -> None:
     outside = tmp_path / "outside"
-    (outside / "bin").mkdir(parents=True)
+    (outside / "configuration").mkdir(parents=True)
     home = tmp_path / "home"
     home.mkdir()
     make_link(home / ".legion", outside)
-    lines = run(home, yes=True)
-    assert "skip: ~/.legion is a link; left alone" in lines
-    assert all(not folders for folders in recorder.handed)
+    run(home, yes=True)
+    assert recorder.uv.detached == []
+    assert (outside / "configuration").is_dir()
 
 
 def test_a_second_purge_still_asks_about_a_kept_knowledge_hub(home: Path, recorder: Recorder, answers: list[bool], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -258,14 +318,14 @@ def test_a_second_purge_still_asks_about_a_kept_knowledge_hub(home: Path, record
     answers.extend([True, True])
     run(home, purge=True)
     assert len(recorder.questions) == 2
-    assert recorder.handed == [[home / ".legion"]]
+    assert recorder.uv.purges == [[home / ".legion"]]
 
 
 @pytest.mark.usefixtures("recorder")
 def test_a_pending_path_cleanup_alone_is_work(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (False, False, [], ""))
     monkeypatch.setattr(_installer, "_marketplace", lambda *_args: False)
-    for name in ("app", "bin", "python"):
+    for name in ("configuration", "agents"):
         (home / ".legion" / name).rmdir()
     monkeypatch.setattr(_user_path, "remove", lambda *_args, **_options: ["Remove path entry"])
     lines = run(home, yes=True)

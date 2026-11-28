@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import os
 import re
-import stat
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Optional
 
 import psutil
 from pydantic import BaseModel, Field, JsonValue
 
 from legion.core import _process
-from legion.core._generated import is_owned
-from legion.core._home import home_path, path_contains
+from legion.core._home import home_path
 from legion.core._settings_models import (
     ChannelDescriptor,
     PersonalisationSettings,
@@ -92,44 +90,9 @@ def installed_version(folder: Path, tool: ToolDescriptor, name: str = "legion") 
     return highest
 
 
-# The state of each legion command file: missing, blocked (another file is there), permission or owned.
-def command_states(folder: Path) -> list[tuple[Path, str]]:
-    states = []
-    for suffix in ("", ".cmd") if sys.platform == "win32" else ("",):
-        path = folder / f"legion{suffix}"
-        if not path.exists():
-            states.append((path, "missing"))
-            continue
-        try:
-            if not is_owned(path, "owner command"):
-                states.append((path, "blocked"))
-            elif sys.platform != "win32" and not path.stat().st_mode & stat.S_IXUSR:
-                states.append((path, "permission"))
-            else:
-                states.append((path, "owned"))
-        except (OSError, ValueError):
-            states.append((path, "blocked"))
-    return states
-
-
-def command_status(folder: Path) -> Literal["yes", "blocked", "missing", "not executable"]:
-    states = [state for _path, state in command_states(folder)]
-    if "blocked" in states:
-        return "blocked"
-    if "missing" in states:
-        return "missing"
-    if "permission" in states:
-        return "not executable"
-    return "yes"
-
-
 def _path_key(path: Path) -> str:
     # Resolve linked ancestors before applying the platform's path comparer.
     return os.path.normcase(str(path.resolve()))
-
-
-def on_path(folder: Path) -> bool:
-    return path_contains(os.environ.get("PATH", ""), folder)
 
 
 def repository_line(repository: RepositoryStatus) -> str:
@@ -193,8 +156,6 @@ def status_lines(report: StatusReport) -> list[str]:
     else:
         problem = "cannot be read" if settings.state == "unreadable" else "are not valid"
         lines = [f"legion settings {problem}: {settings.path}; run legion setup"]
-    commands = "yes" if report.commands == "yes" else f"{report.commands} legion"
-    lines.extend([f"path ~/.legion/bin on PATH: {'yes' if report.on_path else 'no'}", f"commands: {commands}"])
     lines.extend(f"channels {channel.id} ({channel.kind}) -> {', '.join(channel.accounts)}" for channel in report.channels)
     knowledge = report.knowledge
     lines.append(f"knowledge: {'off (not asked)' if knowledge.state == 'off' else knowledge.state}")

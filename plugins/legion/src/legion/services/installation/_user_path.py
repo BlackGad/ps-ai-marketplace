@@ -1,39 +1,23 @@
 # The Windows user PATH saved in the registry: read it, add one folder, and find commands on it.
-# On macOS and Linux the PATH line goes into the shell profile.
 # LEGION_TEST_USER_PATH_FILE stands in for the registry value in tests.
 
 import contextlib
 import ctypes
 import ntpath
 import os
-import re
 import shutil
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from legion.services.repository import _footprints
-from legion.core._atomic_write import AtomicWriteError, atomic_write_bytes
-from legion.core._home import (
-    bin_folder,
-    home_path,
-    owner_path_safe,
-    path_contains,
-)
-from legion.core._text import TextFormat, decode_text, encode_text
+from legion.core._home import path_contains
 
 if sys.platform == "win32":
     import winreg
 
 USER_ENVIRONMENT = "Environment"
 MACHINE_ENVIRONMENT = r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
-PROFILE_MARKER = "# Added by legion"
-PROFILE_LINE = 'export PATH="$HOME/.legion/bin:$PATH"'
-
-
-class PathError(Exception):
-    pass
 
 
 def _registry_path(machine: bool) -> str:
@@ -101,105 +85,25 @@ def find_persistent_command(name: str) -> Optional[str]:
     return shutil.which(name, path=os.pathsep.join(persistent_folders()))
 
 
-@dataclass(frozen=True)
-class ShellProfile:
-    path: Path
-    # One read snapshot: the decision, the codec, the newline and the bytes to replace all come from it.
-    data: bytes
-    text: str
-    format: TextFormat
-    line: str
-    has_path: bool
-    # Marked: the line sits under legion's marker, so legion added it; a bare line is the owner's.
-    marked: bool
-
-
-# macOS and Linux: the profile of the owner's shell receives one PATH line.
-def shell_profile(home: Path) -> ShellProfile:
-    name = {"zsh": ".zshrc", "bash": ".bashrc"}.get(Path(os.environ.get("SHELL", "")).name, ".profile")
-    path = home / name
-    data = path.read_bytes() if path.exists() else b""
-    text, format = _decode_profile(data)
-    marked = re.search(rf"^{re.escape(PROFILE_MARKER)}\r?\n{re.escape(PROFILE_LINE)}\r?$", text, re.MULTILINE) is not None
-    return ShellProfile(path, data, text, format, PROFILE_LINE, PROFILE_LINE in re.split(r"\r?\n", text), marked)
-
-
-def _decode_profile(data: bytes) -> tuple[str, TextFormat]:
-    try:
-        return decode_text(data)
-    except UnicodeError:
-        raise PathError("File encoding is not lossless; resolve it manually before editing") from None
-
-
-# Adds the PATH line to the shell profile once; callers get consent before calling. With dry_run it only says what it would do.
-def shell_profile_lines(home: Path, dry_run: bool = False) -> list[str]:
-    profile = shell_profile(home)
-    if not owner_path_safe(profile.path, home):
-        raise PathError("Shell profile contains a link; resolve it before writing")
-    if profile.has_path:
-        if profile.marked and not dry_run:
-            stored = _footprints.stored_path(home, profile.path)
-            recorded = [entry for entry in _footprints.read(home).entries if entry.kind == "path-entry" and entry.value == profile.line and entry.path == stored]
-            _footprints.add(home, "path-entry", profile.path, "legion", key=recorded[0].key if recorded else "", value=profile.line)
-        return ["skip: shell profile PATH (already done)"]
-    lines = [f"add {PROFILE_MARKER} and {profile.line} to {profile.path}"]
-    if dry_run:
-        return lines
-    # Record a separating newline too, so purge restores a file without a final newline exactly.
-    newline = profile.format.newline
-    separator = newline if profile.text and not profile.text.endswith("\n") else ""
-    _footprints.add(home, "path-entry", profile.path, "legion", key=separator, value=profile.line)
-    addition = f"{separator}{PROFILE_MARKER}{newline}{profile.line}{newline}"
-
-    # A whole-file replace keeps every original byte in the codec the file uses; it is skipped if the file changed since the read.
-    def unchanged() -> bool:
-        current = profile.path.read_bytes() if profile.path.exists() else b""
-        return owner_path_safe(profile.path, home) and current == profile.data
-
-    try:
-        atomic_write_bytes(profile.path, profile.data + addition.encode(profile.format.encoding), verify=unchanged)
-    except AtomicWriteError:
-        _footprints.remove_exact(home, "path-entry", profile.path, separator, profile.line)
-        raise PathError("Shell profile changed while it was being written; run the command again") from None
+# Takes out the user PATH entries legion recorded for the portable tools it installed, then retires their records.
+# Only a purge does this; a plain uninstall leaves the tools and their entries alone. macOS and Linux record none.
+def remove(home: Path, purge: bool = False, dry_run: bool = False) -> list[str]:
+    if sys.platform != "win32" or not purge:
+        return []
+    owned = [entry for entry in _footprints.read(home).entries if entry.kind == "path-entry" and entry.path == "user PATH"]
+    parts = user_path().split(";")
+    lines: list[str] = []
+    for entry in owned:
+        found = next((number for number, part in enumerate(parts) if _normal(part) == _normal(entry.value)), None)
+        if found is not None:
+            lines.append(f"Remove user PATH entry: {parts.pop(found)}")
+    if not dry_run:
+        if lines:
+            set_user_path(";".join(parts))
+        for entry in owned:
+            _footprints.remove_exact(home, "path-entry", entry.path, entry.key, entry.value)
     return lines
 
 
 def _normal(entry: str) -> str:
     return os.path.normcase(os.path.expandvars(entry).rstrip("/\\"))
-
-
-# Takes out one recorded occurrence of what legion added, then retires its record: its user PATH entry, or its marker and
-# line in a shell profile. Plain uninstall takes only legion's own bin entry; purge also takes portable tools' entries.
-def remove(home: Path, purge: bool = False, dry_run: bool = False) -> list[str]:
-    records = [entry for entry in _footprints.read(home).entries if entry.kind == "path-entry"]
-    lines: list[str] = []
-    if sys.platform == "win32":
-        own = _normal(str(bin_folder(home)))
-        owned = [entry for entry in records if entry.path == "user PATH" and (purge or _normal(entry.value) == own)]
-        parts = user_path().split(";")
-        for entry in owned:
-            found = next((number for number, part in enumerate(parts) if _normal(part) == _normal(entry.value)), None)
-            if found is not None:
-                lines.append(f"Remove user PATH entry: {parts.pop(found)}")
-        if not dry_run:
-            if lines:
-                set_user_path(";".join(parts))
-            for entry in owned:
-                _footprints.remove_exact(home, "path-entry", entry.path, entry.key, entry.value)
-        return lines
-    for entry in records:
-        path = home_path(entry.path, home)
-        if entry.path == "user PATH" or not path.is_file() or not owner_path_safe(path, home):
-            continue
-        text, format = _decode_profile(path.read_bytes())
-        match = re.search(rf"(?m)^{re.escape(PROFILE_MARKER)}\r?\n{re.escape(entry.value)}(?:\r?\n|$)", text)
-        if not match:
-            continue
-        start = match.start()
-        if entry.key and match.end() == len(text) and text[:start].endswith(entry.key):
-            start -= len(entry.key)
-        lines.append(f"Remove {PROFILE_MARKER} and {entry.value} from {path}")
-        if not dry_run:
-            atomic_write_bytes(path, encode_text(text[:start] + text[match.end() :], format))
-            _footprints.remove_exact(home, "path-entry", entry.path, entry.key, entry.value)
-    return lines

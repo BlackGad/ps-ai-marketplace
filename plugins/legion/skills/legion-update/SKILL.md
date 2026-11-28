@@ -11,5 +11,5 @@ Speak to the owner in plain words. Show a command only when they ask for it or m
 
 1. Run a fresh check, even after a session notice, using [commands.md](references/commands.md).
 2. Tell the owner the installed and available versions. If no newer version is available, say so and stop. If the check fails, explain that the versions could not be confirmed; use the fallback in the reference without claiming a version you could not read.
-3. Ask whether they want to update legion. Update only after the owner's yes. If they decline, stop.
-4. After a successful update, tell them to run `legion` in the repository to load the new skills; it reopens the last conversation. If the update fails, explain what failed and what remains to be done.
+3. Ask whether they want to update legion. If they decline, stop. On Windows, give the owner the terminal instructions in the reference and end the update work in this session. On macOS and Linux, run the update after the owner's yes.
+4. Check the detached update result using the reference after running the update or after the owner returns from their terminal update. After a successful update, tell the owner to run `legion` in the repository to load the new skills and reopen the last conversation. If the update fails, explain what failed and what remains to be done.

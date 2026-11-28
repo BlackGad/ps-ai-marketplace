@@ -16,9 +16,8 @@ from pydantic import ValidationError
 
 from legion.services.accounts import _accounts, _launchers
 from legion.services.installation import (
-    _installed_runtime,
-    _refresh,
     _tool_install,
+    _uv_tool,
     installer as _installer,
 )
 from legion.services.status import _status
@@ -26,7 +25,6 @@ from legion.services.repository import _footprints
 from legion.core import _generated, _settings_io
 from legion.services.installation import _user_path
 from legion.core._home import (
-    bin_folder,
     full_path,
     home_path,
     path_contains,
@@ -50,7 +48,7 @@ class SetupError(Exception):
 
 
 # What a setup step can raise; the verb prints one line and exits 1.
-ERRORS = (SetupError, _accounts.AccountError, _footprints.FootprintError, _launchers.LauncherError, _settings_io.SettingsError, _user_path.PathError, ValidationError, ValueError, OSError)
+ERRORS = (SetupError, _accounts.AccountError, _footprints.FootprintError, _launchers.LauncherError, _settings_io.SettingsError, ValidationError, ValueError, OSError)
 
 
 def one_line(text: str) -> str:
@@ -84,9 +82,9 @@ class Plan:
     accounts: list[Row]
     uv_missing: bool
     missing_tools: list[ToolDescriptor]
-    bin: Path
-    commands: list[tuple[Path, str]]
-    needs_path: bool
+    command_missing: bool
+    path_missing: bool
+    tool_roots: list[tuple[str, Path]] = field(default_factory=list)
 
     @property
     def notes(self) -> Path:
@@ -198,11 +196,11 @@ def _row(agent: Agent, tool: ToolDescriptor, home: Path, requested: bool = False
     )
 
 
-def _next_id(tool_id: str, settings: PersonalisationSettings, home: Path) -> str:
+def _next_id(tool_id: str, settings: PersonalisationSettings) -> str:
     number = 1
     while True:
         candidate = f"{tool_id}{number}"
-        if all(agent.id != candidate for agent in settings.agents) and _launchers.find_command(candidate, home) is None:
+        if all(agent.id != candidate for agent in settings.agents) and _launchers.find_command(candidate) is None:
             return candidate
         number += 1
 
@@ -219,14 +217,14 @@ def _added_account(tool_id: str, config_dir: Optional[str], account_id: Optional
             same = next((agent for agent in settings.agents if agent.tool == tool_id and agent.provider is None and _same_folder(_resolve(agent.config_dir, home), folder)), None)
             if same is not None:
                 account_id, folder = same.id, _resolve(same.config_dir, home)
-    account_id = account_id or _next_id(tool_id, settings, home)
+    account_id = account_id or _next_id(tool_id, settings)
     folder = folder or _managed_folder(account_id, home)
     existing = next((agent for agent in settings.agents if agent.id == account_id), None)
     if existing is not None:
         if existing.tool != tool_id or existing.provider is not None or not _same_folder(_resolve(existing.config_dir, home), folder):
             raise SetupError(f"account '{account_id}' already exists with other values")
     else:
-        _accounts.check_new_id(settings, account_id, home)
+        _accounts.check_new_id(settings, account_id)
     agent = existing or Agent.model_construct(id=account_id, tool=tool_id, config_dir=str(folder))
     return _row(agent, tools[tool_id], home, requested=True, new=existing is None, adopted=config_dir is not None)
 
@@ -250,16 +248,17 @@ def build_plan(home: Path, tool_id: Optional[str], config_dir: Optional[str], ac
     tools = {tool.id: tool for tool in _tool_install.load_tools()}
     accounts = _accounts_plan(tool_id, config_dir, account_id, settings, tools, home)
     # Without uv no Python work can run: an account that needs some waits, and the owner is told as its next step.
-    uv_missing = _installed_runtime.find_uv() is None
+    uv = _uv_tool.find_uv()
+    uv_missing = uv is None
     if uv_missing:
         for row in accounts:
             if row.usable and row.requested:
                 row.usable, row.next_step = False, "uv is missing"
     needs_stock = {row.tool.id for row in accounts if row.usable and row.command is None}
     missing = [tool for tool in tools.values() if tool.id in needs_stock and not command_available(tool.command)]
-    commands = bin_folder(home)
-    needs_path = not path_contains(_user_path.user_path(), commands) if WINDOWS else not _user_path.shell_profile(home).has_path
-    return Plan(home, file, accounts, uv_missing, missing, commands, _status.command_states(commands), needs_path)
+    command_missing = uv is not None and _uv_tool.installed_version(uv) != _uv_tool.plugin_version(PLUGIN_ROOT)
+    path_missing = uv is not None and not command_missing and _uv_tool.path_missing(uv)
+    return Plan(home, file, accounts, uv_missing, missing, command_missing, path_missing)
 
 
 # --- the plan the owner reads ---
@@ -287,18 +286,13 @@ def plan_lines(plan: Plan) -> list[str]:
     permissions = {str(row.folder): row for row in plan.accounts if row.usable and row.missing_allow_rules}
     for folder in sorted(permissions, key=str.lower):
         lines.append(f"  permission allow {', '.join(permissions[folder].missing_allow_rules)} in {folder}/settings.json")
-    missing = [path.name.removesuffix(".cmd") for path, state in plan.commands if state == "missing"]
-    if missing:
-        lines.append(f"  commands write {', '.join(dict.fromkeys(missing))} in {plan.bin}")
-    permission = [path.name.removesuffix(".cmd") for path, state in plan.commands if state == "permission"]
-    if permission:
-        lines.append(f"  commands restore execute permission for {', '.join(dict.fromkeys(permission))}")
-    if plan.needs_path:
-        lines.append(f"  path     {f'add {plan.bin} to your user PATH' if WINDOWS else _user_path.shell_profile_lines(plan.home, dry_run=True)[0]}")
-    blocked = [f"blocked: command {name} (another file is there)" for name in dict.fromkeys(path.name.removesuffix(".cmd") for path, state in plan.commands if state == "blocked")]
+    if plan.command_missing:
+        lines.append("  command  install the legion command with uv, then run uv tool update-shell, which puts it on your PATH (your shell profile or user PATH)")
+    elif plan.path_missing:
+        lines.append("  command  run uv tool update-shell to put the uv tool folder on your PATH")
     if not lines:
-        return [*blocked, NOTHING_TO_DO]
-    return [*blocked, "Plan (nothing changed yet):", *lines, RUN_AGAIN]
+        return [NOTHING_TO_DO]
+    return ["Plan (nothing changed yet):", *lines, RUN_AGAIN]
 
 
 # The preview looks for commands where the apply will, so the hint it shows is the command that runs.
@@ -386,22 +380,11 @@ def add_allow_rules(plan: Plan, say: Callable[[str], None]) -> None:
         _generated.write_generated(file, json.dumps(data, indent=2, ensure_ascii=False) + "\n", executable=False)
 
 
-def set_path(plan: Plan, say: Callable[[str], None]) -> None:
-    if not WINDOWS:
-        for line in _user_path.shell_profile_lines(plan.home):
-            say(line)
-        return
-    if not _user_path.add(plan.home, plan.bin):
-        say("skip: path (already done)")
-    if not path_contains(os.environ.get("PATH", ""), plan.bin):
-        os.environ["PATH"] += f";{plan.bin}"
-
-
 # The plugin goes into an account's folder by the installer module, without questions (yes); its output goes to a log.
 # Returns 0 when it finished, 1 when it failed.
-def install_plugin(tool_id: str, folder: Path, home: Path, source: Optional[str]) -> int:
+def install_plugin(tool_id: str, folder: Path, home: Path, source: Optional[str], tool_roots: list[tuple[str, Path]]) -> int:
     try:
-        output = "\n".join(_installer.install(home, tools=[tool_id], config_dir=folder, update=True, yes=True, source=source or _installer.DEFAULT_SOURCE, with_knowledge=False))
+        output = "\n".join(_installer.install(home, tools=[tool_id], config_dir=folder, update=True, yes=True, source=source or _installer.DEFAULT_SOURCE, with_knowledge=False, tool_roots=tool_roots))
         code = 0
     except (_installer.InstallerError, _footprints.FootprintError, _launchers.LauncherError, _settings_io.SettingsError, OSError, ValueError) as error:
         output, code = str(error), 1
@@ -423,7 +406,7 @@ def install_plugins(plan: Plan, source: Optional[str], say: Callable[[str], None
         key = f"{row.tool.id}:{os.path.normcase(str(resolve_directory(row.folder)))}"
         if key not in results:
             try:
-                results[key] = install_plugin(row.tool.id, row.folder, plan.home, source)
+                results[key] = install_plugin(row.tool.id, row.folder, plan.home, source, plan.tool_roots)
             except (OSError, ValueError):
                 results[key] = 1
         row.version = _status.installed_version(row.folder, row.tool)
@@ -435,10 +418,9 @@ def write_commands(plan: Plan, say: Callable[[str], None]) -> None:
     if plan.uv_missing:
         say("uv is missing. Ask the owner before installing it.")
         return
-    for line in _refresh.refresh(plan.home):
+    source = _installer._newest_source(plan.tool_roots) if plan.tool_roots else PLUGIN_ROOT
+    for line in _uv_tool.install(source, plan.home, update_shell=True):
         say(line)
-    if any(state == "owned" for _path, state in plan.commands):
-        say("skip: command legion (already done)")
 
 
 def write_table(plan: Plan, say: Callable[[str], None]) -> None:
@@ -446,9 +428,6 @@ def write_table(plan: Plan, say: Callable[[str], None]) -> None:
         say("account  tool  folder  legion  next step")
         for row in plan.accounts:
             say(f"{row.id}  {row.tool.id}  {row.folder}  {row.version or 'missing'}  {row.next_step}")
-    blocked = [path.name.removesuffix(".cmd") for path, state in plan.commands if state == "blocked"]
-    if blocked:
-        say(f"Blocked commands: {', '.join(dict.fromkeys(blocked))}")
 
 
 def _save_knowledge_locked(home: Path, choice: bool, explicit: bool, say: Callable[[str], None]) -> None:
@@ -496,7 +475,7 @@ def apply(
     say: Callable[[str], None],
     knowledge: Optional[bool],
     explicit: bool,
-) -> None:
+) -> Plan:
     # A fresh home can reject bad input without creating a lock file or settings folder.
     if not settings_path(home).exists():
         build_plan(home, tool_id, config_dir, account_id)
@@ -507,10 +486,9 @@ def apply(
         install_tools(plan)
         add_accounts(plan, say)
         add_allow_rules(plan, say)
-        set_path(plan, say)
         install_plugins(plan, source, say)
-        write_commands(plan, say)
     write_table(plan, say)
+    return plan
 
 
 # --- the owner's flow ---
@@ -550,10 +528,13 @@ def run(
                 return
     if not explicit and tool_id is None and can_ask and _settings_io.load_or_empty(home).knowledge_enabled is None:
         knowledge = click.confirm("Install the llm-wiki knowledge base in every account? [y/N]", default=False, show_default=False, prompt_suffix=" ")
+    plan = None
     if yes:
-        apply(home, tool_id, config_dir, account_id, source, say, knowledge, explicit)
+        plan = apply(home, tool_id, config_dir, account_id, source, say, knowledge, explicit)
     elif knowledge is not None:
         with _settings_io.writer(home, require_existing=False):
             _save_knowledge_locked(home, knowledge, explicit, say)
     with saved_path():
         _install_knowledge(home, say)
+        if plan is not None:
+            write_commands(plan, say)

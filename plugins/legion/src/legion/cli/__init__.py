@@ -38,7 +38,7 @@ def main(context: click.Context, home: Optional[Path]) -> None:
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper):
             stream.reconfigure(encoding="utf-8")
-    # The Windows command passes its home as <home>/.legion/bin/../..
+    # A home may be given with ".." parts; keep one clean absolute path.
     if home is not None:
         home = Path(os.path.normpath(home)).absolute()
     context.obj = home
@@ -573,14 +573,6 @@ def run_command(context: click.Context, account: str, arguments: tuple[str, ...]
     except (AccountError, LauncherError, SettingsError, ValueError, OSError) as error:
         click.echo(" ".join(str(error).split()), err=True)
         context.exit(1)
-
-
-@main.command("refresh", hidden=True)
-@click.pass_context
-def refresh(context: click.Context) -> None:
-    from legion.services.installation._refresh import refresh as change
-
-    _report_account(context, lambda: change(_home.legion_home(context.obj)))
 
 
 @account.command("rename", help="Give an account a new id; its folder stays")

@@ -30,7 +30,7 @@ def test_an_index_of_the_previous_release_loses_only_the_retired_kinds(tmp_path:
     index = _footprints.footprint_index(tmp_path)
     index.parent.mkdir(parents=True)
     index.write_text(json.dumps({"schemaVersion": 1, "entries": entries}), encoding="utf-8")
-    assert [entry.kind for entry in _footprints.read(tmp_path).entries] == ["app-version", "path-entry"]
+    assert [entry.kind for entry in _footprints.read(tmp_path).entries] == ["path-entry"]
 
 
 def test_remove_owner_deletes_owned_folder_but_keeps_other_records(tmp_path: Path) -> None:

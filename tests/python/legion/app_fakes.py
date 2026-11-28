@@ -1,21 +1,19 @@
-# Fakes for the app sync and refresh tests: a plugin source folder, a recording uv and ready or old app versions.
+# Fakes for the uv tool tests: a plugin source folder and a recording uv.
 
 import json
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
-from legion.services.installation import _installed_runtime
-from legion.services.repository import _footprints
+from legion.services.installation import _uv_tool
 from legion.core._run import RunResult
 
 if sys.platform == "win32":
     import _winapi
 
 VERSION = "1.0.0"
-MARKER = ".legion-app-ready"
 
 
 def make_link(link: Path, target: Path) -> None:
@@ -36,43 +34,54 @@ def make_source(root: Path, version: str = VERSION) -> Path:
 
 
 class FakeUv:
-    # Records each uv call with the environment it was given; the exit code and a side effect are set by the test.
-    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        self.calls: list[tuple[str, list[str], str]] = []
-        self.exit_code = 0
-        self.error = ""
-        self.effect: Callable[[Path], None] | None = None
-        # What the app's own legion answers to `run --help`; 0 means it can start accounts. Each probe is counted.
-        self.run_help_exit = 0
-        self.probes = 0
-        monkeypatch.setattr(_installed_runtime, "find_uv", lambda: "uv")
-        monkeypatch.setattr(_installed_runtime, "run_command", self.run)
+    # A recording uv. `calls` holds the arguments of each uv command run in this process; `detached` holds each
+    # command handed to the helper that runs after exit, with the paths it deletes. The tool state is `installed`.
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, bin_folder: Path) -> None:
+        self.calls: list[list[str]] = []
+        self.detached: list[tuple[list[str], list[Path]]] = []
+        self.logs: list[Path | None] = []
+        self.purges: list[list[Path]] = []
+        self.installed: str | None = None
+        self.shell_updated = False
+        self.fail: dict[str, int] = {}
+        self.bin = bin_folder
+        # Where `uv tool dir` says the tools live.
+        self.tools = bin_folder.parent / "uv tools"
+        monkeypatch.setattr(_uv_tool, "find_uv", lambda: "uv")
+        monkeypatch.setattr(_uv_tool, "run_command", self.run)
+        monkeypatch.setattr("legion.services.installation._constraints.run_command", self.run)
+        monkeypatch.setattr(_uv_tool._handover, "start", self.hand_over)
 
-    def run(self, command: str, arguments: list[str], timeout: float | None = None, env: Mapping[str, str] | None = None) -> RunResult:
-        if arguments == ["run", "--help"]:
-            self.probes += 1
-            return RunResult(exit_code=self.run_help_exit, output="", error="", timed_out=False)
-        assert env is not None
-        self.calls.append((command, list(arguments), env["UV_PROJECT_ENVIRONMENT"]))
-        if self.effect:
-            self.effect(Path(arguments[2]))
-        if self.exit_code == 0:
-            # A synced environment holds the app's own legion.
-            program = Path(env["UV_PROJECT_ENVIRONMENT"]) / ("Scripts/legion.exe" if sys.platform == "win32" else "bin/legion")
+    def hand_over(self, command: list[str], cleanup: list[Path], *, purge: list[Path], log: Path | None) -> None:
+        self.detached.append((command, cleanup))
+        if purge:
+            self.purges.append(purge)
+        self.logs.append(log)
+
+    def installs(self) -> list[list[str]]:
+        return [call for call in self.calls if call[:2] == ["tool", "install"]]
+
+    def run(self, command: str, arguments: list[str], timeout: float | None = None, env: Mapping[str, str] | None = None, cwd: Path | None = None) -> RunResult:
+        assert command == "uv"
+        self.calls.append(list(arguments))
+        name = " ".join(arguments[:2])
+        output = ""
+        if name in self.fail:
+            return RunResult(exit_code=self.fail[name], output="", error=f"{name} failed", timed_out=False)
+        if name == "tool list" and self.installed:
+            output = f"legion v{self.installed}\n- legion\n"
+        elif arguments == ["tool", "dir"]:
+            output = f"{self.tools}\n"
+        elif arguments == ["tool", "dir", "--bin"]:
+            output = f"{self.bin}\n"
+        elif name == "tool update-shell":
+            self.shell_updated = True
+        elif arguments[0] == "export":
+            output = "mcp==1.0.0\n"
+        elif name == "tool install":
+            root = Path(arguments[2].removesuffix("[mcp]"))
+            self.installed = json.loads((root / "plugin.json").read_text(encoding="utf-8"))["version"]
+            program = self.bin / ("legion.exe" if sys.platform == "win32" else "legion")
             program.parent.mkdir(parents=True, exist_ok=True)
             program.touch()
-        return RunResult(exit_code=self.exit_code, output="", error=self.error, timed_out=False)
-
-
-def old_app(home: Path, version: str = "0.0.1", ready: bool = True, recorded: bool = True) -> tuple[Path, Path]:
-    path = home / ".legion" / "app" / version
-    path.mkdir(parents=True)
-    (path / "plugin.json").write_text(json.dumps({"name": "legion", "version": version}), encoding="utf-8")
-    if ready:
-        (path / MARKER).touch()
-    environment = _installed_runtime.python_environment(path, home)
-    environment.mkdir(parents=True)
-    (environment / "python.txt").write_text("python", encoding="utf-8")
-    if recorded:
-        _footprints.add(home, "app-version", path, "legion")
-    return path, environment
+        return RunResult(exit_code=0, output=output, error="", timed_out=False)

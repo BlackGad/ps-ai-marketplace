@@ -200,6 +200,7 @@ addopts = [
     "--junitxml=.agents/temp/python/junit.xml",
 ]
 cache_dir = ".agents/temp/python/pytest-cache"
+markers = ["wheel: builds and installs a wheel offline using the local uv cache"]
 
 [tool.coverage.run]
 data_file = ".agents/temp/python/.coverage"

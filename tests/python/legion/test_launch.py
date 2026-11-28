@@ -1,10 +1,11 @@
 # One account launch for every caller: the program, its config folder and arguments, against fake CLIs only.
 import json
-import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
+import psutil
 import pytest
 from cli_runner import run
 from launcher_fakes import (
@@ -16,11 +17,10 @@ from launcher_fakes import (
 )
 from settings_fakes import save_settings
 
+from legion.core import _stop_event
 from legion.core._settings_models import Agent, PersonalisationSettings
 from legion.services.accounts._launch import account_command, run_account
 from legion.services.foundry._az import AzAccessToken
-from legion.core._home import bin_folder
-from legion.services.installation._installed_runtime import write_owner_commands
 
 RUNNER = "import sys; from legion import cli as _cli; _cli.main(sys.argv[1:], prog_name='legion')"
 ENDPOINT = "https://res-a.cognitiveservices.azure.com"
@@ -155,35 +155,6 @@ def test_batch_program_receives_cmd_syntax_arguments_literally(tmp_path: Path, m
     assert json.loads(out.read_text(encoding="utf-8")) == words
 
 
-# Two homes can hold the same account id. A member runs the selected home's own owner command; it reaches that
-# home's account even with the other home's command first on PATH. A fake uv runs this checkout's legion in its place.
-@pytest.mark.parametrize("selected", [0, 1])
-def test_two_homes_with_the_same_account_id_each_start_their_own(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stock: Path, selected: int) -> None:
-    homes = [tmp_path / "home a", tmp_path / "home b"]
-    for home in homes:
-        save_agents(home, agent("codex-a", home / "config"))
-        bin_folder(home).mkdir(parents=True)
-        write_owner_commands(home / ".legion" / "app" / "1.0.0", home)
-    fake_uv = tmp_path / "fake uv"
-    fake_uv.mkdir()
-    script = fake_uv / "uv.py"
-    script.write_text("import sys\nfrom legion import cli\nwords = sys.argv[1:]\ncli.main(words[words.index('legion') + 1 :], prog_name='legion')\n", encoding="utf-8")
-    if WINDOWS:
-        (fake_uv / "uv.cmd").write_text(f'@"{sys.executable}" "{script}" %*\r\n', encoding="utf-8", newline="")
-        system = [str(Path(os.environ["SYSTEMROOT"]) / "System32")]
-    else:
-        (fake_uv / "uv").write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
-        (fake_uv / "uv").chmod(0o755)
-        system = ["/usr/bin", "/bin"]
-    other = homes[1 - selected]
-    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_folder(other)), str(fake_uv), str(stock.parent), *system]))
-    command = bin_folder(homes[selected]) / ("legion.cmd" if WINDOWS else "legion")
-    result = subprocess.run([str(command), "run", "--account", "codex-a", "--", "--version"], capture_output=True, text=True, check=False)
-    lines = readout(result.stdout)
-    assert f"var={homes[selected] / 'config'}" in lines
-    assert f"var={other / 'config'}" not in lines
-
-
 # The command line member dispatch uses: legion run --account <id> -- <tool arguments>, exit code kept.
 @pytest.mark.usefixtures("stock")
 def test_cli_run_reaches_the_account_program_with_its_folder(tmp_path: Path) -> None:
@@ -208,3 +179,84 @@ def test_hidden_run_absent_from_help(capsys: pytest.CaptureFixture[str]) -> None
     assert "run" not in verbs
     assert "foundry" not in verbs
     assert "account" in verbs
+
+
+# A real program the wrapper starts: the base interpreter (a venv's python.exe on Windows starts the real one as a child).
+def python_account(home: Path) -> None:
+    save_agents(home, agent("codex-a", home / "config", command=getattr(sys, "_base_executable", sys.executable)))
+
+
+def start_wrapper(home: Path, code: str) -> subprocess.Popen[str]:
+    arguments = [sys.executable, "-c", RUNNER, "--home", str(home), "run", "--account", "codex-a", "--", "-c", code]
+    return subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
+SESSION = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [f"print('session id: {SESSION}')", f'print(\'{{"session_id": "{SESSION}"}}\')', f"import sys; print('thread_id: {SESSION}', file=sys.stderr)"],
+)
+def test_run_prints_the_session_id_the_tool_reports_and_passes_the_output_through(tmp_path: Path, printed: str) -> None:
+    python_account(tmp_path)
+    wrapper = start_wrapper(tmp_path, printed)
+    output, errors = wrapper.communicate(timeout=60)
+    assert wrapper.returncode == 0, errors
+    assert SESSION in output + errors
+    assert f"legion: session id {SESSION}" in errors.splitlines()
+
+
+def test_run_prints_no_session_line_when_the_tool_reports_none(tmp_path: Path) -> None:
+    python_account(tmp_path)
+    wrapper = start_wrapper(tmp_path, "print('hello')")
+    output, errors = wrapper.communicate(timeout=60)
+    assert (wrapper.returncode, output.strip(), errors) == (0, "hello", "")
+
+
+def test_run_registers_while_the_tool_runs_and_the_stop_event_ends_the_tool_by_its_pid(tmp_path: Path) -> None:
+    python_account(tmp_path)
+    marker = tmp_path / "tool.pid"
+    code = f"import os, pathlib, time; pathlib.Path({str(marker)!r}).write_text(str(os.getpid())); time.sleep(120)"
+    wrapper = start_wrapper(tmp_path, code)
+    try:
+        deadline = time.monotonic() + 60
+        while not marker.is_file() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        time.sleep(0.2)
+        tool_pid = int(marker.read_text(encoding="utf-8"))
+        assert len(_stop_event.running(tmp_path)) == 1
+        _stop_event.raise_stop(tmp_path)
+        _output, errors = wrapper.communicate(timeout=60)
+        assert "stopped for an update" in errors
+        deadline = time.monotonic() + 30
+        while psutil.pid_exists(tool_pid) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert not psutil.pid_exists(tool_pid)
+        assert _stop_event.running(tmp_path) == []
+    finally:
+        wrapper.kill()
+        wrapper.communicate()
+
+
+def test_stop_event_ends_the_descendant_of_a_wrapper_child(tmp_path: Path) -> None:
+    python = getattr(sys, "_base_executable", sys.executable)
+    if sys.platform == "win32":
+        batch = tmp_path / "tool.cmd"
+        batch.write_text(f'@"{python}" %*\n', encoding="utf-8")
+        save_agents(tmp_path, agent("codex-a", tmp_path / "config", command=str(batch)))
+    else:
+        python_account(tmp_path)
+    code = "import subprocess, time; " + f"child = subprocess.Popen([{python!r}, '-c', 'import time; time.sleep(120)']); " + "print(child.pid, flush=True); time.sleep(120)"
+    with start_wrapper(tmp_path, code) as wrapper:
+        assert wrapper.stdout is not None
+        child = psutil.Process(int(wrapper.stdout.readline()))
+        try:
+            _stop_event.raise_stop(tmp_path)
+            _, errors = wrapper.communicate(timeout=20)
+            assert "stopped for an update" in errors
+            assert not child.is_running() or child.status() == psutil.STATUS_ZOMBIE
+        finally:
+            if child.is_running():
+                child.kill()
+            wrapper.kill()

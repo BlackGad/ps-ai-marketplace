@@ -42,20 +42,36 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $homeRoot = Join-Path $env:RUNNER_TEMP 'legion-home'
-          powershell.exe -NoProfile -File ./install.ps1 -Yes -HomeRoot $homeRoot
+          $homeRoot = Join-Path $env:RUNNER_TEMP 'legion-bootstrap'
+          $uvFolder = Join-Path $homeRoot '.local/bin'
+          Remove-Item Env:UV_INSTALL_DIR, Env:XDG_BIN_HOME -ErrorAction SilentlyContinue
+          $env:UV_TOOL_DIR = Join-Path $homeRoot 'uv-tools'
+          $env:UV_TOOL_BIN_DIR = Join-Path $homeRoot 'uv-bin'
+          $env:UV_CACHE_DIR = Join-Path $homeRoot 'uv-cache'
+          $uv = Get-Command uv -CommandType Application -ErrorAction SilentlyContinue
+          if ($uv) {
+            New-Item -ItemType Directory -Force $uvFolder | Out-Null
+            Copy-Item -LiteralPath $uv.Source -Destination (Join-Path $uvFolder 'uv.exe')
+            $env:PATH = "$uvFolder;$env:PATH"
+          }
+          powershell.exe -NoProfile -File ./install.ps1 -Yes -HomeRoot $homeRoot -Source $PWD.Path
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $uvFolder = Join-Path $homeRoot '.legion/bin'
           if (-not (Test-Path (Join-Path $uvFolder 'uv.exe'))) { throw 'bootstrap did not install uv' }
           $uvFolder >> $env:GITHUB_PATH
       - name: Bootstrap uv on macOS and Linux
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          export HOME="$RUNNER_TEMP/legion-home"
+          export HOME="$RUNNER_TEMP/legion-bootstrap"
+          unset UV_INSTALL_DIR XDG_BIN_HOME
+          export UV_TOOL_DIR="$HOME/uv-tools" UV_TOOL_BIN_DIR="$HOME/uv-bin" UV_CACHE_DIR="$HOME/uv-cache"
+          mkdir -p "$HOME/.local/bin"
+          uv="$(command -v uv || true)"
+          test -z "$uv" || cp "$uv" "$HOME/.local/bin/uv"
+          export PATH="${HOME}/.local/bin:$PATH"
           sh ./install.sh --yes
-          test -x "$HOME/.legion/bin/uv"
-          echo "$HOME/.legion/bin" >> "$GITHUB_PATH"
+          test -x "$HOME/.local/bin/uv"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Select the npm download cache
         shell: bash
         run: |
@@ -70,6 +86,7 @@ jobs:
       - shell: bash
         env:
           ALLOW_SOURCE_FALLBACK: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.sha == '' }}
+          PYTHONUTF8: '1'
         run: |
           args=()
           if [ "$ALLOW_SOURCE_FALLBACK" = true ]; then args+=(--allow-source-fallback); fi

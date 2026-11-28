@@ -3,7 +3,6 @@
 # the CLI install (`install_tool`) and the plugin install (`install_plugin`).
 import json
 import os
-import stat
 import subprocess
 from pathlib import Path
 from typing import Any, Optional
@@ -22,10 +21,9 @@ from launcher_fakes import (
 
 from legion.services.accounts import _accounts, _setup
 from legion.services.installation import (
-    _installed_runtime,
+    _uv_tool,
     _knowledge_hub,
     installer as _installer,
-    _refresh,
     _tool_install,
 )
 from legion.services.status import _status
@@ -33,7 +31,7 @@ from legion.services.status import status
 from legion import cli
 from legion.services.repository import _footprints
 from legion.services.installation import _user_path
-from legion.core._home import bin_folder, footprint_index, settings_path
+from legion.core._home import footprint_index, settings_path
 from legion.core._plugin import PLUGIN_ROOT
 from legion.core._run import RunResult
 from legion.core._settings_models import ToolDescriptor
@@ -66,10 +64,11 @@ class Bench:
         self.user_path_file.write_text("fixture-path", encoding="utf-8")
         monkeypatch.setenv("LEGION_TEST_USER_PATH_FILE", str(self.user_path_file))
         monkeypatch.setattr(_user_path, "persistent_folders", list)
-        self.uv = FakeUv(monkeypatch)
+        self.uv = FakeUv(monkeypatch, base / "uv bin")
+        saved_path = _uv_tool._saved_path
+        monkeypatch.setattr(_uv_tool, "_saved_path", lambda: saved_path() + (os.pathsep + str(self.uv.bin) if self.uv.shell_updated else ""))
         self.source = make_source(base, VERSION)
-        real_refresh = _refresh.refresh
-        monkeypatch.setattr(_refresh, "refresh", lambda home, **keywords: real_refresh(home, self.source, **keywords))
+        monkeypatch.setattr(_setup, "PLUGIN_ROOT", self.source)
         self.tool_installs: list[str] = []
         self.tool_failure = ""
         self.needs_terminal = False
@@ -88,7 +87,7 @@ class Bench:
             fake_cli(self.tools, tool_id, descriptor(tool_id).config_env)
         return None
 
-    def install_plugin(self, tool_id: str, folder: Path, home: Path, source: Optional[str]) -> int:
+    def install_plugin(self, tool_id: str, folder: Path, home: Path, source: Optional[str], _tool_roots: list[tuple[str, Path]]) -> int:
         self.plugin_installs.append((tool_id, folder, source))
         if self.failing_folder is not None and _setup.same_path(folder, self.failing_folder):
             return 1
@@ -290,7 +289,7 @@ def test_knowledge_adopts_the_plugin_and_follows_later_accounts(bench: Bench, mo
     report = status(bench.base, bench.home)
     assert report.knowledge.missing_accounts == [later_id]
     assert report.knowledge.hub == "invalid"
-    monkeypatch.setattr(_installer, "_hand_over", lambda *_: None)
+    monkeypatch.setattr(_installer, "_install_tool", lambda *_args, **_options: None)
     fail_later = False
     _installer.install(bench.home, [tool], config_dir=later, update=True, yes=True)
     assert (later, wiki) in plugins
@@ -386,7 +385,7 @@ def test_knowledge_preserves_settings_and_purge_asks(bench: Bench, monkeypatch: 
     assert hub.is_dir()
     monkeypatch.setattr(_installer, "_listing", lambda *_: "")
     handed: list[list[Path]] = []
-    monkeypatch.setattr(_installer._handover, "start", handed.append)
+    monkeypatch.setattr(_uv_tool._handover, "start", lambda _command, _cleanup, *, purge, **_options: handed.append(purge))
     answers = iter((False, True))
 
     def confirm(question: str, **_options: object) -> bool:
@@ -432,7 +431,7 @@ def test_invalid_pointer_is_reported_once_and_the_wikis_still_install(bench: Ben
 def test_a_fresh_plan_has_the_contract_lines_and_changes_nothing(bench: Bench) -> None:
     before = bench.tree()
     plan = bench.preview()
-    for expected in ("Plan (nothing changed yet):", "  create   settings and notes", "  commands write legion", "  path     ", "Run again with --yes to apply."):
+    for expected in ("Plan (nothing changed yet):", "  create   settings and notes", "  command  install the legion command with uv", "Run again with --yes to apply."):
         assert expected in text(plan)
     assert bench.tree() == before
     assert not (bench.home / ".legion").exists()
@@ -479,8 +478,7 @@ def test_accounts_plan_apply_and_repeat(bench: Bench) -> None:
     assert any(line.startswith("codex1  codex  ") and line.endswith(f"  {VERSION}  ready") for line in apply)
     assert "Log in once:" not in text(apply)
     assert "Existing account folder kept at" not in text(apply)
-    app = bench.home / ".legion" / "app" / VERSION
-    assert (app / ".legion-app-ready").is_file()
+    assert bench.uv.installed == VERSION
     before = bench.tree()
     installs = len(bench.plugin_installs)
     repeat = bench.apply()
@@ -571,7 +569,7 @@ def test_setup_plans_under_the_settings_lock_and_does_the_outside_work_without_i
 def test_missing_uv_is_a_plan_line_and_a_next_step_but_no_python_work(bench: Bench) -> None:
     bench.seed("ready-a", "codex")
     calls: list[str] = []
-    bench.monkeypatch.setattr(_installed_runtime, "find_uv", lambda: None)
+    bench.monkeypatch.setattr(_uv_tool, "find_uv", lambda: None)
     bench.monkeypatch.setattr(_accounts, "add_subscription", lambda *args: calls.append(args[1]) or [])
     assert "  uv       missing; ask the owner before installing it" in bench.preview("codex")
     output = bench.apply("codex")
@@ -652,7 +650,6 @@ def test_a_custom_command_account_stays_usable_when_the_stock_cli_cannot_install
         bench.tool_installs.clear()
         output = text(bench.apply("codex" if add_stock else None))
         assert f"target needed: {account}" not in output
-        assert not any(bin_folder(bench.home).glob(f"{account}*"))
         assert len(bench.tool_installs) == int(add_stock)
         fake_cli(bench.tools, "codex", "CODEX_HOME")
 
@@ -684,16 +681,6 @@ def test_an_account_without_a_command_uses_the_stock_cli(bench: Bench) -> None:
     plan = text(bench.preview())
     assert "install codex" in plan
     assert "target needed" not in plan
-
-
-@posix_only
-def test_the_legion_command_that_lost_its_execute_permission_is_restored(bench: Bench) -> None:
-    bench.apply("codex")
-    command = bin_folder(bench.home) / "legion"
-    command.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    assert "  commands restore execute permission for legion" in text(bench.preview())
-    bench.apply()
-    assert os.access(command, os.X_OK)
 
 
 def test_adopting_a_folder_twice_reuses_the_account(bench: Bench, capsys: pytest.CaptureFixture[str]) -> None:
@@ -757,8 +744,8 @@ def test_a_plugin_install_failure_is_a_table_row_and_the_next_folder_still_insta
 def test_copilot_setup_reports_login_when_plugin_installed_despite_installer_error(bench: Bench) -> None:
     install = bench.install_plugin
 
-    def installed_with_error(tool_id: str, folder: Path, home: Path, source: Optional[str]) -> int:
-        install(tool_id, folder, home, source)
+    def installed_with_error(tool_id: str, folder: Path, home: Path, source: Optional[str], roots: list[tuple[str, Path]]) -> int:
+        install(tool_id, folder, home, source, roots)
         return 1
 
     bench.monkeypatch.setattr(_setup, "install_plugin", installed_with_error)
@@ -798,7 +785,7 @@ def test_the_plugin_is_installed_only_where_it_is_missing_whatever_version_is_th
 def test_installs_are_keyed_by_folder_with_the_system_comparer(bench: Bench) -> None:
     codex = descriptor("codex")
     rows = [_setup.Row(id="codex-a", tool=codex, folder=bench.base / name, usable=True) for name in ("account", "ACCOUNT", "account")]
-    plan = _setup.Plan(home=bench.home, settings_file=settings_path(bench.home), accounts=rows, uv_missing=False, missing_tools=[], bin=bin_folder(bench.home), commands=[], needs_path=False)
+    plan = _setup.Plan(home=bench.home, settings_file=settings_path(bench.home), accounts=rows, uv_missing=False, missing_tools=[], command_missing=False, path_missing=False)
     _setup.install_plugins(plan, None, lambda _line: None)
     assert len(bench.plugin_installs) == (1 if WINDOWS else 2)
 
@@ -817,74 +804,56 @@ def test_a_cli_found_only_on_the_saved_path_counts_as_installed(bench: Bench) ->
     assert (plan.missing_tools == []) == WINDOWS
 
 
-# --- commands, PATH and the table ---
+# --- the legion command and the table ---
 
 
-def test_the_owner_command_is_published_and_rewritten_when_it_is_ours_and_old(bench: Bench) -> None:
-    command = bin_folder(bench.home)
-    command.mkdir(parents=True)
-    stale = _installed_runtime.shim_text(Path("/gone/app/0.0.1"), bench.home, windows=False).replace(' "$@"', ' --keep "$@"')
-    (command / "legion").write_text(stale, encoding="utf-8")
+def test_setup_repairs_the_saved_path_for_an_already_installed_tool(bench: Bench) -> None:
+    bench.apply("codex")
+    bench.uv.shell_updated = False
+    bench.uv.calls.clear()
+    assert any("update-shell" in line for line in bench.preview())
+    assert ["tool", "update-shell"] not in bench.uv.calls
+    assert "uv tool folder is missing from your PATH" in text(_status.status_lines(status(bench.home, bench.home)))
     bench.apply()
-    rewritten = (command / "legion").read_text(encoding="utf-8")
-    assert str(bench.home / ".legion" / "app" / VERSION) in rewritten or f"app/{VERSION}" in rewritten.replace("\\", "/")
-    assert "--keep" not in rewritten
-    assert "skip: command legion (already done)" in bench.apply()
+    assert ["tool", "update-shell"] in bench.uv.calls
+    assert bench.uv.installs() == []
+    assert "uv tool folder is missing from your PATH" not in text(_status.status_lines(status(bench.home, bench.home)))
 
 
-def test_a_command_that_is_not_ours_is_listed_once_and_left_alone(bench: Bench) -> None:
-    command = bin_folder(bench.home)
-    command.mkdir(parents=True)
-    (command / "legion").write_text("owner command", encoding="utf-8")
-    plan = bench.preview()
-    assert "blocked: command legion (another file is there)" in plan
-    output = bench.apply()
-    assert (command / "legion").read_text(encoding="utf-8") == "owner command"
-    assert "Blocked commands: legion" in output
-    assert len([line for line in output if "another file" in line or line.startswith("Blocked commands:")]) == 1
-    bench.hide("none")
-    bench.monkeypatch.setenv("PATH", os.environ["PATH"] + os.pathsep + str(command))
-    assert bench.preview()[-1] == "Nothing to do."
+def test_setup_installs_the_legion_command_through_uv_and_a_repeat_skips(bench: Bench) -> None:
+    # The plan names update-shell, so the owner's yes covers it; nothing runs before that yes.
+    assert "  command  install the legion command with uv, then run uv tool update-shell, which puts it on your PATH (your shell profile or user PATH)" in text(bench.preview("codex"))
+    assert bench.uv.installs() == []
+    assert ["tool", "update-shell"] not in bench.uv.calls
+    first = bench.apply("codex")
+    assert bench.uv.installed == VERSION
+    assert f"legion command {VERSION} installed" in first
+    assert ["tool", "update-shell"] in bench.uv.calls
+    assert not any(line.startswith("  command ") for line in bench.preview())
+    assert f"skip: legion command {VERSION} (already done)" in bench.apply()
+    assert len(bench.uv.installs()) == 1
 
 
-@windows_only
-def test_windows_appends_the_folder_to_the_saved_user_path_once(bench: Bench) -> None:
-    bench.apply()
-    assert bench.user_path_file.read_text(encoding="utf-8") == f"fixture-path;{bin_folder(bench.home)}"
-    bench.apply()
-    assert bench.user_path_file.read_text(encoding="utf-8").count(str(bin_folder(bench.home))) == 1
-    assert [entry.path for entry in _footprints.read(bench.home).entries if entry.kind == "path-entry"] == ["user PATH"]
+def test_setup_hands_the_newest_plugin_to_uv_after_knowledge_reconciliation(bench: Bench) -> None:
+    events: list[str] = []
+    newest = bench.base / "newest-plugin"
 
+    def install(_tool: str, _folder: Path, _home: Path, _source: Optional[str], roots: list[tuple[str, Path]]) -> int:
+        roots.extend([("1.2.0", bench.source), ("1.10.0", newest)])
+        events.append("plugins")
+        return 0
 
-@posix_only
-def test_other_systems_write_the_shell_profile_not_the_registry(bench: Bench) -> None:
-    plan = text(bench.preview())
-    assert str(bench.home / ".bashrc") in plan
-    assert not (bench.home / ".bashrc").exists()
-    bench.apply()
-    assert _user_path.shell_profile(bench.home).has_path
-    assert bench.user_path_file.read_text(encoding="utf-8") == "fixture-path"
-    again = bench.apply()
-    assert "skip: shell profile PATH (already done)" in again
-    assert not _setup.build_plan(bench.home, None, None, None).needs_path
+    def install_tool(source: Path, _home: Path, *, update_shell: bool) -> list[str]:
+        assert source == newest
+        assert update_shell
+        events.append("handover")
+        return []
 
-
-@windows_only
-def test_setup_status_and_installer_agree_about_expanded_path_entries(bench: Bench) -> None:
-    folder = bin_folder(bench.home)
-    folder.mkdir(parents=True)
-    bench.monkeypatch.setenv("LEGION_STATUS_BIN", str(folder.parent))
-    bench.monkeypatch.delenv("OS", raising=False)
-    entry = rf"%LEGION_STATUS_BIN%\other\..\{folder.name}"
-    bench.user_path_file.write_text(entry, encoding="utf-8")
-    bench.monkeypatch.setenv("PATH", entry)
-    assert not _setup.build_plan(bench.home, None, None, None).needs_path
-    assert _status.on_path(folder)
-    lines: list[str] = []
-    _installer.ensure_path(bench.home, False, lines)
-    assert lines == ["skip: path (already done)"]
-    assert os.environ["PATH"] == entry
-    assert bench.user_path_file.read_text(encoding="utf-8") == entry
+    bench.monkeypatch.setattr(_setup, "install_plugin", install)
+    bench.monkeypatch.setattr(_setup, "_install_knowledge", lambda *_args: events.append("knowledge"))
+    bench.monkeypatch.setattr(_uv_tool, "install", install_tool)
+    bench.apply("codex")
+    assert events == ["plugins", "knowledge", "handover"]
 
 
 @windows_only
@@ -940,28 +909,29 @@ def installer_calls(bench: Bench, lines: list[str] | Exception) -> list[tuple[Pa
 def test_the_plugin_installer_gets_its_options_and_a_log(bench: Bench) -> None:
     calls = installer_calls(bench, ["inert installer output", "second line"])
     folder = bench.base / "target folder"
-    assert REAL_INSTALL_PLUGIN("codex", folder, bench.home, None) == 0
-    assert calls == [(bench.home, {"tools": ["codex"], "config_dir": folder, "update": True, "yes": True, "source": _setup._installer.DEFAULT_SOURCE, "with_knowledge": False})]
+    roots: list[tuple[str, Path]] = []
+    assert REAL_INSTALL_PLUGIN("codex", folder, bench.home, None, roots) == 0
+    assert calls == [(bench.home, {"tools": ["codex"], "config_dir": folder, "update": True, "yes": True, "source": _setup._installer.DEFAULT_SOURCE, "with_knowledge": False, "tool_roots": roots})]
     assert (bench.home / ".legion" / "temp" / "setup-install-codex.log").read_text(encoding="utf-8") == "inert installer output\nsecond line"
 
 
 @pytest.mark.parametrize("source", ["owner/repo", "work folder/my-project"])
 def test_a_source_reaches_the_plugin_installer_unchanged(bench: Bench, source: str) -> None:
     calls = installer_calls(bench, [])
-    REAL_INSTALL_PLUGIN("claude", bench.base, bench.home, source)
+    REAL_INSTALL_PLUGIN("claude", bench.base, bench.home, source, [])
     assert calls[0][1]["source"] == source
 
 
 def test_a_failed_plugin_install_returns_one_and_logs_why(bench: Bench) -> None:
     installer_calls(bench, _installer.InstallerError("claude exited 3\nboom"))
-    assert REAL_INSTALL_PLUGIN("claude", bench.base, bench.home, None) == 1
+    assert REAL_INSTALL_PLUGIN("claude", bench.base, bench.home, None, []) == 1
     assert "boom" in (bench.home / ".legion" / "temp" / "setup-install-claude.log").read_text(encoding="utf-8")
 
 
 def test_the_plugin_install_never_looks_for_pwsh(bench: Bench) -> None:
     installer_calls(bench, [])
     bench.monkeypatch.setenv("PATH", str(bench.base / "empty"))
-    assert REAL_INSTALL_PLUGIN("claude", bench.base, bench.home, None) == 0
+    assert REAL_INSTALL_PLUGIN("claude", bench.base, bench.home, None, []) == 0
 
 
 def test_a_cli_install_reports_its_failures_as_one_line(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:

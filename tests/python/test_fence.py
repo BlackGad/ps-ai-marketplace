@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 import pytest
-from legion.services.installation import installer
+from legion.services.installation import _user_path as user_path
 import conftest
 from conftest import (
     Fence,
@@ -142,7 +142,7 @@ def test_default_fence_sends_user_path_writes_to_the_fence_file_not_the_registry
     assert sys.platform == "win32"
     writes: list[tuple[object, ...]] = []
     monkeypatch.setattr(winreg, "SetValueEx", lambda *args: writes.append(args))
-    installer.ensure_path(fence.home, False, [])
+    user_path.add(fence.home, fence.home / ".legion/bin")
     assert str(fence.home / ".legion/bin") in fence.user_path_file.read_text(encoding="utf-8")
     assert writes == []
 

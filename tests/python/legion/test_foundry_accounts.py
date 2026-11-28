@@ -65,7 +65,6 @@ def test_list_prints_the_matching_deployments_changes_nothing_and_needs_no_ready
     assert [item["name"] for item in listed["deployments"]] == ["claude-opus-x", "claude-sonnet-x"]
     assert [item["state"] for item in listed["deployments"]] == ["new", "new"]
     assert settings_path(bench.home).read_bytes() == before
-    assert list((bench.home / ".legion" / "bin").iterdir()) == []
 
 
 def test_add_saves_the_account_and_writes_the_picker_but_no_launcher_and_a_repeat_changes_nothing(bench: Bench) -> None:
@@ -86,7 +85,6 @@ def test_add_saves_the_account_and_writes_the_picker_but_no_launcher_and_a_repea
     assert picker["modelPicker"]["replaceBuiltInOptions"] is True
     assert [item["model"] for item in picker["modelPicker"]["options"]] == ["claude-opus-x", "claude-sonnet-x"]
     assert [item["label"] for item in picker["modelPicker"]["options"]] == ["claude-opus-x", "claude-sonnet-x"]
-    assert list((bench.home / ".legion" / "bin").iterdir()) == []
     tracked = [settings_path(bench.home), folder / "settings.json"]
     stamps = [(path.read_bytes(), path.stat().st_mtime_ns) for path in tracked]
     calls = az_calls(bench)
@@ -157,7 +155,6 @@ def test_rename_moves_a_foundry_account(bench: Bench) -> None:
     add(bench)
     _accounts.rename(bench.home, "claude-dev", "claude-new")
     assert [agent.id for agent in _settings_io.load(bench.home).agents] == ["claude-new"]
-    assert list((bench.home / ".legion" / "bin").iterdir()) == []
 
 
 # Each case is the old config and the text that must survive; lines are joined so the quotes stay readable.

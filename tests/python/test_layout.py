@@ -1,18 +1,24 @@
 import ast
 from pathlib import Path
 
+from legion import cli
+
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "plugins/legion/src/legion"
 
 
 def test_runtime_modules_live_in_packages() -> None:
-    # The uninstall forwarder lives at the path invoked by 0.18.x owner commands.
-    assert sorted(path.name for path in PACKAGE.glob("_*.py")) == ["__init__.py", "_self_uninstall.py"]
+    assert sorted(path.name for path in PACKAGE.glob("_*.py")) == ["__init__.py"]
     assert (PACKAGE / "cli/__init__.py").is_file()
     assert (PACKAGE / "hook/__init__.py").is_file()
     assert (PACKAGE / "services/installation/installer/__init__.py").is_file()
-    assert (PACKAGE / "services/installation/_installed_runtime.py").is_file()
+    assert (PACKAGE / "services/installation/_uv_tool.py").is_file()
+    assert (PACKAGE / "core/_stop_event.py").is_file()
+
+
+def test_the_hidden_refresh_command_is_gone() -> None:
+    assert "refresh" not in cli.main.commands
 
 
 def test_services_are_grouped_by_area() -> None:

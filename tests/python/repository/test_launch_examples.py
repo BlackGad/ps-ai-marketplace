@@ -37,7 +37,7 @@ def test_documented_worker_passes_complete_argv(tool: str, args: list[str], pwsh
         legion.chmod(0o755)
     setup = """
 $ErrorActionPreference = 'Stop'
-$legion = $env:LEGION_TEST_COMMAND
+$legionHome = 'legion home'
 $account = 'codex-a'
 $repoPath = 'repo with spaces'
 $report = 'report with spaces'
@@ -47,7 +47,7 @@ $promptPath = 'task prompt with spaces.md'
     result = subprocess.run(
         [str(pwsh_path), "-NoProfile", "-NonInteractive", "-Command", setup + example[1]],
         cwd=tmp_path,
-        env={**os.environ, "LEGION_TEST_COMMAND": str(legion)},
+        env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]},
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
@@ -55,6 +55,6 @@ $promptPath = 'task prompt with spaces.md'
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert json.loads((tmp_path / "args.json").read_text(encoding="utf-8")) == ["run", "--account", "codex-a", "--", *args]
+    assert json.loads((tmp_path / "args.json").read_text(encoding="utf-8")) == ["--home", "legion home", "run", "--account", "codex-a", "--", *args]
     if tool != "codex":
         assert (tmp_path / "report with spaces.stdout.md").is_file()

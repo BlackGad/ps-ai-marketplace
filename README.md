@@ -40,7 +40,7 @@ Different tools and providers give independent reviews another perspective. With
 
 Add preferences later in your own words. Say “use Telegram” when you want a channel.
 
-legion keeps settings in `~/.legion/configuration/`, account folders in `~/.legion/agents/`, and the `legion` command in `~/.legion/bin/` on your PATH. Repository orchestration files live in `.legion/`.
+legion keeps settings in `~/.legion/configuration/`, account folders in `~/.legion/agents/`, and the running sessions' registrations in `~/.legion/run/`. The `legion` command is a [uv](https://docs.astral.sh/uv/) tool: setup installs it with `uv tool install` and, with your yes, runs `uv tool update-shell` so uv's tool folder is on your PATH. If the uv tool folder is missing from PATH, `legion status` reports it and setup offers a repair. Repository orchestration files live in `.legion/`.
 
 Repository setup offers [Private (default) or Shared](plugins/legion/skills/legion-repository/SKILL.md#choose-where-notes-live) storage for notes and history.
 
@@ -57,7 +57,9 @@ Open your AI tool and say:
 
 ## Update and uninstall
 
-Say “Update legion” or “Uninstall legion,” or run `legion update` or `legion uninstall`. One update covers all accounts legion knows. If `legion` is not available, run the matching one-liner in PowerShell:
+Say “Update legion” or “Uninstall legion,” or run `legion update` or `legion uninstall`. On Windows, close your Legion session, run `legion update` from a terminal, then reopen Legion. An update started from a registered Windows session refuses before making changes.
+
+One update covers all accounts legion knows. Before replacing the command, Legion waits for the MCP servers and `legion run` wrappers registered in its home to exit, with the updater and its ancestors exempt. Restart your session after the update. Check `~/.legion/temp/uv-tool.log` for the detached update or uninstall result. `legion status` flags failures recorded in the log. Use the handoff to recover stopped members. See [running sessions and recovery](docs/reference.md#running-sessions-and-the-stop-event). If `legion` is unavailable, run the matching one-liner in PowerShell.
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Update
@@ -67,10 +69,10 @@ Say “Update legion” or “Uninstall legion,” or run `legion update` or `le
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Uninstall
 ```
 
-Uninstall removes legion's plugin and marketplace through each tool's own commands, then deletes the `legion` command and app.
+Uninstall uses each tool's own commands to remove Legion's plugin and marketplace. A full uninstall waits for registered Legion processes outside the calling session to exit, then schedules removal of the `legion` command. An installed uv stays installed. If the bootstrap downloads uv for uninstall, it uses a temporary copy that remains available to the helper after the bootstrap exits.
 
 > [!IMPORTANT]
-> Uninstall then install is an upgrade: it keeps your settings, notes and account folders. **Purge removes the whole legion home** (`~/.legion`: settings, notes and legion-made logins), the PATH changes legion recorded, and legion's plugin and marketplace through each tool's own uninstall. It does not edit the tools' own files, so anything else they keep, such as a permission rule setup added, stays. It lists everything and asks first, and asks again before deleting a knowledge hub.
+> A plain uninstall keeps your settings, notes, account folders and logins. **Purge removes that data after the uv uninstall succeeds** or when the command is already absent. Purge also removes the recorded PATH entries for portable tools Legion installed. It asks separately before deleting a knowledge hub. The coding tools keep their own data and settings.
 
 Run `legion uninstall --purge`, or use this PowerShell one-liner:
 

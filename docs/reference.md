@@ -15,11 +15,9 @@ The Windows bootstrap takes PowerShell flags such as `-Tools`, `-Yes` and `-Upda
 
 The install one-liners are in the [README](../README.md#install). The bootstrap script comes from the `main` branch, but it downloads the legion code archive from the `stable` branch (the latest release) unless you ask for `main` (`-Ref main`, `--main`). The archive supplies the installer code that runs `legion install`. The version legion reports is read from the `plugin.json` of the plugin installed in each tool, not from the archive: if an older plugin is already installed and enabled, the installer can skip it, so a newer bootstrap run over it may still report the older version until you run an update. A local checkout uses its own files instead.
 
-The bootstrap only obtains uv, then hands every option to the Python `legion install` command. On Windows it runs in Windows PowerShell 5.1 or PowerShell 7. If uv is missing, it says so and asks `Install uv now? [y/N]`; after a yes it reads the latest uv release from GitHub, downloads the archive for your system, checks it against the release's SHA-256 digest (a mismatch deletes the download and stops) and publishes `uv` to `~/.legion/bin/` (extracted privately first, run once to check it works, then renamed into place), the folder `legion install` puts on your PATH after your yes. POSIX needs no sudo. Every download must be HTTPS, redirects included. If Python 3.12 is missing, `-DryRun` (`--dry-run`) only says so; an ordinary run asks before uv downloads it.
+The bootstrap only obtains uv, then hands every option to the Python `legion install` command. On Windows it runs in Windows PowerShell 5.1 or PowerShell 7. If uv is missing, it says so and asks `Install uv now? [y/N]`; after a yes it reads the latest uv release from GitHub, downloads the archive for your system, checks it against the release's SHA-256 digest (a mismatch deletes the download and stops) and publishes `uv` to uv's default folder (`~/.local/bin`, or `UV_INSTALL_DIR` / `XDG_BIN_HOME`; extracted privately first, run once to check it works, then renamed into place). uv is a global helper like git: legion never removes it. POSIX needs no sudo. Every download must be HTTPS, redirects included. If Python 3.12 is missing, `-DryRun` (`--dry-run`) only says so; an ordinary run asks before uv downloads it.
 
-Then the bootstrap downloads the plugin archive from the fixed legion repository, or uses the local checkout, and runs `legion --home <home> install` through `uv run` with the same options in a throwaway environment in the system temp folder, removed afterwards. With `-Uninstall` (with or without `-Purge`) it runs a copy of uv from there, so nothing under `.legion` is in use while it is deleted. `legion install` asks `Install legion for <tools> now? [y/N]`, including a PATH hint, so the first install can ask twice. A declined question prints `Nothing changed` and stops successfully. `-Yes` skips questions. `-Update` and `-Uninstall` skip the install question. `-Source` selects marketplace and catalog data; executable code always comes from the fixed legion repository or the local checkout. The POSIX bootstrap reuses uv on PATH, in `~/.legion/bin` or in `~/.local/bin`; without a terminal it changes nothing unless `--yes` (or `-y`) was supplied.
-
-On Windows, `legion` is a `.cmd` file, so unquoted `<`, `>`, `&` or `|` in an argument passed by another program break in `cmd.exe`; quote them.
+Then the bootstrap downloads the plugin archive from the fixed legion repository, or uses the local checkout, and runs `legion --home <home> install` through `uv run` with the same options in a throwaway environment in the system temp folder, removed afterwards. `legion install` asks `Install legion for <tools> now, and put the legion command on your PATH with uv? [y/N]`, so the first install can ask twice. It installs the legion command with `uv tool install "<plugin folder>[mcp]" --constraints <exported uv.lock> --reinstall` from the plugin copy each CLI has just installed, then, inside the same yes, runs `uv tool update-shell`, which puts uv's tool folder on your PATH by editing your shell profile or, on Windows, your user PATH (the dry run lists it); update never runs it. A repeat of the same version prints `skip: legion command <version> (already done)` and offers the PATH repair if needed. A declined question prints `Nothing changed` and stops successfully. `-Yes` skips questions. `-Update` and `-Uninstall` skip the install question. `-Source` selects marketplace and catalog data; executable code always comes from the fixed legion repository or the local checkout. The POSIX bootstrap reuses uv on PATH or in `~/.local/bin`; without a terminal it changes nothing unless `--yes` (or `-y`) was supplied.
 
 By default, the script installs legion for every installed coding CLI, using the targets below. If none is installed, it says so and prints each CLI's install hint; add an account with `legion add <tool>`, which installs the CLI. Repeated runs skip completed steps and preserve hook approval.
 
@@ -34,6 +32,18 @@ Plain install and `-Update` select the same targets:
 - Update lists every target and asks one question, `Update legion? [y/N]`, for all of them, so one folder cannot be declined alone. `-Yes` skips that question; `-DryRun` only previews, reading listings and showing the commands it would run.
 - `legion update` has no `--tool` or `--config-dir` options and updates every listed target; use `-Update` with `-Tools` or `-ConfigDir` to update chosen targets. The one-liner for when `legion` is not available is in the [README](../README.md#update-and-uninstall). Run `legion` in the repository afterward to load the new skills.
 - Uninstall selects the same targets (see [Uninstall](#uninstall)).
+
+### Running sessions and the stop event
+
+Each `legion mcp` server and `legion run` wrapper registers its process id in its legion home's `.legion/run/` folder. An update stops legion processes registered under its own legion home only. A full uninstall uses the same stop event immediately after approval, before removing plugins, changing PATH or purging the knowledge hub.
+
+On Windows, an update with a registered ancestor refuses before changing any plugins or starting the stop event or uv. The ancestor keeps the tool files open. Close your Legion session, run `legion update` from a terminal, then reopen Legion. Update checks and dry runs are available from the session.
+
+Registered processes check for the stop file about once a second. A `legion run` wrapper ends the account's whole process tree by process id. The calling process and its ancestors are exempt. On macOS and Linux, an update asks you to restart the calling session if an ancestor is registered. Legion waits up to 30 seconds for the other registered processes to exit, even after they remove their registration files. It also removes stale registrations. If any process remains, legion lifts the stop file and asks you to close those sessions and run the command again. The uv step is skipped. A full uninstall also skips plugin, PATH and hub changes in this case.
+
+The detached Python helper waits up to 60 seconds for Legion to exit before running uv or purging folders. The command reports when it schedules the helper. The helper records uv's output, exit code and handover errors in `<home>/.legion/temp/uv-tool.log`. `legion status` flags failures recorded in the log. A wait timeout skips uv and folder deletion. The helper still removes the stop file and any temporary constraints. If the helper is interrupted, the stop file expires after ten minutes. On Windows, if uv reports locked files, close the sessions that have them open and retry from a separate terminal.
+
+`legion run` repeats the session id Codex reports as `legion: session id <id>` on stderr. The overseer can resume a stopped Codex member when that id is in the handoff. It reruns Claude and Copilot members, and Codex members without a recorded id, from the handoff's task file. See the [task loop](../plugins/legion/skills/legion-overseer/references/task-loop.md#legion-run-and-updates). On every platform, `legion setup` and `legion install` defer the uv install until after exit when running from the installed uv tool.
 
 ### Installer parameters
 
@@ -66,7 +76,7 @@ To adopt a signed-in account folder, run `legion add codex <existing folder>`. T
 
 ### Version checks and catalog revisions
 
-Overseer sessions check for a newer legion version once a day and show a notice when one is available. Say "check legion updates" for a fresh check, or "update legion" to see the update command and approve running it. Checks never install updates. Update checks always read the `plugin.json` on the `stable` branch, which moves only when a release is published, so a notice always means a published release. That holds for an install that follows `main` too: the notice compares with the latest release, not with `main`; `legion update` itself follows the marketplace track the install registered. The notice names `legion update`. Run `legion update --check --force` for a fresh check; `--force` refreshes `~/.legion/temp/update.json` and reports check failures.
+Overseer sessions check for a newer legion version once a day and show a notice when one is available. Say "check legion updates" for a fresh check, or "update legion" to start the update conversation. On Windows, the overseer asks you to run the update from a terminal after closing the session. On macOS and Linux, it can run the update after you approve. Checks never install updates. Update checks always read the `plugin.json` on the `stable` branch, which moves only when a release is published, so a notice always means a published release. That holds for an install that follows `main` too: the notice compares with the latest release, not with `main`; `legion update` itself follows the marketplace track the install registered. The notice names `legion update`. Run `legion update --check --force` for a fresh check; `--force` refreshes `~/.legion/temp/update.json` and reports check failures.
 
 ### Tools catalog
 
@@ -117,21 +127,21 @@ Codex hooks need one-time trust through `/hooks` in the selected account. Reinst
 
 Uninstall then install is an upgrade: your settings, notes and account folders stay in place. The one-liners are in the [README](../README.md#update-and-uninstall).
 
-Uninstall shows the commands it will run and the folders it will delete, then asks. Use `-Yes` to skip the prompt, `-DryRun` to preview, or `-Tools` and `-ConfigDir` to narrow targets (the selected installed CLIs' defaults and recorded account folders, or only `-ConfigDir` when supplied). It runs each CLI's own plugin uninstall and marketplace remove commands, skips what is already gone, and edits none of the CLI's settings, caches or data. With every CLI selected (no `-ConfigDir`) it also removes the legion entry from your PATH (on Windows, the user PATH entry legion added; on macOS and Linux, the `# Added by legion` block in the shell profile), then deletes `~/.legion/app`, `~/.legion/bin` and `~/.legion/python`. Your settings, notes, account folders, logins, repositories and the CLIs themselves stay. Removing an account keeps its config folder.
+Uninstall shows the commands it will run and the folders it will delete, then asks. Use `-Yes` to skip the prompt, `-DryRun` to preview, or `-Tools` and `-ConfigDir` to narrow targets (the selected installed CLIs' defaults and recorded account folders, or only `-ConfigDir` when supplied). It runs each CLI's own plugin uninstall and marketplace remove commands, skips what is already gone, and edits none of the CLI's settings, caches or data. With every CLI selected (no `-ConfigDir`) it stops legion processes in its own legion home before removing plugins (see [the stop event](#running-sessions-and-the-stop-event)). After legion exits, the helper removes the legion command with `uv tool uninstall legion`. uv itself stays, and so does the PATH entry `uv tool update-shell` made: it is uv's, not legion's. A plain uninstall deletes no folder of `~/.legion`. Your settings, notes, account folders, logins, repositories and the CLIs themselves stay. Removing an account keeps its config folder.
 
 Setup also puts the knowledge hub under git so a bad compile or a mistake can be undone: a new hub, or an existing hub that is not a repository, gets `git init`, a `.gitignore` with `.sessions/` and one first commit (a repeat prints `skip: knowledge hub git repository (already done)`; a hub that already is a repository is left alone). The commit uses your own git identity, or `legion` / `legion@localhost` for that repository only when none is set; the global config is never changed. Without git, setup prints one line and continues. `legion status` says when the hub is not a repository.
 
 When knowledge is enabled, uninstall also removes the llm-wiki plugin and marketplace from the selected accounts and keeps the hub and its pointer.
 
-Legion cannot delete the files it is running from, so a detached system shell (`cmd` with `rmdir /s /q` on Windows, `sh` with `rm -rf` elsewhere) deletes the folders just after legion exits; on Windows it retries for a short while until the files are free. It never follows a link: a linked folder is removed as the link only.
+If the bootstrap needs to download uv for uninstall, it keeps the verified executable in a separate system temp folder for the detached helper to use. The bootstrap removes its project environment and leaves the executable folder for system temp cleanup. The helper deletes approved purge folders when `uv tool uninstall legion` succeeds or when the tool is already absent. If uv fails to launch or exits with an error, the helper retains those folders and the log. It closes the log before deleting its folder and retries locked files during deletion on Windows. A directory link is removed without deleting its target.
 
-For a full removal, run `legion uninstall --purge` or the bootstrap with `-Uninstall -Purge` (`--uninstall --purge`). Purge runs uninstall first, then deletes all of `~/.legion`: settings, notes, account folders, legion-made logins, commands and the footprint index. If a knowledge hub exists in `~/.legion/knowledge`, purge asks about it in its own question, and `-Yes` does not answer it; without a yes the hub stays. Purge always covers every CLI: it is refused with `-ConfigDir` or a `-Tools` list that leaves out any catalog tool. `-Yes` answers the first question; `-DryRun` lists the plan and removes nothing. The CLIs' own files, repositories (including their `.legion` folders) and other tool settings stay.
+For a full removal, run `legion uninstall --purge` or the bootstrap with `-Uninstall -Purge` (`--uninstall --purge`). Purge runs uninstall first, then deletes all of `~/.legion`: settings, notes, account folders, legion-made logins and the footprint index, and the user PATH entries recorded for the portable tools legion installed. If a knowledge hub exists in `~/.legion/knowledge`, purge asks about it in its own question, and `-Yes` does not answer it; without a yes the hub stays. Purge always covers every CLI: it is refused with `-ConfigDir` or a `-Tools` list that leaves out any catalog tool. `-Yes` answers the first question; `-DryRun` lists the plan and removes nothing. The CLIs' own files, repositories (including their `.legion` folders) and other tool settings stay.
 
 ## First run
 
-Owner files are `~/.legion/configuration/personalisation.json` and `configuration/notes.md`; the update cache is `temp/update.json`, tool downloads use a throwaway `temp/install-*` folder, and every account starts through the legion app environment.
+Owner files are `~/.legion/configuration/personalisation.json` and `configuration/notes.md`; the update cache is `temp/update.json`, tool downloads use a throwaway `temp/install-*` folder, `run/` holds the running sessions' registrations and the stop file, and every account starts through `legion run`, which belongs to the uv tool.
 
-The footprint index is `~/.legion/footprints.json`. It records what legion needs to find again: the PATH entry it added, the app versions it installed, and the command files and folders of accounts. Setup and refresh rewrite command files with a "Generated by legion" header in full, replacing hand-added text. A headerless file is kept.
+The footprint index is `~/.legion/footprints.json`. It records what legion needs to find again: the user PATH entries of the portable tools it installed, and the folders of accounts.
 
 After installing legion, ask any tool to add accounts, or run setup from a clone or installed plugin folder:
 
@@ -146,8 +156,7 @@ Plan (nothing changed yet):
   create   settings and notes in ~/.legion/configuration
   add      claude1 (claude) new folder ~/.legion/agents/claude1
   install  legion into ~/.legion/agents/claude1
-  commands write legion in ~/.legion/bin
-  path     add ~/.legion/bin to your user PATH
+  command  install the legion command with uv, then run uv tool update-shell, which puts it on your PATH (your shell profile or user PATH)
 Run again with --yes to apply.
 ```
 
@@ -156,14 +165,13 @@ After approving the plan (an interactive terminal asks `Apply? [Y/n]`), run it a
 - `~/.legion/configuration/personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/legion/schemas/personalisation.schema.json`. It never holds tokens.
 - `~/.legion/configuration/notes.md`: free-form preferences and lessons.
 
-For every Claude account, setup also adds the permission rule `Bash(LEGION_ROLE=member *)` to its `settings.json`, so the overseer can start legion members without a prompt; other settings and rules stay. It also writes the `legion` command (`legion` and `legion.cmd` on Windows). After the same yes, setup and the installer add `~/.legion/bin` to your user PATH on Windows. On macOS and Linux they append `# Added by legion` and `export PATH="$HOME/.legion/bin:$PATH"` once to the shell profile selected by `$SHELL`: `~/.zshrc` for zsh, `~/.bashrc` for bash, otherwise `~/.profile`. The plan shows the profile change before consent; a repeat skips it. Legion records only what it adds: a PATH entry, profile line or permission rule you already had stays yours. Purge removes the recorded line and its marker, preserving the rest of the file. Open a new terminal if needed.
+For every Claude account, setup also adds the permission rule `Bash(LEGION_ROLE=member *)` to its `settings.json`, so the overseer can start legion members without a prompt; other settings and rules stay. It also installs the `legion` command as a uv tool (`uv tool install`, from the plugin copy, pinned to the plugin's `uv.lock`). Inside the same yes, setup and the installer run `uv tool update-shell`, which edits your shell profile or, on Windows, your user PATH so the tool folder is on PATH; the plan shows that line before consent and a dry run lists it. If the tool is already installed and its folder is missing from PATH, `legion status` reports it and setup offers to run just `uv tool update-shell` for the command. On Windows this checks the saved user and machine PATH. On macOS and Linux it checks the shell's current PATH. Without a yes nothing is installed or edited. Legion records only what it adds itself: a permission rule you already had stays yours. Open a new terminal if needed.
 
 Run `legion status` before making changes. Before setup, outside an orchestrated repository, status prints:
 
 ```text
 no legion settings yet
-path ~/.legion/bin on PATH: no
-commands: missing legion
+knowledge: off (not asked)
 repo none
 ```
 
@@ -179,14 +187,14 @@ These are the main commands; `legion help` lists all of them:
 | `legion setup --knowledge/--no-knowledge` | Turn llm-wiki on or decline it. Turning it off after an opt-in removes the wiki plugin and marketplace from every account and keeps the hub and its pointer. If knowledge was never enabled, a decline leaves manual installs in place. Add `--yes` to also apply the Legion setup plan. |
 | `legion add <tool> [<folder>] [--yes]` | Add a claude, codex or copilot account, using a new or existing folder |
 | `legion remove --id <id>` | Remove an account; keep its folder |
-| `legion status` | Show accounts, commands, channels and this repository |
+| `legion status` | Show accounts, channels, knowledge and this repository |
 | `legion [--no-channel]` | Start the overseer here, set up if needed; resumes the last conversation (see [launcher defaults](../plugins/legion/skills/legion-personalisation/references/launcher.md)) |
 | `legion pick [--no-channel]` | Choose which account leads the overseer |
 | `legion limits [--id <id>]` | Show each account's usage windows (how much is left in %, reset time, status; JSON has `used` and `left`), or one account's; `unknown` when the tool gives no readout |
 | `legion lease take\|status\|release` | Take, check or release this repository's overseer lease; the overseer skill runs it |
-| `legion update [--yes]` | Update every listed target along the registered marketplace track (release or `main`); one question covers them all, `--yes` skips it |
+| `legion update [--yes]` | Update every listed target along the registered marketplace track (release or `main`). One question covers them all, and `--yes` skips it. On Windows, run from a terminal after closing the Legion session. Registered processes are stopped before the helper replaces the command with `uv tool install` |
 | `legion update --check [--force]` | Check for a newer release; `--force` refreshes the cached result |
-| `legion uninstall [--purge] [--yes]` | Remove legion; purge also removes settings, notes and legion-made logins |
+| `legion uninstall [--purge] [--yes]` | Remove legion (running sessions are stopped first); purge also removes settings, notes and legion-made logins |
 | `legion help` | Show this list |
 
 The owner command also accepts these account, channel and repository verbs:
@@ -251,8 +259,8 @@ To opt out, leave legion unused. To limit its use, route legion only to accounts
 | What | Where | Git history |
 | --- | --- | --- |
 | Personalisation and notes | `~/.legion/configuration/` | no |
-| `legion` | `~/.legion/bin/` | no |
-| The app `legion` runs (a copy of the plugin per version, run through uv; each version's environment is `~/.legion/python/env-<hash>`) | `~/.legion/app/<version>/` | no |
+| The `legion` command (a uv tool; its folder is `uv tool dir`, the command in `uv tool dir --bin`) | uv's folders | no |
+| Running legion sessions and the stop file | `~/.legion/run/` | no |
 | New account config folders (adopted folders keep their names) | `~/.legion/agents/<id>/` | no |
 | Portable prerequisite tools | `~/.legion/tools/<tool>/` | no |
 | Cross-project knowledge wiki (optional, llm-wiki) | `~/.legion/knowledge/` | no |

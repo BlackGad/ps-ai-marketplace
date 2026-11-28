@@ -31,7 +31,6 @@ from legion.core._process import process_started_at
 from legion.core._run import RunResult
 from legion.mcp import server as mcp_server
 from legion.mcp.server import build
-from legion.services.installation import _installed_runtime
 from legion.services.limits.limit_probes import _ping
 
 pytest_plugins = ["status_parity"]
@@ -470,29 +469,3 @@ def test_mcp_command_without_extra_says_run_setup(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(builtins, "__import__", missing)
     assert run(["mcp"]) == 1
     assert capsys.readouterr().err == "MCP dependencies are missing; run legion setup.\n"
-
-
-def test_installed_command_discovers_offline_without_uv(bench: Bench, monkeypatch: pytest.MonkeyPatch) -> None:
-    app = bench.home / ".legion/app/1.0.0"
-    app.mkdir(parents=True)
-    environment = _installed_runtime.python_environment(app, bench.home)
-    relative = "Scripts/legion.exe" if sys.platform == "win32" else "bin/legion"
-    program = environment / relative
-    program.parent.mkdir(parents=True)
-    development_program = Path(sys.executable).with_name("legion.exe" if sys.platform == "win32" else "legion")
-    shutil.copy2(development_program, program)
-    _installed_runtime.write_owner_commands(app, bench.home)
-    only_on_path(monkeypatch, bench.home / ".legion/bin")
-    assert shutil.which("uv") is None
-
-    async def check() -> None:
-        params = StdioServerParameters(command="legion", args=["mcp"], env=dict(os.environ))
-        async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
-            await session.initialize()
-            assert {tool.name for tool in (await session.list_tools()).tools} == {"status", "limits"}
-            result = await session.call_tool("status", {})
-            assert not result.isError
-            assert result.structuredContent is not None
-            assert result.structuredContent["settings"]["state"] == "ok"
-
-    anyio.run(check)

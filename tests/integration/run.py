@@ -1,4 +1,9 @@
-"""CI-only end-to-end checks against disposable homes and public Legion commands."""
+"""
+End-to-end checks against disposable homes and public Legion commands.
+
+On Windows with uv and the three coding CLIs on PATH, set CI=true and PYTHONUTF8=1, then run
+python tests/integration/run.py --home-root <new-temp-dir>/home --out <results>.
+"""
 
 import argparse
 import hashlib
@@ -24,6 +29,7 @@ from typing import Any
 
 
 TOOLS = ("claude", "codex", "copilot")
+SETUP_ACCOUNTS = {tool: f"ci-{tool}" for tool in TOOLS}
 MARKETPLACE = "BlackGad/ps-legion-marketplace"
 WIKI_MARKETPLACE = "llm-wiki"
 WIKI_PLUGIN = "wiki@llm-wiki"
@@ -310,13 +316,19 @@ def windows_saved_path_folders() -> list[Path]:
 
 
 class Runner:
-    def __init__(self, checkout: Path, home: Path, out: Path, fallback: bool) -> None:
+    def __init__(self, checkout: Path, home: Path, out: Path, fallback: bool, *, uv: str | None = None, client_path: str | None = None) -> None:
         self.checkout, self.home, self.out, self.fallback = checkout, home, out, fallback
         self.work = home.parent / "legion-work"
         self.work.mkdir(parents=True, exist_ok=True)
         self.home.mkdir(parents=True, exist_ok=True)
-        self.owned_uv = self.home / ".legion/bin" / ("uv.exe" if WINDOWS else "uv")
-        self.runner_uv = self.work / self.owned_uv.name
+        self.uv = self.home / ".local/bin" / ("uv.exe" if WINDOWS else "uv")
+        self.uv.parent.mkdir(parents=True, exist_ok=True)
+        if not self.uv.is_file():
+            source = uv or shutil.which("uv")
+            if source is None:
+                raise AssertionError("uv is required on PATH")
+            shutil.copy2(source, self.uv)
+        self.tool_dir = self.home / "uv-tools"
         self.catalog = {entry["id"]: entry for entry in json.loads((checkout / "plugins/legion/tools.json").read_text(encoding="utf-8"))["tools"]}
         self.targets: dict[str, tuple[str, str]] = {}
         self.not_tested: dict[str, str] = {}
@@ -324,6 +336,8 @@ class Runner:
         self.state: dict[str, Any] = {}
         self.log: list[str] = []
         self.env = os.environ.copy()
+        for name in ("LEGION_ROLE", "LEGION_TASK", "UV_INSTALL_DIR", "XDG_BIN_HOME"):
+            self.env.pop(name, None)
         temp = self.work / "temp"
         temp.mkdir(exist_ok=True)
         self.env.update(
@@ -332,13 +346,19 @@ class Runner:
                 "USERPROFILE": str(home),
                 "NO_COLOR": "1",
                 "LEGION_TEST_USER_PATH_FILE": str(self.work / "user-path.txt"),
-                "UV_CACHE_DIR": str(self.work / "uv-cache"),
+                "PSModuleAnalysisCachePath": str(self.work / "ps-module-cache"),
+                "UV_TOOL_DIR": str(self.tool_dir),
+                "UV_TOOL_BIN_DIR": str(self.uv.parent),
+                "UV_CACHE_DIR": str(self.home / "uv-cache"),
+                "UV_PYTHON_DOWNLOADS": "never",
                 "TMP": str(temp),
                 "TEMP": str(temp),
                 "TMPDIR": str(temp),
             }
         )
-        self.base_path = self.env["PATH"]
+        self.client_path = client_path if client_path is not None else self.env["PATH"]
+        self.base_path = self.uv_path(self.client_path)
+        self.env["PATH"] = self.base_path
         (self.work / "user-path.txt").touch(exist_ok=True)
         for tool in TOOLS:
             self.env[self.catalog[tool]["configEnv"]] = str(self.folder(tool))
@@ -347,18 +367,29 @@ class Runner:
         value = self.catalog[tool]["plugin"]["defaultConfigDir"]
         return self.home / value[2:] if value.startswith("~/") else Path(value)
 
+    def uv_path(self, path: str) -> str:
+        return os.pathsep.join((str(self.uv.parent), path))
+
+    def nested(self, checkout: Path, home: Path) -> "Runner":
+        # Native clients such as Claude can install beside the parent's uv.
+        client_folders = [str(Path(command).parent) for _, command in self.versions.values()]
+        client_path = os.pathsep.join((*dict.fromkeys(client_folders), self.client_path))
+        runner = Runner(checkout, home, self.out, False, uv=str(self.uv), client_path=client_path)
+        runner.log = self.log
+        return runner
+
     def command(self, name: str) -> str:
         path = shutil.which(name, path=self.env["PATH"])
         if path:
             return path
-        candidates = [self.home / ".local/bin", self.home / ".legion/bin"]
+        candidates = []
         if sys.platform == "win32":
-            candidates += [Path(folder) for folder in (self.work / "user-path.txt").read_text(encoding="utf-8").split(";") if folder]
             candidates += windows_saved_path_folders()
         for folder in candidates:
             if folder.is_dir():
                 if str(folder) not in self.base_path.split(os.pathsep):
                     self.base_path += os.pathsep + str(folder)
+                    self.client_path += os.pathsep + str(folder)
                 if str(folder) not in self.env["PATH"].split(os.pathsep):
                     self.env["PATH"] += os.pathsep + str(folder)
         path = shutil.which(name, path=self.env["PATH"])
@@ -377,23 +408,33 @@ class Runner:
 
     def legion(self, *args: str, owner: bool = False, answers: str | None = None) -> str:
         if owner:
-            return self.run([str(self.launcher("legion")), *args], answers=answers)
-        uv = str(self.runner_uv) if self.runner_uv.is_file() else self.command("uv")
+            return self.run([str(self.legion_executable()), *args], answers=answers)
         env = self.env.copy()
         env["UV_PROJECT_ENVIRONMENT"] = str(self.work / "python-env")
-        return self.run([uv, "run", "--project", str(self.checkout / "plugins/legion"), "--frozen", "--quiet", "legion", "--home", str(self.home), *args], env=env, answers=answers)
+        return self.run([str(self.uv), "run", "--project", str(self.checkout / "plugins/legion"), "--frozen", "--quiet", "legion", "--home", str(self.home), *args], env=env, answers=answers)
 
-    def launcher(self, name: str) -> Path:
-        return self.home / ".legion/bin" / (name + ".cmd" if sys.platform == "win32" else name)
+    def legion_executable(self) -> Path:
+        folder = Path(self.run([str(self.uv), "tool", "dir", "--bin"]))
+        require(folder.resolve() == self.uv.parent.resolve(), f"uv tool bin is outside the fixture: {folder}")
+        return folder / ("legion.exe" if WINDOWS else "legion")
+
+    def tool_version(self) -> str | None:
+        output = self.run([str(self.uv), "tool", "list"])
+        match = re.search(r"^legion v(\S+)", output, re.MULTILINE)
+        return match[1] if match else None
+
+    def check_tool(self, version: str) -> None:
+        require(self.tool_version() == version, f"uv does not list legion {version}")
+        require(self.legion("--version", owner=True) == f"legion {version}", f"the uv executable did not run legion {version}")
+
+    def check_tool_removed(self) -> None:
+        wait_gone(self.legion_executable(), self.tool_dir / "legion")
+        require(self.tool_version() is None, "uv still lists legion after uninstall")
+        self.run([str(self.uv), "--version"])
 
     # An account starts through the owner command; legion writes no per-account launcher.
     def account_run(self, account: str, *args: str) -> str:
         return self.legion("run", "--account", account, "--", *args, owner=True)
-
-    # The per-account launchers an older legion wrote: <id>, and <id>.cmd beside it on Windows.
-    def old_launchers(self, account: str) -> list[Path]:
-        path = self.launcher(account)
-        return [path, path.with_suffix("")] if sys.platform == "win32" else [path]
 
     def cli(self, tool: str, args: list[str], folder: Path | None = None) -> str:
         entry = self.catalog[tool]
@@ -409,25 +450,27 @@ class Runner:
         args = self.catalog[tool]["plugin"]["marketplaceList" if kind == "marketplace" else "list"]
         return self.cli(tool, args, folder)
 
-    def version(self, tool: str, folder: Path) -> str | None:
-        # Hand-built, reason: read installed public manifests without the removed installer helper.
+    def plugin_manifests(self, tool: str, folder: Path) -> list[Path]:
         entry = self.catalog[tool]
         root = entry["plugin"].get("installedRoot")
-        files = list((folder / root).rglob("plugin.json")) if root and (folder / root).exists() else []
+        files = [path for path in (folder / root).rglob("plugin.json") if path.parent.name not in (".claude-plugin", ".codex-plugin")] if root else []
         if tool == "copilot":
             try:
                 settings = json.loads((folder / "settings.json").read_text(encoding="utf-8"))
                 marketplace = settings["extraKnownMarketplaces"]["ps-legion-marketplace"]
                 if settings["enabledPlugins"].get("legion@ps-legion-marketplace") is not True:
-                    return None
+                    return []
                 if marketplace["source"]["source"] == "directory":
                     source = marketplace["source"]["path"]
                     manifest = json.loads((Path(source) / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
                     files = [Path(source) / plugin["source"] / "plugin.json" for plugin in manifest["plugins"] if plugin["name"] == "legion"]
             except (OSError, KeyError, ValueError):
                 pass
+        return files
+
+    def version(self, tool: str, folder: Path) -> str | None:
         versions = []
-        for file in files:
+        for file in self.plugin_manifests(tool, folder):
             try:
                 data = json.loads(file.read_text(encoding="utf-8-sig"))
                 if data.get("name") == "legion":
@@ -437,7 +480,8 @@ class Runner:
         return max(versions, key=lambda value: tuple(int(part) for part in value.split(".")[:3]), default=None)
 
     def installed_source_matches(self, tool: str, folder: Path) -> bool:
-        expected = (self.checkout / "plugins/legion/src/legion/services/installation/_installed_runtime.py").read_bytes()
+        hook = "hooks/session_start.py"
+        expected = (self.checkout / "plugins/legion" / hook).read_bytes()
         if tool == "copilot":
             try:
                 settings = json.loads((folder / "settings.json").read_text(encoding="utf-8"))
@@ -456,7 +500,7 @@ class Runner:
                 continue
             try:
                 if json.loads(manifest.read_text(encoding="utf-8-sig")).get("name") == "legion":
-                    files.append(manifest.parent / "src/legion/services/installation/_installed_runtime.py")
+                    files.append(manifest.parent / hook)
             except (OSError, ValueError):
                 continue
         return bool(files) and all(path.is_file() and path.read_bytes() == expected for path in files)
@@ -525,14 +569,12 @@ class Runner:
 
     def bootstrap(self, repeat: bool) -> str:
         if sys.platform == "win32":
-            output = self.run(["powershell.exe", "-NoProfile", "-File", str(self.checkout / "install.ps1"), "-Yes", "-HomeRoot", str(self.home)])
+            output = self.run(["powershell.exe", "-NoProfile", "-File", str(self.checkout / "install.ps1"), "-DryRun", "-HomeRoot", str(self.home)])
         else:
-            output = self.run(["sh", str(self.checkout / "install.sh"), "--yes"])
+            output = self.run(["sh", str(self.checkout / "install.sh"), "--dry-run"])
         contains(output, "skip: uv (already done)")
-        require(self.owned_uv.is_file(), f"bootstrap did not install uv at {self.owned_uv}")
-        if not repeat:
-            shutil.copy2(self.owned_uv, self.runner_uv)
-        return output + "\n" + self.run([str(self.owned_uv), "--version"])
+        require(self.tool_version() is None, "bootstrap preview populated the fresh uv tool fixture")
+        return output + "\n" + self.run([str(self.uv), "--version"])
 
     def install_legion(self, tool: str) -> str:
         source, ref = self.targets.get(tool, (str(self.checkout), "release"))
@@ -573,6 +615,7 @@ class Runner:
         require(not errors, "\n".join(errors))
         require(bool(self.active()), "; ".join(self.not_tested.values()))
         expected = json.loads((self.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
+        self.check_tool(expected)
         for tool in self.active():
             if not self.listing(tool, self.folder(tool)):
                 shown = "\n".join(self.listing_output(tool, self.folder(tool)).splitlines()[:20])
@@ -588,7 +631,7 @@ class Runner:
 
     def check_codex_mcp(self) -> None:
         """The installed plugin must bring a connected legion MCP server that Codex lists, asked without login or model turn."""
-        self.command("legion")
+        require(self.legion_executable().is_file(), "the uv executable is missing")
         # The app-server starts a background clone of Codex's curated marketplace, and Codex has no setting to stop it,
         # so the probe works on a throwaway copy and nothing it writes reaches the snapshotted home.
         probe_home = Path(tempfile.mkdtemp(prefix="codex-probe-home-", dir=self.work))
@@ -603,7 +646,7 @@ class Runner:
 
     def install_repeat(self) -> str:
         lines = "\n".join(self.install_legion(tool) for tool in self.active())
-        contains(lines, "skip:")
+        contains(lines, f"skip: legion command {self.tool_version()} (already done)")
         unchanged(self.state["snapshot"], self.home_snapshot())
         return lines
 
@@ -638,83 +681,93 @@ class Runner:
             unchanged(self.state["update_snapshot"], self.home_snapshot(update=True))
         else:
             self.state["update_snapshot"] = self.home_snapshot(update=True)
+        self.check_tool(expected)
         return output
 
-    def latest_release(self, remote: str) -> tuple[int, int, int]:
-        output = self.run(["git", "ls-remote", "--tags", "--refs", remote, "v*"])
-        versions = []
-        component = r"(0|[1-9][0-9]*)"
-        for line in output.splitlines():
-            ref = line.partition("\t")[2]
-            match = re.fullmatch(rf"refs/tags/v{component}\.{component}\.{component}", ref)
-            if match:
-                versions.append((int(match[1]), int(match[2]), int(match[3])))
-        require(bool(versions), f"No published release tags matching v<major>.<minor>.<patch> at {remote}")
-        return max(versions)
-
-    def stage_candidate(self, release: Path, release_version: tuple[int, int, int]) -> str:
-        # Replace the tree but keep the release as the parent so host updates can fast-forward.
-        # Stage the checkout's committed HEAD only, excluding uncommitted edits.
-        git = ["git", "-C", str(release)]
-        self.run([*git, "fetch", "--quiet", "--update-shallow", str(self.checkout), "HEAD"])
-        self.run([*git, "read-tree", "--reset", "-u", "FETCH_HEAD"])
+    def stage_candidate(self, release: Path, current: str, pin: str) -> str:
         plugin = release / "plugins/legion"
-        manifest = json.loads((plugin / "plugin.json").read_text(encoding="utf-8"))
-        checkout_major, checkout_minor, checkout_patch = map(int, re.split(r"[-+]", manifest["version"], maxsplit=1)[0].split("."))
-        major, minor, patch = max((checkout_major, checkout_minor, checkout_patch), release_version)
+        major, minor, patch = map(int, re.split(r"[-+]", current, maxsplit=1)[0].split("."))
         version = f"{major}.{minor}.{patch + 1}"
         for name in ("plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
             path = plugin / name
             document = json.loads(path.read_text(encoding="utf-8"))
             document["version"] = version
             path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        self.run([str(self.uv), "lock", "--project", str(plugin), "--upgrade-package", f"click<{pin}"])
+        git = ["git", "-C", str(release)]
         self.run([*git, "add", "--", str(plugin)])
-        self.run([*git, "-c", "user.name=Integration fixture", "-c", "user.email=integration@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Stage candidate"])
+        identity = ["-c", "user.name=Integration fixture", "-c", "user.email=integration@example.invalid"]
+        self.run([*git, *identity, "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "--quiet", "-m", "Stage candidate"])
         return version
 
-    def update_from_release(self, repeat: bool) -> None:
-        root = self.work / ("p3-repeat" if repeat else "p3")
+    def click_pin(self) -> str:
+        lock = tomllib.loads((self.checkout / "plugins/legion/uv.lock").read_text(encoding="utf-8"))
+        return next(package["version"] for package in lock["package"] if package["name"] == "click")
+
+    def installed_click(self) -> str:
+        python = self.tool_dir / ("legion/Scripts/python.exe" if WINDOWS else "legion/bin/python")
+        return self.run([str(python), "-I", "-c", "from importlib.metadata import version; print(version('click'))"])
+
+    def wait_tool_version(self, version: str) -> None:
+        deadline = time.monotonic() + 90
+        stop = self.home / ".legion/run/stop"
+        receipt = self.tool_dir / "legion/uv-receipt.toml"
+        while stop.exists() or self.tool_version() != version or not self.legion_executable().is_file() or not receipt.is_file():
+            require(time.monotonic() < deadline, f"the detached uv install did not complete for legion {version}")
+            time.sleep(0.5)
+
+    def update_uv_tool(self, repeat: bool) -> None:
+        if repeat:
+            upgrade, version = self.state["uv_upgrade"]
+            upgrade.log = self.log
+            upgrade.repeat_uv_update_and_purge(version)
+            return
+        root = self.work / "p3"
         release = root / "release"
         remote = f"https://github.com/{MARKETPLACE}"
-        release_version = self.latest_release(remote)
-        published = ".".join(map(str, release_version))
         root.mkdir()
-        self.run(["git", "clone", "--quiet", "--depth", "1", "--branch", f"v{published}", "--config", "core.longpaths=true", remote, str(release)])
+        self.run(["git", "clone", "--quiet", "--no-local", "--depth", "1", "--config", "core.longpaths=true", str(self.checkout), str(release)])
         git = ["git", "-C", str(release)]
-        self.run([*git, "branch", "stable"])
-        upgrade = Runner(release, root / "home", self.out, False)
-        upgrade.log = self.log
+        self.run([*git, "switch", "--quiet", "-C", "stable"])
+        upgrade = self.nested(release, root / "home")
+        current = json.loads((release / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
+        pin = upgrade.click_pin()
         # Host marketplace commands use both Git URL spellings.
         rewrite = f"url.{release.resolve().as_uri()}.insteadOf"
         upgrade.env.update(
             {
-                "PATH": os.pathsep.join((str(upgrade.launcher("legion").parent), self.env["PATH"])),
-                "GIT_CONFIG_COUNT": "2",
+                "GIT_CONFIG_COUNT": "3",
                 "GIT_CONFIG_KEY_0": rewrite,
                 "GIT_CONFIG_VALUE_0": remote + ".git",
                 "GIT_CONFIG_KEY_1": rewrite,
                 "GIT_CONFIG_VALUE_1": remote,
+                "GIT_CONFIG_KEY_2": "core.longpaths",
+                "GIT_CONFIG_VALUE_2": "true",
             }
         )
-        for name in ("LEGION_ROLE", "LEGION_TASK"):
-            upgrade.env.pop(name, None)
         for tool in TOOLS:
-            upgrade.targets[tool] = (MARKETPLACE, "release")
+            # Copilot fetches GitHub marketplaces itself. Its live directory marketplace uses the fixture directly.
+            source = str(release) if tool == "copilot" else MARKETPLACE
+            upgrade.targets[tool] = (source, "release")
             upgrade.install_legion(tool)
-            require(upgrade.version(tool, upgrade.folder(tool)) == published, f"{tool} did not install {published}")
-        require(upgrade.legion("--version", owner=True) == f"legion {published}", f"owner shim did not run release {published}")
+            require(upgrade.version(tool, upgrade.folder(tool)) == current, f"{tool} did not install {current}")
+        upgrade.check_tool(current)
+        require(upgrade.installed_click() == pin, f"legion {current} did not install Click {pin}")
 
-        version = self.stage_candidate(release, release_version)
-        self.run([*git, "update-ref", "refs/heads/stable", "HEAD"])
-        upgrade.legion("update", "--yes", owner=True)
+        version = upgrade.stage_candidate(release, current, pin)
+        updated_pin = upgrade.click_pin()
+        require(updated_pin != pin, f"candidate {version} still locks Click {pin}")
+        output = upgrade.legion("update", "--yes", owner=True)
+        contains(output, f"legion {current} -> {version}")
         for tool in TOOLS:
             require(upgrade.version(tool, upgrade.folder(tool)) == version, f"{tool} did not update to {version}")
-        require(upgrade.legion("--version", owner=True) == f"legion {version}", "owner shim did not run the candidate app")
+        upgrade.wait_tool_version(version)
+        upgrade.check_tool(version)
+        require(upgrade.installed_click() == updated_pin, f"legion {version} did not install Click {updated_pin}")
         status = json.loads(upgrade.legion("status", "--json", owner=True))
         require(Path(status["settings"]["path"]).resolve() == (upgrade.home / ".legion/configuration/personalisation.json").resolve(), "status used the wrong home")
 
-        # Run the client from a separate environment with the explicit MCP extra. Only the
-        # server runs through the installed release's shim.
+        # Run the MCP client in the original checkout's project environment.
         client = """
 import asyncio
 import json
@@ -738,27 +791,47 @@ async def main():
 asyncio.run(main())
 """
         mcp = upgrade.run(
-            [self.command("uv"), "run", "--project", str(self.checkout / "plugins/legion"), "--frozen", "--extra", "mcp", "--quiet", "python", "-c", client, str(upgrade.launcher("legion"))],
-            env={**upgrade.env, "UV_PROJECT_ENVIRONMENT": str(self.work / "python-env")},
+            [str(upgrade.uv), "run", "--project", str(self.checkout / "plugins/legion"), "--frozen", "--extra", "mcp", "--quiet", "python", "-c", client, str(upgrade.legion_executable())],
+            env={**upgrade.env, "UV_PROJECT_ENVIRONMENT": str(upgrade.work / "mcp-client-env")},
         )
         require(json.loads(mcp) == status, "MCP status differs from CLI status")
+        upgrade.check_codex_mcp()
 
-        hook = upgrade.home / ".legion/app" / version / "hooks/session_start.py"
         hook_env = {**upgrade.env, "LEGION_ROLE": "member", "LEGION_TASK": "upgrade-fixture"}
-        reply = upgrade.run([sys.executable, "-I", "-S", "-B", str(hook), "--format", "context-json"], env=hook_env)
-        contains(json.loads(reply)["additionalContext"], "you are a legion member")
-
-        upgrade.legion("uninstall", "--purge", "--yes", owner=True)
-        wait_gone(upgrade.home / ".legion")
-        require(upgrade.profile_count() == 0, "upgrade left a PATH entry in a shell profile")
-        require(not (upgrade.work / "user-path.txt").read_text(encoding="utf-8").strip(), "upgrade left a saved user PATH entry")
         for tool in TOOLS:
-            folder = upgrade.folder(tool)
-            upgrade.check_uninstalled(tool, folder)
-            require(not upgrade.listing(tool, folder, "marketplace"), f"{tool} marketplace remains")
+            manifests = upgrade.plugin_manifests(tool, upgrade.folder(tool))
+            candidates = [path for path in manifests if json.loads(path.read_text(encoding="utf-8-sig")).get("version") == version]
+            require(bool(candidates), f"no {tool} candidate plugin manifest for the hook check")
+            hook = candidates[0].parent / "hooks/session_start.py"
+            reply = upgrade.run([sys.executable, "-I", "-S", "-B", str(hook), "--format", "context-json"], env=hook_env)
+            contains(json.loads(reply)["additionalContext"], "you are a legion member")
+
+        self.state["uv_upgrade"] = (upgrade, version)
+
+    def uv_tool_snapshot(self) -> dict[str, str]:
+        # Bytecode caches may be populated by Python on the repeat. Receipt and launcher timestamps detect a reinstall.
+        state = snapshot(self.tool_dir, [r"(.*/)?__pycache__(/.*)?"])
+        state["receipt timestamp"] = str((self.tool_dir / "legion/uv-receipt.toml").stat().st_mtime_ns)
+        state["launcher timestamp"] = str(self.legion_executable().stat().st_mtime_ns)
+        return state
+
+    def repeat_uv_update_and_purge(self, version: str) -> None:
+        before = self.uv_tool_snapshot()
+        output = self.legion("update", "--yes", owner=True)
+        contains(output, f"skip: legion command {version} (already done)")
+        unchanged(before, self.uv_tool_snapshot())
+        require(not (self.home / ".legion/run/stop").exists(), "the repeat started a detached replacement")
+
+        self.legion("uninstall", "--purge", "--yes", owner=True)
+        wait_gone(self.home / ".legion")
+        self.check_tool_removed()
+        for tool in TOOLS:
+            folder = self.folder(tool)
+            self.check_uninstalled(tool, folder)
+            require(not self.listing(tool, folder, "marketplace"), f"{tool} marketplace remains")
 
     def setup_accounts(self) -> str:
-        return "\n".join(self.legion("add", tool, "--id", f"{tool}1", "--source", self.targets[tool][0], "--yes") for tool in self.active())
+        return "\n".join(self.legion("add", tool, "--id", SETUP_ACCOUNTS[tool], "--source", self.targets[tool][0], "--yes") for tool in self.active())
 
     def check_accounts(self, agents: list[dict[str, Any]]) -> None:
         expected = json.loads((self.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
@@ -772,21 +845,16 @@ asyncio.run(main())
         require((settings_path.parent / "notes.md").is_file(), "notes.md missing")
         agents = self.settings()["agents"]
         for tool in self.active():
-            require(f"{tool}1" in [agent["id"] for agent in agents], f"{tool}1 missing")
-            folder = self.resolve_folder(next(agent["configDir"] for agent in agents if agent["id"] == f"{tool}1"))
+            account = SETUP_ACCOUNTS[tool]
+            require(account in [agent["id"] for agent in agents], f"{account} missing")
+            folder = self.resolve_folder(next(agent["configDir"] for agent in agents if agent["id"] == account))
             variable = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME", "copilot": "COPILOT_HOME"}[tool]
             start = f"$env:{variable}='{folder}'; {tool}" if sys.platform == "win32" else f"{variable}='{folder}' {tool}"
             contains(output, f"log in: {start}")
         self.check_accounts(agents)
-        require(any((self.home / ".legion/bin").iterdir()), "no owner commands")
         help_text = self.legion("--help", owner=True)
         for verb in ("inbox", "telegram", "validate", "setup", "status"):
             contains(help_text, f"  {verb} ")
-        contains(self.legion("status", owner=True), "commands: yes")
-        if sys.platform == "win32":
-            require(str(self.home / ".legion/bin") in (self.work / "user-path.txt").read_text(encoding="utf-8").split(";"), "owner bin missing from saved PATH")
-        else:
-            require(self.profile_count() == 1, "profile must have one legion line")
         self.state["snapshot"] = self.home_snapshot()
         return output + "\n" + help_text
 
@@ -795,9 +863,6 @@ asyncio.run(main())
         contains(output, "skip:")
         unchanged(self.state["snapshot"], self.home_snapshot())
         return output
-
-    def profile_count(self) -> int:
-        return sum((self.home / name).read_text(encoding="utf-8").splitlines().count("# Added by legion") for name in (".zshrc", ".bashrc", ".profile") if (self.home / name).exists())
 
     def add(self, repeat: bool) -> str:
         tool = self.active()[0]
@@ -873,7 +938,7 @@ asyncio.run(main())
 
     def channel_account(self) -> str | None:
         for agent in self.settings()["agents"]:
-            if agent["id"] in ("claude1", "codex1"):
+            if agent["id"] in (SETUP_ACCOUNTS["claude"], SETUP_ACCOUNTS["codex"]):
                 return agent["id"]
         require("claude" in self.not_tested and "codex" in self.not_tested, "no Claude or Codex setup account")
         return None
@@ -900,7 +965,7 @@ asyncio.run(main())
     @contextmanager
     def fake_az(self):
         old = self.env["PATH"]
-        self.env["PATH"] = str(self.checkout / "tests/fixtures/integration-az") + os.pathsep + old
+        self.env["PATH"] = self.uv_path(os.pathsep.join((str(self.checkout / "tests/fixtures/integration-az"), old.partition(os.pathsep)[2])))
         try:
             yield
         finally:
@@ -938,7 +1003,7 @@ asyncio.run(main())
             executable.write_text(f"#!/bin/sh\necho called > {shlex.quote(str(marker))}\nexit 97\n", encoding="utf-8")
             executable.chmod(0o755)
         kept = []
-        for folder in self.base_path.split(os.pathsep):
+        for folder in self.client_path.split(os.pathsep):
             if not folder:
                 continue
             path = Path(folder)
@@ -950,11 +1015,13 @@ asyncio.run(main())
                 )
             ):
                 kept.append(folder)
-        self.env["PATH"] = os.pathsep.join([str(trap), str(self.checkout / "tests/fixtures/integration-az"), *kept])
+        old = self.env["PATH"]
+        restore_base = old == self.base_path
+        self.env["PATH"] = self.uv_path(os.pathsep.join([str(trap), str(self.checkout / "tests/fixtures/integration-az"), *kept]))
         try:
             yield
         finally:
-            self.env["PATH"] = self.base_path
+            self.env["PATH"] = self.base_path if restore_base else old
             require(not marker.exists(), "a command called pwsh")
 
     def no_pwsh(self, repeat: bool) -> str:
@@ -990,7 +1057,6 @@ asyncio.run(main())
                     )
                     lines.append(self.foundry_launch())
                     lines.append(self.legion("remove", "--id", "ci-foundry", owner=True))
-            lines.append(self.legion("refresh", owner=True))
             return "\n".join(lines)
 
     def targets_for_uninstall(self, all_tools: bool = False) -> list[tuple[str, Path]]:
@@ -1007,25 +1073,27 @@ asyncio.run(main())
         require(not self.listing(tool, folder, include_disabled=True), f"{tool} still lists legion in {folder}")
         require(not self.listing(tool, folder, "marketplace"), f"{tool} marketplace remains in {folder}")
 
-    def account_ids(self) -> list[str]:
-        return [agent["id"] for agent in self.settings()["agents"] if agent["tool"] in self.active()]
-
-    def check_account_launch(self, run: bool = False) -> None:
-        for account in self.account_ids():
-            require(not any(os.path.lexists(path) for path in self.old_launchers(account)), f"launcher {account} remains")
-            if run:
-                self.account_run(account, "--version")
-
-    def write_old_launchers(self) -> None:
-        for account in self.account_ids():
-            for path in self.old_launchers(account):
-                cmd = path.suffix == ".cmd"
-                text = f"@rem Generated by legion: account {account}\r\n@exit /b 0\r\n" if cmd else f"#!/bin/sh\n# Generated by legion: account {account}\nexit 0\n"
-                path.write_text(text, encoding="utf-8", newline="")
+    def uninstall_scoped(self, repeat: bool) -> str:
+        target = self.active()[0]
+        folder = self.folder(target)
+        version = self.tool_version()
+        if version is None:
+            raise AssertionError("legion is missing from uv before scoped uninstall")
+        output = self.legion("uninstall", "--tool", target, "--config-dir", str(folder), "--yes", owner=True)
+        self.check_uninstalled(target, folder)
+        self.check_tool(version)
+        require((self.tool_dir / "legion").is_dir(), "scoped uninstall removed the uv environment")
+        for tool, other in self.targets_for_uninstall():
+            if (tool, other) != (target, folder):
+                require(self.listing(tool, other), f"scoped uninstall removed legion from {tool} in {other}")
+        if repeat:
+            contains(output, "skip: uninstall (already done)")
+        return output
 
     def uninstall(self, repeat: bool) -> str:
         targets = self.targets_for_uninstall() if not repeat else []
         output = self.legion("uninstall", "--yes", owner=not repeat)
+        self.check_tool_removed()
         if repeat:
             contains(output, "skip: uninstall (already done)")
             return output
@@ -1033,29 +1101,23 @@ asyncio.run(main())
             self.check_uninstalled(tool, folder)
         for tool in self.active():
             self.run([self.command(self.catalog[tool]["command"]), "--version"])
-        wait_gone(*(self.home / ".legion" / name for name in ("app", "bin", "python")))
-        self.check_account_launch()
         for name in ("configuration", "agents"):
             require((self.home / ".legion" / name).is_dir(), f"{name} removed")
         return output
 
-    # With old launchers, the install's refresh removes the ones legion wrote.
-    def reinstall(self, repeat: bool, old_launchers: bool = False) -> str:
-        if old_launchers and not repeat:
-            self.write_old_launchers()
-        elif not repeat:
-            # Reuse the bootstrap's uv download while preserving the per-tool install sources.
-            self.owned_uv.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(self.runner_uv, self.owned_uv)
+    def reinstall(self, repeat: bool) -> str:
         output = "\n".join(self.install_legion(tool) for tool in self.active())
+        expected = json.loads((self.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
+        self.check_tool(expected)
         if repeat:
-            contains(output, "skip:")
+            contains(output, f"skip: legion command {expected} (already done)")
             unchanged(self.state["snapshot"], self.home_snapshot())
         else:
-            expected = json.loads((self.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
             for tool, folder in self.targets_for_uninstall():
                 require(self.version(tool, folder) == expected, f"{tool} version wrong in {folder}")
-            self.check_account_launch(run=True)
+            for agent in self.settings()["agents"]:
+                if agent["tool"] in self.active():
+                    self.account_run(agent["id"], "--version")
             self.state["snapshot"] = self.home_snapshot()
         return output
 
@@ -1063,14 +1125,12 @@ asyncio.run(main())
         if not repeat:
             self.state["purge_targets"] = self.targets_for_uninstall(all_tools=True)
             output = self.legion("uninstall", "--purge", "--yes", owner=True)
-        elif WINDOWS:
-            output = self.run(["powershell.exe", "-NoProfile", "-File", str(self.checkout / "install.ps1"), "-HomeRoot", str(self.home), "-Uninstall", "-Purge", "-Yes"])
         else:
-            output = self.run(["sh", str(self.checkout / "install.sh"), "--uninstall", "--purge", "--yes"])
+            output = self.legion("uninstall", "--purge", "--yes")
         if repeat:
             contains(output, "skip: uninstall (already done)")
         wait_gone(self.home / ".legion")
-        require(self.profile_count() == 0, "profile legion line remains")
+        self.check_tool_removed()
         for tool, folder in self.state["purge_targets"]:
             if folder.is_dir():
                 self.check_uninstalled(tool, folder)
@@ -1092,12 +1152,7 @@ asyncio.run(main())
         self.run([*git, "tag", "--force", WIKI_TAG, WIKI_COMMIT])
         self.run([*git, "switch", "--quiet", "-c", "fixture-default"])
 
-        wiki = Runner(self.checkout, self.work / "knowledge" / "home", self.out, False)
-        wiki.log = self.log
-        wiki.env["PATH"] = os.pathsep.join((str(wiki.owned_uv.parent), self.env["PATH"]))
-        wiki.runner_uv = self.runner_uv
-        wiki.owned_uv.parent.mkdir(parents=True)
-        shutil.copy2(wiki.runner_uv, wiki.owned_uv)
+        wiki = self.nested(self.checkout, self.work / "knowledge" / "home")
         for tool in TOOLS:
             output = wiki.legion("add", tool, "--id", f"wiki-{tool}", "--source", str(self.checkout), "--yes")
             require("uv is missing" not in output, f"uv is missing while adding wiki-{tool} in the knowledge home")
@@ -1203,11 +1258,11 @@ asyncio.run(main())
     def knowledge_uninstall(self, repeat: bool) -> str:
         hub = self.home / ".legion/knowledge"
         before = snapshot(hub)
-        output = self.legion("uninstall", "--yes")
+        output = self.legion("uninstall", "--yes", owner=not repeat)
         if repeat:
             contains(output, "skip: uninstall (already done)")
         self.check_wiki_removed()
-        wait_gone(*(self.home / ".legion" / name for name in ("app", "bin", "python")))
+        self.check_tool_removed()
         require(hub.is_dir(), "uninstall removed the wiki hub")
         unchanged(before, snapshot(hub))
         return output
@@ -1215,8 +1270,6 @@ asyncio.run(main())
     def knowledge_declined(self, repeat: bool) -> str:
         if not repeat:
             self.legion("setup", "--no-knowledge")
-            self.owned_uv.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(self.runner_uv, self.owned_uv)
             for tool, folder in self.wiki_accounts():
                 self.legion("install", "--tool", tool, "--config-dir", str(folder), "--source", str(self.checkout), "--yes")
                 require(self.listing(tool, folder), f"{tool} did not reinstall Legion for the declined case")
@@ -1226,7 +1279,7 @@ asyncio.run(main())
         output = self.legion("uninstall", "--yes")
         for tool, folder in self.wiki_accounts():
             self.check_uninstalled(tool, folder)
-        wait_gone(*(self.home / ".legion" / name for name in ("app", "bin", "python")))
+        self.check_tool_removed()
         self.check_wiki(None)
         return output
 
@@ -1237,6 +1290,7 @@ asyncio.run(main())
         contains(output, "Purge legion and all its data now? [y/N]")
         contains(output, "Also delete the knowledge hub in ~/.legion/knowledge? [y/N]")
         wait_gone(self.home / ".legion/configuration")
+        self.check_tool_removed()
         require(hub.is_dir(), "purge removed the wiki hub after a decline")
         unchanged(before, snapshot(hub))
         return output
@@ -1262,10 +1316,10 @@ asyncio.run(main())
             ("channel", self.channel),
             ("foundry-launch", self.foundry),
             ("no-pwsh", self.no_pwsh),
+            ("uninstall-scoped", self.uninstall_scoped),
             ("uninstall", self.uninstall),
             ("reinstall", self.reinstall),
-            ("remove-old-launchers", lambda repeat: self.reinstall(repeat, old_launchers=True)),
-            ("update-from-latest-release", self.update_from_release),
+            ("update-uv-tool", self.update_uv_tool),
             ("purge", self.purge),
         ]
         steps += [(f"knowledge-{action}", lambda repeat, action=action: self.knowledge_step(action, repeat)) for action in ("setup", "uninstall", "declined", "off", "purge")]
@@ -1311,10 +1365,10 @@ def main() -> int:
     parser.add_argument("--allow-source-fallback", action="store_true")
     args = parser.parse_args()
     if os.environ.get("CI") != "true":
-        parser.error("integration installs real tools and only runs in CI (CI=true)")
+        parser.error("integration installs real tools; set CI=true to run with a disposable home")
     if args.home_root is None and not os.environ.get("RUNNER_TEMP"):
         parser.error("--home-root or RUNNER_TEMP is required")
-    home = args.home_root or Path(os.environ["RUNNER_TEMP"]) / "legion-home"
+    home = (args.home_root or Path(os.environ["RUNNER_TEMP"]) / "legion-home").resolve()
     system = "windows" if sys.platform == "win32" else "macos" if sys.platform == "darwin" else "linux"
     probe = []
     for command in ("winget", "pwsh", "powershell", "node", "git"):
@@ -1325,7 +1379,7 @@ def main() -> int:
             probe.append(f"{command}: {result.stdout.splitlines()[0] if result.returncode == 0 and result.stdout else 'not found'}")
         else:
             probe.append(f"{command}: not found")
-    runner = Runner(args.checkout, home, args.out, args.allow_source_fallback)
+    runner = Runner(args.checkout.resolve(), home, args.out, args.allow_source_fallback)
     with restore_user_path():
         cases = runner.execute()
         extra = ", ".join(f"{tool} {version[0]}" for tool, version in runner.versions.items())
