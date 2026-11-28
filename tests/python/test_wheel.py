@@ -63,7 +63,7 @@ from importlib.metadata import version
 from pathlib import Path
 import sys
 import legion
-from legion.services.accounts._setup import NOTES_TEMPLATE
+from legion.services.lifecycle._lifecycle import NOTES_TEMPLATE
 from legion.services.installation._tool_install import find_recipe, load_tools
 from legion.services.installation.installer import DEFAULT_SOURCE, load_catalog
 from legion.services.repository._repository import _check_templates

@@ -4,7 +4,7 @@
 
 2. Ask which agents to add: the tool, an optional account name, and an existing folder or a new one. Adding no accounts yet is valid. A folder the owner already uses is copied into the new account and keeps its settings and login; the original stays as it is.
 
-3. Show the plan, then run once with `--yes` after the owner's one yes. Without `--yes` it only prints the plan (an owner at a terminal is asked `Apply? [Y/n]`):
+3. Show the plan and get the owner's yes. Run with `--yes` if the owner has already approved. Otherwise the command asks `Apply? [y/N]` after showing the plan. A terminal or a pipe can provide the answer, and closed input means no.
 
 ```text
 legion setup [--yes]
@@ -13,7 +13,7 @@ legion add <tool> [<existing folder>] [--id <name>] [--yes]
 
    Setup creates missing settings and notes, installs a missing CLI, adds accounts, installs the legion command with uv and installs legion into every account. A recorded subscription account without its own program starts with the stock CLI on PATH; if that CLI is missing, setup offers to install it. A repeat prints `skip:` lines. Finish an earlier setup the same way, with `legion setup`. Owner settings live in `~/.legion/configuration/personalisation.json` and notes in `notes.md` beside it. The same yes runs `uv tool update-shell`, which puts uv's tool folder on PATH by editing the shell profile or, on Windows, the user PATH; the plan and a dry run show it first, and without a yes nothing is edited. If the tool is already installed and its folder is missing from PATH, setup still offers the PATH repair. Open a new terminal if needed.
 
-4. Read the table's last column. `log in: <command>` is the owner's job: that command starts the tool itself on the account's folder, outside legion, and only the owner runs it and logs in. For a CLI failure or `installed: open a new terminal`, repeat the add later only for an unrecorded account. For a legion `install failed`, the account is recorded: finish setup with `legion setup`. Mention once that `legion help` lists the same steps as short commands.
+4. Read the table's last column. `log in: <command>` is the owner's job: that command starts the tool itself on the account's folder, outside legion, and only the owner runs it and logs in. If the CLI failed to install or needs a new terminal, repeat the add for an unrecorded account once the CLI is available. If the account was added and the plugin step failed, finish setup with `legion setup`. Each failed target has a `failed: <reason>` row and the command exits 1 after the table. Mention once that `legion help` lists the same steps as short commands.
 
 5. Remove an account with `legion remove --id <id>`, rename it with `legion account rename --id <old> --new-id <new>`, and register an existing account's program with `legion account add --id <id> --tool <tool> --command <path>`. Rename and remove update channel bindings, keep the config folder and print its location; ask before changing or deleting that folder. Foundry uses the tool's account guide.
 

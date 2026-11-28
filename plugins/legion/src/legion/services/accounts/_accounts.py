@@ -8,7 +8,6 @@ from pathlib import Path
 from collections.abc import Callable
 from typing import Optional
 
-from legion.services.repository import _footprints
 from legion.core import _settings_io
 from legion.services.accounts import _launchers
 from legion.core._generated import shell_literal
@@ -226,13 +225,6 @@ def _rebind(settings: PersonalisationSettings, account: str, new_id: Optional[st
             channel.accounts = [new_id if name == account else name for name in channel.accounts]
 
 
-def _move_footprints(home: Path, account: str, new_id: str) -> list[str]:
-    for entry in _footprints.read(home).entries:
-        if entry.kind == "folder" and f"account:{account}" in entry.owners:
-            _footprints.add(home, "folder", entry.path, f"account:{new_id}")
-    return _footprints.remove_owner(home, f"account:{account}")
-
-
 def rename(home: Path, account: str, new_id: str) -> list[str]:
     with _settings_io.writer(home):
         settings = _settings_io.load(home)
@@ -244,9 +236,8 @@ def rename(home: Path, account: str, new_id: str) -> list[str]:
             raise AccountError(f"unknown account '{account}'")
         _rebind(settings, account, new_id)
         old.id = new_id
-        lines = _move_footprints(home, account, new_id)
         _settings_io.save_locked(home, settings)
-    return [*lines, f"Config folder kept at {old.config_dir}; rename it yourself only if you want to."]
+    return [f"Config folder kept at {old.config_dir}; rename it yourself only if you want to."]
 
 
 def remove(home: Path, account: str) -> list[str]:
@@ -255,13 +246,7 @@ def remove(home: Path, account: str) -> list[str]:
         agent = _find(settings, account)
         if agent is None:
             return [f"skip: account remove {account} (already done)"]
-        original = settings.model_copy(deep=True)
         _rebind(settings, account, None)
         settings.agents = [other for other in settings.agents if other.id != account]
         _settings_io.save_locked(home, settings)
-        try:
-            lines = _footprints.remove_owner(home, f"account:{account}")
-        except Exception:
-            _settings_io.save_locked(home, original)
-            raise
-    return [*lines, f"Config folder kept at {agent.config_dir}."]
+    return [f"Config folder kept at {agent.config_dir}."]

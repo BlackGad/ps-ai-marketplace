@@ -118,6 +118,7 @@ def run_step(entry: CatalogTool, arguments: list[str], folder: Path, dry_run: bo
     line = command_line(entry, arguments, folder)
     if dry_run:
         lines.append(line)
+        flush_progress(lines, progress)
         return
     flush_progress(lines, progress)
     if progress is not None:
@@ -132,11 +133,10 @@ def ensure(
     source: str | Path,
     ref: str,
     dry_run: bool,
-    lines: list[str],
+    say: Callable[[str], None],
     *,
     pin: PluginPin | None = None,
     updating: bool = False,
-    progress: Callable[[str], None] | None = None,
 ) -> tuple[str, Path] | None:
     plugin = _wiki_recipe(entry.plugin, pin) if pin else entry.plugin
     marketplace = pin.marketplace if pin else LEGION_MARKETPLACE
@@ -156,7 +156,7 @@ def ensure(
         ready = registered and _pinned_marketplace(entry, folder, item, pin)
         if not ready:
             for arguments in _removal_steps(plugin, listed, registered):
-                run_step(entry, arguments, folder, dry_run, lines, progress)
+                run_step(entry, arguments, folder, dry_run, [], say)
             registered = False
     else:
         field = plugin.marketplace_listing.root_field
@@ -167,21 +167,21 @@ def ensure(
     if ready and updating:
         for arguments in (plugin.marketplace_update, plugin.update):
             if arguments:
-                run_step(entry, arguments, folder, dry_run, lines, progress)
+                run_step(entry, arguments, folder, dry_run, [], say)
         return before
     if ready and enabled:
-        lines.extend(f"skip: {display_command([entry.command, *arguments])} in {folder} (already done)" for arguments in (add, plugin.install))
-        flush_progress(lines, progress)
+        for arguments in (add, plugin.install):
+            say(f"skip: {display_command([entry.command, *arguments])} in {folder} (already done)")
         return before
     if not dry_run:
         folder.mkdir(parents=True, exist_ok=True)
     if not registered:
-        run_step(entry, add, folder, dry_run, lines, progress)
+        run_step(entry, add, folder, dry_run, [], say)
         if pin and not dry_run and not _pinned_marketplace(entry, folder, _marketplace_item(entry, folder, marketplace), pin):
             raise ValueError(f"llm-wiki marketplace could not be verified at {pin.tag}")
     if plugin.marketplace_update:
-        run_step(entry, plugin.marketplace_update, folder, dry_run, lines, progress)
-    run_step(entry, plugin.install, folder, dry_run, lines, progress)
+        run_step(entry, plugin.marketplace_update, folder, dry_run, [], say)
+    run_step(entry, plugin.install, folder, dry_run, [], say)
     return before
 
 

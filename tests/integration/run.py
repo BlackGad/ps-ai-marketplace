@@ -627,6 +627,7 @@ class Runner:
             require(self.version(tool, self.folder(tool)) == expected, f"{tool} plugin version is wrong")
         if "codex" in self.active():
             self.check_codex_mcp()
+        self.legion("status")
         self.state["snapshot"] = self.home_snapshot()
         return "\n".join(lines)
 
@@ -1237,13 +1238,13 @@ asyncio.run(main())
 
     def knowledge_off(self, repeat: bool) -> str:
         if not repeat:
-            self.legion("setup", "--knowledge")
+            self.legion("setup", "--knowledge", "--yes")
             self.check_wiki(WIKI_TAG)
         hub = self.home / ".legion/knowledge"
         pointer = self.home / ".config/llm-wiki/config.json"
         before = self.home_snapshot() if repeat else snapshot(hub)
         pointer_before = pointer.read_bytes()
-        output = self.legion("setup", "--no-knowledge")
+        output = self.legion("setup", "--no-knowledge", "--yes")
         if repeat:
             contains(output, "skip: knowledge declined (already done)")
             unchanged(before, self.home_snapshot())
@@ -1270,7 +1271,7 @@ asyncio.run(main())
 
     def knowledge_declined(self, repeat: bool) -> str:
         if not repeat:
-            self.legion("setup", "--no-knowledge")
+            self.legion("setup", "--no-knowledge", "--yes")
             for tool, folder in self.wiki_accounts():
                 self.legion("install", "--tool", tool, "--config-dir", str(folder), "--source", str(self.checkout), "--yes")
                 require(self.listing(tool, folder), f"{tool} did not reinstall Legion for the declined case")

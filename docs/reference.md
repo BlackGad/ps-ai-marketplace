@@ -17,7 +17,7 @@ The install one-liners are in the [README](../README.md#install). The bootstrap 
 
 The bootstrap only obtains uv, then hands every option to the Python `legion install` command. On Windows it runs in Windows PowerShell 5.1 or PowerShell 7. If uv is missing, it says so and asks `Install uv now? [y/N]`; after a yes it reads the latest uv release from GitHub, downloads the archive for your system, checks it against the release's SHA-256 digest (a mismatch deletes the download and stops) and publishes `uv` to uv's default folder (`~/.local/bin`, or `UV_INSTALL_DIR` / `XDG_BIN_HOME`; extracted privately first, run once to check it works, then renamed into place). uv is a global helper like git: legion never removes it. POSIX needs no sudo. Every download must be HTTPS, redirects included. If Python 3.12 is missing, `-DryRun` (`--dry-run`) only says so; an ordinary run asks before uv downloads it.
 
-The bootstrap announces preparation, then downloads the plugin archive from the fixed legion repository or uses the local checkout. It runs `legion --home <home> install` through `uv run` with the same options in a throwaway environment in the system temp folder, removed afterwards. `legion install` asks `Install legion for <tools> now, and put the legion command on your PATH with uv? [y/N]`, so the first install can ask twice. It installs the legion command with `uv tool install "<plugin folder>[mcp]" --constraints <exported uv.lock> --reinstall` from the plugin copy each CLI has just installed, then, inside the same yes, runs `uv tool update-shell`, which puts uv's tool folder on your PATH by editing your shell profile or, on Windows, your user PATH (the dry run lists it); update never runs it. A repeat of the same version prints `skip: legion command <version> (already done)` and offers the PATH repair if needed. Answer the installer prompts in the same terminal. A declined install or update prints `Nothing changed`, gives the flag for retrying, and exits successfully. Use `-Yes` for the PowerShell bootstrap, `sh -s -- --yes` for the piped POSIX bootstrap, or `--yes` for the Legion CLI. Update and uninstall each ask about their own operation. `-Source` selects marketplace and catalog data; executable code always comes from the fixed legion repository or the local checkout. The POSIX bootstrap reuses uv on PATH or in `~/.local/bin`; without a terminal it changes nothing unless `--yes` (or `-y`) was supplied.
+The bootstrap announces preparation, then downloads the plugin archive from the fixed legion repository or uses the local checkout. It runs `legion --home <home> install` through `uv run` with the same options in a throwaway environment in the system temp folder, removed afterwards. `legion install` shows the plan and asks `Apply? [y/N]`. The bootstrap can also ask for missing prerequisites. It installs the legion command with `uv tool install "<plugin folder>[mcp]" --constraints <exported uv.lock> --reinstall` once from the newest successful plugin copy, then, inside the same yes, runs `uv tool update-shell`, which puts uv's tool folder on your PATH by editing your shell profile or, on Windows, your user PATH (the dry run lists it); update never runs it. A repeat of the same version prints `skip: legion command <version> (already done)` and offers the PATH repair if needed. Answer the installer prompts in the same terminal. A declined install or update prints `Nothing changed`, gives the flag for retrying, and exits successfully. Use `-Yes` for the PowerShell bootstrap, `sh -s -- --yes` for the piped POSIX bootstrap, or `--yes` for the Legion CLI. Update and uninstall each ask about their own operation. `-Source` selects marketplace and catalog data; executable code always comes from the fixed legion repository or the local checkout. The POSIX bootstrap reuses uv on PATH or in `~/.local/bin`; without a terminal it changes nothing unless `--yes` (or `-y`) was supplied.
 
 By default, the script installs legion for every installed coding CLI, using the targets below. If none is installed, it says so and prints each CLI's install hint; add an account with `legion add <tool>`, which installs the CLI. Repeated runs skip completed steps and preserve hook approval.
 
@@ -25,11 +25,11 @@ By default, the script installs legion for every installed coding CLI, using the
 
 Plain install and `-Update` select the same targets:
 
-- Without `-Tools`, select CLIs with a stock command on PATH or a usable command for a registered account. `-Tools` selects the named descriptors from `tools.json` (an array or comma-separated ids). Install and update skip targets whose commands are missing.
+- Without `-Tools`, select CLIs with a stock command on PATH or a usable command for a registered account. `-Tools` selects the named descriptors from `tools.json` (an array or comma-separated ids). A registered target whose command is missing reports a failed row.
 - Each CLI has one outlander folder when its stock command is on PATH. The folders are `~/.claude`, `~/.codex`, and `~/.copilot`. Target discovery ignores `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and `COPILOT_HOME`. Accounts come from matching `agents[].configDir` in `~/.legion/configuration/personalisation.json` and use the recorded command when provided. A leading `~/` or `~\` expands against the Legion home. Linked spellings of the same folder run once.
 - `-ConfigDir` replaces that folder list with only the supplied folder for each selected CLI. `-Tools` and `-ConfigDir` can be combined.
 - Plain install skips completed steps. Update refreshes installed copies, including disabled ones, and uses the install steps when a copy is missing. Legion reads versions from manifests on disk and checks marketplace registration and enabled state through the CLI. Missing recorded folders can be created by installation.
-- Update lists every target and asks one question, `Update legion? [y/N]`, for all of them, so one folder cannot be declined alone. `-Yes` skips that question; `-DryRun` only previews, reading listings and showing the commands it would run.
+- Install and update show the plan, ask `Apply? [y/N]` once, then print each step as it runs. A failed target appears as `failed: <reason>` in the results table. Other targets continue, and the command exits 1 after printing the table and result. `-Yes` skips the question. `-DryRun` reads listings and shows the commands it would run.
 - `legion update` has no `--tool` or `--config-dir` options and updates every listed target; use `-Update` with `-Tools` or `-ConfigDir` to update chosen targets. The one-liner for when `legion` is not available is in the [README](../README.md#update-and-uninstall). Run `legion` in the repository afterward to load the new skills.
 - Uninstall selects the same targets (see [Uninstall](#uninstall)).
 
@@ -141,7 +141,7 @@ For a full removal, run `legion uninstall --purge` or the bootstrap with `-Unins
 
 Owner files are `~/.legion/configuration/personalisation.json` and `configuration/notes.md`; the update cache is `temp/update.json`, tool downloads use a throwaway `temp/install-*` folder, `run/` holds the running sessions' registrations and the stop file, and every account starts through `legion run`, which belongs to the uv tool.
 
-The footprint index is `~/.legion/footprints.json`. It records what legion needs to find again: the user PATH entries of the portable tools it installed, and the folders of accounts.
+The footprint index is `~/.legion/footprints.json`. It records what legion needs to find again: the user PATH entries of the portable tools it installs.
 
 After installing legion, ask any tool to add accounts, or run setup from a clone or installed plugin folder:
 
@@ -149,18 +149,9 @@ After installing legion, ask any tool to add accounts, or run setup from a clone
 legion add claude
 ```
 
-This prints a plan and changes nothing. Example Windows output, with the temporary home abbreviated as `~` and path separators shown as `/`:
+This shows the plan and asks `Apply? [y/N]`. Answer `y` in the terminal or pipe a yes into the command. Pressing Enter or closing input declines. Use `--yes` when you have already approved the plan.
 
-```text
-Plan (nothing changed yet):
-  create   settings and notes in ~/.legion/configuration
-  add      claude1 (claude) new folder ~/.legion/agents/claude1
-  install  legion into ~/.legion/agents/claude1
-  command  install the legion command with uv, then run uv tool update-shell, which puts it on your PATH (your shell profile or user PATH)
-Run again with --yes to apply.
-```
-
-After approving the plan (an interactive terminal asks `Apply? [Y/n]`), run it again with `--yes`. Setup installs a missing CLI first, then adds the account and installs legion before login. It shows plugin commands and their output as they run and records them in `~/.legion/temp/setup-install-<tool>.log`. For a new account folder, the `log in:` column shows the command that starts the tool itself with the account's folder variable set (for example `$env:CLAUDE_CONFIG_DIR='<folder>'; claude` in PowerShell, `CLAUDE_CONFIG_DIR='<folder>' claude` on macOS and Linux); run it once outside legion and log in. `legion` and `legion pick` start only the overseer. If CLI installation fails or needs a new terminal, that account is not recorded; retry the add after resolving the reported next step. Setup writes:
+Setup installs a missing CLI first, then adds the account and installs legion before login. It shows plugin commands and their output as they run. For a new account, the result includes `log in: <command>`, which starts the tool itself with the account's folder variable set. Run it once outside legion and log in. `legion` and `legion pick` start only the overseer. If CLI installation fails or needs a new terminal, retry the add after the tool is available. If the account was added and the plugin failed, run `legion setup` to finish. Setup writes:
 
 - `~/.legion/configuration/personalisation.json`: account folders and any later verified channel bindings. Validated against `plugins/legion/schemas/personalisation.schema.json`. It never holds tokens.
 - `~/.legion/configuration/notes.md`: free-form preferences and lessons.
@@ -184,7 +175,7 @@ These are the main commands; `legion help` lists all of them:
 | Command | What it does |
 | --- | --- |
 | `legion setup [--yes]` | Finish setup: settings, commands, legion in every account |
-| `legion setup --knowledge/--no-knowledge` | Turn llm-wiki on or decline it. Turning it off after an opt-in removes the wiki plugin and marketplace from every account and keeps the hub and its pointer. If knowledge was never enabled, a decline leaves manual installs in place. Add `--yes` to also apply the Legion setup plan. |
+| `legion setup --knowledge/--no-knowledge` | Turn llm-wiki on or decline it. Turning it off after an opt-in removes the wiki plugin and marketplace from every account and keeps the hub and its pointer. If knowledge was never enabled, a decline leaves manual installs in place. The choice is part of the setup plan. Use `--yes` to apply it without a prompt. |
 | `legion add <tool> [<folder>] [--yes]` | Add a claude, codex or copilot account, in a new folder or a copy of an existing one |
 | `legion remove --id <id>` | Remove an account; keep its folder |
 | `legion status` | Show accounts, outlanders, channels, knowledge and this repository |
@@ -210,7 +201,7 @@ The owner command also accepts these account, channel and repository verbs:
 | `legion repository setup --repo <path> [--mode shared] [--gate <command>] [--rules-file <file>]` | Set up repository orchestration |
 | `legion dismiss [--yes]` | Release this repository from the legion |
 
-`setup` and `add` show the plan, then ask `Apply? [Y/n]` in an interactive terminal (Enter accepts). `--yes` applies without asking; redirected input only prints the plan.
+On the first owner command after the installed version changes, Legion checks for pending setup work. It applies steps that need no new approval, such as restoring missing notes, and lists any steps you can approve by running `legion setup`. It records the version in `~/.legion/version` after a successful check. If the check fails, Legion prints the error to stderr, continues your command and retries next time. Machine commands such as `mcp`, `run`, `lease`, `inbox`, `telegram`, `validate`, and `update --check` skip this check, as do JSON output, dry runs and uninstall.
 
 `dismiss` shows its plan, then asks `Apply? [y/N]` (closed input means no; `--yes` skips). It removes what setup added outside `.legion/` (Private: the `.legion/` line in `.git/info/exclude`; Shared: the `.gitignore` lines and the legion section of the rules file, left uncommitted for review), removes lane worktrees under `.legion/temp/`, runs `git worktree prune`, then deletes `.legion/`. A Private repository warns first that its legion history goes with the folder. It refuses in a member session and while another live session holds the overseer lease. A repository without legion prints `skip: legion in this repository (already dismissed)`.
 

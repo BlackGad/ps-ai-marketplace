@@ -554,6 +554,7 @@ def test_local_refusal_only_skips_its_cli(tmp_path: Path, text: str) -> None:
     expected = json.loads((instance.checkout / "plugins/legion/plugin.json").read_text(encoding="utf-8"))["version"]
     instance.version = Mock(return_value=expected)
     instance.check_tool = Mock()
+    instance.legion = Mock(return_value="")
     instance.home_snapshot = dict
     if text.startswith("codex"):
         instance.install_first()

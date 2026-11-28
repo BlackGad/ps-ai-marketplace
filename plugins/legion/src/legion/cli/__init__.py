@@ -26,7 +26,9 @@ class _LegionGroup(click.Group):
     def resolve_command(self, ctx: click.Context, args: list[str]) -> tuple[Optional[str], Optional[click.Command], list[str]]:
         if args and args[0].startswith("-"):
             return "", _launch_command(""), args
-        return super().resolve_command(ctx, args)
+        verb, command, remaining = super().resolve_command(ctx, args)
+        ctx.meta["lifecycle_args"] = remaining
+        return verb, command, remaining
 
 
 @click.group(cls=_LegionGroup, invoke_without_command=True, context_settings={"ignore_unknown_options": True}, help="Legion commands")
@@ -42,6 +44,17 @@ def main(context: click.Context, home: Optional[Path]) -> None:
     if home is not None:
         home = Path(os.path.normpath(home)).absolute()
     context.obj = home
+    verb = context.invoked_subcommand
+    args = context.meta.get("lifecycle_args", ())
+    skip = verb in ("mcp", "run", "lease", "inbox", "telegram", "validate", "uninstall")
+    skip = skip or any(flag in args for flag in ("--help", "--json", "--dry-run", "--uninstall")) or (verb == "update" and "--check" in args)
+    if not skip:
+        from legion.services.lifecycle import _lifecycle
+
+        resolved = _home.legion_home(home)
+        updating = verb == "update" or (verb == "install" and "--update" in args)
+        if not updating or not _lifecycle.update_blocked(resolved):
+            _lifecycle.first_run(resolved)
     if context.invoked_subcommand is None:
         _report_overseer(context, Path.cwd())
 
@@ -115,9 +128,47 @@ def update(context: click.Context, check: bool, force: bool, yes: bool) -> None:
         for line in _update.check_lines(_plugin.PLUGIN_ROOT, context.obj, force=force):
             click.echo(line)
         return
-    from legion.services.installation import installer as _installer
+    _run_lifecycle(context, "update", yes)
 
-    _report_installer(context, lambda: _installer.install(_home.legion_home(context.obj), update=True, yes=yes, progress=click.echo))
+
+def _run_lifecycle(
+    context: click.Context,
+    intent: Literal["install", "update", "setup"],
+    yes: bool,
+    *,
+    source: str = "BlackGad/ps-legion-marketplace",
+    ref: str = "release",
+    dry_run: bool = False,
+    tools: tuple[str, ...] = (),
+    config_dir: Path | None = None,
+    account_tool: str | None = None,
+    account_folder: str | None = None,
+    account_id: str | None = None,
+    knowledge: bool | None = None,
+) -> None:
+    from legion.services.lifecycle import _lifecycle
+
+    home = _home.legion_home(context.obj)
+    try:
+        with _lifecycle.saved_path():
+            changes = _lifecycle.plan(
+                home,
+                intent,
+                source=source,
+                ref=ref,
+                dry_run=dry_run,
+                tools=tools,
+                config_dir=config_dir,
+                account_tool=account_tool,
+                account_folder=account_folder,
+                account_id=account_id,
+                knowledge=knowledge,
+            )
+            code = _lifecycle.apply(changes, yes=yes)
+    except _lifecycle.ERRORS as error:
+        click.echo(" ".join(str(error).split()), err=True)
+        context.exit(1)
+    context.exit(code)
 
 
 def _report_installer(context: click.Context, change: Callable[[], list[str]]) -> None:
@@ -160,24 +211,21 @@ def _report_lines(context: click.Context, change: Callable[[], list[str]], error
 @click.option("--purge", is_flag=True, help="Also remove all of legion's data, including settings and logins; requires --uninstall.")
 @click.pass_context
 def install(context: click.Context, tools: tuple[str, ...], source: str, ref: str, config_dir: Optional[Path], dry_run: bool, yes: bool, update: bool, uninstall: bool, purge: bool) -> None:
-    from legion.services.installation import installer as _installer
+    if update and uninstall:
+        click.echo("Choose either --update or --uninstall.", err=True)
+        context.exit(1)
+    if purge and not uninstall:
+        click.echo("--purge requires --uninstall.", err=True)
+        context.exit(1)
+    if uninstall:
+        from legion.services.installation import installer as _installer
 
-    _report_installer(
-        context,
-        lambda: _installer.install(
-            _home.legion_home(context.obj),
-            tools=list(tools),
-            source=source,
-            ref=ref,
-            config_dir=config_dir,
-            dry_run=dry_run,
-            yes=yes,
-            update=update,
-            uninstall=uninstall,
-            purge=purge,
-            progress=click.echo,
-        ),
-    )
+        _report_installer(
+            context,
+            lambda: _installer.uninstall(_home.legion_home(context.obj), list(tools), source, ref, config_dir, dry_run, yes, purge, progress=click.echo),
+        )
+    else:
+        _run_lifecycle(context, "update" if update else "install", yes, source=source, ref=ref, dry_run=dry_run, tools=tools, config_dir=config_dir)
 
 
 @main.command("uninstall", help="Remove legion; --purge also deletes settings, notes and logins")
@@ -192,7 +240,7 @@ def uninstall(context: click.Context, tools: tuple[str, ...], config_dir: Option
 
     _report_installer(
         context,
-        lambda: _installer.install(_home.legion_home(context.obj), list(tools), config_dir=config_dir, dry_run=dry_run, yes=yes, uninstall=True, purge=purge, progress=click.echo),
+        lambda: _installer.uninstall(_home.legion_home(context.obj), list(tools), config_dir=config_dir, dry_run=dry_run, yes=yes, purge=purge, progress=click.echo),
     )
 
 
@@ -545,23 +593,12 @@ def account_models(context: click.Context, account_id: str, deployments: tuple[s
     _report_account(context, lambda: _accounts.models(_home.legion_home(context.obj), account_id, list(deployments), default_model, selected_aliases, standard, list_only))
 
 
-# Runs setup (or add) and prints its lines, or its refusal on stderr with exit code 1.
-def _run_setup(context: click.Context, tool_id: Optional[str], folder: Optional[str], account_id: Optional[str], source: Optional[str], yes: bool, knowledge: Optional[bool] = None) -> None:
-    from legion.services.accounts import _setup
-
-    try:
-        _setup.run(_home.legion_home(context.obj), tool_id, folder, account_id, source, yes, click.echo, knowledge)
-    except _setup.ERRORS as error:
-        click.echo(" ".join(str(error).split()), err=True)
-        context.exit(1)
-
-
 @main.command("setup", help="Finish setup: settings, commands, legion in every account")
 @click.option("--yes", is_flag=True, help="Confirm the Legion setup plan.")
-@click.option("--knowledge/--no-knowledge", default=None, help="Save the llm-wiki choice. Use --yes to also apply the Legion setup plan.")
+@click.option("--knowledge/--no-knowledge", default=None, help="Include the llm-wiki choice in the setup plan.")
 @click.pass_context
 def setup(context: click.Context, yes: bool, knowledge: Optional[bool]) -> None:
-    _run_setup(context, None, None, None, None, yes, knowledge)
+    _run_lifecycle(context, "setup", yes, knowledge=knowledge)
 
 
 @main.command("add", help="Add a claude, codex or copilot account (a new folder, or a copy of an existing one)")
@@ -575,7 +612,7 @@ def add(context: click.Context, tool: str, folder: Optional[str], yes: bool, acc
     tool_id, separator, inline_folder = tool.partition(":")
     if separator:
         folder = inline_folder if folder is None else f"{inline_folder}:{folder}"
-    _run_setup(context, tool_id, folder, account_id, source, yes)
+    _run_lifecycle(context, "setup", yes, source=source or "BlackGad/ps-legion-marketplace", account_tool=tool_id, account_folder=folder, account_id=account_id)
 
 
 @main.group(help="Check and install the CLI tools legion needs")
