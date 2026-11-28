@@ -5,7 +5,7 @@ budget: 25
 ---
 Goal: use the bootstrap script from the checkout the way the README one-liner does, to install and then update legion.
 
-You play: an owner who pastes the install line into a terminal. On Linux run `sh <checkout folder>/install.sh`; on Windows run `install.ps1` from the checkout in Windows PowerShell 5.1, and again in PowerShell 7 (`C:\pwsh\pwsh.exe`) after a fresh container if you want to compare. uv is already installed in this container; if you want the case without uv, take it off PATH for one run and say so in the report. Use the checkout as the source, not the network release.
+You play: an owner who pastes the install line into a terminal. On Linux run `sh /work/legion/install.sh --source /work/legion`; on Windows run `install.ps1 -Source <checkout folder>` from the checkout in Windows PowerShell 5.1, and again in PowerShell 7 (`C:\pwsh\pwsh.exe`) after a fresh container if you want to compare. uv is already installed in this container; if you want the case without uv, take it off PATH for one run and say so in the report. Use the checkout as the source, not the network release.
 
 Do:
 1. Run the bootstrap with `--dry-run` (`-DryRun`) and read the plan.

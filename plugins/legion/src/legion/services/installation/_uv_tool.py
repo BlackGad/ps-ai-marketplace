@@ -16,7 +16,12 @@ from legion.core._home import (
     same_path,
     settings_path,
 )
-from legion.core._run import display_command, run_command, run_foreground
+from legion.core._run import (
+    display_command,
+    launch_environment,
+    run_command,
+    run_foreground,
+)
 from legion.core._settings_models import PluginManifest
 from legion.services.installation import _handover, _user_path
 from legion.services.installation._constraints import export_constraints
@@ -25,6 +30,7 @@ UV_MISSING = "uv is missing. Ask the owner before installing it, then run the le
 TOOL = "legion"
 STOP_NOTICE = "stop     running legion sessions (mcp servers and runs) end first"
 HANDOVER_LOG = Path(".legion/temp/uv-tool.log")
+SOURCE_RECEIPT = Path(".legion/uv-source")
 
 
 class UvToolError(ValueError):
@@ -95,7 +101,7 @@ def stop_running(home: Path, *, updating: bool = False) -> None:
         raise UvToolError(f"legion is still running after {_stop_event.WAIT_SECONDS:g} seconds (process {ids}); close those sessions and run the command again")
 
 
-def _hand_over(home: Path, command: list[str], cleanup: list[Path], purge: list[Path]) -> None:
+def _hand_over(home: Path, command: list[str], cleanup: list[Path], purge: list[Path], receipt: tuple[Path, str] | None = None) -> None:
     log = home / HANDOVER_LOG
     if not owner_path_safe(log, home):
         if command:
@@ -106,7 +112,10 @@ def _hand_over(home: Path, command: list[str], cleanup: list[Path], purge: list[
     if purge and log.parent not in purge and log.parent.parent not in purge:
         # Keeping the hub can leave a new log directory outside the original purge list.
         purge = [*purge, log.parent]
-    _handover.start(command, cleanup, purge=purge, log=log)
+    if receipt:
+        _handover.start(command, cleanup, purge=purge, log=log, receipt=receipt)
+    else:
+        _handover.start(command, cleanup, purge=purge, log=log)
 
 
 def handover_failure(home: Path) -> str | None:
@@ -123,18 +132,30 @@ def handover_failure(home: Path) -> str | None:
     return None
 
 
-# The saved PATH is uv's to write, and only with the owner's yes. The current process learns the folder from uv.
-# A failed update-shell is only a warning.
-def _path_lines(uv: str, update_shell: bool) -> list[str]:
-    lines: list[str] = []
-    if update_shell:
-        result = run_command(uv, ["tool", "update-shell"])
-        if result.exit_code != 0:
-            lines.append(f"uv tool update-shell exited {result.exit_code}; add the uv tool folder to your PATH yourself")
+def _reachable() -> bool:
+    return shutil.which(TOOL, path=launch_environment().get("PATH", "")) is not None or (sys.platform == "win32" and shutil.which(TOOL, path=_saved_path()) is not None)
+
+
+def path_repair_needed(uv: str) -> bool:
+    return not _reachable() and path_missing(uv)
+
+
+def _path_result(uv: str, *, update_shell: bool) -> str | None:
+    if update_shell and path_missing(uv):
+        run_command(uv, ["tool", "update-shell"])
+    if _reachable():
+        return None
     folder = bin_directory(uv)
-    if folder is not None and not path_contains(os.environ.get("PATH", ""), folder):
-        os.environ["PATH"] = str(folder) + os.pathsep + os.environ.get("PATH", "")
-    return lines
+    return f"Add {folder or "uv's tool folder"} to your PATH."
+
+
+def replacement_needed(uv: str, root: Path, home: Path, receipt: str | None) -> bool:
+    if installed_version(uv) != plugin_version(root):
+        return True
+    if receipt is None:
+        return False
+    path = home / SOURCE_RECEIPT
+    return not owner_path_safe(path, home) or not path.is_file() or path.read_text(encoding="utf-8") != receipt
 
 
 def _check_install_home(home: Path) -> None:
@@ -149,7 +170,9 @@ def _check_install_home(home: Path) -> None:
 # The stop event precedes replacement. On Windows a helper waits for the running tool to exit
 # before replacing it. `update_shell` also runs `uv tool update-shell`,
 # which edits the owner's shell profile or user PATH: callers pass it only inside the owner's yes.
-def install(plugin_root: Path, home: Path, dry_run: bool = False, update_shell: bool = False, *, updating: bool = False, progress: Callable[[str], None] | None = None) -> list[str]:
+def install(
+    plugin_root: Path, home: Path, dry_run: bool = False, update_shell: bool = False, *, updating: bool = False, progress: Callable[[str], None] | None = None, receipt: str | None = None
+) -> list[str]:
     if not dry_run:
         _check_install_home(home)
     uv = find_uv()
@@ -158,15 +181,26 @@ def install(plugin_root: Path, home: Path, dry_run: bool = False, update_shell: 
             return [UV_MISSING]
         raise UvToolError(UV_MISSING)
     version = plugin_version(plugin_root)
-    if installed_version(uv) == version:
-        lines = [f"skip: legion command {version} (already done)"]
-        if update_shell and path_missing(uv):
-            lines.extend([display_command([uv, "tool", "update-shell"])] if dry_run else _path_lines(uv, True))
-        return lines
+    if not replacement_needed(uv, plugin_root, home, receipt):
+        if update_shell and path_repair_needed(uv):
+            if dry_run:
+                return [display_command([uv, "tool", "update-shell"])]
+            instruction = _path_result(uv, update_shell=True)
+            return [f"legion command {version} is installed but not on PATH. {instruction}" if instruction else f"legion command {version} is on PATH."]
+        return [f"skip: legion command {version} (already done)"]
     spec = f"{plugin_root}[mcp]"
     if dry_run:
         shell = [display_command([uv, "tool", "update-shell"])] if update_shell else []
         return [STOP_NOTICE, display_command([uv, "tool", "install", spec, "--constraints", "<exported uv.lock>", "--reinstall"]), *shell]
+    scheduled = _replace(uv, spec, home, plugin_root, version, updating, update_shell, progress, receipt)
+    if scheduled:
+        return [scheduled]
+    outcome = f"legion {version} is installed; restart your sessions." if updating else f"legion command {version} installed"
+    instruction = _path_result(uv, update_shell=update_shell)
+    return [f"legion command {version} is installed but not on PATH. {instruction}" if instruction else outcome]
+
+
+def _replace(uv: str, spec: str, home: Path, plugin_root: Path, version: str, updating: bool, update_shell: bool, progress: Callable[[str], None] | None, receipt: str | None) -> str | None:
     detached = sys.platform == "win32" and running_from_tool(uv)
     if progress is not None:
         progress("Waiting for running Legion sessions to exit...")
@@ -178,30 +212,51 @@ def install(plugin_root: Path, home: Path, dry_run: bool = False, update_shell: 
             progress(f"Preparing locked dependencies for legion {version}...")
         folder = _write_constraints(uv, plugin_root)
         command = [uv, "tool", "install", spec, "--constraints", str(folder / "constraints.txt"), "--reinstall"]
+        source_file = home / SOURCE_RECEIPT
+        if not owner_path_safe(source_file, home):
+            raise UvToolError("The uv source receipt path contains a link; resolve it before installing")
+        source_file.unlink(missing_ok=True)
         if detached:
-            path_lines = _path_lines(uv, update_shell)
-            _hand_over(home, command, [folder, _stop_event.stop_path(home)], [])
+            if update_shell and path_missing(uv):
+                run_command(uv, ["tool", "update-shell"])
+            cleanup = [folder, _stop_event.stop_path(home)]
+            if receipt:
+                _hand_over(home, command, cleanup, [], (source_file, receipt))
+            else:
+                _hand_over(home, command, cleanup, [])
             handed_over = True
             scheduled = f"legion command {version} replacement scheduled. Check the result in {home / HANDOVER_LOG}."
             if updating:
                 scheduled += " Restart your sessions after the replacement succeeds."
-            return [*path_lines, scheduled]
+            return scheduled
         if progress is not None:
             progress(f"Installing legion {version} with uv...")
-        exit_code = run_foreground(uv, command[1:])
+        exit_code = _run_install(uv, command[1:], progress)
         if exit_code:
             raise UvToolError(f"uv tool install exited {exit_code}")
+        if receipt is not None:
+            source_file.write_text(receipt, encoding="utf-8")
     finally:
         if not handed_over:
             _stop_event.clear_stop(home)
             if folder is not None:
                 shutil.rmtree(folder, ignore_errors=True)
-    outcome = f"legion {version} is installed; restart your sessions." if updating else f"legion command {version} installed"
-    return [*_path_lines(uv, update_shell), outcome]
+    return None
+
+
+def _run_install(uv: str, arguments: list[str], progress: Callable[[str], None] | None) -> int:
+    if progress is None:
+        return run_foreground(uv, arguments)
+
+    def report(line: str) -> None:
+        if not (line.startswith("warning:") and "is not on your PATH" in line):
+            progress(line)
+
+    return run_command(uv, arguments, progress=report).exit_code
 
 
 # Remove the tool and any approved folders after exit. The helper also lifts the stop event.
-def uninstall(home: Path, dry_run: bool = False, *, stopped: bool = False, purge: list[Path] | None = None) -> list[str]:
+def uninstall(home: Path, dry_run: bool = False, *, stopped: bool = False, purge: list[Path] | None = None, progress: Callable[[str], None] | None = None) -> list[str]:
     uv = find_uv()
     command = [uv, "tool", "uninstall", TOOL] if uv is not None and installed_version(uv) is not None else []
     purge = purge or []
@@ -212,13 +267,30 @@ def uninstall(home: Path, dry_run: bool = False, *, stopped: bool = False, purge
     if command and not stopped:
         stop_running(home)
         stopped = True
+    if sys.platform != "win32":
+        try:
+            if command:
+                if progress:
+                    progress("Removing the legion command with uv...")
+                result = run_command(command[0], command[1:], progress=progress)
+                if result.exit_code:
+                    raise UvToolError(f"uv tool uninstall exited {result.exit_code}")
+                (home / SOURCE_RECEIPT).unlink(missing_ok=True)
+            for path in purge:
+                if progress:
+                    progress(f"Removing {path}...")
+                _handover.purge_folder(path)
+        finally:
+            if stopped:
+                _stop_event.clear_stop(home)
+        return ["legion command removed and Legion data purged." if command and purge else "legion command removed." if command else "Legion data purged."]
+
     try:
         _hand_over(home, command, [_stop_event.stop_path(home)] if stopped else [], purge)
     except BaseException:
         if stopped:
             _stop_event.clear_stop(home)
         raise
-    lines = [f"legion command removal scheduled. Check the result in {home / HANDOVER_LOG}."] if command else []
     if purge:
-        lines.append("Legion folder removal scheduled.")
-    return lines
+        return ["legion command removal scheduled, followed by Legion data removal." if command else "Legion folder removal scheduled."]
+    return [f"legion command removal scheduled. Check the result in {home / HANDOVER_LOG}."]

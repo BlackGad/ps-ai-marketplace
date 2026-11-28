@@ -1,5 +1,6 @@
 # Managed folders and the plugin copies on disk.
 
+import hashlib
 import json
 import os
 import shutil
@@ -128,3 +129,18 @@ def installed_version(folder: Path, tool: CatalogTool | ToolDescriptor, name: st
 def is_default_folder(home: Path, tool: CatalogTool | ToolDescriptor, folder: Path) -> bool:
     default = default_folder(home, tool)
     return default is not None and same_path(resolve_directory(default), resolve_directory(folder))
+
+
+# Hash shipped plugin files without build and CLI cache metadata.
+def plugin_digest(root: Path) -> str:
+    digest = hashlib.sha256()
+    for name in (".claude-plugin", ".codex-plugin", ".mcp.json", "hatch_build.py", "helpers.json", "hooks", "plugin.json", "pyproject.toml", "schemas", "skills", "src", "tools.json", "uv.lock"):
+        item = root / name
+        files = sorted(item.rglob("*")) if item.is_dir() else [item]
+        for file in files:
+            relative = file.relative_to(root)
+            if file.is_file() and "__pycache__" not in relative.parts and not any(part.endswith(".egg-info") for part in relative.parts):
+                digest.update(relative.as_posix().encode())
+                digest.update(b"\0")
+                digest.update(hashlib.sha256(file.read_bytes()).digest())
+    return digest.hexdigest()

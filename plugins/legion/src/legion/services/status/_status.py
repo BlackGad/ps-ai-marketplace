@@ -79,7 +79,7 @@ def status_lines(report: StatusReport) -> list[str]:
     if settings.state == "ok":
         lines = ["accounts", *(f"  {agent.id}  {agent.tool}  {agent.config_dir}  legion {agent.legion_version or 'missing'}" for agent in report.accounts)]
     elif settings.state == "missing":
-        lines = ["no legion settings yet"]
+        lines = ["no legion settings yet. Run legion add <tool> to add an account."]
     else:
         problem = "cannot be read" if settings.state == "unreadable" else "are not valid"
         lines = [f"legion settings {problem}: {settings.path}; run legion setup"]

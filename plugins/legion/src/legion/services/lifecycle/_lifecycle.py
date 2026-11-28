@@ -70,6 +70,7 @@ class Plan:
     dry_run: bool = False
     summary: str | None = None
     stopped_home: Path | None = None
+    source_label: str | None = None
 
 
 def _approved() -> bool:
@@ -87,9 +88,11 @@ def apply(changes: Plan, *, yes: bool = False, say: Say = click.echo) -> int:
         say(notice)
     if not changes.steps:
         if changes.intent != "finish":
-            say("Nothing to do.")
+            say("Nothing changed (dry run)." if changes.dry_run else changes.summary or "Nothing to do.")
         return 0
     say(f"{changes.intent.capitalize()} plan:")
+    if changes.source_label:
+        say(f"  Source: {changes.source_label}")
     for step in changes.steps:
         suffix = " (needs approval, run legion setup)" if changes.intent == "finish" and step.needs_yes else ""
         say(f"  {step.line}{suffix}")
@@ -127,6 +130,8 @@ def apply(changes: Plan, *, yes: bool = False, say: Say = click.echo) -> int:
             say(f"{target.ljust(target_width)}  {folder.ljust(folder_width)}  {result}")
         outcome = f"{changes.intent.capitalize()} {'failed' if failed else 'completed'}."
         say(changes.summary if changes.summary and not failed else outcome)
+    else:
+        say("Nothing changed (dry run).")
     return int(failed)
 
 
@@ -161,6 +166,7 @@ def plan(
     intent: Intent,
     *,
     source: str | Path = DEFAULT_SOURCE,
+    source_explicit: bool = False,
     ref: str = "release",
     dry_run: bool = False,
     account_tool: str | None = None,
@@ -189,6 +195,9 @@ def plan(
         _uninstall_steps(changes, home, catalog, settings)
         return changes
 
+    checkout = resolve_directory(Path(source)) if Path(source).is_dir() else None
+    if intent != "finish":
+        changes.source_label = _source_label(source, ref, checkout, source_explicit)
     roots: list[Copy] = []
     if intent in ("setup", "finish"):
         agents = list(settings.agents)
@@ -211,6 +220,25 @@ def plan(
             changes.steps.append(_command_step(home, roots, changes, fallback=not agents))
         return changes
 
+    _installation_steps(changes, home, catalog, settings, source, ref, checkout, roots, source_explicit)
+    return changes
+
+
+def _source_label(source: str | Path, ref: str, checkout: Path | None, source_explicit: bool) -> str:
+    if checkout:
+        return str(checkout)
+    if source == DEFAULT_SOURCE and ref == "release" and not source_explicit:
+        return f"{source} (stable for new registrations; existing targets use their registered marketplace)"
+    return f"{source} ({'main' if ref == 'main' else 'stable'})"
+
+
+def _installation_steps(
+    changes: Plan, home: Path, catalog: ToolsCatalog, settings: PersonalisationSettings, source: str | Path, ref: str, checkout: Path | None, roots: list[Copy], source_explicit: bool
+) -> None:
+    intent, dry_run = changes.intent, changes.dry_run
+    checkout_root = checkout / "plugins/legion" if checkout else None
+    checkout_digest = _targets.plugin_digest(checkout_root) if checkout_root else None
+    copies: list[Copy] = []
     for entry in catalog.tools:
         folders = _targets.folders(home, entry, settings.agents)
         if not any(command for _, command in folders):
@@ -218,15 +246,37 @@ def plan(
         for folder, command in folders:
             version = _targets.installed_version(folder, entry) or "not installed"
             line = f"{intent.capitalize()} legion for {entry.id} in {folder} ({version})"
-            action = partial(_install_in, entry, folder, command, source, ref, roots, dry_run=dry_run, updating=intent == "update")
-            changes.steps.append(Step(line, entry.id, folder, action))
+            if command is None:
+                changes.steps.append(Step(line, entry.id, folder, partial(_removal_error, ValueError(f"{entry.id} command is missing"))))
+                continue
+            target = entry.model_copy(update={"command": command})
+            try:
+                before, arguments = _plugins.installation_steps(
+                    target, folder, source, ref, updating=intent == "update", checkout=checkout, checkout_digest=checkout_digest, source_explicit=source_explicit
+                )
+            except ERRORS as error:
+                changes.steps.append(Step(line, entry.id, folder, partial(_removal_error, error)))
+                continue
+            if before:
+                copies.append(before)
+            action = partial(_install_in, target, folder, before, arguments, roots, dry_run=dry_run, updating=intent == "update", checkout_digest=checkout_digest)
+            changes.steps.append(Step(line, entry.id, folder, action, needs_yes=bool(arguments)))
     fallback = not changes.steps
     if fallback:
         changes.notices.insert(0, "No coding CLI is installed. Run legion setup to install one.")
+        if source_explicit and not checkout:
+            changes.source_label = (changes.source_label or str(source)) + " (no available CLI for this marketplace; the command uses the bundled copy)"
     if intent == "update":
         _knowledge_steps(changes, home, catalog.tools, settings.agents, catalog.wiki, settings.knowledge_enabled)
-    changes.steps.append(_command_step(home, roots, changes, fallback=fallback))
-    return changes
+    uv = _uv_tool.find_uv()
+    expected_root = checkout_root or (_newest(copies)[1] if copies else PLUGIN_ROOT)
+    receipt = f"{checkout_root}\n{checkout_digest}" if checkout_root else None
+    command_needed = uv is None or _uv_tool.replacement_needed(uv, expected_root, home, receipt) or (intent == "install" and _uv_tool.path_repair_needed(uv))
+    changes.steps.append(_command_step(home, roots, changes, fallback=fallback, checkout_root=checkout_root, receipt=receipt, needed=command_needed))
+    if not any(step.needs_yes for step in changes.steps):
+        changes.steps.clear()
+        changes.notices.clear()
+        changes.summary = "Nothing to do. Legion is already installed for the available targets."
 
 
 def _removal_targets(home: Path, catalog: ToolsCatalog, settings: PersonalisationSettings) -> Iterator[tuple[CatalogTool, Path, str | None, PluginPin | None]]:
@@ -316,15 +366,12 @@ def _removal_handover(changes: Plan, home: Path, hub: bool, say: Say) -> str:
         for line in lines:
             say(line)
     remaining = _purge_folders(home, keep_hub=hub and not with_knowledge) if purge else []
-    result = _uv_tool.uninstall(home, stopped=changes.stopped_home is not None, purge=remaining)
+    result = _uv_tool.uninstall(home, stopped=changes.stopped_home is not None, purge=remaining, progress=say)
     if not result:
         return "already done"
     changes.stopped_home = None  # The handover owns the stop file now.
     changes.summary = result[0]
-    if result[0].startswith("legion command"):
-        row = f"removal scheduled. See {home / _uv_tool.HANDOVER_LOG}."
-        return " ".join([row, *result[1:]])
-    return "folder removal scheduled"
+    return "removal scheduled" if "scheduled" in result[0] else "removed"
 
 
 def _purge_folders(home: Path, *, keep_hub: bool) -> list[Path]:
@@ -340,19 +387,24 @@ def _purge_folders(home: Path, *, keep_hub: bool) -> list[Path]:
 def _install_in(
     entry: CatalogTool,
     folder: Path,
-    command: str | None,
-    source: str | Path,
-    ref: str,
+    before: Copy | None,
+    arguments: list[list[str]],
     roots: list[Copy],
     say: Say,
     *,
     dry_run: bool = False,
     updating: bool = False,
+    checkout_digest: str | None = None,
 ) -> str:
-    if command is None:
-        raise ValueError(f"{entry.id} command is missing")
-    entry = entry.model_copy(update={"command": command})
-    before = _plugins.ensure(entry, folder, source, ref, dry_run, say, updating=updating)
+    if not arguments and before:
+        roots.append(before)
+        say(f"skip: legion {before[0]} in {folder} (already done)")
+        return "already done"
+    if not dry_run:
+        folder.mkdir(parents=True, exist_ok=True)
+    before_digest = _targets.plugin_digest(before[1]) if updating and before and not dry_run else None
+    for args in arguments:
+        _plugins.run_step(entry, args, folder, dry_run, say)
     if dry_run:
         if before:
             roots.append(before)
@@ -360,15 +412,18 @@ def _install_in(
     after = _plugins.verified_copy(entry, folder)
     if after is None:
         raise ValueError(f"{entry.id} legion copy is missing after {'update' if updating else 'install'}")
+    if checkout_digest is not None and _targets.plugin_digest(after[1]) != checkout_digest:
+        raise ValueError(f"{entry.id} did not install the checkout contents in {folder}")
     roots.append(after)
     version = after[0]
-    if updating:
-        previous = before[0] if before else "not installed"
-        if previous == version:
+    if updating and before:
+        if before[0] != version:
+            say(f"legion {before[0]} -> {version}")
+            return f"{before[0]} -> {version}"
+        update_commands = [args for args in (entry.plugin.marketplace_update, entry.plugin.update) if args]
+        if arguments == update_commands and before_digest == _targets.plugin_digest(after[1]):
             say(f"skip: legion {version} in {folder} (already done)")
-            return f"already up to date ({version})"
-        say(f"legion {previous} -> {version}")
-        return f"{previous} -> {version}"
+            return "already done"
     if entry.hooks.hint:
         say(entry.hooks.hint)
     return f"installed legion {version}"
@@ -378,7 +433,7 @@ def _newest(roots: list[Copy]) -> Copy:
     return max(roots, key=cmp_to_key(lambda left, right: compare_versions(left[0], right[0])))
 
 
-def _command_step(home: Path, roots: list[Copy], changes: Plan, *, fallback: bool) -> Step:
+def _command_step(home: Path, roots: list[Copy], changes: Plan, *, fallback: bool, checkout_root: Path | None = None, receipt: str | None = None, needed: bool = True) -> Step:
     updating = changes.intent == "update"
     line = "Refresh the legion command with uv (running Legion sessions end before replacement)"
     if not updating:
@@ -389,8 +444,9 @@ def _command_step(home: Path, roots: list[Copy], changes: Plan, *, fallback: boo
     def run(say: Say) -> str:
         if not (roots or fallback or changes.dry_run):
             return "skipped (no successful plugin copy)"
-        version, root = _newest(roots) if roots else (_uv_tool.plugin_version(PLUGIN_ROOT), PLUGIN_ROOT)
-        outcomes = _uv_tool.install(root, home, dry_run=changes.dry_run, update_shell=not updating, updating=updating, progress=say)
+        root = checkout_root or (_newest(roots)[1] if roots else PLUGIN_ROOT)
+        version = _uv_tool.plugin_version(root)
+        outcomes = _uv_tool.install(root, home, dry_run=changes.dry_run, update_shell=not updating, updating=updating, progress=say, receipt=receipt)
         if changes.dry_run or outcomes[0].startswith("skip:"):
             for item in outcomes:
                 say(item)
@@ -400,9 +456,11 @@ def _command_step(home: Path, roots: list[Copy], changes: Plan, *, fallback: boo
         changes.summary = outcomes[-1]
         if "scheduled" in outcomes[-1]:
             return f"replacement scheduled. See {home / _uv_tool.HANDOVER_LOG}."
-        return f"installed ({version})"
+        if "not on PATH" in outcomes[-1]:
+            return "not on PATH"
+        return "on PATH" if outcomes[-1].endswith("is on PATH.") else f"installed ({version})"
 
-    return Step(line, "legion command", home, run)
+    return Step(line, "legion command", home, run, needs_yes=needed)
 
 
 def _account_request(home: Path, tool: str, source: str | None, account_id: str | None) -> tuple[Agent, Path | None]:
@@ -591,8 +649,12 @@ def _setup_account(
     if copy:
         roots.append(copy)
         say(f"skip: legion in {folder} (already done)")
-        return f"already installed ({copy[0]}){guidance}"
-    return _install_in(entry, folder, command, source, "release", roots, say) + guidance
+        return f"already done{guidance}"
+    entry = entry.model_copy(update={"command": command})
+    checkout = resolve_directory(Path(source)) if Path(source).is_dir() else None
+    digest = _targets.plugin_digest(checkout / "plugins/legion") if checkout else None
+    before, arguments = _plugins.installation_steps(entry, folder, source, "release", checkout=checkout, checkout_digest=digest)
+    return _install_in(entry, folder, before, arguments, roots, say, checkout_digest=digest) + guidance
 
 
 def _set_knowledge(home: Path, catalog: ToolsCatalog, choice: bool, say: Say) -> str:

@@ -42,7 +42,7 @@ Install, update, setup and add show the plan and ask once with `Apply? [y/N]`. Y
 
 Add preferences later in your own words. Say “use Telegram” when you want a channel.
 
-legion keeps settings in `~/.legion/configuration/`, account folders in `~/.legion/agents/`, and the running sessions' registrations in `~/.legion/run/`. The `legion` command is a [uv](https://docs.astral.sh/uv/) tool: setup installs it with `uv tool install` and, with your yes, runs `uv tool update-shell` so uv's tool folder is on your PATH. If the uv tool folder is missing from PATH, `legion status` reports it and setup offers a repair. Repository orchestration files live in `.legion/`.
+legion keeps settings in `~/.legion/configuration/`, account folders in `~/.legion/agents/`, and the running sessions' registrations in `~/.legion/run/`. The `legion` command is a [uv](https://docs.astral.sh/uv/) tool: setup installs it with `uv tool install` and, with your yes, runs `uv tool update-shell` so uv's tool folder is on your PATH. If the command is unavailable on PATH after installation, the result tells you which folder to add. Repository orchestration files live in `.legion/`.
 
 `legion dismiss` releases a repository again: it removes the legion traces outside `.legion/` and then `.legion/` itself.
 
@@ -65,7 +65,7 @@ Open your AI tool and say:
 
 Say “Update legion” or “Uninstall legion,” or run `legion update` or `legion uninstall`. On Windows, close your Legion session, run `legion update` from a terminal, then reopen Legion. An update started from a registered Windows session refuses before making changes.
 
-One update covers registered accounts and outlanders. Before replacing the command, Legion waits for the MCP servers and `legion run` wrappers registered in its home to exit, with the updater and its ancestors exempt. The bootstrap and macOS/Linux updates show plugin steps, uv's progress, and the result in the terminal. On Windows, the installed `legion` command schedules its own replacement after it exits and gives you the log path. Check `~/.legion/temp/uv-tool.log` for a scheduled update or uninstall result. `legion status` flags failures recorded in the log. Restart your sessions after a successful update and use the handoff to recover stopped members. See [running sessions and recovery](docs/reference.md#running-sessions-and-the-stop-event). If `legion` is unavailable, run the matching one-liner in PowerShell.
+One update covers registered accounts and outlanders. Before replacing the command, Legion waits for the MCP servers and `legion run` wrappers registered in its home to exit, with the updater and its ancestors exempt. The bootstrap and macOS/Linux updates show plugin steps, uv's progress, and the result in the terminal. On Windows, the installed `legion` command schedules its own replacement after it exits and gives you the log path. Check `~/.legion/temp/uv-tool.log` for a scheduled update or plain uninstall result. `legion status` flags failures recorded in the log. Restart your sessions after a successful update and use the handoff to recover stopped members. See [running sessions and recovery](docs/reference.md#running-sessions-and-the-stop-event). If `legion` is unavailable, run the matching one-liner in PowerShell.
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Update
@@ -75,7 +75,7 @@ One update covers registered accounts and outlanders. Before replacing the comma
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BlackGad/ps-legion-marketplace/main/install.ps1))) -Uninstall
 ```
 
-Update and uninstall show a plan, ask `Apply? [y/N]` and print a results table. Uninstall waits for registered Legion sessions outside the calling session and their Windows launchers, removes the plugins and marketplaces through each CLI, then schedules removal of the `legion` command. An installed uv stays installed. The POSIX bootstrap takes `--update`, `--uninstall` or `--purge` after `sh -s --`. If the bootstrap downloads uv for uninstall, it uses a temporary copy that remains available to the helper after the bootstrap exits.
+Install, update, add and uninstall ask `Apply? [y/N]` when their plan needs approval. A repeat with no work reports that and exits. Install and update accept `--source <checkout>` to apply that checkout even when its version is the same. Uninstall waits for registered Legion sessions outside the calling session and their Windows launchers, removes the plugins and marketplaces through each CLI, then removes the `legion` command on macOS and Linux or schedules removal on Windows. An installed uv stays installed. The POSIX bootstrap takes `--update`, `--uninstall` or `--purge` after `sh -s --`. If the bootstrap downloads uv for uninstall, it uses a temporary copy that remains available to the helper after the bootstrap exits.
 
 > [!IMPORTANT]
 > A plain uninstall keeps your settings, notes, account folders and logins. **Purge removes that data after the uv uninstall succeeds** or when the command is already absent. Purge also removes the recorded PATH entries for portable tools Legion installed. It asks separately before deleting a knowledge hub. The coding tools keep their own data and settings.

@@ -92,7 +92,7 @@ def test_status_without_settings_is_native_and_exits_zero(tmp_path: Path, monkey
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     assert run(["--home", str(tmp_path / "home"), "status"]) == 0
-    assert capsys.readouterr().out.splitlines() == ["no legion settings yet", "knowledge: off (not asked)", "repo none"]
+    assert capsys.readouterr().out.splitlines() == ["no legion settings yet. Run legion add <tool> to add an account.", "knowledge: off (not asked)", "repo none"]
 
 
 @pytest.mark.parametrize("broken", ["invalid", "extra", "unreadable"])

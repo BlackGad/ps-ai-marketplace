@@ -159,6 +159,7 @@ def _run_lifecycle(
                 home,
                 intent,
                 source=source,
+                source_explicit=context.get_parameter_source("source") == click.core.ParameterSource.COMMANDLINE,
                 ref=ref,
                 dry_run=dry_run,
                 account_tool=account_tool,

@@ -5,7 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-from fake_cli import log_call
+from fake_cli import log_call, write_shim
 
 
 def main(args: list[str]) -> int:
@@ -39,9 +39,12 @@ def main(args: list[str]) -> int:
         root = Path(spec.removesuffix("[mcp]"))
         version = json.loads((root / "plugin.json").read_text(encoding="utf-8"))["version"]
         state_file.write_text(json.dumps({"version": version, "source": str(root)}), encoding="utf-8")
+        write_shim(Path(os.environ["UV_TOOL_BIN_DIR"]), "legion", Path(__file__))
     elif verb == "uninstall":
         assert operands == ["legion"]
         state_file.unlink()
+        bin_dir = Path(os.environ["UV_TOOL_BIN_DIR"])
+        (bin_dir / ("legion.cmd" if sys.platform == "win32" else "legion")).unlink(missing_ok=True)
     elif verb == "update-shell":
         if sys.platform == "win32":
             Path(os.environ["LEGION_TEST_USER_PATH_FILE"]).write_text(os.environ["UV_TOOL_BIN_DIR"], encoding="utf-8")

@@ -101,7 +101,7 @@ def main(tool: str, args: list[str]) -> int:
         relative = next(row["source"] for row in manifest["plugins"] if row["name"] == name)
         root = plugin_root(tool, folder, plugin)
         root.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source / relative / "plugin.json", root / "plugin.json")
+        shutil.copytree(source / relative, root, dirs_exist_ok=True)
         if plugin not in installed:
             installed.append(plugin)
         if plugin in state.get("disabled", []):

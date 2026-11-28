@@ -77,12 +77,18 @@ install_uv() {
 }
 
 main() {
-    yes=0; dry_run=0; cleanup=0; update=0; purge=0; ref=stable
-    for option do
+    yes=0; dry_run=0; cleanup=0; update=0; purge=0; ref=stable; source=
+    while [ "$#" -gt 0 ]; do
+        option=$1
+        shift
         case "$option" in
             -y|--yes) yes=1 ;;
             --dry-run) dry_run=1 ;;
             --main) ref=main ;;
+            --source)
+                [ "$#" -gt 0 ] && [ -n "$1" ] || fail 'Missing value for --source.'
+                source=$1
+                shift ;;
             --update) update=1 ;;
             --uninstall) cleanup=1 ;;
             --purge) cleanup=1; purge=1 ;;
@@ -98,6 +104,7 @@ main() {
         if [ "$update" = 1 ]; then set -- update
         else set -- install; fi
         [ "$ref" = stable ] || set -- "$@" --ref main
+        [ -z "$source" ] || set -- "$@" --source "$source"
     fi
     [ "$dry_run" = 0 ] || set -- "$@" --dry-run
     [ "$yes" = 0 ] || set -- "$@" --yes

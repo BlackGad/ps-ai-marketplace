@@ -24,6 +24,8 @@ from legion.cli import main
 
 REPO = Path(__file__).resolve().parents[3]
 WAITING = "Waiting for running Legion sessions to exit..."
+REMOVAL = "legion command removal scheduled." if sys.platform == "win32" else "legion command removed."
+PURGE = "legion command removal scheduled, followed by Legion data removal." if sys.platform == "win32" else "legion command removed and Legion data purged."
 NO_CLI = "No coding CLI is installed. Run legion setup to install one."
 QUESTION = "Apply? [y/N]"
 UPDATED = "987.6.5"
@@ -152,8 +154,8 @@ def test_fresh_install_without_a_cli(lifecycle: Lifecycle) -> None:
     )
     state = read_json(lifecycle.uv)
     assert state["version"] == lifecycle.version
-    assert Path(state["source"]) == REPO / "plugins/legion"
-    assert calls(lifecycle.uv.with_suffix(".log")).count(["tool", "update-shell"]) == 1
+    assert Path(state["source"]) == lifecycle.source / "plugins/legion"
+    assert calls(lifecycle.uv.with_suffix(".log")).count(["tool", "update-shell"]) == int(sys.platform == "win32")
     assert not lifecycle.settings.exists()
     assert not any(lifecycle.outlander(tool).exists() for tool in CONFIG)
 
@@ -187,7 +189,7 @@ def test_fresh_install_with_clis(lifecycle: Lifecycle) -> None:
     )
     for tool in CONFIG:
         lifecycle.assert_plugin(tool, lifecycle.outlander(tool), lifecycle.version)
-    assert read_json(lifecycle.uv) == {"version": lifecycle.version, "source": str(plugin_root("claude", lifecycle.outlander("claude")))}
+    assert read_json(lifecycle.uv) == {"version": lifecycle.version, "source": str(lifecycle.source / "plugins/legion")}
     assert not lifecycle.settings.exists()
 
 
@@ -200,13 +202,7 @@ def test_repeat_install_skips_existing_plugins_and_uv(lifecycle: Lifecycle) -> N
     cli_log, uv_log = folder / "fake-cli.log", lifecycle.uv.with_suffix(".log")
     cli_count, uv_count = len(calls(cli_log)), len(calls(uv_log))
     result = lifecycle.install()
-    ordered(
-        result.output,
-        "skip: codex plugin marketplace add",
-        f"skip: codex plugin add {PLUGIN}",
-        f"skip: legion command {lifecycle.version} (already done)",
-        "Results:",
-    )
+    assert result.output.splitlines() == ["Nothing to do. Legion is already installed for the available targets."]
     assert [path.read_bytes() for path in files] == before
     assert all("list" in args for args in calls(cli_log)[cli_count:])
     assert all(args[1] in ("list", "dir") for args in calls(uv_log)[uv_count:])
@@ -290,7 +286,7 @@ def test_uv_uses_registered_claude_copy_when_a_newer_cache_remains(lifecycle: Li
     (folder / "plugins/installed_plugins.json").write_text(json.dumps(registration), encoding="utf-8")
     assert f"claude  {folder}  legion {lifecycle.version}" in lifecycle.invoke("status").output
     lifecycle.uv.unlink()
-    lifecycle.install()
+    lifecycle.invoke("install", "--yes")
     assert read_json(lifecycle.uv) == {"version": lifecycle.version, "source": str(active)}
 
 
@@ -314,8 +310,7 @@ def test_outlander_keeps_a_manually_installed_wiki(lifecycle: Lifecycle) -> None
     lifecycle.await_removal()
     assert read_json(state_file) == {"marketplaces": {"llm-wiki": str(lifecycle.source)}, "plugins": [wiki]}
     upgrades = [args for args in calls(folder / "fake-cli.log") if args[:3] == ["plugin", "marketplace", "upgrade"]]
-    assert upgrades
-    assert all(args[3:] == [] for args in upgrades)
+    assert not upgrades  # A current local marketplace needs no upgrade.
 
 
 @pytest.mark.parametrize("answer", ["n\n", ""], ids=["no", "eof"])
@@ -326,7 +321,7 @@ def test_declined_install_leaves_home_untouched(lifecycle: Lifecycle, answer: st
     ordered(result.output, "Install plan:", "Install legion for claude in", QUESTION, "\nNothing changed. Run again with --yes to apply.\n")
     assert list(lifecycle.home.iterdir()) == before
     assert not lifecycle.uv.exists()
-    assert not lifecycle.uv.with_suffix(".log").exists()
+    assert all(args in (["tool", "list"], ["tool", "dir", "--bin"]) for args in calls(lifecycle.uv.with_suffix(".log")))
 
 
 def test_add_new_account(lifecycle: Lifecycle) -> None:
@@ -382,11 +377,14 @@ def test_plain_install_uses_the_newest_copy_once(lifecycle: Lifecycle) -> None:
     claude = lifecycle.outlander("claude")
     lifecycle.install()
     lifecycle.enable("codex")
+    codex = lifecycle.outlander("codex")
+    codex.mkdir()
+    (codex / "fake-cli.json").write_text(json.dumps({"marketplaces": {"ps-legion-marketplace": str(lifecycle.source)}, "plugins": []}), encoding="utf-8")
     lifecycle.publish_update()
     lifecycle.uv.unlink()
     log = lifecycle.uv.with_suffix(".log")
     count = len(calls(log))
-    lifecycle.install()
+    lifecycle.invoke("install", "--yes")
     lifecycle.assert_plugin("claude", claude, lifecycle.version)
     lifecycle.assert_plugin("codex", lifecycle.outlander("codex"), UPDATED)
     assert read_json(lifecycle.uv)["version"] == UPDATED
@@ -520,7 +518,7 @@ def test_uninstall_and_repeat_keep_accounts_and_settings(lifecycle: Lifecycle) -
     login.write_text('{"fixture":true}', encoding="utf-8")
     settings = lifecycle.settings.read_bytes()
     result = lifecycle.invoke_in_child("uninstall", answer="y\n")
-    ordered(result, "Uninstall plan:", QUESTION, WAITING, f"codex plugin remove {PLUGIN}", "Results:", "legion command removal scheduled.")
+    ordered(result, "Uninstall plan:", QUESTION, WAITING, f"codex plugin remove {PLUGIN}", "Results:", REMOVAL)
     assert result.count(QUESTION) == 1
     lifecycle.await_removal()
     for folder in (account, outlander):
@@ -560,8 +558,7 @@ def test_purge_asks_about_the_hub_separately(lifecycle: Lifecycle, answer: str) 
         f"claude plugin uninstall {PLUGIN}",
         "Also delete the knowledge hub in ~/.legion/knowledge? [y/N] ",
         "Results:",
-        "Legion folder removal scheduled.",
-        "legion command removal scheduled.",
+        PURGE,
     )
     if answer == "y\n":
         lifecycle.await_removal(legion)
@@ -636,7 +633,7 @@ registration.unlink()
                 assert time.monotonic() < deadline, "Session did not register"
                 time.sleep(0.02)
             output = lifecycle.invoke_in_child("uninstall", "--yes", answer="")
-            ordered(output, f"\n{WAITING}\n", f"codex plugin remove {PLUGIN}", "Results:", "legion command removal scheduled.")
+            ordered(output, f"\n{WAITING}\n", f"codex plugin remove {PLUGIN}", "Results:", REMOVAL)
             assert child.wait(timeout=5) == 0
             assert observed.read_text(encoding="ascii") == "False"
             lifecycle.await_removal()
@@ -698,14 +695,16 @@ def test_purge_keeps_legion_files_after_uv_failure(lifecycle: Lifecycle, monkeyp
     lifecycle.install()
     lifecycle.add("claude")
     monkeypatch.setenv("FAKE_UV_FAIL", "uninstall")
-    output = lifecycle.invoke_in_child("uninstall", "--purge", answer="y\n")
-    ordered(output, "Purge plan:", QUESTION, WAITING, f"claude plugin uninstall {PLUGIN}", "Results:", "legion command removal scheduled.")
-    log = lifecycle.home / ".legion/temp/uv-tool.log"
-    stop = lifecycle.home / ".legion/run/stop"
-    deadline = time.monotonic() + 15
-    while not log.is_file() or "uv tool command exited 1" not in log.read_text(encoding="utf-8") or stop.exists():
-        assert time.monotonic() < deadline, "Failed handover did not finish"
-        time.sleep(0.05)
+    windows = sys.platform == "win32"
+    output = lifecycle.invoke_in_child("uninstall", "--purge", answer="y\n", code=0 if windows else 1)
+    ordered(output, "Purge plan:", QUESTION, WAITING, f"claude plugin uninstall {PLUGIN}", "Results:", PURGE if windows else "Purge failed.")
+    if windows:
+        log = lifecycle.home / ".legion/temp/uv-tool.log"
+        stop = lifecycle.home / ".legion/run/stop"
+        deadline = time.monotonic() + 15
+        while not log.is_file() or "uv tool command exited 1" not in log.read_text(encoding="utf-8") or stop.exists():
+            assert time.monotonic() < deadline, "Failed handover did not finish"
+            time.sleep(0.05)
     assert lifecycle.uv.is_file()
     assert lifecycle.settings.is_file()
     monkeypatch.delenv("FAKE_UV_FAIL")
@@ -724,3 +723,103 @@ def test_lifecycle_rejects_removed_options(lifecycle: Lifecycle, verb: str, flag
 if __name__ == "__main__":
     result = CliRunner().invoke(main, json.loads(sys.argv[1]), input=sys.argv[2])
     print(json.dumps([result.exit_code, result.output]))
+
+
+@pytest.mark.parametrize("verb", ["install", "update"])
+def test_playground_applies_same_version_checkout(lifecycle: Lifecycle, verb: str) -> None:
+    lifecycle.enable("claude")
+    lifecycle.install()
+    checkout = lifecycle.source.with_name("second checkout")
+    shutil.copytree(lifecycle.source, checkout)
+    (checkout / "plugins/legion/helpers.json").write_text("new code", encoding="utf-8")
+    output = lifecycle.invoke(verb, "--source", str(checkout), answer="y\n").output
+    ordered(output, str(checkout), QUESTION + "\n", "Results:", "installed")
+    folder = lifecycle.outlander("claude")
+    assert read_json(folder / "fake-cli.json")["marketplaces"]["ps-legion-marketplace"] == str(checkout)
+    assert Path(read_json(lifecycle.uv)["source"]) == checkout / "plugins/legion"
+
+
+def test_playground_mixed_install_reports_already_done(lifecycle: Lifecycle) -> None:
+    lifecycle.enable("claude")
+    lifecycle.install()
+    lifecycle.enable("codex")
+    output = lifecycle.install().output.split("Results:", 1)[1]
+    assert next(line for line in output.splitlines() if line.startswith("claude ")).endswith("already done")
+    assert "installed legion" in next(line for line in output.splitlines() if line.startswith("codex "))
+
+
+@pytest.mark.parametrize("verb", ["install", "update"])
+def test_playground_repeat_needs_no_approval(lifecycle: Lifecycle, verb: str) -> None:
+    lifecycle.enable("claude")
+    lifecycle.install()
+    result = lifecycle.invoke(verb, "--source", str(lifecycle.source), answer="")
+    assert QUESTION not in result.output
+    assert result.output.splitlines()[-1].startswith("Nothing to do")
+    assert "Results:" not in result.output
+
+
+@pytest.mark.parametrize("reachable", [True, False])
+def test_playground_path_result(lifecycle: Lifecycle, monkeypatch: pytest.MonkeyPatch, reachable: bool) -> None:
+    monkeypatch.setenv("FAKE_UV_FAIL", "update-shell")
+    if reachable:
+        write_shim(lifecycle.bin_dir, "legion", Path(__file__))
+    else:
+        monkeypatch.setenv("UV_TOOL_BIN_DIR", str(lifecycle.home / "tool bin"))
+    result = lifecycle.install()
+    assert "update-shell exited" not in result.output
+    last = result.output.splitlines()[-1]
+    if reachable:
+        assert last.endswith("installed")
+    else:
+        assert "not on PATH" in last
+        assert f"Add {lifecycle.home / 'tool bin'} to your PATH." in last
+
+
+def test_playground_purge_result(lifecycle: Lifecycle) -> None:
+    lifecycle.install()
+    output = lifecycle.invoke_in_child("uninstall", "--purge", answer="y\n")
+    if sys.platform == "win32":
+        assert "scheduled" in output
+    else:
+        assert "scheduled" not in output
+        assert "legion command removed" in output
+    assert "uv-tool.log" not in output
+    lifecycle.await_removal(lifecycle.home / ".legion")
+
+
+def test_playground_uninstall_preview_and_prompt(lifecycle: Lifecycle) -> None:
+    lifecycle.enable("claude")
+    lifecycle.install()
+    output = lifecycle.invoke("uninstall", "--dry-run").output
+    ordered(output, "Uninstall plan:", "plugin uninstall", "Nothing changed (dry run).\n")
+    applied = lifecycle.invoke_in_child("uninstall", answer="y\n")
+    ordered(applied, QUESTION + "\n", WAITING + "\n")
+    lifecycle.await_removal()
+
+
+@pytest.mark.parametrize("answer", ["", "n\n"])
+def test_playground_add_declines_without_editing(lifecycle: Lifecycle, answer: str) -> None:
+    lifecycle.enable("claude")
+    output = lifecycle.invoke("add", "claude", "--source", str(lifecycle.source), answer=answer).output
+    ordered(output, "Setup plan:", str(lifecycle.source), QUESTION + "\n", "Nothing changed.")
+    assert output.count(QUESTION) == 1
+    assert not lifecycle.settings.exists()
+
+
+def test_playground_status_after_install_names_add(lifecycle: Lifecycle) -> None:
+    lifecycle.install()
+    ordered(lifecycle.invoke("status").output, "no legion settings yet", "legion add <tool>")
+
+
+def test_playground_catalog_accepts_legacy_installer(lifecycle: Lifecycle) -> None:
+    # The 0.23.1 installer rejects unknown plugin fields in a checkout catalog.
+    catalog = read_json(lifecycle.source / "plugins/legion/tools.json")
+    for tool in catalog["tools"]:
+        assert "adoptRewrite" not in tool["plugin"]
+    lifecycle.install()
+
+
+def test_playground_intents_use_checkout_and_current_update_command() -> None:
+    intents = REPO / "tests/playground/intents"
+    assert "legion install --update" not in (intents / "install-update.md").read_text(encoding="utf-8")
+    assert "install.sh --source /work/legion" in (intents / "bootstrap-one-liner.md").read_text(encoding="utf-8")

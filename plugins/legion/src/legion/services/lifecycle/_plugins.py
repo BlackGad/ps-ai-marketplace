@@ -13,6 +13,7 @@ from pathlib import Path
 from legion.services.accounts._launchers import command_prefix
 from legion.services.lifecycle import _targets
 from legion.services.lifecycle._targets import LEGION_MARKETPLACE, LEGION_PLUGIN
+from legion.core._home import resolve_directory, same_path
 from legion.core._run import display_command, run_command
 from legion.core._settings_models import (
     CatalogTool,
@@ -99,8 +100,8 @@ def _plugin_state(entry: CatalogTool, folder: Path, plugin_id: str) -> tuple[boo
 
 
 def verified_copy(entry: CatalogTool, folder: Path) -> tuple[str, Path] | None:
-    listed, _, version = _plugin_state(entry, folder, LEGION_PLUGIN)
-    return _targets.plugin_copy(folder, entry, version=version) if listed else None
+    _, enabled, version = _plugin_state(entry, folder, LEGION_PLUGIN)
+    return _targets.plugin_copy(folder, entry, version=version) if enabled else None
 
 
 def command_line(entry: CatalogTool, arguments: list[str], folder: Path) -> str:
@@ -125,6 +126,77 @@ def run_step(entry: CatalogTool, arguments: list[str], folder: Path, dry_run: bo
         raise ValueError(f"{error}\n{detail}" if detail else str(error)) from error
 
 
+def local_marketplace(item: dict[str, object]) -> Path | None:
+    nested = item.get("marketplaceSource") or item.get("source")
+    if isinstance(nested, dict):
+        value = nested.get("path") or nested.get("source")
+    elif nested == "directory":
+        value = item.get("path")
+    elif isinstance(nested, str):
+        value = nested.removeprefix("Local: ").removeprefix("Directory: ")
+    else:
+        value = item.get("root")
+    return resolve_directory(Path(value)) if isinstance(value, str) and Path(value).is_absolute() and Path(value).is_dir() else None
+
+
+def installation_steps(
+    entry: CatalogTool,
+    folder: Path,
+    source: str | Path,
+    ref: str,
+    *,
+    pin: PluginPin | None = None,
+    updating: bool = False,
+    checkout: Path | None = None,
+    checkout_digest: str | None = None,
+    source_explicit: bool = False,
+) -> tuple[tuple[str, Path] | None, list[list[str]]]:
+    plugin = _wiki_recipe(entry.plugin, pin) if pin else entry.plugin
+    marketplace = pin.marketplace if pin else LEGION_MARKETPLACE
+    plugin_id = pin.plugin_id if pin else LEGION_PLUGIN
+    branch = pin.tag if pin else "main" if ref == "main" else "stable"
+    template = plugin.marketplace_add if checkout else plugin.marketplace_add_ref
+    location = checkout.as_posix() if checkout else str(source)
+    add = [word.replace("{source}", location).replace("{ref}", branch) for word in template]
+
+    item = _marketplace_item(entry, folder, marketplace)
+    listed, enabled, version = _plugin_state(entry, folder, plugin_id)
+    registered = bool(item)
+    steps: list[list[str]] = []
+    before = _targets.plugin_copy(folder, entry, version=version) if listed and not pin else None
+    field = plugin.marketplace_listing.root_field
+    root = item.get(field) if field else None
+    ready = before is not None and registered and (field is None or (isinstance(root, str) and bool(root) and Path(root).is_dir()))
+    local = local_marketplace(item)
+    if pin:
+        ready = registered and _pinned_marketplace(entry, folder, item, pin)
+        if not ready:
+            steps.extend(_removal_steps(plugin, listed, registered))
+            registered = False
+    elif checkout:
+        matching = local is not None and same_path(checkout, local)
+        if matching and ready and before and _targets.plugin_digest(before[1]) == checkout_digest:
+            return before, [] if enabled else [plugin.install]
+        steps.extend(_removal_steps(plugin, listed, registered))
+        ready = registered = False
+    elif (source_explicit or ref == "main") and registered and not _marketplace_matches(entry, folder, item, str(source), branch, marketplace):
+        steps.extend(_removal_steps(plugin, listed, registered))
+        ready = registered = False
+
+    if ready and enabled and updating:
+        if local and before and _targets.plugin_digest(local / "plugins/legion") == _targets.plugin_digest(before[1]):
+            return before, []
+        return before, [args for args in (plugin.marketplace_update, plugin.update) if args]
+    if ready and enabled:
+        return before, []
+    if not registered:
+        steps.append(add)
+    if plugin.marketplace_update and not checkout:
+        steps.append(plugin.marketplace_update)
+    steps.append(plugin.install)
+    return before, steps
+
+
 def ensure(
     entry: CatalogTool,
     folder: Path,
@@ -133,54 +205,15 @@ def ensure(
     dry_run: bool,
     say: Callable[[str], None],
     *,
-    pin: PluginPin | None = None,
-    updating: bool = False,
-) -> tuple[str, Path] | None:
-    plugin = _wiki_recipe(entry.plugin, pin) if pin else entry.plugin
-    marketplace = pin.marketplace if pin else LEGION_MARKETPLACE
-    plugin_id = pin.plugin_id if pin else LEGION_PLUGIN
-    branch = pin.tag if pin else "main" if ref == "main" else "stable"
-    local = Path(source).is_dir()
-    if local:
-        source = Path(source).resolve().as_posix()
-    template = plugin.marketplace_add if local else plugin.marketplace_add_ref
-    add = [word.replace("{source}", str(source)).replace("{ref}", branch) for word in template]
-
-    item = _marketplace_item(entry, folder, marketplace)
-    listed, enabled, version = _plugin_state(entry, folder, plugin_id)
-    registered = bool(item)
-    before = None
-    if pin:
-        ready = registered and _pinned_marketplace(entry, folder, item, pin)
-        if not ready:
-            for arguments in _removal_steps(plugin, listed, registered):
-                run_step(entry, arguments, folder, dry_run, say)
-            registered = False
-    else:
-        field = plugin.marketplace_listing.root_field
-        root = item.get(field) if field else None
-        before = _targets.plugin_copy(folder, entry, version=version) if listed else None
-        ready = before is not None and registered and (field is None or (isinstance(root, str) and bool(root) and Path(root).is_dir()))
-
-    if ready and updating:
-        for arguments in (plugin.marketplace_update, plugin.update):
-            if arguments:
-                run_step(entry, arguments, folder, dry_run, say)
-        return before
-    if ready and enabled:
-        for arguments in (add, plugin.install):
-            say(f"skip: {display_command([entry.command, *arguments])} in {folder} (already done)")
-        return before
-    if not dry_run:
+    pin: PluginPin,
+) -> None:
+    _, steps = installation_steps(entry, folder, source, ref, pin=pin)
+    if steps and not dry_run:
         folder.mkdir(parents=True, exist_ok=True)
-    if not registered:
-        run_step(entry, add, folder, dry_run, say)
-        if pin and not dry_run and not _pinned_marketplace(entry, folder, _marketplace_item(entry, folder, marketplace), pin):
-            raise ValueError(f"llm-wiki marketplace could not be verified at {pin.tag}")
-    if plugin.marketplace_update:
-        run_step(entry, plugin.marketplace_update, folder, dry_run, say)
-    run_step(entry, plugin.install, folder, dry_run, say)
-    return before
+    for arguments in steps:
+        run_step(entry, arguments, folder, dry_run, say)
+    if not dry_run and not _pinned_marketplace(entry, folder, _marketplace_item(entry, folder, pin.marketplace), pin):
+        raise ValueError(f"llm-wiki marketplace could not be verified at {pin.tag}")
 
 
 def _wiki_recipe(plugin: Plugin, pin: PluginPin) -> Plugin:
@@ -196,25 +229,29 @@ def _wiki_recipe(plugin: Plugin, pin: PluginPin) -> Plugin:
 
 
 def _pinned_marketplace(entry: CatalogTool, folder: Path, item: dict[str, object], pin: PluginPin) -> bool:
+    return _marketplace_matches(entry, folder, item, pin.source, pin.tag, pin.marketplace)
+
+
+def _marketplace_matches(entry: CatalogTool, folder: Path, item: dict[str, object], expected_source: str, tag: str, marketplace: str) -> bool:
     nested = item.get("marketplaceSource") or item.get("source")
     details = nested if isinstance(nested, dict) else item
     source = details.get("repo") or details.get("url") or details.get("source")
     if not isinstance(source, str):
         return False
     source, _, source_ref = source.partition("#")
-    if source.removeprefix("GitHub: ").removesuffix(".git").removeprefix("https://github.com/").removeprefix("git@github.com:") != pin.source:
+    if source.removeprefix("GitHub: ").removesuffix(".git").removeprefix("https://github.com/").removeprefix("git@github.com:") != expected_source:
         return False
     ref = details.get("ref") or item.get("ref") or source_ref
     if not ref:
         # Codex and Copilot can omit the ref from their marketplace listings.
         try:
             if entry.id == "codex":
-                ref = tomllib.loads((folder / "config.toml").read_text(encoding="utf-8-sig"))["marketplaces"][pin.marketplace]["ref"]
+                ref = tomllib.loads((folder / "config.toml").read_text(encoding="utf-8-sig"))["marketplaces"][marketplace]["ref"]
             elif entry.id == "copilot":
-                ref = json.loads((folder / "settings.json").read_text(encoding="utf-8-sig"))["extraKnownMarketplaces"][pin.marketplace]["source"]["ref"]
+                ref = json.loads((folder / "settings.json").read_text(encoding="utf-8-sig"))["extraKnownMarketplaces"][marketplace]["source"]["ref"]
         except (OSError, ValueError, TypeError, KeyError):
             return False
-    return ref == pin.tag
+    return ref == tag
 
 
 def _removal_steps(plugin: Plugin, listed: bool, registered: bool) -> list[list[str]]:
