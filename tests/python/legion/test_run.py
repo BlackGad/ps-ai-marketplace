@@ -65,6 +65,14 @@ def test_success_captures_both_streams() -> None:
     assert result.error.strip() == "err"
 
 
+def test_foreground_output_is_relayed_and_the_exit_code_is_returned(capfd: pytest.CaptureFixture[str]) -> None:
+    code = "import sys; sys.stdout.buffer.write('out … ✔ →'.encode('utf-8')); print('err', file=sys.stderr); raise SystemExit(7)"
+    assert _run.run_foreground(PYTHON, ["-c", code]) == 7
+    output = capfd.readouterr()
+    assert output.out.strip() == "out … ✔ →"
+    assert output.err.strip() == "err"
+
+
 def test_non_zero_exit_code_is_returned() -> None:
     result = run_command(PYTHON, ["-c", "raise SystemExit(7)"], timeout=30)
     assert (result.exit_code, result.timed_out) == (7, False)

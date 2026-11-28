@@ -4,10 +4,13 @@ import os
 import shutil
 import sys
 import tempfile
+from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Optional
 
 from legion.core import _settings_io, _stop_event
+from legion.core._atomic_write import atomic_write_bytes
 from legion.core._home import (
     owner_path_safe,
     path_contains,
@@ -15,7 +18,7 @@ from legion.core._home import (
     same_path,
     settings_path,
 )
-from legion.core._run import display_command, run_command
+from legion.core._run import display_command, run_command, run_foreground
 from legion.core._settings_models import PluginManifest
 from legion.services.installation import _handover, _user_path
 from legion.services.installation._constraints import export_constraints
@@ -24,6 +27,7 @@ UV_MISSING = "uv is missing. Ask the owner before installing it, then run the le
 TOOL = "legion"
 STOP_NOTICE = "stop     running legion sessions (mcp servers and runs) end first"
 HANDOVER_LOG = Path(".legion/temp/uv-tool.log")
+FOREGROUND_ERROR_LOG = Path(".legion/temp/uv-tool-install.log")
 
 
 class UvToolError(ValueError):
@@ -32,11 +36,6 @@ class UvToolError(ValueError):
 
 def find_uv() -> Optional[str]:
     return shutil.which("uv")
-
-
-def _failure(action: str, result_error: str, exit_code: int) -> UvToolError:
-    detail = result_error.strip()
-    return UvToolError(f"{action} exited {exit_code}" + (f"\n{detail}" if detail else ""))
 
 
 def plugin_version(plugin_root: Path) -> str:
@@ -127,6 +126,23 @@ def handover_failure(home: Path) -> str | None:
     return None
 
 
+def _install_foreground(home: Path, command: list[str]) -> None:
+    try:
+        exit_code = run_foreground(command[0], command[1:])
+    except OSError as error:
+        message = f"Could not start uv tool install: {error}"
+    else:
+        if exit_code == 0:
+            return
+        message = f"uv tool install exited {exit_code}"
+    log = home / FOREGROUND_ERROR_LOG
+    if owner_path_safe(log, home):
+        with suppress(OSError):
+            atomic_write_bytes(log, f"{message}\nFor uv diagnostics, check the terminal.\n".encode())
+            message = f"{message}. Exit details: {log}"
+    raise UvToolError(message)
+
+
 # The saved PATH is uv's to write, and only with the owner's yes. The current process learns the folder from uv.
 # A failed update-shell is only a warning.
 def _path_lines(uv: str, update_shell: bool) -> list[str]:
@@ -142,11 +158,10 @@ def _path_lines(uv: str, update_shell: bool) -> list[str]:
 
 
 # Replaces legion with the plugin at `plugin_root`. A repeat only repairs PATH if needed and approved.
-# The stop event precedes replacement. `detached` leaves the uv step to a helper that starts after
-# this process exits, and lifts the stop event after it: Windows cannot replace a running legion.exe.
-# By default it is detached when this process runs from the tool. `update_shell` also runs `uv tool update-shell`,
+# The stop event precedes replacement. On Windows a helper waits for the running tool to exit
+# before replacing it. `update_shell` also runs `uv tool update-shell`,
 # which edits the owner's shell profile or user PATH: callers pass it only inside the owner's yes.
-def install(plugin_root: Path, home: Path, dry_run: bool = False, detached: Optional[bool] = None, update_shell: bool = False, *, updating: bool = False) -> list[str]:
+def install(plugin_root: Path, home: Path, dry_run: bool = False, update_shell: bool = False, *, updating: bool = False, progress: Callable[[str], None] | None = None) -> list[str]:
     if not dry_run:
         if not owner_path_safe(home / ".legion", home):
             raise _settings_io.SettingsError("The legion folder contains a link; resolve it before installing")
@@ -166,28 +181,32 @@ def install(plugin_root: Path, home: Path, dry_run: bool = False, detached: Opti
     if dry_run:
         shell = [display_command([uv, "tool", "update-shell"])] if update_shell else []
         return [STOP_NOTICE, display_command([uv, "tool", "install", spec, "--constraints", "<exported uv.lock>", "--reinstall"]), *shell]
-    if detached is None:
-        detached = running_from_tool(uv)
+    detached = sys.platform == "win32" and running_from_tool(uv)
+    if progress is not None:
+        progress("Waiting for running Legion sessions to exit...")
     stop_running(home, updating=updating)
     folder: Optional[Path] = None
     handed_over = False
     try:
+        if progress is not None:
+            progress(f"Preparing locked dependencies for legion {version}...")
         folder = _write_constraints(uv, plugin_root)
         command = [uv, "tool", "install", spec, "--constraints", str(folder / "constraints.txt"), "--reinstall"]
         if detached:
             path_lines = _path_lines(uv, update_shell)
             _hand_over(home, command, [folder, _stop_event.stop_path(home)], [])
             handed_over = True
-            return [f"legion command {version} replacement scheduled. Check the result in {home / HANDOVER_LOG}.", *path_lines]
-        result = run_command(uv, command[1:])
-        if result.exit_code != 0:
-            raise _failure("uv tool install", result.error, result.exit_code)
+            return [*path_lines, f"legion command {version} replacement scheduled. Check the result in {home / HANDOVER_LOG}."]
+        if progress is not None:
+            progress(f"Installing legion {version} with uv...")
+        _install_foreground(home, command)
     finally:
         if not handed_over:
             _stop_event.clear_stop(home)
             if folder is not None:
                 shutil.rmtree(folder, ignore_errors=True)
-    return [f"legion command {version} installed", *_path_lines(uv, update_shell)]
+    outcome = f"legion {version} is installed; restart your sessions." if updating else f"legion command {version} installed"
+    return [*_path_lines(uv, update_shell), outcome]
 
 
 # Remove the tool and any approved folders after exit. The helper also lifts the stop event.

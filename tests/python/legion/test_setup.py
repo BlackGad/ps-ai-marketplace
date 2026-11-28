@@ -417,7 +417,7 @@ def test_invalid_pointer_is_reported_once_and_the_wikis_still_install(bench: Ben
     pointer.parent.mkdir(parents=True)
     pointer.write_bytes(b"invalid JSON")
     installed: list[str] = []
-    monkeypatch.setattr(_installer, "_install_steps", lambda entry, *_: installed.append(entry.id))
+    monkeypatch.setattr(_installer, "_install_steps", lambda entry, *_, **_options: installed.append(entry.id))
     result = CliRunner().invoke(cli.main, ["--home", str(bench.home), "setup", "--knowledge"])
     assert result.exit_code == 0, result.output
     assert result.output.count("knowledge: hub setup failed:") == 1

@@ -464,7 +464,7 @@ def test_install_and_uninstall_target_use_fake_cli_and_refresh(tmp_path: Path, m
     assert installed == {"marketplace": True, "plugin": True}
     assert refreshed == [root]
     # The owner's yes to the install also covers uv tool update-shell.
-    assert options_seen == [{"update_shell": True}]
+    assert options_seen == [{"update_shell": True, "progress": None}]
     assert "installed: legion 1.2.3 (release)" in first
     assert any(arguments[:3] == ["plugin", "marketplace", "add"] for arguments in calls)
     assert entry.plugin.install in calls
@@ -509,13 +509,40 @@ def test_update_from_a_registered_session(tmp_path: Path, monkeypatch: pytest.Mo
         assert result.exit_code == 0, result.output
         assert "Restart this session after the legion update." in result.stderr
         assert plugin_steps
-        assert _stop_event.stop_path(tmp_path).is_file()
-        assert not _stop_event.stop_raised(tmp_path, pid=os.getppid())
+        assert not _stop_event.stop_path(tmp_path).exists()
         assert not stale.exists()
-        ((command, _cleanup),) = uv.detached
-        assert command[:3] == ["uv", "tool", "install"]
+        assert uv.detached == []
+        (command,) = uv.installs()
         assert "--reinstall" in command
         assert ["tool", "update-shell"] not in uv.calls
+        assert result.stdout.splitlines()[-1] == "legion 1.0.0 is installed; restart your sessions."
+
+
+def test_bootstrap_update_shows_account_steps_and_waits_for_the_uv_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    source = make_source(tmp_path)
+    uv = FakeUv(monkeypatch, tmp_path / "bin")
+    uv.installed = "0.9.0"
+    folder = tmp_path / "account"
+    monkeypatch.setattr(_installer.shutil, "which", lambda name: name if name == "claude" else None)
+    monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: source)
+    executed: list[list[str]] = []
+    text = "Updating… ✔ →"
+
+    def execute(_entry: object, arguments: list[str], account_folder: Path) -> str:
+        output = capsys.readouterr().out
+        assert str(account_folder) in output
+        assert "plugin" in output
+        executed.append(arguments)
+        return text
+
+    monkeypatch.setattr(_installer, "_execute", execute)
+    _cli.main.main(["--home", str(tmp_path), "install", "--update", "--yes", "--tool", "claude", "--config-dir", str(folder)], standalone_mode=False)
+    assert uv.installs()
+    assert not uv.detached
+    assert executed
+    output = capsys.readouterr().out
+    assert text in output
+    assert output.splitlines()[-1] == "legion 1.0.0 is installed; restart your sessions."
 
 
 def test_update_refreshes_new_installed_copy_and_reports_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -574,9 +601,9 @@ def _update_two_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing
     return lines, installs
 
 
-def test_update_hands_one_uv_install_to_the_helper_for_the_highest_plugin_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_installs_the_command_once_from_the_highest_plugin_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     lines, installs = _update_two_targets(tmp_path, monkeypatch, versions={"claude": "1.2.3", "codex": "1.10.0"})
-    assert installs == [(tmp_path / "plugin-codex", True)]
+    assert installs == [(tmp_path / "plugin-codex", False)]
     assert lines.count("legion command is installed when this command ends") == 1
 
 
@@ -588,7 +615,7 @@ def test_update_never_runs_uv_tool_update_shell(tmp_path: Path, monkeypatch: pyt
     monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: tmp_path / "plugin")
     monkeypatch.setattr(_installer, "_manifest", lambda _root: SimpleNamespace(version="1.2.3"))
     _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", update=True, yes=True, catalog=catalog())
-    assert seen == [{"dry_run": False, "detached": True, "update_shell": False, "updating": True}]
+    assert seen == [{"dry_run": False, "update_shell": False, "updating": True, "progress": None}]
 
 
 def test_update_reconciles_knowledge_before_handing_over(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -758,7 +785,7 @@ def _fake_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str 
     root.mkdir()
     (root / "plugin.json").write_text('{"name":"legion","version":"1.2.3"}', encoding="utf-8")
     monkeypatch.setattr(_installer.shutil, "which", lambda name: None if name == "copilot" else name)
-    monkeypatch.setattr(_installer, "_install_steps", lambda *_args: None)
+    monkeypatch.setattr(_installer, "_install_steps", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(_installer, "_step", lambda *_args: None)
     monkeypatch.setattr(_installer, "_plugin_root", lambda *_args: root)
     monkeypatch.setenv("LEGION_TEST_USER_PATH_FILE", str(tmp_path / "saved-path.txt"))
@@ -798,7 +825,7 @@ def test_install_from_the_uv_tool_hands_over_only_after_installing_all_targets(t
     events: list[str] = []
     monkeypatch.setattr(_uv_tool, "find_uv", lambda: "uv")
     monkeypatch.setattr(_uv_tool, "running_from_tool", lambda _uv: True)
-    monkeypatch.setattr(_installer, "_install_steps", lambda entry, *_args: events.append(entry.id))
+    monkeypatch.setattr(_installer, "_install_steps", lambda entry, *_args, **_kwargs: events.append(entry.id))
     monkeypatch.setattr(_uv_tool, "install", lambda *_args, **_options: events.append("handover") or [])
     _installer.install(tmp_path, ["claude", "codex"], config_dir=tmp_path / "config", yes=True, catalog=catalog())
     assert events == ["claude", "codex", "handover"]
@@ -839,7 +866,7 @@ def test_ref_main_with_the_default_source_reads_the_remote_catalog_not_the_local
 # Consent and next steps, ported from the PowerShell installer tests that went with it.
 def _steps_run(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     ran: list[str] = []
-    monkeypatch.setattr(_installer, "_install_steps", lambda entry, *_args: ran.append(entry.id))
+    monkeypatch.setattr(_installer, "_install_steps", lambda entry, *_args, **_kwargs: ran.append(entry.id))
     return ran
 
 
@@ -897,7 +924,7 @@ def test_install_preview_quotes_paths_with_spaces(tmp_path: Path, monkeypatch: p
     monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (True, True, [], ""))
     lines.clear()
     _installer._install_steps(entry, folder, source, "main", True, lines)
-    assert lines[0] == f"skip: {command} (already done)"
+    assert lines[0] == f"skip: {command} in {folder} (already done)"
 
 
 def test_install_names_the_installed_version_track_and_next_step(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -905,6 +932,22 @@ def test_install_names_the_installed_version_track_and_next_step(tmp_path: Path,
     lines = _installer.install(tmp_path, ["claude"], config_dir=tmp_path / "config", ref="main", yes=True, catalog=catalog())
     assert "installed: legion 1.2.3 (main)" in lines
     assert "next: legion add claude (or legion in a repository)" in lines
+
+
+def test_already_installed_wiki_skip_names_each_account_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tools = catalog()
+    entry = _installer._tool(tools, "claude")
+    pin = tools.wiki
+    assert pin is not None
+    plugin = _installer._wiki_recipe(entry.plugin, pin)
+    monkeypatch.setattr(_installer, "_marketplace_item", lambda *_args: object())
+    monkeypatch.setattr(_installer, "_pinned_marketplace", lambda *_args: True)
+    monkeypatch.setattr(_installer, "_plugin_state", lambda *_args: (True, True, [], ""))
+    lines: list[str] = []
+    folders = [tmp_path / "account one", tmp_path / "account two"]
+    for folder in folders:
+        _installer._install_steps(entry, folder, pin.source, pin.tag, False, lines, plugin, pin)
+    assert [line for line in lines if "plugin install wiki@llm-wiki" in line] == [f"skip: claude plugin install wiki@llm-wiki in {folder} (already done)" for folder in folders]
 
 
 def test_install_prints_the_tool_hook_hint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -53,6 +53,7 @@ function Invoke-InstallDownload {
 $realInvokeUv = ${function:Invoke-InstallUv}
 function Invoke-InstallUv {
     param([string]$Uv, [string[]]$Arguments)
+    if ($script:Mode -eq 'uv-call') { Write-Host "uvCodePage=$([Console]::OutputEncoding.CodePage)" }
     if ($Uv -eq $script:fakeUvPath) {
         if (-not (Test-Path -LiteralPath $Uv -PathType Leaf)) { throw "Missing fixture uv: $Uv" }
         $script:uvUsed = $Uv
@@ -154,6 +155,7 @@ switch ($Mode) {
         $env:FAKE_UV_SAY = '1'
         $env:FAKE_UV_EXIT = '3'
         $env:LEGION_BOOTSTRAP_POWERSHELL = 'original'
+        if ($onWindows) { [Console]::OutputEncoding = [Text.Encoding]::GetEncoding(437) }
         $parameters.Remove('Yes')
         $parameters.Update = [switch]$true
         Push-Location -LiteralPath (Join-Path $Scratch 'checkout')
@@ -161,6 +163,7 @@ switch ($Mode) {
         finally { Pop-Location }
         Write-Output "resultCount=$($result.Count)"
         Write-Output "bootstrapAfter=$env:LEGION_BOOTSTRAP_POWERSHELL"
+        Write-Output "codePageAfter=$([Console]::OutputEncoding.CodePage)"
     }
     'http-refused' {
         # The real download refuses a plain HTTP address before it connects.

@@ -117,7 +117,7 @@ def update(context: click.Context, check: bool, force: bool, yes: bool) -> None:
         return
     from legion.services.installation import installer as _installer
 
-    _report_installer(context, lambda: _installer.install(_home.legion_home(context.obj), update=True, yes=yes))
+    _report_installer(context, lambda: _installer.install(_home.legion_home(context.obj), update=True, yes=yes, progress=click.echo))
 
 
 def _report_installer(context: click.Context, change: Callable[[], list[str]]) -> None:
@@ -157,7 +157,17 @@ def install(context: click.Context, tools: tuple[str, ...], source: str, ref: st
     _report_installer(
         context,
         lambda: _installer.install(
-            _home.legion_home(context.obj), tools=list(tools), source=source, ref=ref, config_dir=config_dir, dry_run=dry_run, yes=yes, update=update, uninstall=uninstall, purge=purge
+            _home.legion_home(context.obj),
+            tools=list(tools),
+            source=source,
+            ref=ref,
+            config_dir=config_dir,
+            dry_run=dry_run,
+            yes=yes,
+            update=update,
+            uninstall=uninstall,
+            purge=purge,
+            progress=click.echo,
         ),
     )
 

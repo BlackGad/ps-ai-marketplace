@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import tomllib
+from collections.abc import Callable
 from contextlib import nullcontext
 from functools import cmp_to_key
 from pathlib import Path
@@ -304,16 +305,38 @@ def _command_line(entry: CatalogTool, arguments: list[str], folder: Path) -> str
     return f"{entry.config_env}={display_command([str(folder)])} {display_command([str(program), *prefix, *arguments])}"
 
 
-def _step(entry: CatalogTool, arguments: list[str], folder: Path, dry_run: bool, lines: list[str]) -> None:
+def _flush_progress(lines: list[str], progress: Callable[[str], None] | None) -> None:
+    if progress is not None:
+        for line in lines:
+            progress(line)
+        lines.clear()
+
+
+def _step(entry: CatalogTool, arguments: list[str], folder: Path, dry_run: bool, lines: list[str], progress: Callable[[str], None] | None = None) -> None:
     line = _command_line(entry, arguments, folder)
     if dry_run:
         lines.append(line)
     else:
+        if progress is not None:
+            _flush_progress(lines, progress)
+            progress(line)
         output = _execute(entry, arguments, folder)
         lines.extend(output.splitlines())
+        _flush_progress(lines, progress)
 
 
-def _install_steps(entry: CatalogTool, folder: Path, source: str | Path, ref: str, dry_run: bool, lines: list[str], plugin: Plugin | None = None, pin: PluginPin | None = None) -> None:
+def _install_steps(
+    entry: CatalogTool,
+    folder: Path,
+    source: str | Path,
+    ref: str,
+    dry_run: bool,
+    lines: list[str],
+    plugin: Plugin | None = None,
+    pin: PluginPin | None = None,
+    *,
+    progress: Callable[[str], None] | None = None,
+) -> None:
     plugin = plugin or entry.plugin
     branch = pin.tag if pin else "main" if ref == "main" else "stable"
     local = Path(source).is_dir()
@@ -332,19 +355,20 @@ def _install_steps(entry: CatalogTool, folder: Path, source: str | Path, ref: st
         ready = installed and _pinned_marketplace(entry, folder, item, pin)
         if not ready:
             for arguments in _removal_steps(plugin, listed, installed):
-                _step(entry, arguments, folder, dry_run, lines)
+                _step(entry, arguments, folder, dry_run, lines, progress)
             installed = False
     if ready and enabled:
-        lines.extend(f"skip: {display_command([entry.command, *arguments])} (already done)" for arguments in (marketplace_add, plugin.install))
+        lines.extend(f"skip: {display_command([entry.command, *arguments])} in {folder} (already done)" for arguments in (marketplace_add, plugin.install))
+        _flush_progress(lines, progress)
         return
     if not installed:
-        _step(entry, marketplace_add, folder, dry_run, lines)
+        _step(entry, marketplace_add, folder, dry_run, lines, progress)
         if pin is not None and not dry_run and not _pinned_marketplace(entry, folder, _marketplace_item(entry, folder, pin.marketplace), pin):
             raise InstallerError(f"llm-wiki marketplace could not be verified at {pin.tag}")
     if plugin.marketplace_update:
-        _step(entry, plugin.marketplace_update, folder, dry_run, lines)
+        _step(entry, plugin.marketplace_update, folder, dry_run, lines, progress)
     if not installed or not listed or not enabled:
-        _step(entry, plugin.install, folder, dry_run, lines)
+        _step(entry, plugin.install, folder, dry_run, lines, progress)
 
 
 def _wiki_recipe(plugin: Plugin, pin: PluginPin) -> Plugin:
@@ -416,18 +440,21 @@ def remove_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent], lin
             raise InstallerError(f"knowledge: {agent.id}: {error}") from error
 
 
-def reconcile_knowledge(home: Path, catalog: ToolsCatalog, dry_run: bool, lines: list[str]) -> None:
+def reconcile_knowledge(home: Path, catalog: ToolsCatalog, dry_run: bool, lines: list[str], progress: Callable[[str], None] | None = None) -> None:
     # Re-read the choice after acquiring the lock in case setup turned knowledge off during an update.
     with nullcontext() if dry_run else _settings_io.writer(home, require_existing=False):
         settings = _personalisation(home)
         if settings and settings.knowledge_enabled:
-            _reconcile_knowledge(home, catalog, settings.agents, dry_run, lines)
+            _reconcile_knowledge(home, catalog, settings.agents, dry_run, lines, progress)
 
 
-def _reconcile_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent], dry_run: bool, lines: list[str]) -> None:
+def _reconcile_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent], dry_run: bool, lines: list[str], progress: Callable[[str], None] | None = None) -> None:
     pin = catalog.wiki
     if pin is None:
         return
+    if progress is not None:
+        _flush_progress(lines, progress)
+        progress("Checking llm-wiki in registered accounts...")
     if not dry_run:
         try:
             _knowledge_hub.initialize(home, lines)
@@ -442,7 +469,7 @@ def _reconcile_knowledge(home: Path, catalog: ToolsCatalog, agents: list[Agent],
                 try:
                     if not dry_run:
                         folder.mkdir(parents=True, exist_ok=True)
-                    _install_steps(entry, folder, pin.source, pin.tag, dry_run, lines, _wiki_recipe(entry.plugin, pin), pin)
+                    _install_steps(entry, folder, pin.source, pin.tag, dry_run, lines, _wiki_recipe(entry.plugin, pin), pin, progress=progress)
                     results[key] = None
                 except (OSError, ValueError, TypeError, RuntimeError) as error:
                     results[key] = str(error)
@@ -460,18 +487,27 @@ def _results_table(rows: list[tuple[str, str, str]]) -> list[str]:
     return ["Results:", *(f"{tool.ljust(widths[0])}  {folder.ljust(widths[1])}  {result}".rstrip() for tool, folder, result in table)]
 
 
-# The uv step runs after this process exits, so it can replace the legion that is running it. One install serves every target:
-# the newest plugin version this update reached wins.
+# One uv install serves all update targets. The newest plugin version this update reached wins.
 def _newest_source(roots: list[tuple[str, Path]]) -> Path:
     return max(roots, key=cmp_to_key(lambda left, right: compare_versions(left[0], right[0])))[1]
 
 
-def _install_tool(home: Path, roots: list[tuple[str, Path]], lines: list[str], rows: list[tuple[str, str, str]], dry_run: bool, *, updating: bool, update_shell: bool = False) -> None:
+def _install_tool(
+    home: Path,
+    roots: list[tuple[str, Path]],
+    lines: list[str],
+    rows: list[tuple[str, str, str]],
+    dry_run: bool,
+    *,
+    updating: bool,
+    update_shell: bool = False,
+    progress: Callable[[str], None] | None = None,
+) -> None:
     if not roots:
         return
     root = _newest_source(roots)
     try:
-        lines.extend(_uv_tool.install(root, home, dry_run=dry_run, detached=True, update_shell=update_shell, updating=updating))
+        lines.extend(_uv_tool.install(root, home, dry_run=dry_run, update_shell=update_shell, updating=updating, progress=progress))
     except Exception as error:
         lines.append(f"commands not refreshed: {error}; run legion setup")
         rows.append(("legion", str(home), f"commands not refreshed: {error}"))
@@ -500,6 +536,8 @@ def install(
     catalog: ToolsCatalog | None = None,
     with_knowledge: bool = True,
     tool_roots: list[tuple[str, Path]] | None = None,
+    *,
+    progress: Callable[[str], None] | None = None,
 ) -> list[str]:
     if update and uninstall:
         raise InstallerError("Choose either --update or --uninstall.")
@@ -508,6 +546,10 @@ def install(
     home = full_path(home)
     if update and not dry_run and tool_roots is None and sys.platform == "win32" and _stop_event.has_registered_ancestor(home):
         raise InstallerError("Close this Legion session, run `legion update` from a terminal, then reopen Legion.")
+    if dry_run or uninstall:
+        progress = None
+    if progress is not None:
+        progress("Checking Legion installations...")
     catalog = _catalog(source, ref, catalog)
     lines: list[str] = []
     settings = _personalisation(home, lines if uninstall else None)
@@ -529,9 +571,11 @@ def install(
         question = "Update the legion command with uv? [y/N]" if update else "Install the legion command with uv and add it to your PATH? [y/N]"
         if not dry_run and not (yes or _confirm(question, lines)):
             return _declined(lines)
+        _flush_progress(lines, progress)
         if manage_knowledge:
-            reconcile_knowledge(home, catalog, dry_run, lines)
-        lines.extend(_uv_tool.install(PLUGIN_ROOT, home, dry_run=dry_run, update_shell=not update, updating=update))
+            reconcile_knowledge(home, catalog, dry_run, lines, progress)
+        _flush_progress(lines, progress)
+        lines.extend(_uv_tool.install(PLUGIN_ROOT, home, dry_run=dry_run, update_shell=not update, updating=update, progress=progress))
         return lines
     if update:
         targets: list[tuple[CatalogTool, Path]] = []
@@ -558,6 +602,7 @@ def install(
             lines.append("Running legion sessions (MCP servers and legion runs) end when the legion command is replaced.")
         if (targets or manage_knowledge) and not dry_run and not (yes or _confirm("Update legion? [y/N]", lines)):
             return _declined(lines)
+        _flush_progress(lines, progress)
         rows: list[tuple[str, str, str]] = []
         roots: list[tuple[str, Path]] = []
         try:
@@ -567,9 +612,9 @@ def install(
                 if before:
                     for arguments in (entry.plugin.marketplace_update, entry.plugin.update):
                         if arguments:
-                            _step(entry, arguments, folder, dry_run, lines)
+                            _step(entry, arguments, folder, dry_run, lines, progress)
                 else:
-                    _install_steps(entry, folder, source, ref, dry_run, lines)
+                    _install_steps(entry, folder, source, ref, dry_run, lines, progress=progress)
                 if dry_run:
                     if before:
                         roots.append((before_version, before))
@@ -586,27 +631,29 @@ def install(
             # The returned lines are lost with the error, so the install is reported before it propagates.
             failed: list[str] = []
             if tool_roots is None:
-                _install_tool(home, roots, failed, rows, dry_run, updating=True)
+                _install_tool(home, roots, failed, rows, dry_run, updating=True, progress=progress)
             else:
                 tool_roots.extend(roots)
             for line in failed:
                 click.echo(line, err=True)
             raise
+        command_lines: list[str] = []
         try:
             if manage_knowledge:
-                reconcile_knowledge(home, catalog, dry_run, lines)
+                reconcile_knowledge(home, catalog, dry_run, lines, progress)
         finally:
             if tool_roots is None:
-                _install_tool(home, roots, lines, rows, dry_run, updating=True)
+                _flush_progress(lines, progress)
+                _install_tool(home, roots, command_lines, rows, dry_run, updating=True, progress=progress)
             else:
                 tool_roots.extend(roots)
         if targets and not dry_run:
             lines.extend(_results_table(rows))
-            lines.append("Restart your sessions and run legion in the repository.")
-        return lines
+        return [*lines, *command_lines]
     lines.append(f"Install legion for {', '.join(selected)}")
     if not dry_run and not (yes or _confirm(f"Install legion for {', '.join(selected)} now, and put the legion command on your PATH with uv? [y/N]", lines)):
         return _declined(lines)
+    _flush_progress(lines, progress)
     installed_version = ""
     rows = []
     uv = _uv_tool.find_uv() if not dry_run else None
@@ -625,7 +672,7 @@ def install(
                 continue
             if not dry_run:
                 folder.mkdir(parents=True, exist_ok=True)
-            _install_steps(target, folder, source, ref, dry_run, lines)
+            _install_steps(target, folder, source, ref, dry_run, lines, progress=progress)
             if not dry_run:
                 try:
                     root = _plugin_root(target, folder)
@@ -634,7 +681,9 @@ def install(
                 if root:
                     try:
                         if not from_tool:
-                            lines.extend(_uv_tool.install(root, home, update_shell=True))
+                            _flush_progress(lines, progress)
+                            lines.extend(_uv_tool.install(root, home, update_shell=True, progress=progress))
+                            _flush_progress(lines, progress)
                         installed_version = _manifest(root).version
                         if from_tool:
                             deferred_roots.append((installed_version, root))
@@ -650,7 +699,8 @@ def install(
     if dry_run:
         lines.extend(_uv_tool.install(PLUGIN_ROOT, home, dry_run=True, update_shell=True))
     else:
-        _install_tool(home, deferred_roots, lines, rows, dry_run, updating=False, update_shell=True)
+        _flush_progress(lines, progress)
+        _install_tool(home, deferred_roots, lines, rows, dry_run, updating=False, update_shell=True, progress=progress)
         lines.extend(_results_table(rows))
     if installed_version and not dry_run:
         lines.append(f"installed: legion {installed_version} ({ref})")
